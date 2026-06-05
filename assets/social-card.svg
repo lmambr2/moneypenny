@@ -1,0 +1,55 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Moneypenny">
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#181B22"/>
+      <stop offset="1" stop-color="#0A0B0F"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="640" cy="250" r="360" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2C063" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#F2C063" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20242E"/><stop offset="1" stop-color="#0B0C10"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="150" y1="150" x2="372" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE6A6"/><stop offset="0.5" stop-color="#F2C063"/><stop offset="1" stop-color="#D98A2B"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="0" y1="360" x2="0" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE6A6"/><stop offset="1" stop-color="#E2A23E"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="190" y1="392" x2="326" y2="392" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2DE2C4"/><stop offset="1" stop-color="#34B7F2"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#page)"/>
+  <rect width="1280" height="640" fill="url(#halo)"/>
+  <rect x="0.5" y="0.5" width="1279" height="639" fill="none" stroke="#FFFFFF" stroke-opacity="0.06"/>
+
+  <!-- icon mark, centered top (512 box scaled 0.40 -> ~205px, placed at x 537.5, y 64) -->
+  <g transform="translate(537.5,64) scale(0.40)">
+    <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#bg)"/>
+    <rect x="16.5" y="16.5" width="479" height="479" rx="115.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <polyline points="138,360 138,176 256,300 374,176 374,360" fill="none" stroke="url(#gold)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="374" cy="158" r="15" fill="url(#gold)" filter="url(#glow)"/>
+    <g stroke="url(#cyan)" stroke-width="13" stroke-linecap="round" filter="url(#glow)">
+      <line x1="186" y1="402" x2="186" y2="382"/><line x1="209" y1="408" x2="209" y2="376"/>
+      <line x1="232" y1="416" x2="232" y2="368"/><line x1="256" y1="424" x2="256" y2="360"/>
+      <line x1="280" y1="416" x2="280" y2="368"/><line x1="303" y1="408" x2="303" y2="376"/>
+      <line x1="326" y1="402" x2="326" y2="382"/>
+    </g>
+  </g>
+
+  <!-- wordmark -->
+  <text x="640" y="408" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="104" font-weight="700" letter-spacing="1" fill="url(#goldText)">Moneypenny</text>
+  <text x="640" y="466" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="500" letter-spacing="4" fill="#9AA0AC">SELF-HOSTED TS6 AI + MUSIC ASSISTANT</text>
+
+  <!-- value line -->
+  <text x="640" y="556" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="26" font-weight="600" letter-spacing="0.5" fill="#5E6470">One repo &#160;&#183;&#160; one <tspan fill="#7B818D" font-family="monospace">docker compose up</tspan> &#160;&#183;&#160; no cloud &#160;&#183;&#160; runs on an Orange Pi 5 Max</text>
+</svg>
