@@ -1,8 +1,20 @@
 # Moneypenny — docker compose orchestration
+#
+# The bot needs an OpenAI-compatible LLM endpoint (RKLLAMA_URL); pick ONE LLM
+# backend profile for your hardware. ./install.sh selects these automatically
+# by architecture.
+#
 # Profiles:
-#   core     : bot + rkllama (Phase 1)
-#   server   : optional TS6 server (if not using existing)
-#   voice    : Phase 2 STT/TTS services
+#   core     : the bot itself (always)
+#   npu      : rkllama on the RK3588 NPU   (aarch64 / Orange Pi)
+#   ollama   : Ollama CPU/GPU inference     (x86-64 / generic)
+#   voice    : Kokoro STT/TTS services      (Phase 2)
+#   server   : optional TS6 server          (if you don't have one)
+#
+# Examples:
+#   x86-64:        docker compose --profile core --profile ollama up -d
+#   Orange Pi NPU: docker compose -f docker-compose.yml -f docker-compose.npu.yml \
+#                    --profile core --profile npu up -d
 
 services:
   # Optional: stand up a TS6 instance (use only if you don't already have one)
@@ -22,12 +34,13 @@ services:
     networks:
       - moneypenny
 
-  # RKLLama — NPU LLM inference (OpenAI compatible)
+  # RKLLama — NPU LLM inference (OpenAI compatible). aarch64 / RK3588 only.
+  # Native inference also needs docker-compose.npu.yml (host librkllmrt mount).
   rkllama:
     build:
       context: ./services/rkllama
       dockerfile: Dockerfile
-    profiles: ["core"]
+    profiles: ["npu"]
     restart: unless-stopped
     # NPU passthrough + device access required on RK3588 (native backend only).
     devices:
@@ -58,8 +71,9 @@ services:
       dockerfile: Dockerfile
     profiles: ["core"]
     restart: unless-stopped
-    depends_on:
-      - rkllama
+    # No hard depends_on the LLM: the bot starts fine without one (LLM features
+    # are gated and configurable from the web UI), and the backend varies by
+    # arch (rkllama / ollama / external). It reaches the chosen one via RKLLAMA_URL.
     env_file:
       # Optional — the bot also configures via the web UI / config.json, so a
       # missing .env (e.g. before first setup) shouldn't block startup.
@@ -71,6 +85,10 @@ services:
       # default. To reach it over the LAN, change the publish to
       # "0.0.0.0:3000:3000" AND firewall :3000 to the LAN in UFW (DESIGN §11).
       - BIND_ADDRESS=0.0.0.0
+      # OpenAI-compatible LLM endpoint. Defaults to the NPU service; the installer
+      # overrides via .env (e.g. http://ollama:11434 on x86-64).
+      - RKLLAMA_URL=${RKLLAMA_URL:-http://rkllama:8080}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-qwen3-1.7b}
     volumes:
       # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
       # be writable by uid 1000 (the non-root 'moneypenny' user):
@@ -92,6 +110,27 @@ services:
     networks:
       - moneypenny
 
+  # Ollama — CPU/GPU LLM inference (OpenAI-compatible at /v1) for x86-64 and any
+  # non-NPU host. The installer pulls a small model after first start.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"   # OpenAI-compatible API — localhost only
+    networks:
+      - moneypenny
+    # NVIDIA GPU: install nvidia-container-toolkit on the host and uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
   # Phase 2: Kokoro TTS (CPU, high quality)
   kokoro:
     image: ghcr.io/remsky/kokoro-fastapi:latest
@@ -109,6 +148,7 @@ services:
 volumes:
   ts-data:
   rkllama-cache:
+  ollama-models:
   kokoro-models:
 
 networks:

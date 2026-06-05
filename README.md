@@ -11,19 +11,39 @@
 
 ## Status
 
-**Design v2 / pre-implementation.** See [DESIGN.md](./DESIGN.md) for the full architecture, phased build plan, hardware requirements, model recommendations, and security posture.
+**Phases 1–3 implemented** (music, LLM Q&A + tool control, rank permissions, voice loop, watchdog, web UI); 300 unit tests passing. Voice STT/TTS sidecars are built but await on-device NPU validation. See [DESIGN.md](./DESIGN.md) for the full architecture, phased plan, hardware requirements, and security posture.
 
-## Quick Start (once implemented)
+## Quick Start
+
+One command — works on **x86-64** and the **Orange Pi (aarch64/NPU)**:
 
 ```bash
-# 1. Prep the Orange Pi host (NPU drivers + RKLLM runtime)
-sudo ./host-setup/install-npu.sh
-
-# 2. Bring everything up
-docker compose --profile core up -d
-
-# Web UI: http://<lan-ip>:3000
+curl -fsSL https://raw.githubusercontent.com/lmambr2/moneypenny/main/install.sh | bash
 ```
+
+The installer auto-detects your hardware and wires up an OpenAI-compatible LLM
+backend accordingly:
+
+| Host | LLM backend | Notes |
+|------|-------------|-------|
+| Orange Pi 5 Max (aarch64 + RK3588 NPU) | **rkllama**, native NPU | runs `host-setup/install-npu.sh` for you |
+| x86-64 / any other Linux | **Ollama** (CPU/GPU) | pulls a small model (~2 GB) on first run |
+
+It also installs Docker if missing (after a prompt), generates a `.env` with a
+random session secret, sets up volumes, and starts the stack. Then open the
+**Web UI at http://localhost:3000** and create your admin account.
+
+Prefer to inspect first? Clone and run it locally:
+
+```bash
+git clone https://github.com/lmambr2/moneypenny.git && cd moneypenny
+./install.sh --help          # see all options
+./install.sh                 # auto
+# ./install.sh --llm ollama --model qwen2.5:3b --with-voice
+# ./install.sh --llm http://my-existing-llm:11434   # bring your own endpoint
+```
+
+<sub>The UI binds to localhost only by default. To reach it over the LAN, change the `:3000` publish to `0.0.0.0` **and** firewall it — see [DESIGN.md §11](./DESIGN.md).</sub>
 
 ## Phases
 

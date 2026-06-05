@@ -1,0 +1,22 @@
+# Moneypenny — native RK3588 NPU overlay.
+#
+# Enables real (native) RKLLM inference by mounting the host runtime that
+# host-setup/install-npu.sh installs (/usr/lib/librkllmrt.so) and granting the
+# container access to the NPU device group. The base compose runs rkllama in
+# "mock" mode; this overlay flips it to "native".
+#
+# Use together with the base file (the installer does this for you):
+#   docker compose -f docker-compose.yml -f docker-compose.npu.yml \
+#     --profile core --profile npu up -d
+#
+# Prereq: /usr/lib/librkllmrt.so must exist on the host (run install-npu.sh
+# first) — otherwise the bind mount below makes compose error out.
+
+services:
+  rkllama:
+    environment:
+      - RKLLM_BACKEND=native
+    group_add:
+      - render          # matches the udev rule installed by install-npu.sh
+    volumes:
+      - /usr/lib/librkllmrt.so:/usr/lib/librkllmrt.so:ro
