@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Bilibili / NetEase / QQ image CDNs reject requests whose Referer is not on
+       their whitelist, so we must not leak a Referer cross-origin. "same-origin"
+       does exactly that: full Referer for our own requests, none for cross-origin
+       ones — so cover thumbnails (<img> AND CSS background-image) still load.
+       Do NOT switch this back to "no-referrer": per the WHATWG Fetch spec
+       ("Append a request Origin header") no-referrer downgrades the Origin header
+       to the literal string "null" on same-origin non-GET requests. The /api/*
+       CSRF guard (src/web/middleware/csrf.ts) then can't parse a host from it and
+       responds 403 "bad origin", silently breaking EVERY POST/PUT/DELETE — QR
+       login, cookie save, playback controls, bot management, user admin, etc.
+       "same-origin" keeps the real Origin on same-origin requests, so CSRF passes. -->
+  <meta name="referrer" content="same-origin">
+  <title>TSMusicBot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

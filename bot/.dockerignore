@@ -1,0 +1,13 @@
+node_modules/
+web/node_modules/
+dist/
+web/dist/
+data/
+*.db
+.env
+config.json
+cookies/
+.git/
+.claude/
+docs/superpowers/
+test-*.ts

@@ -1,0 +1,116 @@
+# Moneypenny — docker compose orchestration
+# Profiles:
+#   core     : bot + rkllama (Phase 1)
+#   server   : optional TS6 server (if not using existing)
+#   voice    : Phase 2 STT/TTS services
+
+services:
+  # Optional: stand up a TS6 instance (use only if you don't already have one)
+  teamspeak:
+    image: teamspeak:latest
+    profiles: ["server"]
+    restart: unless-stopped
+    ports:
+      - "9987:9987/udp"   # voice
+      - "30033:30033/tcp" # file transfer
+      - "10080:10080/tcp" # web query
+      - "10022:10022/tcp" # SSH query (TS6)
+    environment:
+      - TS3SERVER_LICENSE=accept
+    volumes:
+      - ts-data:/var/ts3server/
+    networks:
+      - moneypenny
+
+  # RKLLama — NPU LLM inference (OpenAI compatible)
+  rkllama:
+    build:
+      context: ./services/rkllama
+      dockerfile: Dockerfile
+    profiles: ["core"]
+    restart: unless-stopped
+    # NPU passthrough + device access required on RK3588 (native backend only).
+    devices:
+      - /dev/rknpu:/dev/rknpu
+      - /dev/dri:/dev/dri
+    volumes:
+      - ./models:/models:ro
+      - rkllama-cache:/root/.cache
+      # Native backend: mount the host runtime installed by install-npu.sh.
+      # Uncomment on the Orange Pi (the file must exist or compose will error):
+      # - /usr/lib/librkllmrt.so:/usr/lib/librkllmrt.so:ro
+    ports:
+      - "127.0.0.1:8080:8080"   # OpenAI-compatible API — localhost only
+    environment:
+      # mock = no NPU (canned/echo, for dev + bot end-to-end validation).
+      # Set to "native" on the board (and uncomment the librkllmrt mount above).
+      - RKLLM_BACKEND=${RKLLM_BACKEND:-mock}
+      - MODEL_PATH=/models/qwen3-1.7b-instruct-w8a8.rkllm
+      - MAX_CONTEXT=2048
+    networks:
+      - moneypenny
+    # Native inference requires the host NPU driver + librkllmrt 1.2.x (install-npu.sh).
+
+  # The Moneypenny bot itself (fork + our changes)
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    profiles: ["core"]
+    restart: unless-stopped
+    depends_on:
+      - rkllama
+    env_file:
+      # Optional — the bot also configures via the web UI / config.json, so a
+      # missing .env (e.g. before first setup) shouldn't block startup.
+      - path: .env
+        required: false
+    environment:
+      # Bind all interfaces *inside* the container; the published port below is
+      # restricted to localhost on the host, so the UI is not LAN-exposed by
+      # default. To reach it over the LAN, change the publish to
+      # "0.0.0.0:3000:3000" AND firewall :3000 to the LAN in UFW (DESIGN §11).
+      - BIND_ADDRESS=0.0.0.0
+    volumes:
+      # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
+      # be writable by uid 1000 (the non-root 'moneypenny' user):
+      #   mkdir -p bot/data && sudo chown -R 1000:1000 bot/data
+      - ./bot/data:/app/data
+      - ${MUSIC_DIR:-/mnt/music}:/music:ro
+    ports:
+      - "127.0.0.1:3000:3000"   # web UI/API — localhost-only by default (§11)
+    # Hardening (DESIGN §11): non-root user (Dockerfile), read-only root fs with
+    # state confined to the data volume, no privilege escalation, all caps dropped.
+    read_only: true
+    tmpfs:
+      - /tmp                       # ffmpeg/yt-dlp/TTS scratch
+      - /home/moneypenny/.cache      # yt-dlp / tool caches
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - moneypenny
+
+  # Phase 2: Kokoro TTS (CPU, high quality)
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi:latest
+    profiles: ["voice"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8880:8880"
+    environment:
+      - MODEL_PATH=/app/models/kokoro-v0_19.onnx  # or whatever the image expects
+    volumes:
+      - kokoro-models:/app/models
+    networks:
+      - moneypenny
+
+volumes:
+  ts-data:
+  rkllama-cache:
+  kokoro-models:
+
+networks:
+  moneypenny:
+    driver: bridge
