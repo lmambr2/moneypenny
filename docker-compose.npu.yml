@@ -18,5 +18,9 @@ services:
       - RKLLM_BACKEND=native
     group_add:
       - render          # matches the udev rule installed by install-npu.sh
+    # RK3588 NPU passthrough — only present on the board, hence the overlay.
+    devices:
+      - /dev/rknpu:/dev/rknpu
+      - /dev/dri:/dev/dri
     volumes:
       - /usr/lib/librkllmrt.so:/usr/lib/librkllmrt.so:ro

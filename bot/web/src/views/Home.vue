@@ -34,45 +34,6 @@
       </div>
     </section>
 
-    <!-- Daily / Recommended (source dependent) -->
-    <section class="section" v-if="dailyAvailable.length > 0">
-      <h2 class="section-title">
-        Recommended Tracks
-        <SourceTabs v-model="dailySource" :sources="dailyAvailable" />
-      </h2>
-      <div class="daily-grid">
-        <div
-          v-for="song in (store.dailySongs[dailySourceSafe] ?? []).slice(0, 12)"
-          :key="song.id"
-          class="daily-card hover-scale"
-          @click="store.playSong(song)"
-        >
-          <CoverArt :url="song.coverUrl" :size="120" :radius="10" :show-shadow="true" />
-          <div class="daily-name">{{ song.name }}</div>
-          <div class="daily-artist">{{ song.artist }}</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Recommended Playlists -->
-    <section class="section" v-if="recommendAvailable.length > 0">
-      <h2 class="section-title">
-        Recommended Playlists
-        <SourceTabs v-model="recommendSource" :sources="recommendAvailable" />
-      </h2>
-      <div class="playlist-grid">
-        <RouterLink
-          v-for="playlist in (store.recommendPlaylists[recommendSourceSafe] ?? [])"
-          :key="playlist.id"
-          :to="`/playlist/${playlist.id}?platform=${playlist.platform}`"
-          class="playlist-card hover-scale"
-        >
-          <CoverArt :url="playlist.coverUrl" :size="160" :radius="10" :show-shadow="true" />
-          <div class="playlist-name">{{ playlist.name }}</div>
-        </RouterLink>
-      </div>
-    </section>
-
     <!-- My Playlists -->
     <section class="section" v-if="userAvailable.length > 0">
       <h2 class="section-title">
@@ -153,21 +114,9 @@ const userPlaylistsExpanded = ref(false);
 
 // For the new Local/YouTube/Stream world, we keep simple source selection
 // but default heavily to local.
-const dailyAvailable = computed<Source[]>(() => store.availableSources);
 const userAvailable = computed<Source[]>(() => store.availableSources);
-
-const dailySource     = ref<Source>(loadTabSource('home.daily'));
 const userSource      = ref<Source>(loadTabSource('home.user'));
-
-watch(dailySource, (v) => saveTabSource('home.daily', v));
 watch(userSource,  (v) => saveTabSource('home.user',  v));
-
-const dailySourceSafe = computed<Source>(() =>
-  dailyAvailable.value.includes(dailySource.value) ? dailySource.value : 'local'
-);
-const userSourceSafe = computed<Source>(() =>
-  userAvailable.value.includes(userSource.value) ? userSource.value : 'local'
-);
 
 // For now, user playlists in home are stubbed (real implementation would
 // come from LocalProvider playlists or YouTube playlists via future bridge).
@@ -177,21 +126,6 @@ const visibleUserPlaylists = computed(() =>
     ? currentUserPlaylists.value
     : currentUserPlaylists.value.slice(0, USER_PLAYLIST_LIMIT)
 );
-
-async function playFm() {
-  try {
-    const res = await axios.get('/api/music/personal/fm');
-    const songs: Song[] = res.data.songs;
-    if (songs.length > 0) {
-      await store.play(songs[0].name, songs[0].platform);
-      for (let i = 1; i < songs.length; i++) {
-        await store.addToQueue(songs[i].name, songs[i].platform);
-      }
-    }
-  } catch {
-    // Ignore
-  }
-}
 
 onMounted(() => {
   store.fetchHomeData();

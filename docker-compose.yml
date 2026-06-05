@@ -42,10 +42,8 @@ services:
       dockerfile: Dockerfile
     profiles: ["npu"]
     restart: unless-stopped
-    # NPU passthrough + device access required on RK3588 (native backend only).
-    devices:
-      - /dev/rknpu:/dev/rknpu
-      - /dev/dri:/dev/dri
+    # NPU device passthrough is added by docker-compose.npu.yml (native backend
+    # only) — kept out of the base so the mock backend runs on any host.
     volumes:
       - ./models:/models:ro
       - rkllama-cache:/root/.cache

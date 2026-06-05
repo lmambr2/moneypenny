@@ -54,7 +54,7 @@ import SongCard from '../components/SongCard.vue';
 const store = usePlayerStore();
 const route = useRoute();
 
-import { Song } from '../stores/player.js';
+import { Song, type Source } from '../stores/player.js';
 
 interface PlaylistDetail {
   id: string;
@@ -72,7 +72,7 @@ const loading = ref(true);
 
 async function playAll() {
   const id = route.params.id as string;
-  const platform = (route.query.platform as string) || 'netease';
+  const platform = (route.query.platform as Source) || 'local';
   if (kind === 'album') {
     await store.playAlbum(id, platform);
   } else {
@@ -82,7 +82,7 @@ async function playAll() {
 
 onMounted(async () => {
   const id = route.params.id as string;
-  const platform = (route.query.platform as string) || 'netease';
+  const platform = (route.query.platform as Source) || 'local';
 
   const detailUrl = kind === 'album'
     ? `/api/music/album/${id}/detail`

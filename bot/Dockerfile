@@ -41,8 +41,12 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Non-root user (MANDATORY per DESIGN §11). The base image ships root.
-RUN useradd -m -u 1000 moneypenny
+# Non-root user (MANDATORY per DESIGN §11). The node base image already ships a
+# 'node' user at uid 1000 — replace it with ours so we own uid 1000 (matches the
+# host bind-mount ownership the compose file expects).
+RUN userdel -r node 2>/dev/null || true; \
+    groupadd -g 1000 moneypenny || true; \
+    useradd -m -u 1000 -g 1000 -s /usr/sbin/nologin moneypenny
 
 # Copy only what the runtime needs, owned by the non-root user.
 COPY --from=build --chown=moneypenny:moneypenny /app/node_modules ./node_modules

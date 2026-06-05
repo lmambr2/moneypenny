@@ -176,7 +176,11 @@ if ! docker info >/dev/null 2>&1; then
 fi
 dc() { $SUDO docker compose "${COMPOSE_FILES[@]}" "$@"; }
 $SUDO docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin not found. Install it and re-run."
-ok "Docker ready ($($SUDO docker --version | awk '{print $3}' | tr -d ,))"
+# Podman and Docker map bind-mount ownership differently (rootless podman remaps
+# the container uid into a subuid range) — detect it so the data dir is set up right.
+RUNTIME="docker"
+if docker --version 2>/dev/null | grep -qi podman || $SUDO docker info 2>/dev/null | grep -qi podman; then RUNTIME="podman"; fi
+ok "Container engine: ${RUNTIME} ($($SUDO docker --version | awk '{print $3}' | tr -d ,))"
 
 # ── 4. NPU host setup (native backend only) ──────────────────────────────────
 if [ "$LLM" = "npu" ]; then
@@ -215,11 +219,20 @@ ok "Configured .env (LLM=$LLM_URL, model=$MODEL)"
 
 # ── 6. host directories + permissions ────────────────────────────────────────
 mkdir -p models bot/data music
-# bot/data must be writable by the container's uid 1000 (non-root 'moneypenny').
-if [ "$(stat -c %u bot/data 2>/dev/null || echo 0)" != "1000" ]; then
+# The bot runs as uid 1000 inside the container and must own /app/data (the
+# bind-mounted bot/data) to write its SQLite DB, config.json, logs, avatars.
+if [ "$RUNTIME" = "podman" ] && [ -z "$SUDO" ]; then
+  # Rootless podman remaps container uid 1000 to a host subuid — chown inside the
+  # user namespace so the container (not the host user) ends up owning it.
+  podman unshare chown -R 1000:1000 bot/data 2>/dev/null \
+    && ok "bot/data mapped to uid 1000 in the podman user namespace" \
+    || warn "podman unshare chown failed — the bot may not be able to write /app/data."
+elif [ "$(stat -c %u bot/data 2>/dev/null || echo 0)" != "1000" ]; then
   $SUDO chown -R 1000:1000 bot/data 2>/dev/null \
     && ok "bot/data owned by uid 1000" \
     || warn "Could not chown bot/data to 1000:1000 — the bot may fail to write state."
+else
+  ok "bot/data already owned by uid 1000"
 fi
 
 # ── 7. build + start ─────────────────────────────────────────────────────────
