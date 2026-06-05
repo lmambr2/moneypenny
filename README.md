@@ -1,8 +1,13 @@
-# Moneypenny
+<p align="center">
+  <img src="./assets/wordmark.svg" alt="Moneypenny" width="620">
+</p>
 
-> A self-hosted, NPU-accelerated **AI + music assistant** for a **TeamSpeak 6** server, running entirely on a single **Orange Pi 5 Max (RK3588, 16 GB)**.
-
-One repo. One `docker compose up`. No cloud.
+<p align="center">
+  A self-hosted, NPU-accelerated <b>AI + music assistant</b> for a <b>TeamSpeak 6</b> server,<br>
+  running entirely on a single <b>Orange Pi 5 Max (RK3588, 16 GB)</b>.<br>
+  <br>
+  <b>One repo. One <code>docker compose up</code>. No cloud.</b>
+</p>
 
 ## Status
 

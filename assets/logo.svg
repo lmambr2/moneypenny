@@ -1,0 +1,46 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Moneypenny">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20242E"/>
+      <stop offset="1" stop-color="#0B0C10"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="150" y1="150" x2="372" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE6A6"/>
+      <stop offset="0.5" stop-color="#F2C063"/>
+      <stop offset="1" stop-color="#D98A2B"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="190" y1="350" x2="322" y2="350" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2DE2C4"/>
+      <stop offset="1" stop-color="#34B7F2"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- backplate -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#bg)"/>
+  <rect x="16.5" y="16.5" width="479" height="479" rx="115.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="1"/>
+  <!-- faint inner ring for depth -->
+  <rect x="40" y="40" width="432" height="432" rx="96" fill="none" stroke="#FFFFFF" stroke-opacity="0.04" stroke-width="2"/>
+
+  <!-- M monogram: reads as a letter and a signal peak -->
+  <polyline points="138,360 138,176 256,300 374,176 374,360"
+            fill="none" stroke="url(#gold)" stroke-width="36"
+            stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- transmit node (voice/comms) -->
+  <circle cx="374" cy="158" r="15" fill="url(#gold)" filter="url(#glow)"/>
+
+  <!-- equalizer waveform underline (audio), symmetric under the M valley -->
+  <g stroke="url(#cyan)" stroke-width="13" stroke-linecap="round" filter="url(#glow)">
+    <line x1="186" y1="402" x2="186" y2="382"/>
+    <line x1="209" y1="408" x2="209" y2="376"/>
+    <line x1="232" y1="416" x2="232" y2="368"/>
+    <line x1="256" y1="424" x2="256" y2="360"/>
+    <line x1="280" y1="416" x2="280" y2="368"/>
+    <line x1="303" y1="408" x2="303" y2="376"/>
+    <line x1="326" y1="402" x2="326" y2="382"/>
+  </g>
+</svg>
