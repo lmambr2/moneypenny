@@ -1,5 +1,5 @@
 {
-  "name": "tsmusicbot",
+  "name": "moneypenny",
   "version": "0.1.0",
   "description": "TeamSpeak music bot (Moneypenny fork) — local-first + YouTube + LLM control",
   "type": "module",

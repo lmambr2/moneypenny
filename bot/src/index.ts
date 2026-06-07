@@ -22,7 +22,7 @@ const LEGACY_CONFIG_PATH = path.join(ROOT_DIR, "config.json");
 const CONFIG_PATH = existsSync(LEGACY_CONFIG_PATH)
   ? LEGACY_CONFIG_PATH
   : path.join(DATA_DIR, "config.json");
-const DB_PATH = path.join(DATA_DIR, "tsmusicbot.db");
+const DB_PATH = path.join(DATA_DIR, "moneypenny.db");
 const LOG_DIR = path.join(DATA_DIR, "logs");
 const AVATAR_DIR = path.join(DATA_DIR, "avatars");
 const STATIC_DIR = path.join(ROOT_DIR, "web", "dist");
@@ -122,7 +122,7 @@ async function main() {
   });
   watchdog.start();
 
-  logger.info({ webPort: config.webPort }, "TSMusicBot started");
+  logger.info({ webPort: config.webPort }, "Moneypenny started");
   const publicUrl = (config.publicUrl ?? "").trim().replace(/\/+$/, "");
   logger.info(
     `WebUI: ${publicUrl || `http://localhost:${config.webPort}`}`

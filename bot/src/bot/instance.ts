@@ -1370,7 +1370,7 @@ export class BotInstance extends EventEmitter {
   private cmdHelp(): string {
     const p = this.config.commandPrefix;
     return [
-      "TSMusicBot Commands:",
+      "Moneypenny Commands:",
       `${p}play <song>  — Search and play (Local primary, or YouTube)`,
       `${p}play -y <song> — Search from YouTube (yt-dlp)`,
       `${p}play <path>  — Play local file or M3U playlist by path (under MUSIC_DIR)`,

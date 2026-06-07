@@ -1,6 +1,6 @@
 <template>
   <nav class="navbar frosted-glass">
-    <RouterLink to="/" class="logo">TSMusicBot</RouterLink>
+    <RouterLink to="/" class="logo">Moneypenny</RouterLink>
 
     <div class="nav-links">
       <RouterLink to="/" class="nav-link" active-class="active">Home</RouterLink>

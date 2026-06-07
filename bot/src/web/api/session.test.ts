@@ -24,7 +24,7 @@ function extractCookie(res: request.Response): string {
   const arr = Array.isArray(header) ? header : header ? [header] : [];
   const found = arr.find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`));
   if (!found) throw new Error("no session cookie set");
-  return found.split(";")[0]; // "tsmb_session=xxxx"
+  return found.split(";")[0]; // "moneypenny_session=xxxx"
 }
 
 describe("session router", () => {

@@ -64,9 +64,9 @@ async function testTcpConnection() {
   assert(useResult.errorId === 0, `SELECT virtual server: ok`);
 
   const nickResult = await conn.send("clientupdate", {
-    client_nickname: "TSMusicBot-Test1",
+    client_nickname: "Moneypenny-Test1",
   });
-  assert(nickResult.errorId === 0, `Set nickname to TSMusicBot-Test1`);
+  assert(nickResult.errorId === 0, `Set nickname to Moneypenny-Test1`);
 
   const whoami = await conn.send("whoami");
   assert(whoami.errorId === 0, `whoami: client_id=${whoami.data[0]?.client_id}`);
@@ -468,7 +468,7 @@ async function testWebSocket() {
 // ═══════════════════════════════════════════════════
 async function main() {
   console.log("╔═══════════════════════════════════════════════╗");
-  console.log("║   TSMusicBot Integration Test Suite           ║");
+  console.log("║   Moneypenny Integration Test Suite           ║");
   console.log("║   TS Server: localhost:9987 / query:10011     ║");
   console.log("╚═══════════════════════════════════════════════╝\n");
 

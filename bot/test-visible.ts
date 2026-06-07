@@ -28,7 +28,7 @@ function assert(cond: boolean, msg: string) { cond ? pass(msg) : fail(msg); }
 
 async function main() {
   console.log("╔═══════════════════════════════════════════════╗");
-  console.log("║   TSMusicBot — Full Client Protocol Test      ║");
+  console.log("║   Moneypenny — Full Client Protocol Test      ║");
   console.log("║   Bot connects as VISIBLE client on UDP 9987  ║");
   console.log("╚═══════════════════════════════════════════════╝\n");
 
@@ -61,7 +61,7 @@ async function main() {
       name: "Music Bot",
       serverAddress: "127.0.0.1",
       serverPort: 9987,
-      nickname: "TSMusicBot",
+      nickname: "Moneypenny",
       autoStart: false,
     }),
   });
@@ -99,8 +99,8 @@ async function main() {
     const clients = await listClients(verifyClient);
     log(`  Clients on server: ${clients.map(c => c.nickname).join(", ")}`);
 
-    const botVisible = clients.some(c => c.nickname === "TSMusicBot");
-    assert(botVisible, "TSMusicBot is VISIBLE in client list!");
+    const botVisible = clients.some(c => c.nickname === "Moneypenny");
+    assert(botVisible, "Moneypenny is VISIBLE in client list!");
 
     const checkerVisible = clients.some(c => c.nickname === "VisibilityChecker");
     assert(checkerVisible, "VisibilityChecker is visible too");

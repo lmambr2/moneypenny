@@ -1,6 +1,6 @@
 import type { SessionStore, SessionValidation } from "../../data/sessions.js";
 
-export const SESSION_COOKIE_NAME = "tsmb_session";
+export const SESSION_COOKIE_NAME = "moneypenny_session";
 
 /**
  * Validate the session cookie carried on an arbitrary HTTP-like header bag.
