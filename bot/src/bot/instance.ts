@@ -99,6 +99,7 @@ export class BotInstance extends EventEmitter {
   private voiceDecoder: Encoder | null = null;
   private voiceSegmenters = new Map<number, SilenceSegmenter>();
   private voiceTempDir: string | null = null;
+  private savedMusicForVoice: { song: QueuedSong; elapsed: number } | null = null;
   /** clientId → {uid, serverGroups} cache for voice rank gating (refreshed by the idle poller). */
   private clientInfoCache = new Map<number, { uid: string; serverGroups: string[]; nickname: string }>();
 
@@ -182,6 +183,31 @@ export class BotInstance extends EventEmitter {
     });
 
     this.player.on("trackEnd", () => {
+      if (this.savedMusicForVoice) {
+        const saved = this.savedMusicForVoice;
+        this.savedMusicForVoice = null;
+        this.logger.debug("Voice reply ended — attempting to resume previous music (ducking/resume)");
+
+        (async () => {
+          try {
+            const provider = this.getProviderFor(saved.song.platform);
+            const url = await provider.getSongUrl(saved.song.id);
+            if (url && this.connected) {
+              this.player.resetFailures();
+              this.player.play(url, saved.elapsed, saved.song.duration || 0);
+              return;
+            }
+          } catch (e) {
+            this.logger.warn({ err: e }, "Failed to resume interrupted music after voice");
+          }
+          // fallback
+          this.playNext().catch((err) => {
+            this.logger.error({ err }, "playNext failed after voice resume fallback");
+          });
+        })();
+        return;
+      }
+
       this.logger.debug("Track ended, advancing queue");
       this.playNext().catch((err) => {
         this.logger.error({ err }, "playNext failed after trackEnd");
@@ -189,6 +215,9 @@ export class BotInstance extends EventEmitter {
     });
 
     this.player.on("error", (err: Error) => {
+      if (this.savedMusicForVoice) {
+        this.savedMusicForVoice = null;
+      }
       this.logger.error({ err }, "Player error");
       this.playNext().catch((err2) => {
         this.logger.error({ err: err2 }, "playNext failed after player error");
@@ -211,6 +240,7 @@ export class BotInstance extends EventEmitter {
       this.connected = false;
       this.player.stop();
       this.cleanupVoice();
+      this.savedMusicForVoice = null;
       // Only emit externally once per lifecycle so clients don't see a
       // duplicate "disconnected" after an explicit disconnect() call.
       if (this.disconnectEmitted) return;
@@ -275,6 +305,7 @@ export class BotInstance extends EventEmitter {
     this._cancelIdleTimer();
     this.player.stop();
     this.cleanupVoice();
+    this.savedMusicForVoice = null;
     this.clientInfoCache.clear();
     this.connected = false;
     if (!this.disconnectEmitted) {
@@ -440,6 +471,17 @@ export class BotInstance extends EventEmitter {
         if (!this.voiceTempDir) this.voiceTempDir = mkdtempSync(join(tmpdir(), "moneypenny-tts-"));
         const file = join(this.voiceTempDir, `reply.${format}`);
         writeFileSync(file, audio);
+
+        // Save music state so we can resume after the voice reply (implements
+        // "ducking + resume" polish item from DESIGN.md §10 / Phase 3).
+        // Currently voice play interrupts the music track; we resume the
+        // previous song from the saved position after the voice track ends.
+        const currentSong = this.queue.current();
+        if (currentSong) {
+          const elapsed = Math.floor(this.elapsed);
+          this.savedMusicForVoice = { song: currentSong, elapsed };
+        }
+
         // ffmpeg decodes whatever container Kokoro returned. NOTE: this stops
         // current music; ducking + resume is a polish item (Phase 3).
         this.player.resetFailures();
