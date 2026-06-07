@@ -426,21 +426,10 @@ export class BotProfileManager {
   // --- Helpers ---
 
   /**
-   * Append CDN resize parameters to get a thumbnail suitable for TS3 avatars.
-   * NetEase and QQ Music CDNs support URL-based image resizing.
-   * BiliBili and YouTube covers fall through to the size-check guard.
+   * Return a thumbnail-suitable cover URL for TS3 avatars.
+   * Local and YouTube covers fall through to the size-check guard.
    */
   private thumbnailUrl(url: string): string {
-    if (url.includes("music.126.net") || url.includes("netease")) {
-      return url.includes("?") ? url : `${url}?param=200y200`;
-    }
-    if (url.includes("qqmusic") || url.includes("qq.com")) {
-      return url.replace(/\/\d+$/, "/200");
-    }
-    if (url.includes("bilivideo") || url.includes("hdslb")) {
-      // BiliBili CDN supports @<w>w_<h>h suffix
-      return url.includes("@") ? url : `${url}@200w_200h`;
-    }
     return url;
   }
 

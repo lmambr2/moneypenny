@@ -10,7 +10,10 @@ build/
 .env
 .env.local
 .env.*.local
-data/
+# Runtime state dirs only — anchored so they don't swallow source dirs like
+# bot/src/data/ (an unanchored "data/" did exactly that and broke the build).
+/data/
+/bot/data/
 *.pem
 *.key
 

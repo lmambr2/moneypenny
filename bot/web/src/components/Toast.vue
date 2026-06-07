@@ -64,8 +64,8 @@ onUnmounted(() => {
 }
 
 .toast--error {
-  border-color: var(--brand-netease);
-  .toast-icon { color: var(--brand-netease); }
+  border-color: var(--color-danger);
+  .toast-icon { color: var(--color-danger); }
 }
 
 .toast--info {

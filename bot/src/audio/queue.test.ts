@@ -487,7 +487,7 @@ describe("PlayQueue", () => {
 
   // Issue #70: Random loop (rloop) used true random-with-replacement, so some
   // songs repeated often while others were starved. It should behave like a
-  // shuffle bag (NetEase/QQ style): play every song once per cycle in random
+  // shuffle bag: play every song once per cycle in random
   // order, then reshuffle and continue, avoiding an immediate cross-cycle repeat.
   describe("random-loop shuffle bag (issue #70)", () => {
     it("plays every song exactly once per cycle before repeating", () => {

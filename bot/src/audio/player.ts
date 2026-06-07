@@ -1,9 +1,7 @@
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
-import { accessSync, chmodSync, constants, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { accessSync, chmodSync, constants, rmSync } from "node:fs";
 import { createOpusEncoder, PCM_FRAME_BYTES, type Encoder } from "./encoder.js";
 import type { Logger } from "../logger.js";
 
@@ -51,19 +49,6 @@ function getFfmpegCommand(): string {
   return resolvedFfmpeg;
 }
 
-const BROWSER_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-// Old jdymusic CDN paths (e.g. /jdymusic/obj/...) RST direct Node-stack
-// requests on Windows; same URL works when fetched via WinHTTP. Empirically,
-// /jd-musicrep-ts/ and /ymusic/ paths do not have this restriction.
-export function shouldUsePowerShellDownload(
-  url: string,
-  platform: string = process.platform,
-): boolean {
-  return platform === "win32" && url.includes("/jdymusic/");
-}
-
 export function cleanupTempDir(dir: string): void {
   try {
     rmSync(dir, { recursive: true, force: true });
@@ -75,20 +60,6 @@ export function cleanupTempDir(dir: string): void {
 export function buildFfmpegArgs(url: string, seekSeconds: number): string[] {
   const args: string[] = [];
   const isHttp = /^https?:\/\//i.test(url);
-
-  // Special CDN headers only for platforms that historically required them.
-  // YouTube (yt-dlp) and future local/stream sources generally do not.
-  if (isHttp && (url.includes("bilivideo") || url.includes("bilibili"))) {
-    args.push(
-      "-headers",
-      `Referer: https://www.bilibili.com\r\nUser-Agent: ${BROWSER_UA}\r\n`,
-    );
-  } else if (isHttp && (url.includes("music.126.net") || url.includes("music.163.com"))) {
-    args.push(
-      "-headers",
-      `Referer: https://music.163.com/\r\nUser-Agent: ${BROWSER_UA}\r\n`,
-    );
-  }
 
   if (isHttp) {
     args.push(
@@ -169,11 +140,6 @@ export class AudioPlayer extends EventEmitter {
       return;
     }
 
-    if (shouldUsePowerShellDownload(url)) {
-      this.playViaPowerShellDownload(url, seekSeconds, currentSessionId);
-      return;
-    }
-
     const args = buildFfmpegArgs(url, seekSeconds);
 
     const ffmpegBin = getFfmpegCommand();
@@ -217,131 +183,6 @@ export class AudioPlayer extends EventEmitter {
     });
 
     this.state = "playing";
-    this.startFrameLoop();
-  }
-
-  private playViaPowerShellDownload(url: string, seekSeconds: number, sessionId: number): void {
-    const tempDir = mkdtempSync(join(tmpdir(), "tsbot-jdymusic-"));
-    const tempFile = join(tempDir, "song.audio");
-    this.currentTempDir = tempDir;
-
-    const psScript = [
-      "$ErrorActionPreference = 'Stop'",
-      "$ProgressPreference = 'SilentlyContinue'",
-      "$wc = New-Object System.Net.WebClient",
-      "$wc.Headers.Add('User-Agent', $env:DL_UA)",
-      "$wc.Headers.Add('Referer', $env:DL_REFERER)",
-      "$wc.DownloadFile($env:DL_URL, $env:DL_OUT)",
-    ].join("; ");
-
-    this.logger.debug({ sessionId, tempFile }, "Downloading via PowerShell (jdymusic CDN)");
-
-    const ps = spawn(
-      "powershell",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psScript],
-      {
-        env: {
-          ...process.env,
-          DL_URL: url,
-          DL_OUT: tempFile,
-          DL_UA: BROWSER_UA,
-          DL_REFERER: "https://music.163.com/",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    this.downloader = ps;
-
-    let stderrTail = "";
-    ps.stderr!.on("data", (chunk: Buffer) => {
-      stderrTail = (stderrTail + chunk.toString()).slice(-500);
-    });
-
-    ps.on("exit", (code, signal) => {
-      if (this.sessionId !== sessionId) {
-        cleanupTempDir(tempDir);
-        return;
-      }
-      this.downloader = null;
-      if (code !== 0) {
-        this.logger.warn({ code, signal, stderr: stderrTail }, "PowerShell download failed");
-        this.spawnFailed = true;
-        this.consecutiveFailures++;
-        this.state = "idle";
-        cleanupTempDir(tempDir);
-        this.currentTempDir = null;
-        this.emit("error", new Error(`PowerShell download exited ${code}`));
-        return;
-      }
-      this.spawnFfmpegFromFile(tempFile, seekSeconds, sessionId);
-    });
-
-    ps.on("error", (err) => {
-      if (this.sessionId !== sessionId) return;
-      this.downloader = null;
-      this.spawnFailed = true;
-      this.consecutiveFailures++;
-      cleanupTempDir(tempDir);
-      this.currentTempDir = null;
-      this.emit("error", err);
-    });
-
-    // Mark playing but DO NOT start the frame loop here — the loop's
-    // "no ffmpeg + empty buffer → trackEnd" branch would fire on the very
-    // first tick, before the PowerShell download even completes. The
-    // frame loop is started inside spawnFfmpegFromFile() once ffmpeg is
-    // alive and producing PCM.
-    this.state = "playing";
-  }
-
-  private spawnFfmpegFromFile(tempFile: string, seekSeconds: number, sessionId: number): void {
-    if (this.sessionId !== sessionId) {
-      if (this.currentTempDir) {
-        cleanupTempDir(this.currentTempDir);
-        this.currentTempDir = null;
-      }
-      return;
-    }
-
-    const args = buildFfmpegArgs(tempFile, seekSeconds);
-    const ffmpegBin = getFfmpegCommand();
-    this.ffmpeg = spawn(ffmpegBin, args, { stdio: ["ignore", "pipe", "pipe"] });
-
-    const currentPid = this.ffmpeg.pid;
-    if (currentPid) {
-      globalActivePids.add(currentPid);
-      this.logger.debug({ pid: currentPid, sessionId }, "FFmpeg spawned (from temp file)");
-    }
-    const tempDirToCleanup = this.currentTempDir;
-
-    this.ffmpeg.stdout!.on("data", (chunk: Buffer) => {
-      if (this.sessionId !== sessionId) return;
-      this.pcmBuffer = Buffer.concat([this.pcmBuffer, chunk]);
-      if (this.pcmBuffer.length > AudioPlayer.BUFFER_HIGH_WATER && !this.ffmpegPaused && this.ffmpeg?.stdout) {
-        this.ffmpeg.stdout.pause();
-        this.ffmpegPaused = true;
-      }
-    });
-
-    this.ffmpeg.on("exit", (code, signal) => {
-      if (currentPid) globalActivePids.delete(currentPid);
-      this.logger.info({ pid: currentPid, code, signal }, "FFmpeg exited");
-      if (this.sessionId === sessionId) {
-        this.ffmpeg = null;
-        if (this.currentTempDir === tempDirToCleanup) this.currentTempDir = null;
-      }
-      if (tempDirToCleanup) cleanupTempDir(tempDirToCleanup);
-    });
-
-    this.ffmpeg.on("error", (err) => {
-      if (this.sessionId === sessionId) {
-        this.spawnFailed = true;
-        this.consecutiveFailures++;
-        this.emit("error", err);
-      }
-    });
-
-    // Now that ffmpeg is producing PCM, run the frame loop.
     this.startFrameLoop();
   }
 

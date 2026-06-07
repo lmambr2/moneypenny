@@ -1183,10 +1183,6 @@ onUnmounted(() => {
 .account-icon {
   font-size: 28px;
   color: var(--color-primary);
-
-  &.bilibili-icon {
-    color: var(--brand-bilibili);
-  }
 }
 
 .account-name {
@@ -1535,7 +1531,7 @@ onUnmounted(() => {
 }
 
 .profile-error {
-  color: var(--brand-netease); // re-uses red brand color for error state
+  color: var(--color-danger); // re-uses red brand color for error state
 
   .btn-link {
     margin-left: 8px;

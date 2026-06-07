@@ -376,6 +376,35 @@ See updated Phase checkboxes above for per-phase status.
 
 ---
 
+## Roadmap — Post-Core Expansion
+
+> **Gating rule:** none of this starts until Phase 0–1 are proven and Phase 2 (voice) is at least underway. These ideas are coherent with the architecture, but each expands the bot from "plays music / answers questions" into "takes privileged, network-reaching actions driven by attacker-influenceable chat." Sequence them *after* the core works. Recommended order: **R4 + R2 first** (cleanest fits, least NPU tension), then **R3** scoped-down, with **R1** as the enabler for the heavier items.
+
+### Cross-cutting security principle (applies to everything below)
+**The LLM proposes; the executor disposes.** TeamSpeak chat is attacker-influenceable text feeding a small, injectable model. Every permission/rank/allowlist check is enforced **deterministically in the executor, server-side** — never delegated to the model's judgment. Side-effecting tools (network actions, scripts, channel moves) sit behind hard rank checks + allowlists, with rate limits and audit logging. A 1.7–4B model must never be the security boundary.
+
+### R1 — LLM escalation / delegation to a heavier agent (the enabler)
+Small fast model dispatches; a heavy model on a separate discrete-GPU box (Hermes / Open WebUI, OpenAI-compatible endpoint) handles tough tasks. Mechanism: expose a `delegate_to_agent(task, context?)` tool to Qwen3 alongside the music/control tools; its executor makes an HTTP call to the GPU box and relays the result.
+- **Escalation is intent-driven, not self-assessed.** Don't rely on Qwen3 judging "this is too hard for me." Route by task type: heavy tools (`generate_intsum`, `summarize_transcript`, `compile_report`) *are* the Hermes call; the deterministic router can also pre-route explicit `!agent`/`!analyst` commands before the small model sees them. Optional fallback: retry on Hermes if Qwen3 emits invalid structured output.
+- **Resolves the 2048-token wall:** long-context work (transcripts, RAG over doctrine) runs on the GPU box; the router hands bulk context straight to Hermes, bypassing the NPU model's window entirely.
+- **Build for failure:** core music/control must never depend on the GPU box. The delegation tool fails cleanly ("analyst node offline"); long tasks run async (ack now, post the result when ready) so quick `!ask` stays snappy.
+- **Endgame (phase 3+):** since Hermes speaks MCP, make it bidirectional — the bot's actuators (play, channel moves) become MCP tools Hermes can call back, so "compile the INTSUM, post it to leadership, and queue the briefing track" becomes one Hermes-orchestrated chain. More moving parts; defer.
+- Provider-agnostic: any OpenAI-compatible model on that box works; not Hermes-specific.
+
+### R2 — Local-network orchestration (Home Assistant, media servers, scripts)
+The cleanest architectural fit — it's what the tool layer is for. **Build the tool layer as an MCP client** so HA / media / scripts are MCP servers: decoupled, swappable, auditable. Enforcement per the security principle above. `trigger_script` is the highest-risk tool imaginable here — make it an **allowlist of specific named actions, never a generic "run arbitrary command."** Heavy orchestration belongs on the separate box (R1), not stacked on the Pi.
+
+### R3 — Org document workflows (INTSUMs / mission logs / AARs)
+Appealing for the org, but the on-NPU small model + 2048-token context **cannot** do the ambitious version (full-transcript ingestion, long AARs, RAG over doctrine). Scope it: **short, templated docs where the human supplies the key points and the model fills a template** run on the Pi; route real doc generation (long context, RAG) to the heavy model via R1, with the bot as the voice front-end that drops the result in chat or shared storage. Export via Pandoc (light) over LibreOffice-headless. Rank-gate official doc generation.
+
+### R4 — Voice-commanded channel moves (`clientmove`)
+Lowest risk, doesn't touch the NPU. Do it via the **ServerQuery (SSH) path** (`ts3-nodejs-library`), not the visible client — moving *other* clients is a privileged admin action, and the bot's TS identity needs `i_client_move_power` granted minimally. **Verify the chosen library actually exposes `clientmove` for arbitrary clients** before estimating effort. Executor-side rank enforcement; confirmation + rate-limit on mass moves (a triggerable "move everyone" is a comms-DoS). Plausible early win once Phase 0–1 land.
+
+### Model note (deferred, low-stakes)
+Gemma 4 (E4B/E2B QAT GGUF) is a possible A/B candidate **on CPU via Ollama** — *not* an NPU swap: RKLLM supports Gemma 2/3/3n (not 4), and Gemma's QAT artifacts (Q4_0 GGUF, mobile wNa8o8) target CPU/GPU runtimes, not RKLLM's NPU path. Keep Qwen3-on-NPU as default; benchmark Gemma anytime via the OpenAI-compatible backend. A config knob, not a phase.
+
+---
+
 ## 14. Risks & Open Questions
 
 | Risk | Mitigation |

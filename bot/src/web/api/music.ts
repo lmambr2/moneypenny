@@ -193,11 +193,6 @@ export function createMusicRouter(
     }
   });
 
-  // Legacy platform-specific endpoints removed during de-sinicization.
-  router.get("/bilibili/popular", (_req, res) => {
-    res.json({ songs: [] });
-  });
-
   // Current quality (YouTube has no quality selector in the same way)
   router.get("/quality", (_req, res) => {
     res.json({ local: "original", youtube: "default" });

@@ -26,8 +26,6 @@ export function createPlayerRouter(
 
   /** Map API platform string to the corresponding command flag. */
   const platformFlag = (platform: unknown): string => {
-    if (platform === "bilibili") return "-b";
-    if (platform === "qq") return "-q";
     if (platform === "youtube") return "-y";
     return "";
   };
@@ -233,9 +231,9 @@ export function createPlayerRouter(
       // Use the bot's own provider lookup — it already knows about youtube,
       // which the router's constructor params did not.
       const provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube"
+        platform === "local" || platform === "stream" || platform === "youtube"
           ? platform
-          : "netease"
+          : "youtube"
       );
 
       // Stop current playback
@@ -318,9 +316,9 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { albumId, platform } = req.body;
       const provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube"
+        platform === "local" || platform === "stream" || platform === "youtube"
           ? platform
-          : "netease"
+          : "youtube"
       );
 
       // Stop current playback
@@ -484,9 +482,9 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { songId, platform } = req.body;
       const provider = bot.getProviderFor(
-        platform === "bilibili" || platform === "qq" || platform === "youtube"
+        platform === "local" || platform === "stream" || platform === "youtube"
           ? platform
-          : "netease"
+          : "youtube"
       );
 
       const song = await provider.getSongDetail(songId);

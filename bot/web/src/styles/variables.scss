@@ -71,13 +71,11 @@
   --color-paused: #eab308;
   --color-paused-15: rgba(234, 179, 8, 0.15);
 
-  // Platform brand
-  --brand-netease: #e81123;
-  --brand-netease-15: rgba(232, 17, 35, 0.15);
-  --brand-qq: #12b76a;
-  --brand-qq-15: rgba(18, 183, 106, 0.15);
-  --brand-bilibili: #00a1d6;
-  --brand-bilibili-15: rgba(0, 161, 214, 0.15);
+  // Brand / accent colors
+  --color-danger: #e81123;
+  --color-danger-15: rgba(232, 17, 35, 0.15);
+  --accent-cyan: #00a1d6;
+  --accent-cyan-15: rgba(0, 161, 214, 0.15);
   --brand-youtube: #ff0000;
   --brand-youtube-12: rgba(255, 0, 0, 0.12);
 }

@@ -371,21 +371,6 @@ onMounted(() => {
   line-height: 1.4;
 }
 
-.badge-netease {
-  background: var(--brand-netease-15);
-  color: var(--brand-netease);
-}
-
-.badge-qq {
-  background: var(--brand-qq-15);
-  color: var(--brand-qq);
-}
-
-.badge-bilibili {
-  background: var(--brand-bilibili-15);
-  color: var(--brand-bilibili);
-}
-
 .badge-youtube {
   background: var(--brand-youtube-12);
   color: var(--brand-youtube);

@@ -212,7 +212,7 @@ onMounted(() => {
   justify-content: center;
   width: 24px;
   height: 24px;
-  background: var(--brand-bilibili);
+  background: var(--accent-cyan);
   color: white;
   border-radius: 4px;
   font-size: 14px;
