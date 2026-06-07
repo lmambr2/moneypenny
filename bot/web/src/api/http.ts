@@ -39,8 +39,9 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
         const data = await res.clone().json();
         const msg = data?.message || data?.error || (res.status === 429 ? 'Rate limited. Please slow down.' : 'Permission denied.');
         const code = data?.code ? ` (code: ${data.code})` : '';
+        const retryAfter = data?.retryAfter ? Number(data.retryAfter) : undefined;
         const store = usePlayerStore();
-        store.notify(`${msg}${code}`, 'error');
+        store.notify(`${msg}${code}`, 'error', retryAfter);
       } catch {
         const store = usePlayerStore();
         const fallback = res.status === 429 ? 'Too many requests. Please wait a moment before trying again.' : 'Permission denied.';
