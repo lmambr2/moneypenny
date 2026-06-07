@@ -50,8 +50,12 @@ onMounted(async () => {
     try {
       const res = await axios.get(`/api/player/${store.activeBotId}/history`);
       history.value = res.data.history;
-    } catch {
-      // Ignore if API not ready
+    } catch (err: any) {
+      if (err?.response?.status !== 404) {
+        const playerStore = usePlayerStore();
+        const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load history';
+        playerStore.notify(msg, 'error');
+      }
     }
   }
 

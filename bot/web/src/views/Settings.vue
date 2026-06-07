@@ -541,8 +541,10 @@ async function createBot() {
     if (newBotAvatar.value && res.data?.id) {
       try {
         await axios.put(`/api/bot/${res.data.id}/avatar`, { dataUrl: newBotAvatar.value });
-      } catch (err) {
-        console.warn('failed to set avatar on new bot', err);
+      } catch (err: any) {
+        const playerStore = usePlayerStore();
+        const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to set avatar';
+        playerStore.notify(msg, 'error');
       }
     }
     newBotName.value = '';
@@ -553,8 +555,10 @@ async function createBot() {
     newBotServerPassword.value = '';
     newBotAvatar.value = null;
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
@@ -568,8 +572,10 @@ async function deleteBot(botId: string, botName: string) {
     }
     store.removeBotStatus(botId);
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
@@ -585,8 +591,13 @@ async function openEditBot(bot: any) {
     editForm.defaultChannel = res.data.defaultChannel ?? '';
     editForm.channelPassword = res.data.channelPassword ?? '';
     editForm.serverPassword = res.data.serverPassword ?? '';
-  } catch {
+  } catch (err: any) {
     // Config not found — use defaults
+    if (err?.response?.status !== 404) {
+      const playerStore = usePlayerStore();
+      const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load bot config';
+      playerStore.notify(msg, 'error');
+    }
     editForm.serverAddress = '';
     editForm.serverPort = 9987;
     editForm.nickname = bot.name;
@@ -602,8 +613,10 @@ async function saveEditBot() {
     await axios.put(`/api/bot/${editingBot.value}`, editForm);
     editingBot.value = null;
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
@@ -615,8 +628,10 @@ async function toggleBot(botId: string, connected: boolean) {
       await axios.post(`/api/bot/${botId}/start`);
     }
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
@@ -681,7 +696,10 @@ async function refreshLlmStatus() {
     const res = await axios.get('/api/bot/llm/status');
     llm.configured = !!res.data.configured;
     llm.available = !!res.data.available;
-  } catch {
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to test LLM';
+    playerStore.notify(msg, 'error');
     llm.configured = false;
     llm.available = false;
   } finally {
@@ -802,7 +820,10 @@ async function updateProfile(botId: string, key: keyof ProfileConfig, value: boo
   try {
     const res = await axios.put(`/api/player/${botId}/profile`, { [key]: value });
     profileConfigs[botId] = res.data;
-  } catch {
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to update profile';
+    playerStore.notify(msg, 'error');
     cfg[key] = prev; // revert
   }
 }

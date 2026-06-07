@@ -184,8 +184,15 @@ async function doSearch() {
   activeTab.value = 'songs';
   router.replace({ query: { q: query.value } });
   try {
-    const res = await axios.get('/api/music/search/all', { params: { q: query.value } });
-    allSongs.value = res.data.songs ?? [];
+    try {
+      const res = await axios.get('/api/music/search/all', { params: { q: query.value } });
+      allSongs.value = res.data.songs ?? [];
+    } catch (err: any) {
+      const playerStore = usePlayerStore();
+      const msg = err?.response?.data?.message || err?.response?.data?.error || 'Search failed';
+      playerStore.notify(msg, 'error');
+      allSongs.value = [];
+    }
     allAlbums.value = res.data.albums ?? [];
     allPlaylists.value = res.data.playlists ?? [];
   } catch {

@@ -68,6 +68,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import axios from 'axios';
+import { usePlayerStore } from '../stores/player.js';
 
 const currentStep = ref(0);
 const stepLabels = ['Welcome', 'TeamSpeak', 'Music Sources', 'Done'];
@@ -90,8 +91,10 @@ async function createBotAndNext() {
       autoStart: true,
     });
     currentStep.value = 2;
-  } catch (err) {
-    alert('Failed to create bot: ' + (err as Error).message);
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to create bot during setup';
+    playerStore.notify(msg, 'error');
   }
 }
 </script>

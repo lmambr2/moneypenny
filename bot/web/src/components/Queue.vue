@@ -74,8 +74,9 @@ async function removeSong(index: number) {
   try {
     await axios.delete(`/api/player/${store.activeBotId}/queue/${index + 1}`);
     await store.fetchQueue();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to remove song';
+    store.notify(msg, 'error');
   }
 }
 
@@ -83,8 +84,9 @@ async function clearAndStop() {
   try {
     await store.stop();
     await store.fetchQueue();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to clear queue';
+    store.notify(msg, 'error');
   }
 }
 </script>
