@@ -101,7 +101,7 @@ export function createSessionRouter(
       res.json({ id: user.id, username: user.username, role: user.role });
     } catch (err) {
       logger.error({ err }, "setup failed");
-      res.status(500).json({ error: "internal" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 

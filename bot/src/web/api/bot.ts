@@ -45,7 +45,7 @@ export function createBotRouter(
     if ("idleTimeoutMinutes" in body) {
       const v = body.idleTimeoutMinutes;
       if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-        res.status(400).json({ error: "idleTimeoutMinutes must be a non-negative number" });
+        res.status(400).json({ error: "idleTimeoutMinutes must be a non-negative number", code: "VALIDATION_ERROR" });
         return;
       }
       config.idleTimeoutMinutes = v;
@@ -54,7 +54,7 @@ export function createBotRouter(
 
     if ("llmEnabled" in body) {
       if (typeof body.llmEnabled !== "boolean") {
-        res.status(400).json({ error: "llmEnabled must be a boolean" });
+        res.status(400).json({ error: "llmEnabled must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
       config.llmEnabled = body.llmEnabled;
@@ -270,7 +270,7 @@ export function createBotRouter(
       res.status(201).json(bot.getStatus());
     } catch (err) {
       logger.error({ err }, "Failed to create bot");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -291,7 +291,7 @@ export function createBotRouter(
       res.json({ success: true });
     } catch (err) {
       logger.error({ err }, "Failed to update bot");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -302,7 +302,7 @@ export function createBotRouter(
       res.json({ success: true });
     } catch (err) {
       logger.error({ err }, "Bot management error");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -313,7 +313,7 @@ export function createBotRouter(
       res.json({ success: true });
     } catch (err) {
       logger.error({ err }, "Bot management error");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -324,7 +324,7 @@ export function createBotRouter(
       res.json({ success: true });
     } catch (err) {
       logger.error({ err }, "Bot management error");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 

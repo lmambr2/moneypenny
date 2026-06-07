@@ -45,12 +45,12 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { query, platform } = req.body;
       if (!query) {
-        res.status(400).json({ error: "query is required" });
+        res.status(400).json({ error: "query is required", code: "VALIDATION_ERROR" });
         return;
       }
       const cmd = parseCommand(`!play ${platformFlag(platform)} ${query}`.trim(), "!");
       if (!cmd) {
-        res.status(400).json({ error: "Invalid command" });
+        res.status(400).json({ error: "Invalid command", code: "VALIDATION_ERROR" });
         return;
       }
       const response = await bot.executeCommand(cmd);
@@ -67,7 +67,7 @@ export function createPlayerRouter(
       const { query, platform } = req.body;
       const cmd = parseCommand(`!add ${platformFlag(platform)} ${query}`.trim(), "!");
       if (!cmd) {
-        res.status(400).json({ error: "Invalid command" });
+        res.status(400).json({ error: "Invalid command", code: "VALIDATION_ERROR" });
         return;
       }
       const response = await bot.executeCommand(cmd);
@@ -195,7 +195,7 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { index } = req.body;
       if (typeof index !== "number" || index < 0) {
-        res.status(400).json({ error: "index is required" });
+        res.status(400).json({ error: "index is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();
@@ -203,14 +203,14 @@ export function createPlayerRouter(
       // invalid index silently kills the user's current song and leaves the
       // queue idle.
       if (index >= queue.size()) {
-        res.status(400).json({ error: "Invalid queue index" });
+        res.status(400).json({ error: "Invalid queue index", code: "VALIDATION_ERROR" });
         return;
       }
       bot.getPlayer().stop();
       bot.getPlayer().resetFailures();
       const song = queue.playAt(index);
       if (!song) {
-        res.status(400).json({ error: "Invalid queue index" });
+        res.status(400).json({ error: "Invalid queue index", code: "VALIDATION_ERROR" });
         return;
       }
       const ok = await bot.resolveAndPlay(song);
@@ -411,7 +411,7 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { song } = req.body;
       if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required" });
+        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();
@@ -440,7 +440,7 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { song } = req.body;
       if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required" });
+        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();
@@ -479,7 +479,7 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { song } = req.body;
       if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required" });
+        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();

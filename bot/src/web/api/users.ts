@@ -52,7 +52,7 @@ export function createUsersRouter(
         return;
       }
       logger.error({ err }, "createUser failed");
-      res.status(500).json({ error: "internal" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 

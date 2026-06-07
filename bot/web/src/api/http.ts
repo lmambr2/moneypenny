@@ -33,27 +33,34 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
       return res;
     }
 
-    if (res.status === 429) {
+    // Handle rate limit and permission errors with server-provided messages + codes for UX + bug reports
+    if ([429, 403].includes(res.status) && url.startsWith('/api/')) {
       try {
         const data = await res.clone().json();
-        const msg = data?.message || data?.error || 'Rate limited. Please slow down.';
+        const msg = data?.message || data?.error || (res.status === 429 ? 'Rate limited. Please slow down.' : 'Permission denied.');
+        const code = data?.code ? ` (code: ${data.code})` : '';
         const store = usePlayerStore();
-        store.notify(msg, 'error');
+        store.notify(`${msg}${code}`, 'error');
       } catch {
         const store = usePlayerStore();
-        store.notify('Too many requests. Please wait a moment before trying again.', 'error');
+        const fallback = res.status === 429 ? 'Too many requests. Please wait a moment before trying again.' : 'Permission denied.';
+        store.notify(fallback, 'error');
       }
+      return res;
     }
 
-    if (res.status === 403 && url.startsWith('/api/')) {
+    // For other errors, if the response has a useful message, surface it (e.g. validation)
+    if (res.status >= 400 && url.startsWith('/api/')) {
       try {
         const data = await res.clone().json();
-        const msg = data?.message || 'You do not have permission to perform this action.';
-        const store = usePlayerStore();
-        store.notify(msg, 'error');
+        if (data?.message || data?.error) {
+          const msg = data.message || data.error;
+          const code = data?.code ? ` (code: ${data.code})` : '';
+          const store = usePlayerStore();
+          store.notify(`${msg}${code}`, res.status >= 500 ? 'error' : 'info');
+        }
       } catch {
-        const store = usePlayerStore();
-        store.notify('Permission denied.', 'error');
+        // ignore, let caller handle
       }
     }
 

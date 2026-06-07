@@ -69,6 +69,7 @@ export function createRateLimit(options: RateLimitOptions): RequestHandler {
       res.status(429).json({
         error: "rate limit exceeded",
         message: userMessage,
+        code: "RATE_LIMITED",
         retryAfter: waitSec,
       });
       return;

@@ -20,7 +20,7 @@ export function createMusicRouter(
     try {
       const { q } = req.query;
       if (!q) {
-        res.status(400).json({ error: "q is required" });
+        res.status(400).json({ error: "q is required", code: "VALIDATION_ERROR" });
         return;
       }
       // Prefer local resolve (the hook)
@@ -32,7 +32,7 @@ export function createMusicRouter(
       res.json({ resolved: false });
     } catch (err) {
       logger.error({ err }, "Resolve failed");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -45,7 +45,7 @@ export function createMusicRouter(
     try {
       const { q, platform, limit } = req.query;
       if (!q) {
-        res.status(400).json({ error: "q (query) is required" });
+        res.status(400).json({ error: "q (query) is required", code: "VALIDATION_ERROR" });
         return;
       }
       const provider = getProvider(platform as string);
@@ -56,7 +56,7 @@ export function createMusicRouter(
       res.json(result);
     } catch (err) {
       logger.error({ err }, "Search failed");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -64,7 +64,7 @@ export function createMusicRouter(
     try {
       const { q, limit } = req.query;
       if (!q) {
-        res.status(400).json({ error: "q (query) is required" });
+        res.status(400).json({ error: "q (query) is required", code: "VALIDATION_ERROR" });
         return;
       }
       const parsedLimit = parseInt(limit as string) || 20;
@@ -77,7 +77,7 @@ export function createMusicRouter(
       });
     } catch (err) {
       logger.error({ err }, "Unified search failed");
-      res.status(500).json({ error: "internal error" });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -91,7 +91,8 @@ export function createMusicRouter(
       }
       res.json(song);
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player detail error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -101,7 +102,8 @@ export function createMusicRouter(
       const songs = await provider.getPlaylistSongs(req.params.id);
       res.json({ songs });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player detail error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -111,7 +113,8 @@ export function createMusicRouter(
       const playlists = await provider.getRecommendPlaylists();
       res.json({ playlists });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player detail error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -121,7 +124,8 @@ export function createMusicRouter(
       const songs = await provider.getAlbumSongs(req.params.id);
       res.json({ songs });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player detail error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -131,7 +135,8 @@ export function createMusicRouter(
       const lyrics = await provider.getLyrics(req.params.id);
       res.json({ lyrics });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player detail error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
