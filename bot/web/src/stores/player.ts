@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import axios from 'axios';
+import api from '../api/api.js';
 
 export interface Song {
   id: string;
@@ -64,7 +64,10 @@ export const usePlayerStore = defineStore('player', {
 
     // Transient notification for surfacing failures (e.g., "song not playable")
     // to a global Toast. Bumped `id` triggers re-render of the same message.
-    notification: null as { id: number; message: string; type: 'error' | 'info' } | null,
+    notification: null as { id: number; message: string; type: 'error' | 'info'; retryAfter?: number } | null,
+
+    // Track rate limiting for player actions (from 429 responses)
+    rateLimitUntil: null as number | null,
   }),
 
   getters: {
@@ -100,9 +103,29 @@ export const usePlayerStore = defineStore('player', {
     availableSources(): Source[] {
       return ['local', 'youtube', 'stream'];
     },
+
+    isRateLimited(): boolean {
+      return !!this.rateLimitUntil && Date.now() < this.rateLimitUntil;
+    },
   },
 
   actions: {
+    _handlePlayerError(err: any) {
+      const status = err?.response?.status;
+      const data = err?.response?.data || {};
+      if (status === 429) {
+        const retryAfter = Number(data.retryAfter || 5);
+        this.rateLimitUntil = Date.now() + retryAfter * 1000;
+        // notify handled by axios interceptor to avoid duplicates
+        return;
+      }
+      // for other cases, interceptor should have notified; fallback if no response
+      if (!err?.response) {
+        const msg = err?.message || 'Action failed. Please try again.';
+        this.notify(msg, 'error');
+      }
+    },
+
     _getTiming(botId: string): TimingState {
       if (!this.timings[botId]) {
         this.timings[botId] = defaultTiming();
@@ -178,15 +201,23 @@ export const usePlayerStore = defineStore('player', {
     },
 
     async startBotInstance(id: string) {
-      await axios.post(`/api/bot/${id}/start`);
+      try {
+        await api.post(`/api/bot/${id}/start`);
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async stopBotInstance(id: string) {
-      await axios.post(`/api/bot/${id}/stop`);
+      try {
+        await api.post(`/api/bot/${id}/stop`);
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async fetchBots() {
-      const res = await axios.get('/api/bot');
+      const res = await api.get('/api/bot');
       this.bots = res.data.bots;
       if (!this.activeBotId && this.bots.length > 0) {
         this.activeBotId = this.bots[0].id;
@@ -207,7 +238,7 @@ export const usePlayerStore = defineStore('player', {
     async syncElapsed() {
       if (!this.activeBotId || !this.isPlaying) return;
       try {
-        const res = await axios.get(`/api/player/${this.activeBotId}/elapsed`);
+        const res = await api.get(`/api/player/${this.activeBotId}/elapsed`);
         this._setTiming(this.activeBotId, {
           serverElapsed: res.data.elapsed,
           serverSyncTime: Date.now(),
@@ -221,19 +252,19 @@ export const usePlayerStore = defineStore('player', {
     async fetchQueue() {
       if (!this.activeBotId) return;
       try {
-        const res = await axios.get(`/api/player/${this.activeBotId}/queue`);
+        const res = await api.get(`/api/player/${this.activeBotId}/queue`);
         this.queues[this.activeBotId] = res.data.queue ?? [];
-      } catch {
-        // ignore
+      } catch (err) {
+        this._handlePlayerError(err);
       }
     },
 
     async fetchQueueForBot(botId: string) {
       try {
-        const res = await axios.get(`/api/player/${botId}/queue`);
+        const res = await api.get(`/api/player/${botId}/queue`);
         this.queues[botId] = res.data.queue ?? [];
-      } catch {
-        // ignore
+      } catch (err) {
+        this._handlePlayerError(err);
       }
     },
 
@@ -249,42 +280,61 @@ export const usePlayerStore = defineStore('player', {
 
     async playAtIndex(index: number) {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/play-at`, { index });
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
+      try {
+        await api.post(`/api/player/${this.activeBotId}/play-at`, { index });
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async play(query: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/play`, { query, platform });
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
+      try {
+        await api.post(`/api/player/${this.activeBotId}/play`, { query, platform });
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async playById(songId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/play-by-id`, { songId, platform });
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
+      try {
+        await api.post(`/api/player/${this.activeBotId}/play-by-id`, { songId, platform });
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
-    notify(message: string, type: 'error' | 'info' = 'info') {
-      this.notification = { id: Date.now(), message, type };
+    notify(message: string, type: 'error' | 'info' = 'info', retryAfter?: number) {
+      this.notification = { id: Date.now(), message, type, retryAfter };
+      if (retryAfter) {
+        this.rateLimitUntil = Date.now() + retryAfter * 1000;
+      }
     },
 
     async playSong(song: Song) {
       if (!this.activeBotId) return;
-      const res = await axios.post(`/api/player/${this.activeBotId}/play-song`, { song });
-      if (res.data?.ok === false && res.data?.message) {
-        this.notify(res.data.message, 'error');
+      try {
+        const res = await api.post(`/api/player/${this.activeBotId}/play-song`, { song });
+        if (res.data?.ok === false && res.data?.message) {
+          this.notify(res.data.message, 'error');
+        }
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
       }
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
     },
 
     async playNextSong(song: Song) {
       if (!this.activeBotId) return;
-      const res = await axios.post(`/api/player/${this.activeBotId}/play-next-song`, { song });
+      const res = await api.post(`/api/player/${this.activeBotId}/play-next-song`, { song });
       if (res.data?.message) {
         this.notify(res.data.message, res.data.ok === false ? 'error' : 'info');
       }
@@ -294,102 +344,154 @@ export const usePlayerStore = defineStore('player', {
 
     async addToQueue(query: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/add`, { query, platform });
+      try {
+        await api.post(`/api/player/${this.activeBotId}/add`, { query, platform });
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async addToQueueById(songId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/add-by-id`, { songId, platform });
+      try {
+        await api.post(`/api/player/${this.activeBotId}/add-by-id`, { songId, platform });
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async addSong(song: Song) {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/add-song`, { song });
+      try {
+        await api.post(`/api/player/${this.activeBotId}/add-song`, { song });
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async playPlaylist(playlistId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      const res = await axios.post(`/api/player/${this.activeBotId}/play-playlist`, { playlistId, platform });
-      if (res.data?.message) {
-        this.notify(res.data.message, res.data.ok === false ? 'error' : 'info');
+      try {
+        const res = await api.post(`/api/player/${this.activeBotId}/play-playlist`, { playlistId, platform });
+        if (res.data?.message) {
+          this.notify(res.data.message, res.data.ok === false ? 'error' : 'info');
+        }
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
       }
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
     },
 
     async playAlbum(albumId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      const res = await axios.post(`/api/player/${this.activeBotId}/play-album`, { albumId, platform });
-      if (res.data?.message) {
-        this.notify(res.data.message, res.data.ok === false ? 'error' : 'info');
+      try {
+        const res = await api.post(`/api/player/${this.activeBotId}/play-album`, { albumId, platform });
+        if (res.data?.message) {
+          this.notify(res.data.message, res.data.ok === false ? 'error' : 'info');
+        }
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
       }
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
     },
 
     async pause() {
       if (!this.activeBotId) return;
-      // Freeze elapsed at current interpolated value
-      this._setTiming(this.activeBotId, {
-        serverElapsed: this.elapsed,
-        wasPlaying: false,
-      });
-      await axios.post(`/api/player/${this.activeBotId}/pause`);
+      try {
+        // Freeze elapsed at current interpolated value
+        this._setTiming(this.activeBotId, {
+          serverElapsed: this.elapsed,
+          wasPlaying: false,
+        });
+        await api.post(`/api/player/${this.activeBotId}/pause`);
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async resume() {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/resume`);
-      this._setTiming(this.activeBotId, {
-        serverSyncTime: Date.now(),
-        wasPlaying: true,
-      });
-      setTimeout(() => this.syncElapsed(), 300);
+      try {
+        await api.post(`/api/player/${this.activeBotId}/resume`);
+        this._setTiming(this.activeBotId, {
+          serverSyncTime: Date.now(),
+          wasPlaying: true,
+        });
+        setTimeout(() => this.syncElapsed(), 300);
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async next() {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/next`);
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
+      try {
+        await api.post(`/api/player/${this.activeBotId}/next`);
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async prev() {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/prev`);
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
+      try {
+        await api.post(`/api/player/${this.activeBotId}/prev`);
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async stop() {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/stop`);
-      this._setTiming(this.activeBotId, {
-        serverElapsed: 0,
-        serverSyncTime: 0,
-        wasPlaying: false,
-      });
+      try {
+        await api.post(`/api/player/${this.activeBotId}/stop`);
+        this._setTiming(this.activeBotId, {
+          serverElapsed: 0,
+          serverSyncTime: 0,
+          wasPlaying: false,
+        });
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async seek(position: number) {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/seek`, { position });
-      this._setTiming(this.activeBotId, { serverElapsed: position });
-      this._syncAfterAction();
+      try {
+        await api.post(`/api/player/${this.activeBotId}/seek`, { position });
+        this._setTiming(this.activeBotId, { serverElapsed: position });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async setVolume(volume: number) {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/volume`, { volume });
-      const bot = this.bots.find((b) => b.id === this.activeBotId);
-      if (bot) bot.volume = volume;
+      try {
+        await api.post(`/api/player/${this.activeBotId}/volume`, { volume });
+        const bot = this.bots.find((b) => b.id === this.activeBotId);
+        if (bot) bot.volume = volume;
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async setMode(mode: string) {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/mode`, { mode });
-      const bot = this.bots.find((b) => b.id === this.activeBotId);
-      if (bot) bot.playMode = mode;
+      try {
+        await api.post(`/api/player/${this.activeBotId}/mode`, { mode });
+        const bot = this.bots.find((b) => b.id === this.activeBotId);
+        if (bot) bot.playMode = mode;
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async fetchHomeData() {
@@ -402,7 +504,7 @@ export const usePlayerStore = defineStore('player', {
 
       // Try to fetch a bit of local data via search as a stand-in for "recent"
       try {
-        const localRecentRes = await axios.get('/api/music/search', {
+        const localRecentRes = await api.get('/api/music/search', {
           params: { q: '', platform: 'local', limit: 12 }
         });
         this.localRecent = localRecentRes.data?.songs ?? [];

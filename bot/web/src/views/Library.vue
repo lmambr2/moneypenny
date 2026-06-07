@@ -49,7 +49,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore, type Song, type Source } from '../stores/player.js';
 import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
 import CoverArt from '../components/CoverArt.vue';
@@ -75,10 +75,14 @@ onMounted(async () => {
 
   if (store.activeBotId) {
     try {
-      const res = await axios.get(`/api/player/${store.activeBotId}/history`);
+      const res = await api.get(`/api/player/${store.activeBotId}/history`);
       history.value = res.data.history ?? [];
-    } catch {
-      // API may not be ready
+    } catch (err: any) {
+      if (err?.response?.status !== 404) {
+        const playerStore = usePlayerStore();
+        const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load history';
+        playerStore.notify(msg, 'error');
+      }
     }
   }
 

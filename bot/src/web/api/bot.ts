@@ -45,7 +45,7 @@ export function createBotRouter(
     if ("idleTimeoutMinutes" in body) {
       const v = body.idleTimeoutMinutes;
       if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-        res.status(400).json({ error: "idleTimeoutMinutes must be a non-negative number" });
+        res.status(400).json({ error: "idleTimeoutMinutes must be a non-negative number", code: "VALIDATION_ERROR" });
         return;
       }
       config.idleTimeoutMinutes = v;
@@ -54,7 +54,7 @@ export function createBotRouter(
 
     if ("llmEnabled" in body) {
       if (typeof body.llmEnabled !== "boolean") {
-        res.status(400).json({ error: "llmEnabled must be a boolean" });
+        res.status(400).json({ error: "llmEnabled must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
       config.llmEnabled = body.llmEnabled;
@@ -161,9 +161,10 @@ export function createBotRouter(
     res.json(bot.getStatus());
   });
 
-  // Get saved config for a bot
-  router.get("/:id/config", (req, res) => {
-    const saved = botManager.getBotConfig(req.params.id);
+  // Get saved config for a bot (contains TS passwords/keys — admin only)
+  router.get("/:id/config", requireAdmin, (req, res) => {
+    const id = req.params.id as string;
+    const saved = botManager.getBotConfig(id);
     if (!saved) {
       res.status(404).json({ error: "Bot config not found" });
       return;
@@ -172,7 +173,8 @@ export function createBotRouter(
   });
 
   router.get("/:id/avatar", (req, res) => {
-    const path = botDb.getCustomAvatarPath(req.params.id);
+    const id = req.params.id as string;
+    const path = botDb.getCustomAvatarPath(id);
     if (!path) {
       res.status(404).end();
       return;
@@ -193,10 +195,11 @@ export function createBotRouter(
     res.send(buf);
   });
 
-  router.put("/:id/avatar", (req, res) => {
+  router.put("/:id/avatar", requireAdmin, (req, res) => {
+    const id = req.params.id as string;
     const exists =
-      botManager.getBot(req.params.id) ||
-      botDb.getBotInstances().some((b) => b.id === req.params.id);
+      botManager.getBot(id) ||
+      botDb.getBotInstances().some((b) => b.id === id);
     if (!exists) {
       res.status(404).json({ error: "Bot not found" });
       return;
@@ -221,21 +224,22 @@ export function createBotRouter(
       res.status(413).json({ error: "avatar exceeds 200KB limit" });
       return;
     }
-    const rel = avatarStore.write(req.params.id, mime, buf);
-    botDb.setCustomAvatarPath(req.params.id, rel);
-    botManager.getBot(req.params.id)?.getProfileManager().setCustomAvatar(buf);
+    const rel = avatarStore.write(id, mime, buf);
+    botDb.setCustomAvatarPath(id, rel);
+    botManager.getBot(id)?.getProfileManager().setCustomAvatar(buf);
     res.json({ path: rel });
   });
 
-  router.delete("/:id/avatar", (req, res) => {
-    const path = botDb.getCustomAvatarPath(req.params.id);
+  router.delete("/:id/avatar", requireAdmin, (req, res) => {
+    const id = req.params.id as string;
+    const path = botDb.getCustomAvatarPath(id);
     if (path) avatarStore.remove(path);
-    botDb.setCustomAvatarPath(req.params.id, null);
-    botManager.getBot(req.params.id)?.getProfileManager().setCustomAvatar(null);
+    botDb.setCustomAvatarPath(id, null);
+    botManager.getBot(id)?.getProfileManager().setCustomAvatar(null);
     res.status(204).end();
   });
 
-  router.post("/", async (req, res) => {
+  router.post("/", requireAdmin, async (req, res) => {
     try {
       const {
         name,
@@ -266,54 +270,61 @@ export function createBotRouter(
       res.status(201).json(bot.getStatus());
     } catch (err) {
       logger.error({ err }, "Failed to create bot");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
   // Update bot config (must be stopped first to apply connection changes)
-  router.put("/:id", async (req, res) => {
+  router.put("/:id", requireAdmin, async (req, res) => {
     try {
-      const bot = botManager.getBot(req.params.id);
+      const id = req.params.id as string;
+      const bot = botManager.getBot(id);
       if (!bot) {
         res.status(404).json({ error: "Bot not found" });
         return;
       }
       const { name, serverAddress, serverPort, nickname, defaultChannel, channelPassword, serverPassword } = req.body;
       // Update in database
-      botManager.updateBot(req.params.id, {
+      botManager.updateBot(id, {
         name, serverAddress, serverPort, nickname, defaultChannel, channelPassword, serverPassword,
       });
       res.json({ success: true });
     } catch (err) {
       logger.error({ err }, "Failed to update bot");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
-  router.delete("/:id", async (req, res) => {
+  router.delete("/:id", requireAdmin, async (req, res) => {
     try {
-      await botManager.removeBot(req.params.id);
+      const id = req.params.id as string;
+      await botManager.removeBot(id);
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Bot management error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
-  router.post("/:id/start", async (req, res) => {
+  router.post("/:id/start", requireAdmin, async (req, res) => {
     try {
-      await botManager.startBot(req.params.id);
+      const id = req.params.id as string;
+      await botManager.startBot(id);
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Bot management error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 
-  router.post("/:id/stop", (req, res) => {
+  router.post("/:id/stop", requireAdmin, (req, res) => {
     try {
-      botManager.stopBot(req.params.id);
+      const id = req.params.id as string;
+      botManager.stopBot(id);
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Bot management error");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
     }
   });
 

@@ -6,7 +6,11 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
     return;
   }
   if (req.user.role !== "admin") {
-    res.status(403).json({ error: "forbidden" });
+    res.status(403).json({
+      error: "forbidden",
+      message: "Admin privileges are required for this action.",
+      code: "PERMISSION_DENIED",
+    });
     return;
   }
   next();

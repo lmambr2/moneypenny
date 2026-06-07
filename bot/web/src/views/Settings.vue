@@ -482,7 +482,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import AvatarUpload from '../components/AvatarUpload.vue';
 import CustomAvatarRow from '../components/CustomAvatarRow.vue';
 import { usePlayerStore } from '../stores/player.js';
@@ -529,7 +529,7 @@ const commandPrefix = ref('!');
 async function createBot() {
   if (!newBotName.value || !newBotServer.value) return;
   try {
-    const res = await axios.post('/api/bot', {
+    const res = await api.post('/api/bot', {
       name: newBotName.value,
       serverAddress: newBotServer.value,
       serverPort: newBotPort.value || 9987,
@@ -540,9 +540,11 @@ async function createBot() {
     });
     if (newBotAvatar.value && res.data?.id) {
       try {
-        await axios.put(`/api/bot/${res.data.id}/avatar`, { dataUrl: newBotAvatar.value });
-      } catch (err) {
-        console.warn('failed to set avatar on new bot', err);
+        await api.put(`/api/bot/${res.data.id}/avatar`, { dataUrl: newBotAvatar.value });
+      } catch (err: any) {
+        const playerStore = usePlayerStore();
+        const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to set avatar';
+        playerStore.notify(msg, 'error');
       }
     }
     newBotName.value = '';
@@ -553,23 +555,27 @@ async function createBot() {
     newBotServerPassword.value = '';
     newBotAvatar.value = null;
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
 async function deleteBot(botId: string, botName: string) {
   if (!confirm(`Delete bot "${botName}"? This cannot be undone.`)) return;
   try {
-    await axios.delete(`/api/bot/${botId}`);
+    await api.delete(`/api/bot/${botId}`);
     // If deleted bot was the active one, reset activeBotId
     if (store.activeBotId === botId) {
       store.activeBotId = null;
     }
     store.removeBotStatus(botId);
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
@@ -578,15 +584,20 @@ async function openEditBot(bot: any) {
   editForm.name = bot.name;
   // Fetch saved config to fill all fields
   try {
-    const res = await axios.get(`/api/bot/${bot.id}/config`);
+    const res = await api.get(`/api/bot/${bot.id}/config`);
     editForm.serverAddress = res.data.serverAddress ?? '';
     editForm.serverPort = res.data.serverPort ?? 9987;
     editForm.nickname = res.data.nickname ?? '';
     editForm.defaultChannel = res.data.defaultChannel ?? '';
     editForm.channelPassword = res.data.channelPassword ?? '';
     editForm.serverPassword = res.data.serverPassword ?? '';
-  } catch {
+  } catch (err: any) {
     // Config not found — use defaults
+    if (err?.response?.status !== 404) {
+      const playerStore = usePlayerStore();
+      const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load bot config';
+      playerStore.notify(msg, 'error');
+    }
     editForm.serverAddress = '';
     editForm.serverPort = 9987;
     editForm.nickname = bot.name;
@@ -599,24 +610,28 @@ async function openEditBot(bot: any) {
 async function saveEditBot() {
   if (!editingBot.value) return;
   try {
-    await axios.put(`/api/bot/${editingBot.value}`, editForm);
+    await api.put(`/api/bot/${editingBot.value}`, editForm);
     editingBot.value = null;
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
 async function toggleBot(botId: string, connected: boolean) {
   try {
     if (connected) {
-      await axios.post(`/api/bot/${botId}/stop`);
+      await api.post(`/api/bot/${botId}/stop`);
     } else {
-      await axios.post(`/api/bot/${botId}/start`);
+      await api.post(`/api/bot/${botId}/start`);
     }
     await store.fetchBots();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Action failed';
+    playerStore.notify(msg, 'error');
   }
 }
 
@@ -629,15 +644,15 @@ const idleTimeout = ref(0);
 
 async function loadIdleTimeout() {
   try {
-    const res = await axios.get('/api/bot/settings');
+    const res = await api.get('/api/bot/settings');
     idleTimeout.value = res.data.idleTimeoutMinutes ?? 0;
-  } catch { /* ignore */ }
+  } catch (e) { console.error('Settings load/save failed', e); }
 }
 
 async function saveIdleTimeout() {
   try {
-    await axios.post('/api/bot/settings', { idleTimeoutMinutes: idleTimeout.value });
-  } catch { /* ignore */ }
+    await api.post('/api/bot/settings', { idleTimeoutMinutes: idleTimeout.value });
+  } catch (e) { console.error('Settings load/save failed', e); }
 }
 
 // --- AI & Permissions (admin only) ---
@@ -654,13 +669,13 @@ const savingAi = ref(false);
 
 async function loadAiSettings() {
   try {
-    const res = await axios.get('/api/bot/settings');
+    const res = await api.get('/api/bot/settings');
     ai.llmEnabled = !!res.data.llmEnabled;
     ai.llmUrl = res.data.llmUrl ?? '';
     ai.llmModel = res.data.llmModel ?? '';
     ai.rightsEnabled = !!res.data.rightsEnabled;
     ai.adminGroupsText = (res.data.adminGroups ?? []).join(', ');
-  } catch { /* ignore */ }
+  } catch (e) { console.error('Settings load/save failed', e); }
   if (ai.llmEnabled) refreshLlmStatus();
 }
 
@@ -678,10 +693,13 @@ const llm = reactive({
 async function refreshLlmStatus() {
   llm.checking = true;
   try {
-    const res = await axios.get('/api/bot/llm/status');
+    const res = await api.get('/api/bot/llm/status');
     llm.configured = !!res.data.configured;
     llm.available = !!res.data.available;
-  } catch {
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to test LLM';
+    playerStore.notify(msg, 'error');
     llm.configured = false;
     llm.available = false;
   } finally {
@@ -695,7 +713,7 @@ async function testAsk() {
   llm.answer = '';
   llm.error = '';
   try {
-    const res = await axios.post('/api/bot/llm/ask', { question: llm.question.trim() });
+    const res = await api.post('/api/bot/llm/ask', { question: llm.question.trim() });
     llm.answer = res.data.answer ?? '';
   } catch (e: any) {
     llm.error = e?.response?.data?.error ?? 'Ask failed.';
@@ -725,7 +743,7 @@ async function saveAiSettings() {
   }
   savingAi.value = true;
   try {
-    await axios.post('/api/bot/settings', {
+    await api.post('/api/bot/settings', {
       llmEnabled: ai.llmEnabled,
       llmUrl: ai.llmUrl.trim(),
       llmModel: ai.llmModel.trim(),
@@ -773,7 +791,7 @@ async function loadProfileConfig(botId: string) {
   if (profileConfigs[botId]) return;
   profileLoadError[botId] = null;
   try {
-    const res = await axios.get(`/api/player/${botId}/profile`);
+    const res = await api.get(`/api/player/${botId}/profile`);
     // Defensive: a 200 response with non-object body (empty / proxy
     // injection / etc.) would otherwise leave the row stuck on
     // "Loading…" because profileConfigs[botId] would be falsy.
@@ -800,9 +818,12 @@ async function updateProfile(botId: string, key: keyof ProfileConfig, value: boo
   const prev = cfg[key];
   cfg[key] = value; // optimistic
   try {
-    const res = await axios.put(`/api/player/${botId}/profile`, { [key]: value });
+    const res = await api.put(`/api/player/${botId}/profile`, { [key]: value });
     profileConfigs[botId] = res.data;
-  } catch {
+  } catch (err: any) {
+    const playerStore = usePlayerStore();
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to update profile';
+    playerStore.notify(msg, 'error');
     cfg[key] = prev; // revert
   }
 }

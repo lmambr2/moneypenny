@@ -19,13 +19,13 @@
         <div class="m-player-artist">{{ currentSong.artist }}</div>
       </div>
       <div class="m-player-controls" @click.stop>
-        <button class="m-player-btn" @click="playerStore.prev()">
+        <button class="m-player-btn" :disabled="playerStore.isRateLimited" @click="playerStore.prev()">
           <Icon icon="mdi:skip-previous" />
         </button>
-        <button class="m-player-btn" @click="playerStore.isPlaying ? playerStore.pause() : playerStore.resume()">
+        <button class="m-player-btn" :disabled="playerStore.isRateLimited" @click="playerStore.isPlaying ? playerStore.pause() : playerStore.resume()">
           <Icon :icon="playerStore.isPlaying ? 'mdi:pause' : 'mdi:play'" />
         </button>
-        <button class="m-player-btn" @click="playerStore.next()">
+        <button class="m-player-btn" :disabled="playerStore.isRateLimited" @click="playerStore.next()">
           <Icon icon="mdi:skip-next" />
         </button>
         <button class="m-player-btn" @click="cycleMobileMode">

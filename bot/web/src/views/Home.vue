@@ -102,7 +102,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore, type Song, type Source } from '../stores/player.js';
 import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
 import CoverArt from '../components/CoverArt.vue';

@@ -120,7 +120,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import type { Song } from '../stores/player.js';
 import SongCard from '../components/SongCard.vue';
@@ -167,7 +167,7 @@ const filteredPlaylists = computed(() =>
 
 // Persist source preference
 watch(selectedSource, (src) => {
-  try { localStorage.setItem(SOURCE_STORAGE_KEY, src); } catch { /* ignore */ }
+  try { localStorage.setItem(SOURCE_STORAGE_KEY, src); } catch (e) { console.warn('Failed to save source', e); }
 });
 
 // Note: old Chinese platforms removed; tabs simplified for Local/YouTube/Stream
@@ -184,8 +184,15 @@ async function doSearch() {
   activeTab.value = 'songs';
   router.replace({ query: { q: query.value } });
   try {
-    const res = await axios.get('/api/music/search/all', { params: { q: query.value } });
-    allSongs.value = res.data.songs ?? [];
+    try {
+      const res = await api.get('/api/music/search/all', { params: { q: query.value } });
+      allSongs.value = res.data.songs ?? [];
+    } catch (err: any) {
+      const playerStore = usePlayerStore();
+      const msg = err?.response?.data?.message || err?.response?.data?.error || 'Search failed';
+      playerStore.notify(msg, 'error');
+      allSongs.value = [];
+    }
     allAlbums.value = res.data.albums ?? [];
     allPlaylists.value = res.data.playlists ?? [];
   } catch {

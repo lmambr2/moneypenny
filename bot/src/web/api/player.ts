@@ -4,6 +4,8 @@ import type { BotDatabase } from "../../data/database.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { Logger } from "../../logger.js";
 import { parseCommand } from "../../bot/commands.js";
+import { requireAdmin } from "../middleware/requireAdmin.js";
+import { createRateLimit } from "../middleware/rateLimit.js";
 
 export function createPlayerRouter(
   botManager: BotManager,
@@ -24,6 +26,14 @@ export function createPlayerRouter(
     next();
   });
 
+  // Rate limit player actions to prevent abuse/DoS (generous for UI use)
+  const playerLimit = createRateLimit({
+    capacity: 60,
+    refillPerSec: 5,
+    message: (waitSec) => `Player actions rate limited. Please wait ${waitSec}s before issuing more commands.`,
+  });
+  router.use(playerLimit);
+
   /** Map API platform string to the corresponding command flag. */
   const platformFlag = (platform: unknown): string => {
     if (platform === "youtube") return "-y";
@@ -35,18 +45,19 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { query, platform } = req.body;
       if (!query) {
-        res.status(400).json({ error: "query is required" });
+        res.status(400).json({ error: "query is required", code: "VALIDATION_ERROR" });
         return;
       }
       const cmd = parseCommand(`!play ${platformFlag(platform)} ${query}`.trim(), "!");
       if (!cmd) {
-        res.status(400).json({ error: "Invalid command" });
+        res.status(400).json({ error: "Invalid command", code: "VALIDATION_ERROR" });
         return;
       }
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -56,13 +67,14 @@ export function createPlayerRouter(
       const { query, platform } = req.body;
       const cmd = parseCommand(`!add ${platformFlag(platform)} ${query}`.trim(), "!");
       if (!cmd) {
-        res.status(400).json({ error: "Invalid command" });
+        res.status(400).json({ error: "Invalid command", code: "VALIDATION_ERROR" });
         return;
       }
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -73,7 +85,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   };
 
@@ -81,10 +94,10 @@ export function createPlayerRouter(
   router.post("/:botId/resume", simpleCommand("!resume"));
   router.post("/:botId/next", simpleCommand("!next"));
   router.post("/:botId/prev", simpleCommand("!prev"));
-  router.post("/:botId/stop", simpleCommand("!stop"));
-  router.post("/:botId/clear", simpleCommand("!clear"));
+  router.post("/:botId/stop", requireAdmin, simpleCommand("!stop"));
+  router.post("/:botId/clear", requireAdmin, simpleCommand("!clear"));
 
-  router.post("/:botId/volume", async (req, res) => {
+  router.post("/:botId/volume", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { volume } = req.body;
@@ -106,13 +119,14 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
   const VALID_MODES = new Set(["seq", "loop", "random", "rloop"]);
 
-  router.post("/:botId/mode", async (req, res) => {
+  router.post("/:botId/mode", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { mode } = req.body;
@@ -126,7 +140,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -137,7 +152,7 @@ export function createPlayerRouter(
   });
 
   // Seek to position
-  router.post("/:botId/seek", async (req, res) => {
+  router.post("/:botId/seek", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { position } = req.body; // seconds
@@ -152,7 +167,8 @@ export function createPlayerRouter(
       bot.getPlayer().seek(position);
       res.json({ message: `Seeked to ${Math.floor(position)}s`, seekOffset: position });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -161,24 +177,25 @@ export function createPlayerRouter(
     res.json({ queue: bot.getQueue(), status: bot.getStatus() });
   });
 
-  router.delete("/:botId/queue/:index", async (req, res) => {
+  router.delete("/:botId/queue/:index", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const cmd = parseCommand(`!remove ${req.params.index}`, "!")!;
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
   // Jump to a specific index in the queue (without clearing it)
-  router.post("/:botId/play-at", async (req, res) => {
+  router.post("/:botId/play-at", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { index } = req.body;
       if (typeof index !== "number" || index < 0) {
-        res.status(400).json({ error: "index is required" });
+        res.status(400).json({ error: "index is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();
@@ -186,14 +203,14 @@ export function createPlayerRouter(
       // invalid index silently kills the user's current song and leaves the
       // queue idle.
       if (index >= queue.size()) {
-        res.status(400).json({ error: "Invalid queue index" });
+        res.status(400).json({ error: "Invalid queue index", code: "VALIDATION_ERROR" });
         return;
       }
       bot.getPlayer().stop();
       bot.getPlayer().resetFailures();
       const song = queue.playAt(index);
       if (!song) {
-        res.status(400).json({ error: "Invalid queue index" });
+        res.status(400).json({ error: "Invalid queue index", code: "VALIDATION_ERROR" });
         return;
       }
       const ok = await bot.resolveAndPlay(song);
@@ -203,10 +220,15 @@ export function createPlayerRouter(
       }
       res.json({ message: `Now playing: ${song.name} - ${song.artist}` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
+  // Music-request endpoints (play/queue a specific song, playlist, or album) are
+  // available to any authenticated user — same capability as /play and /add, and
+  // what the web UI uses for normal playback. Only disruptive/curational controls
+  // (stop, clear, volume, mode, seek, remove, play-at, profile) require admin.
   router.post("/:botId/playlist", async (req, res) => {
     try {
       const bot = (req as any).bot;
@@ -218,7 +240,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -388,7 +411,7 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { song } = req.body;
       if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required" });
+        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();
@@ -405,7 +428,8 @@ export function createPlayerRouter(
 
       res.json({ ok: true, message: `Now playing: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -416,7 +440,7 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { song } = req.body;
       if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required" });
+        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();
@@ -445,7 +469,8 @@ export function createPlayerRouter(
 
       res.json({ ok: true, message: `Added next: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -454,7 +479,7 @@ export function createPlayerRouter(
       const bot = (req as any).bot;
       const { song } = req.body;
       if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required" });
+        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
         return;
       }
       const queue = bot.getQueueManager();
@@ -472,7 +497,8 @@ export function createPlayerRouter(
 
       res.json({ message: `Added to queue: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'} (position ${queue.size()})` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -504,7 +530,8 @@ export function createPlayerRouter(
 
       res.json({ message: `Added: ${song.name} - ${song.artist} (position ${queue.size()})` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -515,7 +542,7 @@ export function createPlayerRouter(
     res.json(bot.getProfileManager().getConfig());
   });
 
-  router.put("/:botId/profile", (req, res) => {
+  router.put("/:botId/profile", requireAdmin, (req, res) => {
     try {
       const bot = (req as any).bot;
       const pm = bot.getProfileManager();
@@ -525,7 +552,8 @@ export function createPlayerRouter(
       }
       res.json(pm.getConfig());
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 

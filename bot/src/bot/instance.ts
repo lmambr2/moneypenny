@@ -31,7 +31,7 @@ import {
 } from "../voice/index.js";
 import { createOpusEncoder, type Encoder } from "../audio/encoder.js";
 import type { TS3VoiceData } from "../ts-protocol/client.js";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -99,6 +99,7 @@ export class BotInstance extends EventEmitter {
   private voiceDecoder: Encoder | null = null;
   private voiceSegmenters = new Map<number, SilenceSegmenter>();
   private voiceTempDir: string | null = null;
+  private savedMusicForVoice: { song: QueuedSong; elapsed: number } | null = null;
   /** clientId → {uid, serverGroups} cache for voice rank gating (refreshed by the idle poller). */
   private clientInfoCache = new Map<number, { uid: string; serverGroups: string[]; nickname: string }>();
 
@@ -182,6 +183,40 @@ export class BotInstance extends EventEmitter {
     });
 
     this.player.on("trackEnd", () => {
+      if (this.savedMusicForVoice) {
+        const saved = this.savedMusicForVoice;
+        this.savedMusicForVoice = null;
+        this.logger.debug("Voice reply ended — attempting to resume previous music (ducking/resume)");
+
+        (async () => {
+          // Race guard: if queue changed during voice (e.g. user skip/clear), don't blindly resume.
+          const current = this.queue.current();
+          if (!current || current.id !== saved.song.id) {
+            this.logger.debug("Queue changed during voice reply; skipping music resume");
+            this.playNext().catch((err) => {
+              this.logger.error({ err }, "playNext failed after voice (queue changed)");
+            });
+            return;
+          }
+          try {
+            const provider = this.getProviderFor(saved.song.platform);
+            const url = await provider.getSongUrl(saved.song.id);
+            if (url && this.connected) {
+              this.player.resetFailures();
+              this.player.play(url, saved.elapsed, saved.song.duration || 0);
+              return;
+            }
+          } catch (e) {
+            this.logger.warn({ err: e }, "Failed to resume interrupted music after voice");
+          }
+          // fallback
+          this.playNext().catch((err) => {
+            this.logger.error({ err }, "playNext failed after voice resume fallback");
+          });
+        })();
+        return;
+      }
+
       this.logger.debug("Track ended, advancing queue");
       this.playNext().catch((err) => {
         this.logger.error({ err }, "playNext failed after trackEnd");
@@ -189,6 +224,9 @@ export class BotInstance extends EventEmitter {
     });
 
     this.player.on("error", (err: Error) => {
+      if (this.savedMusicForVoice) {
+        this.savedMusicForVoice = null;
+      }
       this.logger.error({ err }, "Player error");
       this.playNext().catch((err2) => {
         this.logger.error({ err: err2 }, "playNext failed after player error");
@@ -210,6 +248,8 @@ export class BotInstance extends EventEmitter {
       // short-circuited on !this.connected, leaving player stuck as "playing".
       this.connected = false;
       this.player.stop();
+      this.cleanupVoice();
+      this.savedMusicForVoice = null;
       // Only emit externally once per lifecycle so clients don't see a
       // duplicate "disconnected" after an explicit disconnect() call.
       if (this.disconnectEmitted) return;
@@ -273,7 +313,8 @@ export class BotInstance extends EventEmitter {
   disconnect(): void {
     this._cancelIdleTimer();
     this.player.stop();
-    this.voiceSegmenters.clear();
+    this.cleanupVoice();
+    this.savedMusicForVoice = null;
     this.clientInfoCache.clear();
     this.connected = false;
     if (!this.disconnectEmitted) {
@@ -361,6 +402,9 @@ export class BotInstance extends EventEmitter {
         this.logger.info({ transcript, reply, speakerUid }, "Voice turn"),
     });
 
+    // Ensure any previous temp dir is cleaned if voice is re-enabled on same instance
+    this.cleanupVoice();
+
     this.tsClient.on("voiceData", (v: TS3VoiceData) => this.handleVoiceData(v));
     this.logger.info({ stt: true, tts: !!tts }, "Voice pipeline enabled");
   }
@@ -436,12 +480,41 @@ export class BotInstance extends EventEmitter {
         if (!this.voiceTempDir) this.voiceTempDir = mkdtempSync(join(tmpdir(), "moneypenny-tts-"));
         const file = join(this.voiceTempDir, `reply.${format}`);
         writeFileSync(file, audio);
+
+        // Save music state so we can resume after the voice reply (implements
+        // "ducking + resume" polish item from DESIGN.md §10 / Phase 3).
+        // Currently voice play interrupts the music track; we resume the
+        // previous song from the saved position after the voice track ends.
+        const currentSong = this.queue.current();
+        if (currentSong) {
+          const elapsed = Math.floor(this.player?.getElapsed?.() ?? 0);
+          this.savedMusicForVoice = { song: currentSong, elapsed };
+        }
+
         // ffmpeg decodes whatever container Kokoro returned. NOTE: this stops
         // current music; ducking + resume is a polish item (Phase 3).
         this.player.resetFailures();
         this.player.play(file);
+        // Best-effort cleanup of the reply file shortly after playback starts
+        // (player may have its own temp handling; this reduces accumulation).
+        setTimeout(() => {
+          try { rmSync(file, { force: true }); } catch {}
+        }, 3000);
       },
     };
+  }
+
+  /** Clean up per-speaker VAD segmenters and the TTS temp directory to prevent leaks. */
+  private cleanupVoice(): void {
+    this.voiceSegmenters.clear();
+    if (this.voiceTempDir) {
+      try {
+        rmSync(this.voiceTempDir, { recursive: true, force: true });
+      } catch {
+        // best effort
+      }
+      this.voiceTempDir = null;
+    }
   }
 
   /**

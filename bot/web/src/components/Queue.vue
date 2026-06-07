@@ -7,6 +7,7 @@
         v-if="botQueue.length > 0"
         class="clear-btn" 
         @click="clearAndStop" 
+        :disabled="store.isRateLimited"
         title="Clear queue and stop playback"
       >
         <Icon icon="mdi:stop-circle-outline" />
@@ -33,7 +34,7 @@
           <div class="queue-song-name">{{ song.name }}</div>
           <div class="queue-song-artist">{{ song.artist }}</div>
         </div>
-        <button class="remove-btn" @click="removeSong(i)" title="Remove">
+        <button class="remove-btn" @click="removeSong(i)" :disabled="store.isRateLimited" title="Remove">
           <Icon icon="mdi:close" />
         </button>
       </div>
@@ -44,7 +45,7 @@
 <script setup lang="ts">
 import { watch, computed } from 'vue';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import CoverArt from './CoverArt.vue';
 
@@ -72,10 +73,11 @@ async function playAtIndex(index: number) {
 async function removeSong(index: number) {
   if (!store.activeBotId) return;
   try {
-    await axios.delete(`/api/player/${store.activeBotId}/queue/${index + 1}`);
+    await api.delete(`/api/player/${store.activeBotId}/queue/${index + 1}`);
     await store.fetchQueue();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to remove song';
+    store.notify(msg, 'error');
   }
 }
 
@@ -83,8 +85,9 @@ async function clearAndStop() {
   try {
     await store.stop();
     await store.fetchQueue();
-  } catch {
-    // Ignore
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to clear queue';
+    store.notify(msg, 'error');
   }
 }
 </script>

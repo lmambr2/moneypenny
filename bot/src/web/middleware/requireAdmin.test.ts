@@ -40,7 +40,8 @@ describe("requireAdmin middleware", () => {
   it("rejects member with 403", async () => {
     const res = await request(app).get("/admin-only").set("Cookie", memberCookie);
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ error: "forbidden" });
+    expect(res.body.error).toBe("forbidden");
+    expect(res.body.message).toMatch(/admin/i);
   });
 
   it("allows admin", async () => {

@@ -17,24 +17,61 @@ import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
 const visible = ref(false);
-const current = ref<{ id: number; message: string; type: 'error' | 'info' } | null>(null);
+const current = ref<{ id: number; message: string; type: 'error' | 'info'; retryAfter?: number } | null>(null);
 let timer: ReturnType<typeof setTimeout> | null = null;
+let countdownInterval: ReturnType<typeof setInterval> | null = null;
+let baseMessage = '';
+let initialRetryAfter = 0;
 
 watch(
   () => store.notification?.id,
   () => {
     if (!store.notification) return;
+    // Clear any previous countdown
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+    }
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+
     current.value = store.notification;
     visible.value = true;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      visible.value = false;
-    }, current.value.type === 'error' ? 5000 : 3000);
+    baseMessage = current.value.message;
+    initialRetryAfter = current.value.retryAfter || 0;
+
+    if (initialRetryAfter > 0) {
+      // Start live countdown
+      let secondsLeft = initialRetryAfter;
+      const updateCountdown = () => {
+        if (secondsLeft <= 0) {
+          if (countdownInterval) clearInterval(countdownInterval);
+          visible.value = false;
+          // Clear the notification in store so it doesn't re-trigger
+          store.notification = null;
+          return;
+        }
+        current.value = {
+          ...current.value!,
+          message: `${baseMessage} (retry in ${secondsLeft}s)`,
+        };
+        secondsLeft--;
+      };
+      updateCountdown(); // initial
+      countdownInterval = setInterval(updateCountdown, 1000);
+    } else {
+      timer = setTimeout(() => {
+        visible.value = false;
+      }, current.value.type === 'error' ? 5000 : 3000);
+    }
   }
 );
 
 onUnmounted(() => {
   if (timer) clearTimeout(timer);
+  if (countdownInterval) clearInterval(countdownInterval);
 });
 </script>
 
