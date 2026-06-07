@@ -189,6 +189,15 @@ export class BotInstance extends EventEmitter {
         this.logger.debug("Voice reply ended — attempting to resume previous music (ducking/resume)");
 
         (async () => {
+          // Race guard: if queue changed during voice (e.g. user skip/clear), don't blindly resume.
+          const current = this.queue.current();
+          if (!current || current.id !== saved.song.id) {
+            this.logger.debug("Queue changed during voice reply; skipping music resume");
+            this.playNext().catch((err) => {
+              this.logger.error({ err }, "playNext failed after voice (queue changed)");
+            });
+            return;
+          }
           try {
             const provider = this.getProviderFor(saved.song.platform);
             const url = await provider.getSongUrl(saved.song.id);
@@ -478,7 +487,7 @@ export class BotInstance extends EventEmitter {
         // previous song from the saved position after the voice track ends.
         const currentSong = this.queue.current();
         if (currentSong) {
-          const elapsed = Math.floor(this.elapsed);
+          const elapsed = Math.floor(this.player?.getElapsed?.() ?? 0);
           this.savedMusicForVoice = { song: currentSong, elapsed };
         }
 

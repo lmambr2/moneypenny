@@ -120,7 +120,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import type { Song } from '../stores/player.js';
 import SongCard from '../components/SongCard.vue';
@@ -185,7 +185,7 @@ async function doSearch() {
   router.replace({ query: { q: query.value } });
   try {
     try {
-      const res = await axios.get('/api/music/search/all', { params: { q: query.value } });
+      const res = await api.get('/api/music/search/all', { params: { q: query.value } });
       allSongs.value = res.data.songs ?? [];
     } catch (err: any) {
       const playerStore = usePlayerStore();

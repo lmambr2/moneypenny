@@ -254,8 +254,8 @@ export const usePlayerStore = defineStore('player', {
       try {
         const res = await api.get(`/api/player/${this.activeBotId}/queue`);
         this.queues[this.activeBotId] = res.data.queue ?? [];
-      } catch {
-        // ignore
+      } catch (err) {
+        this._handlePlayerError(err);
       }
     },
 
@@ -263,8 +263,8 @@ export const usePlayerStore = defineStore('player', {
       try {
         const res = await api.get(`/api/player/${botId}/queue`);
         this.queues[botId] = res.data.queue ?? [];
-      } catch {
-        // ignore
+      } catch (err) {
+        this._handlePlayerError(err);
       }
     },
 

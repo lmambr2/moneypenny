@@ -33,10 +33,11 @@ api.interceptors.response.use(
       const code = data?.code ? ` (code: ${data.code})` : '';
       const retryAfter = data?.retryAfter ? Number(data.retryAfter) : undefined;
       playerStore.notify(`${msg}${code}`, 'error', retryAfter);
-    } else if (status >= 400 && url.startsWith('/api/')) {
+    } else if (status >= 500 && url.startsWith('/api/')) {
+      // Only auto-notify for server errors; 4xx (like 404) are often expected and handled by caller
       const msg = data?.message || data?.error || 'Request failed';
       const code = data?.code ? ` (code: ${data.code})` : '';
-      playerStore.notify(`${msg}${code}`, status >= 500 ? 'error' : 'info');
+      playerStore.notify(`${msg}${code}`, 'error');
     }
 
     return Promise.reject(error);

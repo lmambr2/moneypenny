@@ -67,7 +67,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 
 const currentStep = ref(0);
@@ -82,7 +82,7 @@ const defaultChannel = ref('');
 
 async function createBotAndNext() {
   try {
-    await axios.post('/api/bot', {
+    await api.post('/api/bot', {
       name: `Bot - ${serverAddress.value}`,
       serverAddress: serverAddress.value,
       serverPort: serverPort.value,
