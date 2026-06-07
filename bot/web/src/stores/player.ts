@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import api from '../api/api.js';
+import api from '../api/axios.js';
 
 export interface Song {
   id: string;
