@@ -144,8 +144,10 @@ export class BotInstance extends EventEmitter {
     this.controlRouter = new ControlRouter(this.logger, this.llmModule ?? undefined);
 
     // Rank gating (DESIGN §8). Use an explicit ruleset if provided, else derive
-    // a default from adminGroups. Disabled → no gating (legacy behavior).
-    if (this.config.rightsEnabled) {
+    // a default from adminGroups. Default ON / fail-safe (audit F-4): a missing
+    // flag (older config) is treated as enabled so privileged + LLM-driven
+    // actions are never ungated by accident. Only an explicit false opts out.
+    if (this.config.rightsEnabled ?? true) {
       this.rightsEngine = new RightsEngine(this.config.rights ?? defaultRightsConfig(this.config.adminGroups));
       this.logger.info("Rank gating enabled");
     }
@@ -1385,7 +1387,6 @@ export class BotInstance extends EventEmitter {
       `${p}mode <seq|loop|random|rloop> — Play mode`,
       `${p}playlist <name or id> — Load playlist by name or ID (Local/YouTube)`,
       `${p}album <id>   — Load album (where supported)`,
-      `${p}fm           — Personal FM (NetEase)`,
       `${p}artist <name> — Play songs by artist (loop, Local/YouTube)`,
       `${p}vote         — Vote to skip`,
       `${p}lyrics       — Show lyrics`,

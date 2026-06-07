@@ -29,7 +29,7 @@ export function createBotRouter(
       llmEnabled: config.llmEnabled ?? false,
       llmUrl: config.llmUrl ?? "",
       llmModel: config.llmModel ?? "",
-      rightsEnabled: config.rightsEnabled ?? false,
+      rightsEnabled: config.rightsEnabled ?? true,
       adminGroups: config.adminGroups ?? [],
       rights: config.rights ?? null,
     });
@@ -111,7 +111,7 @@ export function createBotRouter(
     for (const bot of botManager.getAllBots()) {
       if (touched.idle) bot.updateIdleTimeout(config.idleTimeoutMinutes ?? 0);
       if (touched.llm) bot.updateLlm(config.llmEnabled ?? false, config.llmUrl, config.llmModel);
-      if (touched.rights) bot.updateRights(config.rightsEnabled ?? false, config.rights);
+      if (touched.rights) bot.updateRights(config.rightsEnabled ?? true, config.rights);
     }
 
     res.json({ ok: true });

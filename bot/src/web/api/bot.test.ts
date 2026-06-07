@@ -72,7 +72,7 @@ describe("bot settings router", () => {
   it("GET /settings reaches the settings handler (not shadowed by /:id)", async () => {
     const res = await request(app).get("/api/bot/settings").set("Cookie", adminCookie);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ llmEnabled: false, rightsEnabled: false, adminGroups: [] });
+    expect(res.body).toMatchObject({ llmEnabled: false, rightsEnabled: true, adminGroups: [] });
   });
 
   it("POST /settings requires admin", async () => {

@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import type { Dirent } from "node:fs";
 import * as musicMetadata from "music-metadata";
 import type {
   MusicProvider,
@@ -31,6 +33,10 @@ export class LocalProvider implements MusicProvider {
   private songs: IndexedSong[] = [];
   private indexed = false;
   private indexingPromise: Promise<void> | null = null;
+  // Opaque public ID -> real filesystem path. Keeps absolute paths out of every
+  // field that crosses the API (audit F-2); getSongUrl resolves back through it.
+  private idToPath = new Map<string, string>();
+  private playlistIdToPath = new Map<string, string>();
 
   private readonly supportedExtensions: Set<string>;
 
@@ -39,6 +45,11 @@ export class LocalProvider implements MusicProvider {
     this.supportedExtensions = new Set(
       (options.extensions ?? [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"]).map(e => e.toLowerCase())
     );
+  }
+
+  /** Stable, opaque public ID for a path — never expose the path itself (F-2). */
+  private opaqueId(realPath: string): string {
+    return createHash("sha1").update(realPath).digest("hex");
   }
 
   private async ensureIndexed(): Promise<void> {
@@ -55,6 +66,10 @@ export class LocalProvider implements MusicProvider {
 
   private async scanDirectory(): Promise<void> {
     this.songs = [];
+    this.idToPath.clear();
+    this.playlistIdToPath.clear();
+    this.m3uPlaylists.clear();
+    this.m3uSongs.clear();
     try {
       await this.walk(this.musicDir);
       console.log(`[LocalProvider] Indexed ${this.songs.length} tracks from ${this.musicDir}`);
@@ -63,33 +78,57 @@ export class LocalProvider implements MusicProvider {
     }
   }
 
-  private async walk(dir: string): Promise<void> {
-    let entries: string[];
+  // Bound recursion as belt-and-suspenders against pathological trees. Real
+  // directory trees can't cycle once we refuse to follow symlinked dirs.
+  private static readonly MAX_WALK_DEPTH = 64;
+
+  private async walk(dir: string, depth = 0): Promise<void> {
+    if (depth > LocalProvider.MAX_WALK_DEPTH) {
+      console.warn(`[LocalProvider] Max directory depth reached, skipping: ${dir}`);
+      return;
+    }
+
+    // withFileTypes gives lstat-like Dirents, so a symlinked dir reports as a
+    // symlink (not a directory) and we never recurse into it.
+    let entries: Dirent[];
     try {
-      entries = await fs.readdir(dir);
+      entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
 
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry);
-      let stat: Awaited<ReturnType<typeof fs.stat>>;
-      try {
-        stat = await fs.stat(fullPath);
-      } catch {
-        continue;
+      const fullPath = path.join(dir, entry.name);
+
+      // F-1: never follow symlinked directories — a `music/loop -> .` cycle or a
+      // `music/x -> /` escape would otherwise hang/DoS the indexer. Symlinked
+      // *files* are still allowed; indexFile re-checks realpath containment.
+      if (entry.isSymbolicLink()) {
+        let st: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+          st = await fs.stat(fullPath);
+        } catch {
+          continue; // dangling symlink
+        }
+        if (st.isFile()) await this.indexByExtension(fullPath);
+        continue; // symlinked dirs (and anything else) are skipped
       }
 
-      if (stat.isDirectory()) {
-        await this.walk(fullPath);
-      } else if (stat.isFile()) {
-        const ext = path.extname(fullPath).toLowerCase();
-        if (this.supportedExtensions.has(ext)) {
-          await this.indexFile(fullPath);
-        } else if (ext === '.m3u' || ext === '.m3u8') {
-          await this.indexM3uFile(fullPath);
-        }
+      if (entry.isDirectory()) {
+        await this.walk(fullPath, depth + 1);
+      } else if (entry.isFile()) {
+        await this.indexByExtension(fullPath);
       }
+    }
+  }
+
+  /** Index a regular file by extension (audio track or m3u playlist). */
+  private async indexByExtension(fullPath: string): Promise<void> {
+    const ext = path.extname(fullPath).toLowerCase();
+    if (this.supportedExtensions.has(ext)) {
+      await this.indexFile(fullPath);
+    } else if (ext === '.m3u' || ext === '.m3u8') {
+      await this.indexM3uFile(fullPath);
     }
   }
 
@@ -111,8 +150,11 @@ export class LocalProvider implements MusicProvider {
 
       const common = metadata.common;
 
+      const id = this.opaqueId(realPath);
+      this.idToPath.set(id, realPath);
+
       const song: IndexedSong = {
-        id: realPath, // Use real absolute path as stable ID
+        id, // opaque, stable ID (F-2: never the raw filesystem path)
         name: common.title || path.basename(realPath, path.extname(realPath)),
         artist: common.artist || common.albumartist || "Unknown Artist",
         album: common.album || "Unknown Album",
@@ -166,8 +208,11 @@ export class LocalProvider implements MusicProvider {
   }
 
   async getSongUrl(songId: string): Promise<string | null> {
-    // songId is the absolute real path we stored
-    const safePath = await this.safeResolve(songId);
+    // Map an opaque ID back to its path; fall back to treating the input as a
+    // path (m3u entries, direct user input). safeResolve is the single security
+    // boundary and always enforces music-dir containment.
+    const candidate = this.idToPath.get(songId) ?? songId;
+    const safePath = await this.safeResolve(candidate);
     if (!safePath) return null;
     return safePath; // ffmpeg / the player can play local file paths directly
   }
@@ -263,14 +308,17 @@ export class LocalProvider implements MusicProvider {
       if (songs.length === 0) return;
 
       const name = path.basename(realPath, path.extname(realPath));
+      const id = this.opaqueId(realPath);
+      this.playlistIdToPath.set(id, realPath);
       const playlist: Playlist = {
-        id: realPath,
+        id, // opaque (F-2)
         name,
         coverUrl: '',
         songCount: songs.length,
         platform: 'local',
       };
 
+      // Internal maps stay keyed by real path (resolve() looks up by path).
       this.m3uPlaylists.set(realPath, playlist);
       this.m3uSongs.set(realPath, songs);
     } catch {
@@ -308,9 +356,12 @@ export class LocalProvider implements MusicProvider {
 
       // This is a file path (relative or absolute)
       const filePath = path.resolve(baseDir, trimmed);
-      // We don't fully validate here — getSongUrl will do the security check later
+      // Path isn't validated here — getSongUrl runs the containment check at play
+      // time. The ID is opaque so the path never crosses the API (F-2).
+      const id = this.opaqueId(filePath);
+      this.idToPath.set(id, filePath);
       songs.push({
-        id: filePath,
+        id,
         name: currentName || path.basename(trimmed, path.extname(trimmed)),
         artist: currentArtist,
         album: 'Playlist',
@@ -328,7 +379,8 @@ export class LocalProvider implements MusicProvider {
 
   async getPlaylistSongs(playlistId: string): Promise<Song[]> {
     await this.ensureIndexed();
-    return this.m3uSongs.get(playlistId) ?? [];
+    const realPath = this.playlistIdToPath.get(playlistId) ?? playlistId;
+    return this.m3uSongs.get(realPath) ?? [];
   }
 
   // --- Certainty-based resolve (DESIGN §7.4) ---
@@ -361,10 +413,12 @@ export class LocalProvider implements MusicProvider {
 
       // It's a valid audio file even if not pre-indexed (e.g. new file)
       const name = path.basename(safePath, path.extname(safePath));
+      const id = this.opaqueId(safePath);
+      this.idToPath.set(id, safePath);
       return {
         type: 'song',
         item: {
-          id: safePath,
+          id,
           name,
           artist: 'Unknown',
           album: 'Unknown',
