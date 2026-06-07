@@ -15,7 +15,7 @@ export function createAuthRouter(
       res.json({ platform: youtubeProvider.platform || "youtube", ...status });
     } catch (err) {
       logger.error({ err }, "Auth status check failed");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 

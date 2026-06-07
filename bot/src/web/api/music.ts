@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { MusicProvider } from "../../music/provider.js";
 import { YouTubeProvider } from "../../music/youtube.js";
 import type { Logger } from "../../logger.js";
+import { createRateLimit } from "../middleware/rateLimit.js";
 
 export function createMusicRouter(
   localProvider: MusicProvider,
@@ -31,11 +32,12 @@ export function createMusicRouter(
       res.json({ resolved: false });
     } catch (err) {
       logger.error({ err }, "Resolve failed");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 
-  router.get("/search", async (req, res) => {
+  const searchLimit = createRateLimit({ capacity: 30, refillPerSec: 2 });
+  router.get("/search", searchLimit, async (req, res) => {
     try {
       const { q, platform, limit } = req.query;
       if (!q) {
@@ -50,7 +52,7 @@ export function createMusicRouter(
       res.json(result);
     } catch (err) {
       logger.error({ err }, "Search failed");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -71,7 +73,7 @@ export function createMusicRouter(
       });
     } catch (err) {
       logger.error({ err }, "Unified search failed");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 

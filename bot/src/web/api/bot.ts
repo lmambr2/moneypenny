@@ -270,7 +270,7 @@ export function createBotRouter(
       res.status(201).json(bot.getStatus());
     } catch (err) {
       logger.error({ err }, "Failed to create bot");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -291,7 +291,7 @@ export function createBotRouter(
       res.json({ success: true });
     } catch (err) {
       logger.error({ err }, "Failed to update bot");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -301,7 +301,8 @@ export function createBotRouter(
       await botManager.removeBot(id);
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Bot management error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -311,7 +312,8 @@ export function createBotRouter(
       await botManager.startBot(id);
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Bot management error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -321,7 +323,8 @@ export function createBotRouter(
       botManager.stopBot(id);
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Bot management error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 

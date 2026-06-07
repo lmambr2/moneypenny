@@ -5,6 +5,7 @@ import type { MusicProvider } from "../../music/provider.js";
 import type { Logger } from "../../logger.js";
 import { parseCommand } from "../../bot/commands.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
+import { createRateLimit } from "../middleware/rateLimit.js";
 
 export function createPlayerRouter(
   botManager: BotManager,
@@ -24,6 +25,10 @@ export function createPlayerRouter(
     (req as any).bot = bot;
     next();
   });
+
+  // Rate limit player actions to prevent abuse/DoS (generous for UI use)
+  const playerLimit = createRateLimit({ capacity: 60, refillPerSec: 5 });
+  router.use(playerLimit);
 
   /** Map API platform string to the corresponding command flag. */
   const platformFlag = (platform: unknown): string => {
