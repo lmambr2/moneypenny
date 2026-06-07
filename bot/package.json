@@ -30,6 +30,9 @@
     "ws": "^8.20.0",
     "yt-dlp-wrap": "^2.3.12"
   },
+  "overrides": {
+    "tar": "^6.2.1"
+  },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",

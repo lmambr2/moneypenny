@@ -444,6 +444,11 @@ export class BotInstance extends EventEmitter {
         // current music; ducking + resume is a polish item (Phase 3).
         this.player.resetFailures();
         this.player.play(file);
+        // Best-effort cleanup of the reply file shortly after playback starts
+        // (player may have its own temp handling; this reduces accumulation).
+        setTimeout(() => {
+          try { rmSync(file, { force: true }); } catch {}
+        }, 3000);
       },
     };
   }
