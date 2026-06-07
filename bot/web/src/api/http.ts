@@ -1,5 +1,6 @@
 import router from '../router/index.js';
 import { useSession } from '../composables/useSession.js';
+import { usePlayerStore } from '../stores/player.js';
 
 let installed = false;
 const nativeFetch: typeof window.fetch = window.fetch.bind(window);
@@ -8,6 +9,8 @@ const nativeFetch: typeof window.fetch = window.fetch.bind(window);
  * Wraps fetch so every call:
  *   - sends cookies (`credentials: 'same-origin'`)
  *   - on 401 from /api/*: clear local session, redirect to /login
+ *   - on 429 (rate limit): show a friendly toast with retry guidance
+ *   - on 403 (forbidden): show a permission denied message
  *
  * Always uses the captured native fetch, never the (possibly wrapped) global.
  */
@@ -18,6 +21,8 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
     headers: { ...(init.headers ?? {}) },
   };
   return nativeFetch(input, merged).then(async (res) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
     if (res.status === 401 && shouldTriggerRefresh(input)) {
       const session = useSession();
       await session.refresh();
@@ -25,7 +30,33 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
       if (current.name !== 'login' && current.name !== 'first-run') {
         await router.replace({ name: 'login', query: { next: current.fullPath } });
       }
+      return res;
     }
+
+    if (res.status === 429) {
+      try {
+        const data = await res.clone().json();
+        const msg = data?.message || data?.error || 'Rate limited. Please slow down.';
+        const store = usePlayerStore();
+        store.notify(msg, 'error');
+      } catch {
+        const store = usePlayerStore();
+        store.notify('Too many requests. Please wait a moment before trying again.', 'error');
+      }
+    }
+
+    if (res.status === 403 && url.startsWith('/api/')) {
+      try {
+        const data = await res.clone().json();
+        const msg = data?.message || 'You do not have permission to perform this action.';
+        const store = usePlayerStore();
+        store.notify(msg, 'error');
+      } catch {
+        const store = usePlayerStore();
+        store.notify('Permission denied.', 'error');
+      }
+    }
+
     return res;
   });
 }

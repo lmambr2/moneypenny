@@ -27,7 +27,11 @@ export function createPlayerRouter(
   });
 
   // Rate limit player actions to prevent abuse/DoS (generous for UI use)
-  const playerLimit = createRateLimit({ capacity: 60, refillPerSec: 5 });
+  const playerLimit = createRateLimit({
+    capacity: 60,
+    refillPerSec: 5,
+    message: (waitSec) => `Player actions rate limited. Please wait ${waitSec}s before issuing more commands.`,
+  });
   router.use(playerLimit);
 
   /** Map API platform string to the corresponding command flag. */

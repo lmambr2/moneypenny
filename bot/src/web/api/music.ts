@@ -36,7 +36,11 @@ export function createMusicRouter(
     }
   });
 
-  const searchLimit = createRateLimit({ capacity: 30, refillPerSec: 2 });
+  const searchLimit = createRateLimit({
+    capacity: 30,
+    refillPerSec: 2,
+    message: (waitSec) => `Search rate limited (indexing is expensive). Please wait ${waitSec}s.`,
+  });
   router.get("/search", searchLimit, async (req, res) => {
     try {
       const { q, platform, limit } = req.query;

@@ -12,6 +12,8 @@ interface RateLimitOptions {
   refillPerSec: number;
   /** Optional key function; defaults to req.ip. */
   keyFn?: (req: Request) => string;
+  /** Optional custom error message (can be static or a function receiving wait seconds). */
+  message?: string | ((waitSec: number) => string);
 }
 
 /**
@@ -54,7 +56,21 @@ export function createRateLimit(options: RateLimitOptions): RequestHandler {
     if (b.tokens < 1) {
       const waitSec = Math.ceil((1 - b.tokens) / options.refillPerSec);
       res.setHeader("Retry-After", String(waitSec));
-      res.status(429).json({ error: "rate limit exceeded" });
+
+      let userMessage: string;
+      if (typeof options.message === 'function') {
+        userMessage = options.message(waitSec);
+      } else if (options.message) {
+        userMessage = options.message;
+      } else {
+        userMessage = `Too many requests. Please try again in ${waitSec} second${waitSec === 1 ? "" : "s"}.`;
+      }
+
+      res.status(429).json({
+        error: "rate limit exceeded",
+        message: userMessage,
+        retryAfter: waitSec,
+      });
       return;
     }
     b.tokens -= 1;
