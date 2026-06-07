@@ -48,7 +48,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import CoverArt from '../components/CoverArt.vue';
 
@@ -96,7 +96,7 @@ async function fetchLyrics() {
   activeLine.value = -1;
 
   try {
-    const res = await axios.get(`/api/music/lyrics/${currentSong.value.id}`, {
+    const res = await api.get(`/api/music/lyrics/${currentSong.value.id}`, {
       params: { platform: currentSong.value.platform },
     });
     lines.value = res.data.lyrics || [];

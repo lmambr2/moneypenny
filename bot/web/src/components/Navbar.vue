@@ -56,7 +56,7 @@
               <button
                 v-if="bot.playing || bot.paused"
                 class="bot-ctrl-btn"
-                :disabled="!bot.connected"
+                :disabled="!bot.connected || store.isRateLimited"
                 @click.stop="store.pause()"
               >
                 <Icon icon="mdi:stop" /> Stop
@@ -71,7 +71,7 @@
               </button>
               <button
                 class="bot-ctrl-btn"
-                :disabled="!bot.connected || (!bot.playing && !bot.paused)"
+                :disabled="!bot.connected || (!bot.playing && !bot.paused) || store.isRateLimited"
                 @click.stop="store.next()"
                 title="Next"
               >

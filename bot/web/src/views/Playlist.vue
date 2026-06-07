@@ -46,7 +46,7 @@
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { Icon } from '@iconify/vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import CoverArt from '../components/CoverArt.vue';
 import SongCard from '../components/SongCard.vue';
@@ -97,8 +97,8 @@ onMounted(async () => {
   // the "not found" empty state. For albums, detail always 404s — that
   // is intentional; the fallback stub below handles it.
   const [detailRes, songsRes] = await Promise.allSettled([
-    axios.get(detailUrl, { params: { platform } }),
-    axios.get(songsUrl, { params: { platform } }),
+    api.get(detailUrl, { params: { platform } }),
+    api.get(songsUrl, { params: { platform } }),
   ]);
 
   const detail = detailRes.status === 'fulfilled' ? detailRes.value.data?.playlist : null;

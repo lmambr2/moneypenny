@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue';
-import axios from 'axios';
+import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import AvatarUpload from './AvatarUpload.vue';
 
@@ -17,7 +17,7 @@ let initializing = true;
 
 async function loadCurrent() {
   try {
-    const res = await axios.get(`/api/bot/${props.botId}/avatar`, { responseType: 'blob' });
+    const res = await api.get(`/api/bot/${props.botId}/avatar`, { responseType: 'blob' });
     const blob = res.data as Blob;
     avatarDataUrl.value = await blobToDataUrl(blob);
   } catch (err: any) {
@@ -49,9 +49,9 @@ watch(avatarDataUrl, async (newVal, oldVal) => {
   if (newVal === oldVal) return;
   try {
     if (newVal && newVal.startsWith('data:')) {
-      await axios.put(`/api/bot/${props.botId}/avatar`, { dataUrl: newVal });
+      await api.put(`/api/bot/${props.botId}/avatar`, { dataUrl: newVal });
     } else if (newVal === null) {
-      await axios.delete(`/api/bot/${props.botId}/avatar`);
+      await api.delete(`/api/bot/${props.botId}/avatar`);
     }
   } catch (err: any) {
     const playerStore = usePlayerStore();
