@@ -31,7 +31,7 @@ import {
 } from "../voice/index.js";
 import { createOpusEncoder, type Encoder } from "../audio/encoder.js";
 import type { TS3VoiceData } from "../ts-protocol/client.js";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -210,6 +210,7 @@ export class BotInstance extends EventEmitter {
       // short-circuited on !this.connected, leaving player stuck as "playing".
       this.connected = false;
       this.player.stop();
+      this.cleanupVoice();
       // Only emit externally once per lifecycle so clients don't see a
       // duplicate "disconnected" after an explicit disconnect() call.
       if (this.disconnectEmitted) return;
@@ -273,7 +274,7 @@ export class BotInstance extends EventEmitter {
   disconnect(): void {
     this._cancelIdleTimer();
     this.player.stop();
-    this.voiceSegmenters.clear();
+    this.cleanupVoice();
     this.clientInfoCache.clear();
     this.connected = false;
     if (!this.disconnectEmitted) {
@@ -361,6 +362,9 @@ export class BotInstance extends EventEmitter {
         this.logger.info({ transcript, reply, speakerUid }, "Voice turn"),
     });
 
+    // Ensure any previous temp dir is cleaned if voice is re-enabled on same instance
+    this.cleanupVoice();
+
     this.tsClient.on("voiceData", (v: TS3VoiceData) => this.handleVoiceData(v));
     this.logger.info({ stt: true, tts: !!tts }, "Voice pipeline enabled");
   }
@@ -442,6 +446,19 @@ export class BotInstance extends EventEmitter {
         this.player.play(file);
       },
     };
+  }
+
+  /** Clean up per-speaker VAD segmenters and the TTS temp directory to prevent leaks. */
+  private cleanupVoice(): void {
+    this.voiceSegmenters.clear();
+    if (this.voiceTempDir) {
+      try {
+        rmSync(this.voiceTempDir, { recursive: true, force: true });
+      } catch {
+        // best effort
+      }
+      this.voiceTempDir = null;
+    }
   }
 
   /**
