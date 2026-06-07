@@ -47,7 +47,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -63,7 +64,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -74,7 +76,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   };
 
@@ -107,7 +110,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -127,7 +131,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -153,7 +158,8 @@ export function createPlayerRouter(
       bot.getPlayer().seek(position);
       res.json({ message: `Seeked to ${Math.floor(position)}s`, seekOffset: position });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -169,7 +175,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -204,7 +211,8 @@ export function createPlayerRouter(
       }
       res.json({ message: `Now playing: ${song.name} - ${song.artist}` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -219,7 +227,8 @@ export function createPlayerRouter(
       const response = await bot.executeCommand(cmd);
       res.json({ message: response });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -406,7 +415,8 @@ export function createPlayerRouter(
 
       res.json({ ok: true, message: `Now playing: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -446,7 +456,8 @@ export function createPlayerRouter(
 
       res.json({ ok: true, message: `Added next: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -473,7 +484,8 @@ export function createPlayerRouter(
 
       res.json({ message: `Added to queue: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'} (position ${queue.size()})` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -505,7 +517,8 @@ export function createPlayerRouter(
 
       res.json({ message: `Added: ${song.name} - ${song.artist} (position ${queue.size()})` });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -526,7 +539,8 @@ export function createPlayerRouter(
       }
       res.json(pm.getConfig());
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error({ err }, "Player API error");
+      res.status(500).json({ error: "internal error" });
     }
   });
 

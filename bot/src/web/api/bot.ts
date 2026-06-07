@@ -163,7 +163,8 @@ export function createBotRouter(
 
   // Get saved config for a bot (contains TS passwords/keys — admin only)
   router.get("/:id/config", requireAdmin, (req, res) => {
-    const saved = botManager.getBotConfig(req.params.id);
+    const id = req.params.id as string;
+    const saved = botManager.getBotConfig(id);
     if (!saved) {
       res.status(404).json({ error: "Bot config not found" });
       return;
