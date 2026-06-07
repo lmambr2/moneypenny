@@ -193,7 +193,7 @@ export function createBotRouter(
     res.send(buf);
   });
 
-  router.put("/:id/avatar", (req, res) => {
+  router.put("/:id/avatar", requireAdmin, (req, res) => {
     const exists =
       botManager.getBot(req.params.id) ||
       botDb.getBotInstances().some((b) => b.id === req.params.id);
@@ -227,7 +227,7 @@ export function createBotRouter(
     res.json({ path: rel });
   });
 
-  router.delete("/:id/avatar", (req, res) => {
+  router.delete("/:id/avatar", requireAdmin, (req, res) => {
     const path = botDb.getCustomAvatarPath(req.params.id);
     if (path) avatarStore.remove(path);
     botDb.setCustomAvatarPath(req.params.id, null);
@@ -235,7 +235,7 @@ export function createBotRouter(
     res.status(204).end();
   });
 
-  router.post("/", async (req, res) => {
+  router.post("/", requireAdmin, async (req, res) => {
     try {
       const {
         name,
@@ -271,7 +271,7 @@ export function createBotRouter(
   });
 
   // Update bot config (must be stopped first to apply connection changes)
-  router.put("/:id", async (req, res) => {
+  router.put("/:id", requireAdmin, async (req, res) => {
     try {
       const bot = botManager.getBot(req.params.id);
       if (!bot) {
@@ -290,7 +290,7 @@ export function createBotRouter(
     }
   });
 
-  router.delete("/:id", async (req, res) => {
+  router.delete("/:id", requireAdmin, async (req, res) => {
     try {
       await botManager.removeBot(req.params.id);
       res.json({ success: true });
@@ -299,7 +299,7 @@ export function createBotRouter(
     }
   });
 
-  router.post("/:id/start", async (req, res) => {
+  router.post("/:id/start", requireAdmin, async (req, res) => {
     try {
       await botManager.startBot(req.params.id);
       res.json({ success: true });
@@ -308,7 +308,7 @@ export function createBotRouter(
     }
   });
 
-  router.post("/:id/stop", (req, res) => {
+  router.post("/:id/stop", requireAdmin, (req, res) => {
     try {
       botManager.stopBot(req.params.id);
       res.json({ success: true });

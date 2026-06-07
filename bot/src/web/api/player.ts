@@ -4,6 +4,7 @@ import type { BotDatabase } from "../../data/database.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { Logger } from "../../logger.js";
 import { parseCommand } from "../../bot/commands.js";
+import { requireAdmin } from "../middleware/requireAdmin.js";
 
 export function createPlayerRouter(
   botManager: BotManager,
@@ -81,10 +82,10 @@ export function createPlayerRouter(
   router.post("/:botId/resume", simpleCommand("!resume"));
   router.post("/:botId/next", simpleCommand("!next"));
   router.post("/:botId/prev", simpleCommand("!prev"));
-  router.post("/:botId/stop", simpleCommand("!stop"));
-  router.post("/:botId/clear", simpleCommand("!clear"));
+  router.post("/:botId/stop", requireAdmin, simpleCommand("!stop"));
+  router.post("/:botId/clear", requireAdmin, simpleCommand("!clear"));
 
-  router.post("/:botId/volume", async (req, res) => {
+  router.post("/:botId/volume", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { volume } = req.body;
@@ -112,7 +113,7 @@ export function createPlayerRouter(
 
   const VALID_MODES = new Set(["seq", "loop", "random", "rloop"]);
 
-  router.post("/:botId/mode", async (req, res) => {
+  router.post("/:botId/mode", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { mode } = req.body;
@@ -137,7 +138,7 @@ export function createPlayerRouter(
   });
 
   // Seek to position
-  router.post("/:botId/seek", async (req, res) => {
+  router.post("/:botId/seek", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { position } = req.body; // seconds
@@ -161,7 +162,7 @@ export function createPlayerRouter(
     res.json({ queue: bot.getQueue(), status: bot.getStatus() });
   });
 
-  router.delete("/:botId/queue/:index", async (req, res) => {
+  router.delete("/:botId/queue/:index", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const cmd = parseCommand(`!remove ${req.params.index}`, "!")!;
@@ -173,7 +174,7 @@ export function createPlayerRouter(
   });
 
   // Jump to a specific index in the queue (without clearing it)
-  router.post("/:botId/play-at", async (req, res) => {
+  router.post("/:botId/play-at", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { index } = req.body;
@@ -207,7 +208,7 @@ export function createPlayerRouter(
     }
   });
 
-  router.post("/:botId/playlist", async (req, res) => {
+  router.post("/:botId/playlist", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { playlistId, platform } = req.body;
@@ -224,7 +225,7 @@ export function createPlayerRouter(
 
   // Play a playlist by ID — stores metadata only, resolves URL for first song
   // Respects current play mode (random = pick random first song)
-  router.post("/:botId/play-playlist", async (req, res) => {
+  router.post("/:botId/play-playlist", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { playlistId, platform } = req.body;
@@ -311,7 +312,7 @@ export function createPlayerRouter(
   });
 
   // Play an album by ID — mirrors play-playlist but calls getAlbumSongs
-  router.post("/:botId/play-album", async (req, res) => {
+  router.post("/:botId/play-album", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { albumId, platform } = req.body;
@@ -383,7 +384,7 @@ export function createPlayerRouter(
   });
 
   // Play a single song by ID — resolves URL on demand
-  router.post("/:botId/play-song", async (req, res) => {
+  router.post("/:botId/play-song", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { song } = req.body;
@@ -411,7 +412,7 @@ export function createPlayerRouter(
 
   // Insert a single song to play right after the current one.
   // If nothing is playing, behaves like /play-song (start immediately).
-  router.post("/:botId/play-next-song", async (req, res) => {
+  router.post("/:botId/play-next-song", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { song } = req.body;
@@ -449,7 +450,7 @@ export function createPlayerRouter(
     }
   });
 
-  router.post("/:botId/add-song", async (req, res) => {
+  router.post("/:botId/add-song", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { song } = req.body;
@@ -477,7 +478,7 @@ export function createPlayerRouter(
   });
 
   // Add a song to queue by ID — metadata only
-  router.post("/:botId/add-by-id", async (req, res) => {
+  router.post("/:botId/add-by-id", requireAdmin, async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { songId, platform } = req.body;
@@ -515,7 +516,7 @@ export function createPlayerRouter(
     res.json(bot.getProfileManager().getConfig());
   });
 
-  router.put("/:botId/profile", (req, res) => {
+  router.put("/:botId/profile", requireAdmin, (req, res) => {
     try {
       const bot = (req as any).bot;
       const pm = bot.getProfileManager();
