@@ -69,4 +69,34 @@ describe("LocalProvider - path guard (safeResolve)", () => {
     expect(result).not.toBeNull();
     expect(result!.type).toBe("song");
   });
+
+  it("resolve() does not return a non-audio file as a playable song (F-3)", async () => {
+    await fs.writeFile(path.join(tmpDir, "music", "notes.txt"), "not audio");
+    const result = await provider.resolve("music/notes.txt");
+    expect(result).toBeNull();
+  });
+
+  it("m3u out-of-tree entries are dropped at parse time (F-3)", async () => {
+    const m3u = [
+      "#EXTM3U",
+      "#EXTINF:0,In Tree",
+      "rock/test1.mp3",
+      "#EXTINF:0,Escape",
+      "../../../../etc/passwd",
+      "/etc/shadow",
+    ].join("\n");
+    await fs.writeFile(path.join(tmpDir, "music", "list.m3u"), m3u);
+
+    const pl = await provider.resolve("music/list.m3u");
+    expect(pl).not.toBeNull();
+    expect(pl!.type).toBe("playlist");
+
+    const songs = await provider.getPlaylistSongs(pl!.item.id);
+    // Only the in-tree entry survives; the traversal + absolute escapes are gone.
+    expect(songs).toHaveLength(1);
+    expect(songs[0].name).toBe("In Tree");
+    // And no opaque ID leaks a filesystem path (F-2).
+    expect(songs[0].id).not.toContain("/");
+    expect(songs[0].id).not.toContain("passwd");
+  });
 });

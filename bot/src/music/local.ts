@@ -356,8 +356,15 @@ export class LocalProvider implements MusicProvider {
 
       // This is a file path (relative or absolute)
       const filePath = path.resolve(baseDir, trimmed);
-      // Path isn't validated here — getSongUrl runs the containment check at play
-      // time. The ID is opaque so the path never crosses the API (F-2).
+      // F-3: lexical containment check at parse time (defense in depth) so an
+      // in-dir .m3u can't introduce out-of-tree entries (../../etc/passwd,
+      // absolute paths) into the listing. getSongUrl still runs the
+      // authoritative realpath check at play time; IDs are opaque (F-2).
+      if (filePath !== this.musicDir && !filePath.startsWith(this.musicDir + path.sep)) {
+        currentName = '';
+        currentArtist = '';
+        continue;
+      }
       const id = this.opaqueId(filePath);
       this.idToPath.set(id, filePath);
       songs.push({
@@ -411,22 +418,27 @@ export class LocalProvider implements MusicProvider {
         return { type: 'playlist', item: this.m3uPlaylists.get(safePath)! };
       }
 
-      // It's a valid audio file even if not pre-indexed (e.g. new file)
-      const name = path.basename(safePath, path.extname(safePath));
-      const id = this.opaqueId(safePath);
-      this.idToPath.set(id, safePath);
-      return {
-        type: 'song',
-        item: {
-          id,
-          name,
-          artist: 'Unknown',
-          album: 'Unknown',
-          duration: 0,
-          coverUrl: '',
-          platform: 'local',
-        },
-      };
+      // It's a valid in-dir file. F-3: only treat it as a playable song if it's
+      // a supported audio extension — otherwise resolve("notes.txt") would yield
+      // a bogus song ffmpeg can't play. Fall through to filename matching instead.
+      const ext = path.extname(safePath).toLowerCase();
+      if (this.supportedExtensions.has(ext)) {
+        const name = path.basename(safePath, ext);
+        const id = this.opaqueId(safePath);
+        this.idToPath.set(id, safePath);
+        return {
+          type: 'song',
+          item: {
+            id,
+            name,
+            artist: 'Unknown',
+            album: 'Unknown',
+            duration: 0,
+            coverUrl: '',
+            platform: 'local',
+          },
+        };
+      }
     }
 
     // Medium certainty: filename match among indexed songs

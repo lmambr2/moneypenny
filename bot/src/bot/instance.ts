@@ -400,15 +400,32 @@ export class BotInstance extends EventEmitter {
   }
 
   /** Routing context for a voice turn — speaker subject (rank gating) + per-speaker history. */
-  private buildVoiceContext(u: Utterance): RouterContext {
-    const info = this.clientInfoCache.get(u.speakerClientId);
-    const subject: Subject = info
-      ? { uid: info.uid, serverGroups: info.serverGroups, nickname: info.nickname }
-      : { uid: u.speakerUid ?? `client:${u.speakerClientId}`, serverGroups: [] };
+  private async buildVoiceContext(u: Utterance): Promise<RouterContext> {
+    const subject = await this.resolveVoiceSubject(u.speakerClientId);
     u.speakerUid = subject.uid;
     const engine = this.rightsEngine;
     const canRun = engine ? (cmd: string) => engine.can(subject, cmd) : undefined;
     return { bot: this, logger: this.logger, conversationId: `voice:${subject.uid}`, canRun };
+  }
+
+  /**
+   * Resolve a speaking client's rights subject LIVE at utterance time (audit
+   * F-5). The `clientInfoCache` is keyed on the TS numeric client id, which is
+   * reused across reconnects — trusting it for a rank decision risks granting a
+   * new occupant a previous client's groups (or worse, UID-matched rules). So
+   * we re-query the channel by client id and ignore the cache for rank. On any
+   * miss/error we return a synthetic UID with no groups: lowest privilege, and
+   * a UID that can't match a real rights rule.
+   */
+  private async resolveVoiceSubject(clid: number): Promise<Subject> {
+    try {
+      const clients = await this.tsClient.getClientsInChannel();
+      const c = clients.find((cl) => cl.id === clid);
+      if (c) return { uid: c.uid, serverGroups: c.serverGroups ?? [], nickname: c.nickname };
+    } catch (err) {
+      this.logger.warn({ err, clid }, "Voice: live subject resolution failed — defaulting to lowest privilege");
+    }
+    return { uid: `client:${clid}`, serverGroups: [] };
   }
 
   /** Play a synthesized reply through the same AudioPlayer (interrupts music). */

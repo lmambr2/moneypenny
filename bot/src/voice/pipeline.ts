@@ -5,8 +5,10 @@ import type { SttProvider, TtsProvider, VoiceOutput, Utterance } from "./types.j
 export interface VoicePipelineOptions {
   router: ControlRouter;
   stt: SttProvider;
-  /** Build the routing context (subject for rank gating, conversationId) for a speaker. */
-  buildContext: (utterance: Utterance) => RouterContext;
+  /** Build the routing context (subject for rank gating, conversationId) for a
+   * speaker. May be async so the subject can be resolved live (rank decisions
+   * must not trust a cached, reusable client-id binding — audit F-5). */
+  buildContext: (utterance: Utterance) => RouterContext | Promise<RouterContext>;
   tts?: TtsProvider;
   output?: VoiceOutput;
   /** Speak replies back via TTS when both tts and output are present. */
@@ -47,7 +49,7 @@ export class VoicePipeline {
     }
     if (!transcript) return null;
 
-    const context = this.opts.buildContext(utterance);
+    const context = await this.opts.buildContext(utterance);
     let reply: string | null = null;
     try {
       const decision = await this.opts.router.routeVoice(transcript, context, this.opts.aliases ?? {});
