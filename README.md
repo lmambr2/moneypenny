@@ -56,6 +56,11 @@ ssh -L 3000:localhost:3000 youruser@<pi-ip-address>
 
 Then open **http://localhost:3000** in your browser on the PC. The traffic is securely tunneled over SSH.
 
+<<<<<<< HEAD
+=======
+(See the "Dummy-Proof Section" below for what to do on first load, plus the troubleshooting box there if you don't see the first-time setup form — it covers the legacy `tsmusicbot.db` filename and the need to `docker compose build` after renames.)
+
+>>>>>>> dev
 ### Open the port on the LAN (quick & dirty)
 On the Pi, edit `docker-compose.yml` and change the bot service ports line from:
 
@@ -112,6 +117,33 @@ After `docker compose up` or the installer finishes:
    - **Voice (optional)**: Enable the voice loop only after you've started the `kokoro` (and optionally sherpa-onnx) sidecars.
 
 4. Add your bot in the UI (or let the `PHASE0_*` variables in `.env` auto-create one on first start).
+
+**If you don't see the first-time setup screen** (you get the normal "Login to Moneypenny" form instead):
+
+The screen only appears when the users table is empty (`/api/session/needs-setup` returns `true`).
+
+- Stop the bot: `docker compose stop bot`
+- Wipe the DB + config (this forces a clean first-run; also covers the legacy filename from the TSMusicBot → Moneypenny rename):
+  ```bash
+  rm -f bot/data/moneypenny.db* bot/data/tsmusicbot.db* bot/data/config.json
+  ```
+- (Re)start: `docker compose up -d` (use the same profile / compose-file flags you normally use).
+- Hard-refresh the browser (or open an incognito window) and go through the tunnel again.
+
+You may also need to rebuild the image after source changes/renames:
+
+```bash
+docker compose build bot   # or --no-cache bot
+docker compose up -d
+```
+
+If the container cannot create `bot/data/moneypenny.db` you will see crashes on startup. Make sure the host directory is writable by uid 1000:
+
+```bash
+mkdir -p bot/data && sudo chown -R 1000:1000 bot/data
+```
+
+Check logs with `docker compose logs -f bot` for messages about the DB path or any "Migrated legacy..." line. See also the "Accessing the Web UI..." section above for the SSH tunnel and the compose port publishing notes.
 
 5. Test basic playback with `!play <song or youtube url>` in your TS channel.
 

@@ -139,7 +139,7 @@
         </div>
         <div class="form-group">
           <label>Nickname</label>
-          <input v-model="newBotNickname" class="input" placeholder="MusicBot" />
+          <input v-model="newBotNickname" class="input" placeholder="Moneypenny" />
         </div>
         <div class="form-group">
           <label>Default Channel (optional)</label>
@@ -507,7 +507,7 @@ function botStatusText(bot: any) {
 const newBotName = ref('');
 const newBotServer = ref('');
 const newBotPort = ref(9987);
-const newBotNickname = ref('MusicBot');
+const newBotNickname = ref('Moneypenny');
 const newBotChannel = ref('');
 const newBotServerPassword = ref('');
 const newBotAvatar = ref<string | null>(null);
@@ -550,7 +550,7 @@ async function createBot() {
     newBotName.value = '';
     newBotServer.value = '';
     newBotPort.value = 9987;
-    newBotNickname.value = 'MusicBot';
+    newBotNickname.value = 'Moneypenny';
     newBotChannel.value = '';
     newBotServerPassword.value = '';
     newBotAvatar.value = null;

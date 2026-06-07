@@ -325,7 +325,7 @@ async function testFullStack() {
       name: "Test Bot",
       serverAddress: HOST,
       serverPort: VOICE_PORT,
-      nickname: "MusicBot-FullTest",
+      nickname: "Moneypenny-FullTest",
       autoStart: false,
     }),
   });
