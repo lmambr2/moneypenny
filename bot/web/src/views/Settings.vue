@@ -631,13 +631,13 @@ async function loadIdleTimeout() {
   try {
     const res = await axios.get('/api/bot/settings');
     idleTimeout.value = res.data.idleTimeoutMinutes ?? 0;
-  } catch { /* ignore */ }
+  } catch (e) { console.error('Settings load/save failed', e); }
 }
 
 async function saveIdleTimeout() {
   try {
     await axios.post('/api/bot/settings', { idleTimeoutMinutes: idleTimeout.value });
-  } catch { /* ignore */ }
+  } catch (e) { console.error('Settings load/save failed', e); }
 }
 
 // --- AI & Permissions (admin only) ---
@@ -660,7 +660,7 @@ async function loadAiSettings() {
     ai.llmModel = res.data.llmModel ?? '';
     ai.rightsEnabled = !!res.data.rightsEnabled;
     ai.adminGroupsText = (res.data.adminGroups ?? []).join(', ');
-  } catch { /* ignore */ }
+  } catch (e) { console.error('Settings load/save failed', e); }
   if (ai.llmEnabled) refreshLlmStatus();
 }
 

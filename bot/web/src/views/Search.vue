@@ -167,7 +167,7 @@ const filteredPlaylists = computed(() =>
 
 // Persist source preference
 watch(selectedSource, (src) => {
-  try { localStorage.setItem(SOURCE_STORAGE_KEY, src); } catch { /* ignore */ }
+  try { localStorage.setItem(SOURCE_STORAGE_KEY, src); } catch (e) { console.warn('Failed to save source', e); }
 });
 
 // Note: old Chinese platforms removed; tabs simplified for Local/YouTube/Stream

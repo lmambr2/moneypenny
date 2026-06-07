@@ -269,9 +269,13 @@ export const usePlayerStore = defineStore('player', {
 
     async playAtIndex(index: number) {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/play-at`, { index });
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
+      try {
+        await axios.post(`/api/player/${this.activeBotId}/play-at`, { index });
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async play(query: string, platform: Source = 'local') {
@@ -287,9 +291,13 @@ export const usePlayerStore = defineStore('player', {
 
     async playById(songId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/play-by-id`, { songId, platform });
-      this._setTiming(this.activeBotId, { serverElapsed: 0 });
-      this._syncAfterAction();
+      try {
+        await axios.post(`/api/player/${this.activeBotId}/play-by-id`, { songId, platform });
+        this._setTiming(this.activeBotId, { serverElapsed: 0 });
+        this._syncAfterAction();
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     notify(message: string, type: 'error' | 'info' = 'info', retryAfter?: number) {
@@ -325,17 +333,29 @@ export const usePlayerStore = defineStore('player', {
 
     async addToQueue(query: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/add`, { query, platform });
+      try {
+        await axios.post(`/api/player/${this.activeBotId}/add`, { query, platform });
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async addToQueueById(songId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/add-by-id`, { songId, platform });
+      try {
+        await axios.post(`/api/player/${this.activeBotId}/add-by-id`, { songId, platform });
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async addSong(song: Song) {
       if (!this.activeBotId) return;
-      await axios.post(`/api/player/${this.activeBotId}/add-song`, { song });
+      try {
+        await axios.post(`/api/player/${this.activeBotId}/add-song`, { song });
+      } catch (err) {
+        this._handlePlayerError(err);
+      }
     },
 
     async playPlaylist(playlistId: string, platform: Source = 'local') {
