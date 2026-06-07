@@ -39,10 +39,10 @@ router.beforeEach(async (to) => {
     await session.refresh();
   }
 
-  if (session.needsSetup.value && to.name !== 'first-run') {
+  if (session.needsSetup.value === true && to.name !== 'first-run') {
     return { name: 'first-run' };
   }
-  if (!session.needsSetup.value && to.name === 'first-run') {
+  if (session.needsSetup.value === false && to.name === 'first-run') {
     return { name: 'home' };
   }
 

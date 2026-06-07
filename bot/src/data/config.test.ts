@@ -8,7 +8,7 @@ describe("config", () => {
   const dirs: string[] = [];
 
   function makeTmpDir(): string {
-    const dir = mkdtempSync(join(tmpdir(), "tsmusicbot-test-"));
+    const dir = mkdtempSync(join(tmpdir(), "moneypenny-test-"));
     dirs.push(dir);
     return dir;
   }

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { loadConfig, saveConfig } from "./data/config.js";
 import { createDatabase } from "./data/database.js";
@@ -27,6 +27,33 @@ const LOG_DIR = path.join(DATA_DIR, "logs");
 const AVATAR_DIR = path.join(DATA_DIR, "avatars");
 const STATIC_DIR = path.join(ROOT_DIR, "web", "dist");
 
+// Legacy DB filename from before the TSMusicBot -> Moneypenny rename.
+// We migrate on startup (rename the .db + WAL companions) so existing
+// bot_instances, play_history, and the users table (first-run state) are
+// preserved. This is the DB analogue of the LEGACY_CONFIG_PATH handling below.
+const LEGACY_DB_PATH = path.join(DATA_DIR, "tsmusicbot.db");
+if (!existsSync(DB_PATH) && existsSync(LEGACY_DB_PATH)) {
+  try {
+    renameSync(LEGACY_DB_PATH, DB_PATH);
+    for (const ext of ["-shm", "-wal"]) {
+      const old = LEGACY_DB_PATH + ext;
+      const nu = DB_PATH + ext;
+      if (existsSync(old)) {
+        try {
+          renameSync(old, nu);
+        } catch {
+          // best-effort; SQLite can often recover
+        }
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log("Migrated legacy tsmusicbot.db -> moneypenny.db (bots, history, and first-run user state preserved)");
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error("Failed to auto-migrate legacy DB file; a fresh moneypenny.db will be used:", e);
+  }
+}
+
 async function main() {
   const config = loadConfig(CONFIG_PATH);
   saveConfig(CONFIG_PATH, config);
@@ -41,6 +68,7 @@ async function main() {
     logger.error({ reason }, "Unhandled promise rejection");
   });
   const db = createDatabase(DB_PATH);
+  logger.info({ dbPath: DB_PATH }, "using SQLite database");
 
   const avatarStore = createAvatarStore(AVATAR_DIR);
 

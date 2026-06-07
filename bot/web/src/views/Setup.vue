@@ -36,7 +36,7 @@
       </div>
       <div class="form-group">
         <label>Bot Nickname</label>
-        <input v-model="nickname" placeholder="MusicBot" class="input" />
+        <input v-model="nickname" placeholder="Moneypenny" class="input" />
       </div>
       <div class="form-group">
         <label>Default Channel (optional)</label>
@@ -77,7 +77,7 @@ const adminPassword = ref('');
 const theme = ref('dark');
 const serverAddress = ref('');
 const serverPort = ref(9987);
-const nickname = ref('MusicBot');
+const nickname = ref('Moneypenny');
 const defaultChannel = ref('');
 
 async function createBotAndNext() {

@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSession } from '../composables/useSession.js';
 
@@ -28,6 +28,21 @@ const loading = ref(false);
 const router = useRouter();
 const route = useRoute();
 const session = useSession();
+
+onMounted(async () => {
+  // Re-check in case the initial router guard saw a transient null (e.g. server still starting).
+  // If needsSetup resolves to true, jump to the first-run form.
+  if (session.needsSetup.value === null || !session.ready.value) {
+    try {
+      await session.refresh();
+    } catch {
+      // best-effort; stay on login if refresh fails
+    }
+  }
+  if (session.needsSetup.value === true) {
+    router.replace({ name: 'first-run' });
+  }
+});
 
 async function submit() {
   error.value = '';

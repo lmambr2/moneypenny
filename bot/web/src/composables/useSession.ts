@@ -31,11 +31,26 @@ function stopPoll() {
 }
 
 async function refreshNeedsSetup(): Promise<void> {
-  const res = await fetch("/api/session/needs-setup", { credentials: "same-origin" });
-  if (res.ok) {
-    const body = await res.json();
-    needsSetup.value = Boolean(body.needsSetup);
+  const retries = 3;
+  const delayMs = 300;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch("/api/session/needs-setup", { credentials: "same-origin" });
+      if (res.ok) {
+        const body = await res.json();
+        needsSetup.value = Boolean(body.needsSetup);
+        return;
+      }
+    } catch {
+      // transient network / server-startup hiccup — retry
+    }
+    if (attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
+  // final failure: leave as null; guard treats it as "not first-run" (server is source of truth)
+  // eslint-disable-next-line no-console
+  console.warn("[useSession] Failed to determine needs-setup state after retries (check server logs /api/health)");
 }
 
 async function refreshMe(): Promise<void> {
