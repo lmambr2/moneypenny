@@ -221,7 +221,11 @@ export function createPlayerRouter(
     }
   });
 
-  router.post("/:botId/playlist", requireAdmin, async (req, res) => {
+  // Music-request endpoints (play/queue a specific song, playlist, or album) are
+  // available to any authenticated user — same capability as /play and /add, and
+  // what the web UI uses for normal playback. Only disruptive/curational controls
+  // (stop, clear, volume, mode, seek, remove, play-at, profile) require admin.
+  router.post("/:botId/playlist", async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { playlistId, platform } = req.body;
@@ -239,7 +243,7 @@ export function createPlayerRouter(
 
   // Play a playlist by ID — stores metadata only, resolves URL for first song
   // Respects current play mode (random = pick random first song)
-  router.post("/:botId/play-playlist", requireAdmin, async (req, res) => {
+  router.post("/:botId/play-playlist", async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { playlistId, platform } = req.body;
@@ -326,7 +330,7 @@ export function createPlayerRouter(
   });
 
   // Play an album by ID — mirrors play-playlist but calls getAlbumSongs
-  router.post("/:botId/play-album", requireAdmin, async (req, res) => {
+  router.post("/:botId/play-album", async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { albumId, platform } = req.body;
@@ -398,7 +402,7 @@ export function createPlayerRouter(
   });
 
   // Play a single song by ID — resolves URL on demand
-  router.post("/:botId/play-song", requireAdmin, async (req, res) => {
+  router.post("/:botId/play-song", async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { song } = req.body;
@@ -427,7 +431,7 @@ export function createPlayerRouter(
 
   // Insert a single song to play right after the current one.
   // If nothing is playing, behaves like /play-song (start immediately).
-  router.post("/:botId/play-next-song", requireAdmin, async (req, res) => {
+  router.post("/:botId/play-next-song", async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { song } = req.body;
@@ -466,7 +470,7 @@ export function createPlayerRouter(
     }
   });
 
-  router.post("/:botId/add-song", requireAdmin, async (req, res) => {
+  router.post("/:botId/add-song", async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { song } = req.body;
@@ -495,7 +499,7 @@ export function createPlayerRouter(
   });
 
   // Add a song to queue by ID — metadata only
-  router.post("/:botId/add-by-id", requireAdmin, async (req, res) => {
+  router.post("/:botId/add-by-id", async (req, res) => {
     try {
       const bot = (req as any).bot;
       const { songId, platform } = req.body;

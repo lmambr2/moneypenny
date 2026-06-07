@@ -66,7 +66,7 @@ describe("bot settings router", () => {
       getStatus: () => ({ id: "b1" }),
       getPlayer: () => ({ getElapsed: () => 0, stop: () => {}, resetFailures: () => {}, seek: () => {} }),
       getQueue: () => [],
-      getQueueManager: () => ({ size: () => 0, clear: () => {}, add: () => {}, playAt: () => null, play: () => null, getCurrentIndex: () => -1, getMode: () => "seq" }),
+      getQueueManager: () => ({ size: () => 0, clear: () => {}, add: () => {}, playAt: () => null, play: () => null, current: () => ({ id: "x", platform: "local", name: "Test", artist: "A" }), getCurrentIndex: () => -1, getMode: () => "seq" }),
       resolveAndPlay: async () => true,
       getProviderFor: () => ({}),
     } as any;
@@ -184,14 +184,22 @@ describe("bot settings router", () => {
     expect(memberAdd.status).toBe(200);
   });
 
-  it("play-at, direct song/playlist force plays, and profile updates require admin", async () => {
+  it("queue-disruptive controls (play-at) and profile updates require admin", async () => {
     const memberPlayAt = await request(app).post("/api/player/b1/play-at").set("Cookie", memberCookie).send({ index: 0 });
     expect(memberPlayAt.status).toBe(403);
 
-    const memberPlaySong = await request(app).post("/api/player/b1/play-song").set("Cookie", memberCookie).send({ song: { id: "x", platform: "local" } });
-    expect(memberPlaySong.status).toBe(403);
-
     const memberProfile = await request(app).put("/api/player/b1/profile").set("Cookie", memberCookie).send({ avatarEnabled: false });
     expect(memberProfile.status).toBe(403);
+  });
+
+  it("music-request endpoints (play/queue a specific song) are available to any authenticated user", async () => {
+    // Same capability as /play and /add — and what the web UI uses for normal
+    // playback. Gating these as admin (the earlier draft) broke member playback.
+    const song = { id: "x", platform: "local", name: "Test" };
+    const memberPlaySong = await request(app).post("/api/player/b1/play-song").set("Cookie", memberCookie).send({ song });
+    expect(memberPlaySong.status).toBe(200);
+
+    const adminPlaySong = await request(app).post("/api/player/b1/play-song").set("Cookie", adminCookie).send({ song });
+    expect(adminPlaySong.status).toBe(200);
   });
 });
