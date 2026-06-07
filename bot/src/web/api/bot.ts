@@ -172,7 +172,8 @@ export function createBotRouter(
   });
 
   router.get("/:id/avatar", (req, res) => {
-    const path = botDb.getCustomAvatarPath(req.params.id);
+    const id = req.params.id as string;
+    const path = botDb.getCustomAvatarPath(id);
     if (!path) {
       res.status(404).end();
       return;
@@ -194,9 +195,10 @@ export function createBotRouter(
   });
 
   router.put("/:id/avatar", requireAdmin, (req, res) => {
+    const id = req.params.id as string;
     const exists =
-      botManager.getBot(req.params.id) ||
-      botDb.getBotInstances().some((b) => b.id === req.params.id);
+      botManager.getBot(id) ||
+      botDb.getBotInstances().some((b) => b.id === id);
     if (!exists) {
       res.status(404).json({ error: "Bot not found" });
       return;
@@ -221,17 +223,18 @@ export function createBotRouter(
       res.status(413).json({ error: "avatar exceeds 200KB limit" });
       return;
     }
-    const rel = avatarStore.write(req.params.id, mime, buf);
-    botDb.setCustomAvatarPath(req.params.id, rel);
-    botManager.getBot(req.params.id)?.getProfileManager().setCustomAvatar(buf);
+    const rel = avatarStore.write(id, mime, buf);
+    botDb.setCustomAvatarPath(id, rel);
+    botManager.getBot(id)?.getProfileManager().setCustomAvatar(buf);
     res.json({ path: rel });
   });
 
   router.delete("/:id/avatar", requireAdmin, (req, res) => {
-    const path = botDb.getCustomAvatarPath(req.params.id);
+    const id = req.params.id as string;
+    const path = botDb.getCustomAvatarPath(id);
     if (path) avatarStore.remove(path);
-    botDb.setCustomAvatarPath(req.params.id, null);
-    botManager.getBot(req.params.id)?.getProfileManager().setCustomAvatar(null);
+    botDb.setCustomAvatarPath(id, null);
+    botManager.getBot(id)?.getProfileManager().setCustomAvatar(null);
     res.status(204).end();
   });
 
@@ -273,14 +276,15 @@ export function createBotRouter(
   // Update bot config (must be stopped first to apply connection changes)
   router.put("/:id", requireAdmin, async (req, res) => {
     try {
-      const bot = botManager.getBot(req.params.id);
+      const id = req.params.id as string;
+      const bot = botManager.getBot(id);
       if (!bot) {
         res.status(404).json({ error: "Bot not found" });
         return;
       }
       const { name, serverAddress, serverPort, nickname, defaultChannel, channelPassword, serverPassword } = req.body;
       // Update in database
-      botManager.updateBot(req.params.id, {
+      botManager.updateBot(id, {
         name, serverAddress, serverPort, nickname, defaultChannel, channelPassword, serverPassword,
       });
       res.json({ success: true });
@@ -292,7 +296,8 @@ export function createBotRouter(
 
   router.delete("/:id", requireAdmin, async (req, res) => {
     try {
-      await botManager.removeBot(req.params.id);
+      const id = req.params.id as string;
+      await botManager.removeBot(id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -301,7 +306,8 @@ export function createBotRouter(
 
   router.post("/:id/start", requireAdmin, async (req, res) => {
     try {
-      await botManager.startBot(req.params.id);
+      const id = req.params.id as string;
+      await botManager.startBot(id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -310,7 +316,8 @@ export function createBotRouter(
 
   router.post("/:id/stop", requireAdmin, (req, res) => {
     try {
-      botManager.stopBot(req.params.id);
+      const id = req.params.id as string;
+      botManager.stopBot(id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
