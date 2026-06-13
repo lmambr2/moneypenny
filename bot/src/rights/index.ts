@@ -35,7 +35,7 @@ export interface RightsRule {
   /** Commands to revoke (applied after allow within the same rule). */
   deny?: string[];
   /**
-   * Optional execution context for this rule (Grok Build audit rec #4).
+   * Optional execution context for this rule.
    * "voice" or "chat" scopes the rule to only that path; "both" (default) applies everywhere.
    * Allows voice-only or chat-only allow/deny without affecting the other surface.
    */
@@ -65,7 +65,7 @@ export class RightsEngine {
     this.config = config;
   }
 
-  /** Whether `subject` may run `command`. Optional `context` gates voice-only/chat-only rules (Grok Build rec #4). Defaults to 'chat' for backward compat. */
+  /** Whether `subject` may run `command`. Optional `context` gates voice-only/chat-only rules. Defaults to 'chat' for backward compat. */
   can(subject: Subject, command: string, context: 'voice' | 'chat' = 'chat'): boolean {
     if (this.isSuperAdmin(subject)) return true;
     const allowed = this.computeAllowed(subject, context);
@@ -77,7 +77,7 @@ export class RightsEngine {
     const set = new Set<string>();
     this.applyAllow(set, this.config.defaultAllow);
     for (const rule of this.config.rules ?? []) {
-      if (rule.scope && rule.scope !== 'both' && rule.scope !== context) continue; // Grok Build: scope filter rec #4
+      if (rule.scope && rule.scope !== 'both' && rule.scope !== context) continue;
       if (!this.matches(rule, subject)) continue;
       this.applyAllow(set, rule.allow);
       this.applyDeny(set, rule.deny);
@@ -135,8 +135,7 @@ export class RightsEngine {
  * them. ("ask" is included in PUBLIC_COMMANDS, so Q&A is public by default.)
  */
 export function defaultRightsConfig(adminGroups: number[] = []): RightsConfig {
-  // Grok Build hygiene (audit rec #7): lowercase PUBLIC/ADMIN_COMMANDS at definition time
-  // for robustness (even if the source sets in commands.ts ever change casing).
+  // Lowercase at definition time for robustness (even if the source sets in commands.ts ever change casing).
   return {
     defaultAllow: [...PUBLIC_COMMANDS].map((c) => String(c).toLowerCase()),
     commandGroups: { admin: [...ADMIN_COMMANDS].map((c) => String(c).toLowerCase()) },

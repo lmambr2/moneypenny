@@ -18,7 +18,7 @@ export function createBotRouter(
 ): Router {
   const router = Router();
 
-  // ─── Global settings ─────────────────────────────────────
+  // ─── Global settings ─────────────────────────────────────────────────────────
   // NOTE: these MUST be registered before "/:id" — otherwise GET /settings is
   // captured by the "/:id" param route (id="settings") and never reaches here.
 
@@ -287,7 +287,7 @@ export function createBotRouter(
     res.json({ answer });
   });
 
-  // Grok Build audit rec #2: effective permissions debug view (per-bot via query or first).
+  // Effective permissions debug view (per-bot via query or first).
   // Supports ?uid=... to simulate a specific TS UID (resolve happens inside the bot instance).
   // Admin only. Returns the resolved subject + sorted list of allowed commands under current config.
   router.get("/rights/debug", requireAdmin, async (req, res) => {
@@ -304,7 +304,7 @@ export function createBotRouter(
         ...eff,
         botId: bot.id,
         rightsEnabled: bot.getConfig?.().rightsEnabled ?? true,
-        note: "Grok Build: computeAllowed via RightsEngine (chat context). Use ?uid=TSUID or ?botId=... for per-bot simulation. Subject groups come from live TS query or low-priv fallback.",
+        note: "computeAllowed via RightsEngine (chat context). Use ?uid=TSUID or ?botId=... for per-bot simulation. Subject groups come from live TS query or low-priv fallback.",
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "rights debug failed" });

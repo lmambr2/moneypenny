@@ -237,7 +237,6 @@ export class ControlRouter {
     // Rank gating (DESIGN §8) — the first gate. Applies to typed commands and
     // LLM-tool-derived commands alike (both reach here), so natural language
     // cannot escalate past the invoker's rank.
-    // Grok Build rec #4: voice/chat scope is already closed over in the canRun fn passed from BotInstance.
     if (context.canRun && !context.canRun(cmd.name)) {
       this.logger.debug({ command: cmd.name }, "Command denied by rights");
       return `You don't have permission to use '${cmd.name}'.`;
@@ -273,7 +272,6 @@ export class ControlRouter {
     }
 
     if (intent.mode === "ask") {
-      // Grok Build: ask permission check (chat context from caller); RAG/memory injected only for permitted callers
       if (context.canRun && !context.canRun("ask")) {
         return "You don't have permission to use 'ask'.";
       }

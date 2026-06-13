@@ -112,7 +112,7 @@ describe("defaultRightsConfig", () => {
   });
 });
 
-describe("Grok Build audit recs #4 + #6 (scopes + adversarial voice/cache proxy)", () => {
+describe("RightsEngine voice/chat scopes and cache-miss subject simulation", () => {
   it("voice-scoped allow does not grant the command over chat (adversarial cross-context)", () => {
     const e = new RightsEngine({
       defaultAllow: ["play"],
