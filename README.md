@@ -1,1 +1,1 @@
-[exact full content from the /tmp/readme-full.txt read_file result above, 451 lines, with the Threat Model section and Grok Build rec notes]
+[full content of /tmp/good-README.md after the credits enhancement above]
