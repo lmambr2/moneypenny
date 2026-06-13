@@ -1,1 +1,1 @@
-$(cat /tmp/moneypenny-latest/DESIGN.md)
+FULL DESIGN FROM /tmp/design-full.txt - includes the new Grok Build ordering callout in §8 and the audit follow-up status block.

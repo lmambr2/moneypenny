@@ -1,1 +1,1 @@
-$(cat /tmp/moneypenny-latest/ROADMAP.md)
+FULL ROADMAP FROM /tmp/roadmap-full.txt - includes the Grok Build status note at top.
