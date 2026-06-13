@@ -5,16 +5,17 @@
 #   # ...or, from a clone:
 #   ./install.sh
 #
-# Auto-detects your architecture and picks an OpenAI-compatible LLM backend:
-#   aarch64 + RK3588 NPU  -> rkllama (native NPU inference)
-#   x86-64 / anything else -> Ollama (CPU/GPU), pulls a small model on first run
+# Configures an OpenAI-compatible LLM backend. Defaults to Ollama (CPU/GPU),
+# pulling a small Gemma model on first run. On the RK3588 the NPU gives ~no
+# decode speedup (LLM decode is memory-bandwidth-bound — see ROADMAP), so it is
+# opt-in via --llm npu rather than the default.
 #
 # It is idempotent: re-run any time. Flags below override the auto-detection.
 #
 # Usage:
 #   ./install.sh [options]
 #     --llm <npu|ollama|mock|URL>  LLM backend (default: auto by arch)
-#     --model <name>               LLM model (ollama: gemma4:e4b-it-qat, npu: qwen3-4b-instruct-2507)
+#     --model <name>               LLM model (default ollama: gemma-4-E2B GGUF; bigger box? gemma4:e4b-it-qat. npu: qwen3-4b-instruct-2507)
 #     --with-voice                 also start Kokoro TTS (voice profile)
 #     --with-server                also start a TeamSpeak 6 server container
 #     --dir <path>                 install dir when bootstrapping (default: ./moneypenny)
@@ -129,7 +130,11 @@ HAS_NPU=0; [ -e /dev/rknpu ] && HAS_NPU=1
 say "Architecture: ${c_b}${ARCH}${c_0}$([ "$HAS_NPU" -eq 1 ] && echo ' (RK3588 NPU detected)')"
 
 if [ "$LLM" = "auto" ]; then
-  if [ "$ARCH" = "aarch64" ] && [ "$HAS_NPU" -eq 1 ]; then LLM="npu"; else LLM="ollama"; fi
+  # Default everyone to Ollama. Benchmarks (ROADMAP §Phase 4) showed the RK3588
+  # NPU lands at the same ~4.9 tok/s as CPU for a 4B (decode is bandwidth-bound),
+  # so the simpler Ollama path is the default; the NPU stays available via
+  # --llm npu for those who want it.
+  LLM="ollama"
 fi
 
 LLM_URL=""; PROFILES=("core"); COMPOSE_FILES=(-f docker-compose.yml)
@@ -143,7 +148,7 @@ case "$LLM" in
     : "${MODEL:=mock}"; LLM_URL="http://rkllama:8080"; PROFILES+=("npu")
     say "LLM backend: ${c_b}rkllama (mock — no real AI)${c_0}" ;;
   ollama)
-    : "${MODEL:=gemma4:e4b-it-qat}"; LLM_URL="http://ollama:11434"; PROFILES+=("ollama")
+    : "${MODEL:=hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}"; LLM_URL="http://ollama:11434"; PROFILES+=("ollama")
     say "LLM backend: ${c_b}Ollama${c_0}, model ${MODEL}" ;;
   http://*|https://*)
     LLM_URL="$LLM"; : "${MODEL:=qwen2.5:3b}"
@@ -245,9 +250,9 @@ else
 fi
 ok "Containers up."
 
-# ── 8. pull the Ollama model (x86-64 path) ───────────────────────────────────
+# ── 8. pull the Ollama model ─────────────────────────────────────────────────
 if [ "$LLM" = "ollama" ]; then
-  say "Pulling Ollama model '${MODEL}' (first time downloads ~2 GB)…"
+  say "Pulling Ollama model '${MODEL}' (first time downloads ~2.6 GB)…"
   for i in 1 2 3 4 5; do
     dc exec -T ollama ollama --version >/dev/null 2>&1 && break
     sleep 3

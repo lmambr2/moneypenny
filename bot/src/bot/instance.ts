@@ -166,7 +166,10 @@ export class BotInstance extends EventEmitter {
           logger: this.logger,
         }),
       });
-      this.logger.info("LLM module enabled (RKLLama)");
+      this.logger.info(
+        { url: this.config.llmUrl || "(default)", model: this.config.llmModel || "(default)" },
+        "LLM module enabled",
+      );
     }
 
     this.controlRouter = new ControlRouter(this.logger, this.llmModule ?? undefined);

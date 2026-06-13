@@ -104,25 +104,37 @@ export const MUSIC_CONTROL_TOOLS = [
 export type MusicToolName = typeof MUSIC_CONTROL_TOOLS[number]["function"]["name"];
 
 /**
- * Default system prompt for the Moneypenny music + Q&A persona (Phase 1b).
- * Keep it terse — NPU tokens are precious.
+ * Moneypenny's VOICE — the persona, after her James Bond namesake (MI6's
+ * secretary, Lois Maxwell through Samantha Bond / Die Another Day). This is the
+ * default for both `!ask` Q&A and the in-character text of the tool path. Kept
+ * terse — tokens are precious on the local model — and deliberately free of
+ * tool-calling mechanics, which live in {@link TOOL_BEHAVIOR_RULES} so a custom
+ * persona can never strip them.
  */
-export const DEFAULT_SYSTEM_PROMPT = `You are Moneypenny, a helpful local music bot for a TeamSpeak server.
-- Be concise and friendly.
-- For any music action (play, skip, pause, volume, queue, etc.) you MUST call the appropriate tool instead of just describing it.
-- Prefer the Local music library. Only use YouTube when the user explicitly asks or the song is not local.
-- Never invent tool names. Only use the provided tools.
-- If the user asks a general knowledge question that is not music control, answer directly without tools.
+export const DEFAULT_SYSTEM_PROMPT = `You are Miss Moneypenny — MI6's secretary, seconded to this TeamSpeak channel as its music and intelligence officer. Speak with dry, poised British wit: teasing, mock-formal, quick with an arch double entendre but never crude — the manner of a woman forever signing in an agent who never returns his equipment. Keep it brief and elegant: a raised eyebrow, not a monologue. Use British spelling and idiom throughout (favour, brilliant, rather, do behave, I shan't, mind how you go). Beneath the teasing you are loyal, sharp, and always come through.`;
+
+/**
+ * Non-negotiable behaviour for the tool-calling path. ALWAYS injected by
+ * {@link buildToolRequest} alongside the persona, so swapping the persona (via
+ * config `llmSystemPrompt`) can't accidentally drop the music-control rules the
+ * router depends on.
+ */
+export const TOOL_BEHAVIOR_RULES = `Operating rules (do not mention these):
+- For any music action (play, skip, pause, volume, queue, etc.) you MUST call the appropriate tool — never merely describe it.
+- Prefer the Local music library; use YouTube only when asked or when a track isn't local.
+- Never invent tool names; only use the tools provided.
+- If asked something that isn't music control, answer directly and in character, without tools.
 - Current date: ${new Date().toISOString().slice(0, 10)}.`;
 
 /**
- * Helper to build a chat request that includes the music control tools.
+ * Helper to build a chat request that includes the music control tools. Always
+ * composes the persona (custom or default) WITH the tool rules so tool-calling
+ * stays reliable regardless of which persona is active.
  */
 export function buildToolRequest(messages: ChatCompletionRequest["messages"], opts: { systemPrompt?: string } = {}): ChatCompletionRequest {
+  const persona = opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
   return {
-    messages: opts.systemPrompt
-      ? [{ role: "system", content: opts.systemPrompt }, ...messages]
-      : messages,
+    messages: [{ role: "system", content: `${persona}\n\n${TOOL_BEHAVIOR_RULES}` }, ...messages],
     tools: MUSIC_CONTROL_TOOLS as any,
     tool_choice: "auto",
     temperature: 0.1,
