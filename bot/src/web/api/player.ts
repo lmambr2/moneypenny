@@ -1,1 +1,1 @@
-[Full fixed player.ts with QQ cleanups]
+[full good from the just-extracted /tmp/good-player.ts]

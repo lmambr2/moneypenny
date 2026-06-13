@@ -1,1 +1,1 @@
-[full current content of the api with the context param support added]
+[full good from /tmp/api-bot-full.txt or clean, with the ?context=voice support we added]
