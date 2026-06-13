@@ -12,6 +12,7 @@ import type { Logger } from "../logger.js";
 
 import type { ServerProtocol } from "../ts-protocol/client.js";
 import type { AvatarStore } from "../data/avatars.js";
+import type { RetrievalStore } from "../rag/index.js";
 
 /**
  * Run bot.connect() with a hard deadline. If the handshake hangs (e.g. the
@@ -75,6 +76,7 @@ export class BotManager extends EventEmitter {
   private config: BotConfig;
   private logger: Logger;
   private avatarStore: AvatarStore;
+  private retrieval?: RetrievalStore;
 
   constructor(
     localProvider: MusicProvider,
@@ -83,7 +85,8 @@ export class BotManager extends EventEmitter {
     database: BotDatabase,
     config: BotConfig,
     logger: Logger,
-    avatarStore: AvatarStore
+    avatarStore: AvatarStore,
+    retrieval?: RetrievalStore
   ) {
     super();
     this.localProvider = localProvider;
@@ -93,6 +96,14 @@ export class BotManager extends EventEmitter {
     this.config = config;
     this.logger = logger;
     this.avatarStore = avatarStore;
+    this.retrieval = retrieval;
+
+    // Share the RAG retrieval store (ROADMAP Phase 5) with every bot as it's
+    // created — createBot/startBot/loadSavedBots all emit "botInstance", so this
+    // one listener covers all construction paths without threading options.
+    this.on("botInstance", (bot: BotInstance) => {
+      if (this.retrieval) bot.setRetrieval(this.retrieval);
+    });
   }
 
   async createBot(params: CreateBotParams): Promise<BotInstance> {

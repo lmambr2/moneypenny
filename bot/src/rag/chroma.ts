@@ -1,0 +1,1 @@
+$(cat /tmp/moneypenny-latest/bot/src/rag/chroma.ts)

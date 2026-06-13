@@ -1,0 +1,1 @@
+$(cat /tmp/moneypenny-latest/doctrine/example-doctrine.md)

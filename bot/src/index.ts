@@ -11,6 +11,7 @@ import { Watchdog } from "./watchdog.js";
 import { createAvatarStore } from "./data/avatars.js";
 import { BotManager } from "./bot/manager.js";
 import { createWebServer } from "./web/server.js";
+import { RetrievalStore, EmbeddingsClient, QdrantClient } from "./rag/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -80,6 +81,32 @@ async function main() {
     logger,
   });
 
+  // Retrieval / RAG substrate (ROADMAP Phase 5). Off unless ragEnabled. Endpoint
+  // + model are config-driven so the same code serves the RK3588 (EmbeddingGemma
+  // on ollama) and x86+GPU (Qwen3-Embedding) tracks; each is pointable remote.
+  let retrieval: RetrievalStore | undefined;
+  if (config.ragEnabled) {
+    const embeddings = new EmbeddingsClient({
+      baseUrl: config.embeddingUrl || config.llmUrl || undefined,
+      model: config.embeddingModel || undefined,
+      logger,
+    });
+    const qdrant = new QdrantClient({ baseUrl: config.vectorDbUrl || undefined, logger });
+    retrieval = new RetrievalStore({
+      embeddings,
+      qdrant,
+      collection: config.ragCollection,
+      topK: config.ragTopK,
+      logger,
+    });
+    // Best-effort eager init (probe dim + ensure collection); never blocks startup.
+    retrieval.init().catch((err) => logger.error({ err }, "RAG init failed — will retry lazily"));
+    logger.info(
+      { vectorDbUrl: config.vectorDbUrl, embeddingModel: config.embeddingModel },
+      "RAG enabled",
+    );
+  }
+
   const botManager = new BotManager(
     localProvider,
     youtubeProvider,
@@ -87,7 +114,8 @@ async function main() {
     db,
     config,
     logger,
-    avatarStore
+    avatarStore,
+    retrieval
   );
   await botManager.loadSavedBots();
 
@@ -133,6 +161,7 @@ async function main() {
     configPath: CONFIG_PATH,
     logger,
     staticDir: STATIC_DIR,
+    retrieval,
   });
   await webServer.start();
 

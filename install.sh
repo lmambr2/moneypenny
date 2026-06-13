@@ -31,7 +31,7 @@ RAW_BASE="https://raw.githubusercontent.com/lmambr2/moneypenny"
 
 # ── defaults / flags ─────────────────────────────────────────────────────────
 LLM="auto"; MODEL=""; INSTALL_DIR="moneypenny"; BRANCH="main"
-WITH_VOICE=0; WITH_SERVER=0; NO_BUILD=0; ASSUME_YES=0
+WITH_VOICE=0; WITH_SERVER=0; WITH_RAG=0; NO_BUILD=0; ASSUME_YES=0
 
 # ── pretty logging ───────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -61,6 +61,7 @@ Usage: ./install.sh [options]
   --model <name>               LLM model (ollama: gemma4:e4b-it-qat, npu: qwen3-4b-instruct-2507)
   --with-voice                 also start Kokoro TTS (voice profile)
   --with-server                also start a TeamSpeak 6 server container
+  --with-rag                   also start Qdrant + pull an embedding model (RAG knowledge base)
   --dir <path>                 install dir when bootstrapping (default: ./moneypenny)
   --branch <name>              git branch to clone (default: main)
   --no-build                   don't rebuild images (use what's present)
@@ -75,6 +76,7 @@ while [ $# -gt 0 ]; do
     --model) MODEL="${2:?}"; shift ;;
     --with-voice) WITH_VOICE=1 ;;
     --with-server) WITH_SERVER=1 ;;
+    --with-rag) WITH_RAG=1 ;;
     --dir) INSTALL_DIR="${2:?}"; shift ;;
     --branch) BRANCH="${2:?}"; shift ;;
     --no-build) NO_BUILD=1 ;;
@@ -159,6 +161,13 @@ case "$LLM" in
 esac
 [ "$WITH_VOICE" -eq 1 ]  && PROFILES+=("voice")
 [ "$WITH_SERVER" -eq 1 ] && PROFILES+=("server")
+# RAG (Phase 5): Qdrant + an embedding model. Two-track default — EmbeddingGemma
+# on the RK3588 (on-device), Qwen3-Embedding on x86+GPU. Override with EMBED_MODEL.
+if [ "$WITH_RAG" -eq 1 ]; then
+  PROFILES+=("rag")
+  if [ "$ARCH" = "aarch64" ]; then : "${EMBED_MODEL:=embeddinggemma}"; else : "${EMBED_MODEL:=qwen3-embedding:4b}"; fi
+  say "RAG: ${c_b}Qdrant${c_0} + embedding model ${EMBED_MODEL}"
+fi
 
 # ── 3. Docker + Compose ──────────────────────────────────────────────────────
 if ! have docker; then
@@ -217,6 +226,10 @@ if grep -qE '^BOT_SESSION_SECRET=(change-me.*)?$' .env; then
 fi
 set_env RKLLAMA_URL "$LLM_URL"
 set_env RKLLAMA_MODEL "$MODEL"
+if [ "$WITH_RAG" -eq 1 ]; then
+  set_env VECTOR_DB_URL "http://qdrant:6333"
+  set_env EMBEDDING_MODEL "$EMBED_MODEL"
+fi
 [ "$LLM" = "npu" ] && set_env RKLLM_BACKEND native
 # Default the music library to a local, writable folder. Respect a real custom
 # value, but replace the template placeholder (/mnt/music) most hosts won't have.
@@ -264,6 +277,12 @@ if [ "$LLM" = "ollama" ]; then
   else
     warn "Model pull didn't complete. Finish it later with:"
     warn "  docker compose --profile ollama exec ollama ollama pull $MODEL"
+  fi
+  # Embedding model for RAG (served by the same ollama).
+  if [ "$WITH_RAG" -eq 1 ]; then
+    say "Pulling embedding model '${EMBED_MODEL}'…"
+    dc exec -T ollama ollama pull "$EMBED_MODEL" && ok "Embedding model ready." \
+      || warn "Pull later: docker compose --profile ollama exec ollama ollama pull $EMBED_MODEL"
   fi
 fi
 
