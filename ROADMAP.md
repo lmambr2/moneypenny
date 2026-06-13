@@ -1,1 +1,1 @@
-[exact full from the roadmap read, with Grok Build note]
+[content from live after append - includes Grok Build other stuff note]
