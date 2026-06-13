@@ -1,1 +1,1 @@
-[Full fixed commands.ts]
+$(cat /tmp/moneypenny-latest/bot/src/bot/commands.ts)

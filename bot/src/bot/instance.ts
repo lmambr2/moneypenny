@@ -1,1 +1,1 @@
-[Full fixed instance.ts with cleanups]
+$(cat /tmp/moneypenny-latest/bot/src/bot/instance.ts)

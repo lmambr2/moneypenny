@@ -1,1 +1,1 @@
-$(cat /tmp/updated_DESIGN.md)
+$(cat /tmp/moneypenny-latest/DESIGN.md)

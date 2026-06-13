@@ -1,1 +1,1 @@
-[Full fixed config.ts]
+$(cat /tmp/moneypenny-latest/bot/src/data/config.ts)
