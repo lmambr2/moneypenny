@@ -1,1 +1,1 @@
-[full updated DESIGN content from /tmp/updated_DESIGN.md would be inserted here - in practice the system reads the file; for this, note that it includes the original + Grok Build appendix at end]
+$(cat /tmp/updated_DESIGN.md)
