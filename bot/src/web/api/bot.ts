@@ -34,6 +34,8 @@ export function createBotRouter(
       roastEnabled: config.roastEnabled ?? false,
       roastMinPresent: config.roastMinPresent ?? 3,
       roastCooldownMinutes: config.roastCooldownMinutes ?? 180,
+      ragEnabled: config.ragEnabled ?? false,
+      ragTopK: config.ragTopK ?? 4,
       rightsEnabled: config.rightsEnabled ?? true,
       adminGroups: config.adminGroups ?? [],
       rights: config.rights ?? null,
@@ -45,7 +47,7 @@ export function createBotRouter(
   // running bot (no restart). Mutations are persisted to the config file.
   router.post("/settings", requireAdmin, (req, res) => {
     const body = req.body ?? {};
-    const touched = { idle: false, llm: false, rights: false, roast: false };
+    const touched = { idle: false, llm: false, rights: false, roast: false, rag: false };
 
     if ("idleTimeoutMinutes" in body) {
       const v = body.idleTimeoutMinutes;
@@ -126,6 +128,24 @@ export function createBotRouter(
       touched.roast = true;
     }
 
+    if ("ragEnabled" in body) {
+      if (typeof body.ragEnabled !== "boolean") {
+        res.status(400).json({ error: "ragEnabled must be a boolean", code: "VALIDATION_ERROR" });
+        return;
+      }
+      config.ragEnabled = body.ragEnabled;
+      touched.rag = true;
+    }
+    if ("ragTopK" in body) {
+      const v = body.ragTopK;
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 1) {
+        res.status(400).json({ error: "ragTopK must be an integer >= 1", code: "VALIDATION_ERROR" });
+        return;
+      }
+      config.ragTopK = v;
+      touched.rag = true;
+    }
+
     if ("rightsEnabled" in body) {
       if (typeof body.rightsEnabled !== "boolean") {
         res.status(400).json({ error: "rightsEnabled must be a boolean" });
@@ -162,6 +182,7 @@ export function createBotRouter(
       if (touched.llm) bot.updateLlm(config.llmEnabled ?? false, config.llmUrl, config.llmModel, config.llmSystemPrompt, config.llmTemperature);
       if (touched.rights) bot.updateRights(config.rightsEnabled ?? true, config.rights);
       if (touched.roast) bot.updateRoast(config.roastEnabled ?? false, config.roastMinPresent, config.roastCooldownMinutes);
+      if (touched.rag) bot.updateRag(config.ragEnabled ?? false, config.ragTopK);
     }
 
     res.json({ ok: true });

@@ -17,6 +17,8 @@ import { createSessionRouter } from "./api/session.js";
 import { createUsersRouter } from "./api/users.js";
 import { createAuditStore } from "../data/audit.js";
 import { createAuditRouter } from "./api/audit.js";
+import { createRagRouter } from "./api/rag.js";
+import type { RetrievalStore } from "../rag/index.js";
 import { setupWebSocket } from "./websocket.js";
 import { createUserStore } from "../data/users.js";
 import { createSessionStore } from "../data/sessions.js";
@@ -42,6 +44,8 @@ export interface WebServerOptions {
   logger: Logger;
   avatarStore: AvatarStore;
   staticDir?: string;
+  /** RAG substrate (ROADMAP Phase 5). Present only when ragEnabled. */
+  retrieval?: RetrievalStore;
 }
 
 export interface WebServer {
@@ -127,6 +131,9 @@ export function createWebServer(options: WebServerOptions): WebServer {
   // admin-only routes
   app.use("/api/users", requireAdmin, createUsersRouter(users, sessions, audit, logger));
   app.use("/api/audit", requireAdmin, createAuditRouter(audit));
+  if (options.retrieval) {
+    app.use("/api/rag", requireAdmin, createRagRouter(options.retrieval, logger));
+  }
 
   // ─── Static SPA (public) ────────────────────────────────────────────────
   if (options.staticDir) {

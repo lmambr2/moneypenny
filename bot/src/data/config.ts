@@ -73,6 +73,22 @@ export interface BotConfig {
   // Base URL of an external Spotify/Tidal stream bridge (librespot/ncspot).
   // Empty → only direct http(s)/Icecast stream URLs are playable.
   streamBridgeUrl: string;
+  // === Retrieval / RAG (ROADMAP Phase 5) ===
+  // When true, the bot embeds ingested docs into a vector DB and injects the
+  // top-k relevant chunks into `!ask`. Off by default. Endpoint/model are
+  // config-driven so the SAME code serves the RK3588 (EmbeddingGemma on ollama)
+  // and the x86+GPU (Qwen3-Embedding) tracks — each pointable local or remote.
+  ragEnabled: boolean;
+  // Qdrant base URL (vector store).
+  vectorDbUrl: string;
+  // OpenAI-compatible embeddings endpoint. Empty → falls back to the LLM/ollama URL.
+  embeddingUrl: string;
+  // Embedding model (RK3588: embeddinggemma; x86+GPU: e.g. qwen3-embedding:4b).
+  embeddingModel: string;
+  // How many chunks to retrieve and inject into `!ask`.
+  ragTopK: number;
+  // Qdrant collection name for the doc corpus.
+  ragCollection: string;
 }
 
 export function getDefaultConfig(): BotConfig {
@@ -101,6 +117,15 @@ export function getDefaultConfig(): BotConfig {
     rightsEnabled: true,
     voice: defaultVoiceConfig(),
     streamBridgeUrl: "",
+    // Endpoint/model default empty → the clients use their built-in defaults
+    // (qdrant:6333 / ollama / embeddinggemma) or the VECTOR_DB_URL /
+    // EMBEDDING_URL / EMBEDDING_MODEL env vars install.sh writes (two-track).
+    ragEnabled: false,
+    vectorDbUrl: "",
+    embeddingUrl: "",
+    embeddingModel: "",
+    ragTopK: 4,
+    ragCollection: "moneypenny_docs",
   };
 }
 

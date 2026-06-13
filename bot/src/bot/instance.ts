@@ -18,7 +18,8 @@ import { BotProfileManager } from "./profile.js";
 import type { AvatarStore } from "../data/avatars.js";
 import { RoastStore } from "../data/roast.js";
 import { ControlRouter, type RouterContext, type LlmAssist } from "../control/router.js";
-import { LlmModule, LlmClient } from "../llm/index.js";
+import { LlmModule, LlmClient, type RetrievalHook } from "../llm/index.js";
+import type { RetrievalStore } from "../rag/index.js";
 import { RightsEngine, defaultRightsConfig, type Subject, type RightsConfig } from "../rights/index.js";
 import {
   VoicePipeline,
@@ -108,6 +109,7 @@ export class BotInstance extends EventEmitter {
   private roastStore: RoastStore;
   private lastRoastAt = 0;
   private roastCompiling = false;
+  private retrieval?: RetrievalStore;
   private connected = false;
   private disconnectEmitted = false;
   private voteSkipUsers = new Set<string>();
@@ -160,6 +162,7 @@ export class BotInstance extends EventEmitter {
         logger: this.logger,
         systemPrompt: this.config.llmSystemPrompt || undefined,
         temperature: this.config.llmTemperature,
+        retrieve: this.buildRetrieveHook(),
         client: new LlmClient({
           baseUrl: this.config.llmUrl || undefined,
           model: this.config.llmModel || undefined,
@@ -606,6 +609,9 @@ export class BotInstance extends EventEmitter {
     }
     this.llmModule = new LlmModule({
       logger: this.logger,
+      systemPrompt: this.config.llmSystemPrompt || undefined,
+      temperature: this.config.llmTemperature,
+      retrieve: this.buildRetrieveHook(),
       client: new LlmClient({
         baseUrl: this.config.llmUrl || undefined,
         model: this.config.llmModel || undefined,
@@ -613,6 +619,33 @@ export class BotInstance extends EventEmitter {
       }),
     });
     this.controlRouter.setLlm(this.llmModule);
+  }
+
+  // === Retrieval / RAG (ROADMAP Phase 5) ===
+
+  /**
+   * Build the `!ask` retrieval hook from the shared RetrievalStore. Returns
+   * undefined unless RAG is enabled AND a store is attached, so the LLM module
+   * only injects context when retrieval is actually live.
+   */
+  private buildRetrieveHook(): RetrievalHook | undefined {
+    if (!this.config.ragEnabled || !this.retrieval) return undefined;
+    const store = this.retrieval;
+    const topK = this.config.ragTopK;
+    return (q: string) => store.query(q, topK).then((cs) => cs);
+  }
+
+  /** Attach the shared retrieval store (called by BotManager on creation). */
+  setRetrieval(store: RetrievalStore | undefined): void {
+    this.retrieval = store;
+    this.llmModule?.setRetrieve(this.buildRetrieveHook());
+  }
+
+  /** Live-toggle RAG (settings API) without a restart — re-applies the ask hook. */
+  updateRag(enabled: boolean, topK?: number): void {
+    this.config.ragEnabled = enabled;
+    if (topK !== undefined) this.config.ragTopK = topK;
+    this.llmModule?.setRetrieve(this.buildRetrieveHook());
   }
 
   /** LLM status for the web UI: whether it's configured and reachable. */

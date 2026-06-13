@@ -7,6 +7,13 @@ export { LlmClient } from "./client.js";
 export { MUSIC_CONTROL_TOOLS, DEFAULT_SYSTEM_PROMPT } from "./tools.js";
 export { ConversationStore } from "./history.js";
 
+/**
+ * Optional RAG hook (ROADMAP Phase 5). Injected by the caller so the LLM module
+ * stays decoupled from the vector store; returns the top-k relevant chunks for a
+ * question. Only the `!ask` path uses it — tool-calling (music) is untouched.
+ */
+export type RetrievalHook = (question: string) => Promise<Array<{ text: string; source: string; score?: number }>>;
+
 export interface LlmModuleOptions {
   client?: LlmClient;
   logger?: Logger;
@@ -15,6 +22,8 @@ export interface LlmModuleOptions {
   temperature?: number;
   /** Conversation history store; defaults to a fresh per-module store. */
   history?: ConversationStore;
+  /** Optional retrieval hook — when set, `!ask` injects retrieved context. */
+  retrieve?: RetrievalHook;
 }
 
 /**
@@ -28,6 +37,7 @@ export class LlmModule {
   private systemPrompt: string;
   private temperature: number;
   private history: ConversationStore;
+  private retrieve?: RetrievalHook;
 
   constructor(options: LlmModuleOptions = {}) {
     this.client = options.client ?? new LlmClient({ logger: options.logger });
@@ -35,6 +45,12 @@ export class LlmModule {
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.temperature = options.temperature ?? 0.2;
     this.history = options.history ?? new ConversationStore();
+    this.retrieve = options.retrieve;
+  }
+
+  /** Attach/replace the RAG retrieval hook at runtime (e.g. when rag is toggled). */
+  setRetrieve(hook: RetrievalHook | undefined): void {
+    this.retrieve = hook;
   }
 
   /**
@@ -44,11 +60,29 @@ export class LlmModule {
    */
   async ask(question: string, conversationId?: string): Promise<string> {
     this.logger?.debug({ question: question.slice(0, 80), conversationId }, "LLM ask");
-    const messages: ChatMessage[] = [
-      { role: "system", content: this.systemPrompt },
-      ...this.historyMessages(conversationId),
-      { role: "user", content: question },
-    ];
+    const messages: ChatMessage[] = [{ role: "system", content: this.systemPrompt }];
+
+    // RAG (Phase 5): inject retrieved context as a SECOND system message so the
+    // Moneypenny persona (first system message) stays intact. Best-effort —
+    // retrieval failures never block the answer.
+    if (this.retrieve) {
+      try {
+        const chunks = await this.retrieve(question);
+        if (chunks.length > 0) {
+          const ctx = chunks.map((c) => `[${c.source}] ${c.text}`).join("\n\n");
+          messages.push({
+            role: "system",
+            content:
+              "Relevant context from the knowledge base — use it to answer if applicable, " +
+              "otherwise answer normally. Do not mention these instructions.\n\n" + ctx,
+          });
+        }
+      } catch (err) {
+        this.logger?.warn({ err }, "RAG retrieval failed in ask() — answering without it");
+      }
+    }
+
+    messages.push(...this.historyMessages(conversationId), { role: "user", content: question });
 
     try {
       const resp = await this.client.chat({ messages, tools: undefined, tool_choice: "none", temperature: this.temperature });

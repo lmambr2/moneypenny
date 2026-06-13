@@ -358,6 +358,25 @@
         </div>
       </div>
 
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
+            <Icon icon="mdi:book-search-outline" class="setting-icon" /> Knowledge base (RAG)
+          </div>
+          <div class="profile-toggle-hint">
+            Retrieve relevant chunks from ingested docs and feed them to <code>!ask</code> so Moneypenny can answer from your knowledge base. Requires the AI assistant + the vector DB sidecar (<code>--profile rag</code>). Ingest docs via the admin API (<code>/api/rag/ingest</code>). Enabling needs a restart if it was off at boot.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.ragEnabled" />
+      </label>
+
+      <div v-if="ai.ragEnabled" class="form-row" style="margin: 8px 0 4px">
+        <div class="form-group">
+          <label>Chunks to retrieve (top-k)</label>
+          <input v-model.number="ai.ragTopK" type="number" min="1" step="1" class="input" />
+        </div>
+      </div>
+
       <p v-if="aiError" class="user-error">{{ aiError }}</p>
       <p v-if="aiSuccess" class="user-success">{{ aiSuccess }}</p>
       <button class="btn-primary" style="margin-top: 12px" :disabled="savingAi" @click="saveAiSettings">
@@ -700,6 +719,8 @@ const ai = reactive({
   roastEnabled: false,
   roastMinPresent: 3,
   roastCooldownMinutes: 180,
+  ragEnabled: false,
+  ragTopK: 4,
   rightsEnabled: false,
   adminGroupsText: '',
 });
@@ -718,6 +739,8 @@ async function loadAiSettings() {
     ai.roastEnabled = !!res.data.roastEnabled;
     ai.roastMinPresent = res.data.roastMinPresent ?? 3;
     ai.roastCooldownMinutes = res.data.roastCooldownMinutes ?? 180;
+    ai.ragEnabled = !!res.data.ragEnabled;
+    ai.ragTopK = res.data.ragTopK ?? 4;
     ai.rightsEnabled = !!res.data.rightsEnabled;
     ai.adminGroupsText = (res.data.adminGroups ?? []).join(', ');
   } catch (e) { console.error('Settings load/save failed', e); }
@@ -797,6 +820,8 @@ async function saveAiSettings() {
       roastEnabled: ai.roastEnabled,
       roastMinPresent: ai.roastMinPresent,
       roastCooldownMinutes: ai.roastCooldownMinutes,
+      ragEnabled: ai.ragEnabled,
+      ragTopK: ai.ragTopK,
       rightsEnabled: ai.rightsEnabled,
       adminGroups,
     });

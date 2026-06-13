@@ -88,6 +88,11 @@ services:
       # installer overrides via .env, and --llm npu repoints these at rkllama.
       - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
       - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
+      # RAG (Phase 5). Empty embedding URL → reuses the LLM endpoint (ollama).
+      # x86+GPU track: override EMBEDDING_MODEL (e.g. qwen3-embedding:4b) in .env.
+      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://qdrant:6333}
+      - EMBEDDING_URL=${EMBEDDING_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
     volumes:
       # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
       # be writable by uid 1000 (the non-root 'moneypenny' user):
@@ -154,11 +159,24 @@ services:
     networks:
       - moneypenny
 
+  # ROADMAP Phase 5: Qdrant vector store (RAG substrate). Multi-arch (arm64 +
+  # amd64) so it serves both the RK3588 and the x86+GPU track unchanged; the bot
+  # reaches it at http://qdrant:6333. Opt-in via the `rag` profile.
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["rag"]
+    restart: unless-stopped
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    networks:
+      - moneypenny
+
 volumes:
   ts-data:
   rkllama-cache:
   ollama-models:
   kokoro-models:
+  qdrant-storage:
 
 networks:
   moneypenny:
