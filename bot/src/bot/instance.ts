@@ -1,1 +1,1 @@
-$(cat /tmp/moneypenny-latest/bot/src/bot/instance.ts)
+[full from /tmp/push-instance.ts - with volume duck added in speak, resume already in trackEnd]

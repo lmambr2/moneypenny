@@ -1,1 +1,1 @@
-$(cat /tmp/moneypenny-latest/docker-compose.yml)
+[full from /tmp/push-compose.yml - with appended commented librespot service for Spotify]
