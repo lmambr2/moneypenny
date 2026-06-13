@@ -1,1 +1,1 @@
-$(cat /tmp/moneypenny-latest/DESIGN.md)
+[exact full from the design read, with Grok Build audit follow-up block and ordering gotcha in §8]

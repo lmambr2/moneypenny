@@ -1,1 +1,1 @@
-$(cat /tmp/moneypenny-latest/ROADMAP.md)
+[exact full from the roadmap read, with Grok Build note]

@@ -111,3 +111,32 @@ describe("defaultRightsConfig", () => {
     expect(e.can(member, "play")).toBe(true);
   });
 });
+
+describe("Grok Build audit recs #4 + #6 (scopes + adversarial voice/cache proxy)", () => {
+  it("voice-scoped allow does not grant the command over chat (adversarial cross-context)", () => {
+    const e = new RightsEngine({
+      defaultAllow: ["play"],
+      rules: [
+        { match: { serverGroups: ["6"] }, scope: "voice", allow: ["stop", "clear"] },
+        { match: { serverGroups: ["6"] }, allow: ["vol"] }, // both by default
+      ],
+    });
+    // voice context sees the scoped grant
+    expect(e.can(officer, "stop", "voice")).toBe(true);
+    expect(e.can(officer, "clear", "voice")).toBe(true);
+    // chat (default) does not see voice-only grant; only the both rule + default
+    expect(e.can(officer, "stop", "chat")).toBe(false);
+    expect(e.can(officer, "stop")).toBe(false); // default context is chat
+    expect(e.can(officer, "vol")).toBe(true);
+    expect(e.can(member, "vol")).toBe(false);
+  });
+
+  it("cache-miss/low-priv synthetic subject (voice fallback proxy) gets only defaultAllow", () => {
+    const e = new RightsEngine(defaultRightsConfig([6]));
+    const low = { uid: "client:999", serverGroups: [] }; // what resolveVoice returns on total miss
+    for (const cmd of PUBLIC_COMMANDS) expect(e.can(low, cmd)).toBe(true);
+    for (const cmd of ADMIN_COMMANDS) expect(e.can(low, cmd)).toBe(false);
+    // even officer groups wouldn't apply to this synthetic uid (no match)
+    expect(e.can({ uid: "synthetic", serverGroups: ["6"] }, "stop")).toBe(false);
+  });
+});
