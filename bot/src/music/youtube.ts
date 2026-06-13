@@ -14,8 +14,39 @@ import type {
   QrCodeResult,
   AuthStatus,
 } from "./provider.js";
+import { isYouTubeUrl } from "./stream.js";
+import axios from "axios";
 
 const execFileAsync = promisify(execFile);
+
+/** Fallback for age-restricted / login-walled videos using public oEmbed (no cookies needed for basic metadata). */
+async function getOEmbedEntry(videoId: string): Promise<YtDlpEntry | null> {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+    const { data } = await axios.get(oembedUrl, { timeout: 10000 });
+    return {
+      id: videoId,
+      title: data.title,
+      uploader: data.author_name,
+      channel: data.author_name,
+      duration: 0,
+      thumbnail: data.thumbnail_url,
+      webpage_url: `https://www.youtube.com/watch?v=${videoId}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The canonical default demo / unit test video for Moneypenny.
+ * Used for:
+ *  - PHASE0_TEST_PLAY default on startup (auto-plays after connect for validation)
+ *  - The primary YouTube unit test case (direct URL handling, metadata, stream extraction)
+ *  - Docs and phase0-validate.sh examples
+ */
+export const DEFAULT_DEMO_VIDEO_ID = "52i14wYBef8";
+export const DEFAULT_DEMO_VIDEO_URL = `https://www.youtube.com/watch?v=${DEFAULT_DEMO_VIDEO_ID}`;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -114,21 +145,55 @@ export class YouTubeProvider implements MusicProvider {
   readonly platform = "youtube" as const;
   private quality = "bestaudio";
 
+  canHandle(query: string): boolean {
+    return isYouTubeUrl(query);
+  }
+
   async search(query: string, limit = 5): Promise<SearchResult> {
     try {
-      const raw = await runYtDlp([
-        `ytsearch${limit}:${query}`,
-        "--dump-json",
-        "--flat-playlist",
-        "--no-warnings",
-        "--quiet",
-      ]);
-      const lines = raw.trim().split("\n").filter(Boolean);
-      const songs: Song[] = lines.map((line) => {
-        const entry = JSON.parse(line) as YtDlpEntry;
-        return entryToSong(entry);
-      });
-      return { songs, playlists: [], albums: [] };
+      let raw: string;
+      if (isYouTubeUrl(query)) {
+        // Direct video URL — fetch details directly instead of ytsearch.
+        // Support age-restricted videos via oEmbed fallback (no cookies required for metadata).
+        const idMatch =
+          query.match(/[?&]v=([A-Za-z0-9_-]{11})/) ||
+          query.match(/(?:youtu\.be|\/embed|\/shorts|\/live|\/v)\/([A-Za-z0-9_-]{11})/);
+        const videoId = idMatch ? idMatch[1] : "";
+        try {
+          raw = await runYtDlp([
+            query,
+            "--dump-json",
+            "--no-warnings",
+            "--quiet",
+          ]);
+          const entry = JSON.parse(raw.trim()) as YtDlpEntry;
+          const songs = [entryToSong(entry)];
+          return { songs, playlists: [], albums: [] };
+        } catch (err: any) {
+          const msg = String(err?.message || err || "");
+          if (videoId && (msg.includes("age") || msg.includes("Sign in") || msg.includes("confirm your age"))) {
+            const oembed = await getOEmbedEntry(videoId);
+            if (oembed) {
+              return { songs: [entryToSong(oembed)], playlists: [], albums: [] };
+            }
+          }
+          return { songs: [], playlists: [], albums: [] };
+        }
+      } else {
+        raw = await runYtDlp([
+          `ytsearch${limit}:${query}`,
+          "--dump-json",
+          "--flat-playlist",
+          "--no-warnings",
+          "--quiet",
+        ]);
+        const lines = raw.trim().split("\n").filter(Boolean);
+        const songs: Song[] = lines.map((line) => {
+          const entry = JSON.parse(line) as YtDlpEntry;
+          return entryToSong(entry);
+        });
+        return { songs, playlists: [], albums: [] };
+      }
     } catch {
       return { songs: [], playlists: [], albums: [] };
     }
@@ -166,7 +231,12 @@ export class YouTubeProvider implements MusicProvider {
       const raw = await runYtDlp([url, "--dump-json", "--no-warnings", "--quiet"]);
       const entry = JSON.parse(raw.trim()) as YtDlpEntry;
       return entryToSong(entry);
-    } catch {
+    } catch (err: any) {
+      const msg = String(err?.message || err || "");
+      if (msg.includes("age") || msg.includes("Sign in") || msg.includes("confirm your age")) {
+        const oembed = await getOEmbedEntry(songId);
+        if (oembed) return entryToSong(oembed);
+      }
       return null;
     }
   }

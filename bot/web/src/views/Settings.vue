@@ -274,6 +274,18 @@
         </div>
       </div>
 
+      <div v-if="ai.llmEnabled" class="form-row" style="margin: 4px 0">
+        <div class="form-group" style="flex:2">
+          <label>System prompt <span style="opacity:.6">(optional — persona / reply language)</span></label>
+          <textarea v-model="ai.llmSystemPrompt" class="input" rows="3" placeholder="Leave blank for the built-in default. e.g. 'You are Moneypenny. Always respond in English.'"></textarea>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Temperature</label>
+          <input v-model.number="ai.llmTemperature" type="number" min="0" max="2" step="0.1" class="input" />
+          <div class="profile-toggle-hint">0 = focused, higher = more varied (0–2).</div>
+        </div>
+      </div>
+
       <!-- LLM live status + test box -->
       <div v-if="ai.llmEnabled" class="llm-status-card">
         <div class="llm-status-row">
@@ -321,6 +333,29 @@
         <label>Admin server-group IDs (comma-separated)</label>
         <input v-model="ai.adminGroupsText" class="input" placeholder="e.g. 6, 7" />
         <div class="profile-toggle-hint" style="margin-top:4px">Members of these server-groups may use admin commands. Everyone keeps public commands.</div>
+      </div>
+
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
+            <Icon icon="mdi:fire" class="setting-icon" /> Roast (community layer)
+          </div>
+          <div class="profile-toggle-hint">
+            Capture members' chat lines, let the AI cringe-grade them, and auto-post a "greatest hits" reel when enough people are present. Requires the AI assistant. Members can opt out + purge with <code>!roastout</code>; <code>!roast</code> shows the current reel.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.roastEnabled" />
+      </label>
+
+      <div v-if="ai.roastEnabled" class="form-row" style="margin: 8px 0 4px">
+        <div class="form-group">
+          <label>Min. people present to auto-fire</label>
+          <input v-model.number="ai.roastMinPresent" type="number" min="1" step="1" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Cooldown (minutes)</label>
+          <input v-model.number="ai.roastCooldownMinutes" type="number" min="0" step="1" class="input" />
+        </div>
       </div>
 
       <p v-if="aiError" class="user-error">{{ aiError }}</p>
@@ -660,6 +695,11 @@ const ai = reactive({
   llmEnabled: false,
   llmUrl: '',
   llmModel: '',
+  llmSystemPrompt: '',
+  llmTemperature: 0.2,
+  roastEnabled: false,
+  roastMinPresent: 3,
+  roastCooldownMinutes: 180,
   rightsEnabled: false,
   adminGroupsText: '',
 });
@@ -673,6 +713,11 @@ async function loadAiSettings() {
     ai.llmEnabled = !!res.data.llmEnabled;
     ai.llmUrl = res.data.llmUrl ?? '';
     ai.llmModel = res.data.llmModel ?? '';
+    ai.llmSystemPrompt = res.data.llmSystemPrompt ?? '';
+    ai.llmTemperature = res.data.llmTemperature ?? 0.2;
+    ai.roastEnabled = !!res.data.roastEnabled;
+    ai.roastMinPresent = res.data.roastMinPresent ?? 3;
+    ai.roastCooldownMinutes = res.data.roastCooldownMinutes ?? 180;
     ai.rightsEnabled = !!res.data.rightsEnabled;
     ai.adminGroupsText = (res.data.adminGroups ?? []).join(', ');
   } catch (e) { console.error('Settings load/save failed', e); }
@@ -747,6 +792,11 @@ async function saveAiSettings() {
       llmEnabled: ai.llmEnabled,
       llmUrl: ai.llmUrl.trim(),
       llmModel: ai.llmModel.trim(),
+      llmSystemPrompt: ai.llmSystemPrompt,
+      llmTemperature: ai.llmTemperature,
+      roastEnabled: ai.roastEnabled,
+      roastMinPresent: ai.roastMinPresent,
+      roastCooldownMinutes: ai.roastCooldownMinutes,
       rightsEnabled: ai.rightsEnabled,
       adminGroups,
     });

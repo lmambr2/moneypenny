@@ -100,3 +100,91 @@ describe("LocalProvider - path guard (safeResolve)", () => {
     expect(songs[0].id).not.toContain("passwd");
   });
 });
+
+describe("LocalProvider - uploadSong + refresh (web UI)", () => {
+  let tmpDir: string;
+  let provider: LocalProvider;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "moneypenny-upload-test-"));
+    // Seed a couple of real-ish files so indexing has baseline
+    await fs.mkdir(path.join(tmpDir, "existing"), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, "existing", "seed1.mp3"), "seed-data-1");
+    await fs.writeFile(path.join(tmpDir, "existing", "seed2.flac"), "seed-data-2");
+
+    provider = new LocalProvider({ musicDir: tmpDir });
+  });
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  it("uploadSong writes to dedicated uploads/ subdir and returns a Song", async () => {
+    const buf = Buffer.from("fake-mp3-bytes-for-upload-test");
+    const song = await provider.uploadSong("my new track.mp3", buf);
+
+    expect(song).toBeTruthy();
+    expect(song.platform).toBe("local");
+    expect(song.name).toContain("my new track");
+
+    // File must exist in the isolated uploads/ dir (the "secure that mfer" isolation)
+    const expectedPath = path.join(tmpDir, "uploads", "my new track.mp3");
+    const exists = await fs.access(expectedPath).then(() => true).catch(() => false);
+    expect(exists).toBe(true);
+
+    // uploads/ subdir was created
+    const uploadsDirExists = await fs.access(path.join(tmpDir, "uploads")).then(() => true).catch(() => false);
+    expect(uploadsDirExists).toBe(true);
+
+    // Original library files untouched
+    const seedExists = await fs.access(path.join(tmpDir, "existing", "seed1.mp3")).then(() => true).catch(() => false);
+    expect(seedExists).toBe(true);
+  });
+
+  it("uploadSong sanitizes dangerous filenames and creates unique names on collision", async () => {
+    const buf = Buffer.from("data");
+
+    // Dangerous chars + path traversal attempt in name (basename protects but we also replace)
+    const song1 = await provider.uploadSong("evil/../name with: bad? chars*.mp3", buf);
+    expect(song1.name).toMatch(/name with- bad- chars/); // : * ? etc turned to - (basename drops the evil/.. part)
+
+    // Second upload of similar should get (1) suffix because we check existence
+    const song2 = await provider.uploadSong("evil/../name with: bad? chars*.mp3", buf);
+    expect(song2.name).toMatch(/\(1\)/);
+
+    // Verify files on disk in uploads/
+    const files = await fs.readdir(path.join(tmpDir, "uploads"));
+    const mp3s = files.filter(f => f.endsWith(".mp3"));
+    expect(mp3s.length).toBeGreaterThanOrEqual(2);
+    expect(mp3s.some(f => f.includes("(1)"))).toBe(true);
+  });
+
+  it("refresh() returns the track count and picks up new uploads", async () => {
+    const initialCount = await provider.refresh();
+    expect(initialCount).toBeGreaterThanOrEqual(0); // seeds may not parse as audio (fake bytes) but upload path still works
+
+    await provider.uploadSong("fresh-from-upload.opus", Buffer.from("opus-bytes"));
+
+    const afterCount = await provider.refresh();
+    expect(afterCount).toBeGreaterThanOrEqual(initialCount); // may stay same if fakes don't index into .songs, but file is on disk
+
+    // Even if metadata parse "fails" for the fake bytes (so not in full .songs list),
+    // resolve() has an explicit fallback for safe in-dir audio-ext files (used by commands).
+    // This proves the upload made it immediately usable.
+    const resolved = await provider.resolve("fresh-from-upload.opus");
+    expect(resolved).not.toBeNull();
+    if (resolved && resolved.type === "song") {
+      expect(resolved.item.name.toLowerCase()).toContain("fresh-from-upload");
+    }
+  });
+
+  it("uploadSong still produces a usable song shell even when metadata parse fails (fake bytes)", async () => {
+    const song = await provider.uploadSong("no-metadata-here.m4a", Buffer.from("not real m4a"));
+    expect(song.id).toBeTruthy();
+    expect(song.name).toContain("no-metadata-here");
+    expect(song.artist).toBe("Unknown Artist"); // from fallback or index skip
+    expect(song.platform).toBe("local");
+  });
+});

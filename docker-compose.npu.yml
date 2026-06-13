@@ -17,10 +17,19 @@ services:
     environment:
       - RKLLM_BACKEND=native
     group_add:
-      - render          # matches the udev rule installed by install-npu.sh
+      # NUMERIC gid of the host 'render' group that owns /dev/dri/renderD129.
+      # Must be numeric — the name "render" usually doesn't exist inside the
+      # container image, so `group_add: [render]` fails to resolve. Default 991
+      # matches Armbian/DietPi RK3588; override via RENDER_GID if `getent group
+      # render` shows a different gid on your board.
+      - "${RENDER_GID:-991}"
     # RK3588 NPU passthrough — only present on the board, hence the overlay.
+    # On RK3588 vendor/DRM kernels (RKNPU driver 0.9.8) the NPU is NOT a
+    # /dev/rknpu char device — it is a DRM render node under /dev/dri
+    # (renderD129 = fdab0000.npu, driver=RKNPU). librkllmrt opens it there, so we
+    # pass the whole /dev/dri group through. (Older char-device builds exposed
+    # /dev/rknpu; add it back only if `ls /dev/rknpu` exists on your board.)
     devices:
-      - /dev/rknpu:/dev/rknpu
       - /dev/dri:/dev/dri
     volumes:
       - /usr/lib/librkllmrt.so:/usr/lib/librkllmrt.so:ro

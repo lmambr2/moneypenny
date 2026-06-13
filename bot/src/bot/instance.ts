@@ -6,7 +6,7 @@ import {
 } from "../ts-protocol/client.js";
 import { AudioPlayer } from "../audio/player.js";
 import { PlayQueue, PlayMode, type QueuedSong } from "../audio/queue.js";
-import type { MusicProvider } from "../music/provider.js";
+import type { MusicProvider, Song } from "../music/provider.js";
 import {
   parseCommand,
   type ParsedCommand,
@@ -16,6 +16,7 @@ import type { BotDatabase, ProfileConfig } from "../data/database.js";
 import type { BotConfig } from "../data/config.js";
 import { BotProfileManager } from "./profile.js";
 import type { AvatarStore } from "../data/avatars.js";
+import { RoastStore } from "../data/roast.js";
 import { ControlRouter, type RouterContext, type LlmAssist } from "../control/router.js";
 import { LlmModule, LlmClient } from "../llm/index.js";
 import { RightsEngine, defaultRightsConfig, type Subject, type RightsConfig } from "../rights/index.js";
@@ -34,6 +35,7 @@ import type { TS3VoiceData } from "../ts-protocol/client.js";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_DEMO_VIDEO_URL } from "../music/youtube.js";
 
 /**
  * Stable conversation key for LLM history (DESIGN §9). Private messages are
@@ -42,6 +44,25 @@ import { join } from "node:path";
  */
 function conversationKey(msg: TS3TextMessage): string {
   return msg.targetMode === 1 ? `dm:${msg.invokerUid}` : "channel";
+}
+
+/**
+ * Parse the roast grader's reply into a score + reason. The model is asked for
+ * strict JSON but small local models stray, so we extract the first {...} block
+ * and tolerate junk around it. RoastStore.setGrade clamps the score to 0–10.
+ * Returns null when no usable object is found (caller marks it ungradeable).
+ */
+function parseRoastGrade(raw: string): { score: number; reason: string } | null {
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    const o = JSON.parse(m[0]) as { score?: unknown; reason?: unknown };
+    const score = Number(o.score);
+    if (!Number.isFinite(score)) return null;
+    return { score, reason: String(o.reason ?? "").slice(0, 280) };
+  } catch {
+    return null;
+  }
 }
 
 export interface BotInstanceOptions {
@@ -84,6 +105,9 @@ export class BotInstance extends EventEmitter {
   private config: BotConfig;
   private logger: Logger;
   private avatarStore: AvatarStore;
+  private roastStore: RoastStore;
+  private lastRoastAt = 0;
+  private roastCompiling = false;
   private connected = false;
   private disconnectEmitted = false;
   private voteSkipUsers = new Set<string>();
@@ -114,6 +138,7 @@ export class BotInstance extends EventEmitter {
     this.config = options.config;
     this.logger = options.logger.child({ botId: this.id });
     this.avatarStore = options.avatarStore;
+    this.roastStore = new RoastStore(this.database.db);
 
     this.tsClient = new TS3Client(options.tsOptions, this.logger);
     this.player = new AudioPlayer(this.logger);
@@ -133,6 +158,8 @@ export class BotInstance extends EventEmitter {
     if (this.config.llmEnabled) {
       this.llmModule = new LlmModule({
         logger: this.logger,
+        systemPrompt: this.config.llmSystemPrompt || undefined,
+        temperature: this.config.llmTemperature,
         client: new LlmClient({
           baseUrl: this.config.llmUrl || undefined,
           model: this.config.llmModel || undefined,
@@ -276,17 +303,20 @@ export class BotInstance extends EventEmitter {
     this.profileManager.onConnect();
     this.emit("connected");
 
-    // === PHASE 0 VISIBILITY ===
-    if (process.env.PHASE0_TEST_PLAY) {
+    // Default demo / unit test video (https://www.youtube.com/watch?v=52i14wYBef8) for easy Phase 0 startup validation.
+    // Override or disable (empty) with PHASE0_TEST_PLAY. Auto-play only triggers in Phase 0 contexts
+    // (TS6_* vars present or PHASE0_TEST_PLAY explicitly set) so normal bots don't auto-queue a demo track.
+    const envTrack = process.env.PHASE0_TEST_PLAY;
+    const isPhase0 = !!envTrack || !!process.env.TS6_HOST || !!process.env.TS_HOST;
+    const testTrack = (envTrack != null && envTrack.trim() !== "") ? envTrack : DEFAULT_DEMO_VIDEO_URL;
+
+    if (isPhase0) {
       this.logger.info("═══════════════════════════════════════════════════════════════");
       this.logger.info("PHASE 0: Bot successfully connected to TeamSpeak server!");
-      this.logger.info(`PHASE 0: Will auto-attempt playback of: ${process.env.PHASE0_TEST_PLAY}`);
+      this.logger.info(`PHASE 0: Will auto-attempt playback of: ${testTrack} (default unit test / startup track)`);
       this.logger.info("═══════════════════════════════════════════════════════════════");
-    }
 
-    // Phase 0 convenience: auto-play a test track shortly after connecting
-    if (process.env.PHASE0_TEST_PLAY) {
-      const testTrack = process.env.PHASE0_TEST_PLAY;
+      // Auto-play shortly after connect. This is the "default start up" behavior for validation.
       setTimeout(async () => {
         this.logger.info({ track: testTrack }, "Phase 0: Attempting automatic test playback");
         try {
@@ -296,12 +326,14 @@ export class BotInstance extends EventEmitter {
           this.logger.info({ track: testTrack, result }, "Phase 0: Test playback command executed");
 
           // Loud success banner for Phase 0 validation
-          if (typeof result === 'string' && !result.toLowerCase().includes('cannot') && !result.toLowerCase().includes('error') && !result.toLowerCase().includes('failed')) {
+          if (typeof result === 'string' && result.toLowerCase().includes('now playing')) {
             this.logger.info("═══════════════════════════════════════════════════════════════");
             this.logger.info("PHASE 0 SUCCESS: Bot connected and test audio playback initiated!");
             this.logger.info(`Test track: ${testTrack}`);
             this.logger.info("Check your TeamSpeak channel — you should hear audio now.");
             this.logger.info("═══════════════════════════════════════════════════════════════");
+          } else {
+            this.logger.warn({ result }, "Phase 0 auto-play did not report success");
           }
         } catch (e) {
           this.logger.error({ err: e, track: testTrack }, "Phase 0: Test playback failed");
@@ -348,6 +380,11 @@ export class BotInstance extends EventEmitter {
           this._scheduleIdleCheck();
         } else {
           this._cancelIdleTimer();
+        }
+        // Roast (Phase 8): grade captured lines + maybe drop a compilation.
+        // Fire-and-forget — its own guard serializes slow NPU grading.
+        if (this.config.roastEnabled) {
+          this.runRoastTick(userCount).catch(() => {});
         }
       } catch { /* ignore */ }
       setTimeout(poll, 30_000);
@@ -449,7 +486,14 @@ export class BotInstance extends EventEmitter {
     u.speakerUid = subject.uid;
     const engine = this.rightsEngine;
     const canRun = engine ? (cmd: string) => engine.can(subject, cmd) : undefined;
-    return { bot: this, logger: this.logger, conversationId: `voice:${subject.uid}`, canRun };
+    return {
+      bot: this,
+      logger: this.logger,
+      conversationId: `voice:${subject.uid}`,
+      canRun,
+      invokerUid: subject.uid,
+      invokerName: subject.nickname,
+    };
   }
 
   /**
@@ -540,10 +584,18 @@ export class BotInstance extends EventEmitter {
    * router. Disabling detaches it (router falls back to "not configured").
    * Note: rebuilding drops in-memory conversation history.
    */
-  updateLlm(enabled: boolean, url?: string, model?: string): void {
+  updateLlm(
+    enabled: boolean,
+    url?: string,
+    model?: string,
+    systemPrompt?: string,
+    temperature?: number,
+  ): void {
     this.config.llmEnabled = enabled;
     this.config.llmUrl = url ?? "";
     this.config.llmModel = model ?? "";
+    if (systemPrompt !== undefined) this.config.llmSystemPrompt = systemPrompt;
+    if (temperature !== undefined) this.config.llmTemperature = temperature;
     if (!enabled) {
       this.llmModule = null;
       this.controlRouter.setLlm(undefined);
@@ -589,7 +641,24 @@ export class BotInstance extends EventEmitter {
     else this.rightsEngine = new RightsEngine(cfg);
   }
 
+  /**
+   * Live-update the roast/community settings (ROADMAP Phase 8) without a restart.
+   * The grader and compiler read {@link config} on every poll tick, so mutating
+   * it here is enough — no module to rebuild. The RoastStore (and its captured
+   * data) persists across an enable/disable toggle.
+   */
+  updateRoast(enabled: boolean, minPresent?: number, cooldownMinutes?: number): void {
+    this.config.roastEnabled = enabled;
+    if (minPresent !== undefined) this.config.roastMinPresent = minPresent;
+    if (cooldownMinutes !== undefined) this.config.roastCooldownMinutes = cooldownMinutes;
+  }
+
   private async handleTextMessage(msg: TS3TextMessage): Promise<void> {
+    // Roast capture (ROADMAP Phase 8): record ordinary chat lines so the grader
+    // has material. Done before routing so even command-bearing turns are seen
+    // (the capture itself filters commands out).
+    this.captureRoastLine(msg);
+
     // Resolve rank gating up front (DESIGN §8): look up the invoker's
     // server-groups so the router can gate both typed and LLM-driven commands.
     let canRun: ((commandName: string) => boolean) | undefined;
@@ -604,6 +673,8 @@ export class BotInstance extends EventEmitter {
       logger: this.logger,
       conversationId: conversationKey(msg),
       canRun,
+      invokerUid: msg.invokerUid,
+      invokerName: msg.invokerName,
     };
 
     const decision = await this.controlRouter.route(
@@ -706,6 +777,8 @@ export class BotInstance extends EventEmitter {
         return this.cmdFollow(msg);
       case "help":
         return this.cmdHelp();
+      case "test":
+        return this.cmdTest();
       default:
         return `Unknown command: ${cmd.name}. Type ${this.config.commandPrefix}help for help.`;
     }
@@ -736,10 +809,43 @@ export class BotInstance extends EventEmitter {
     // (DESIGN §7.4 unified resolution) — a non-YouTube http(s) URL or a bridged
     // Spotify ref. Everything else defaults to Local (primary source).
     if (query) {
+      const yp = this.youtubeProvider as unknown as { canHandle?: (q: string) => boolean };
+      if (yp.canHandle?.(query)) return this.youtubeProvider;
       const sp = this.streamProvider as unknown as { canHandle?: (q: string) => boolean };
       if (sp.canHandle?.(query)) return this.streamProvider;
     }
     return this.localProvider;
+  }
+
+  /**
+   * Resolve the first search hit for a play/add command. Picks the provider via
+   * {@link getProvider} (honoring -l/-y/-s flags and URL auto-routing). If that
+   * fell back to Local (no explicit provider flag) and found nothing — e.g. an
+   * empty local library — transparently retry on YouTube so a bare
+   * `!play <terms>` works without forcing the -y flag. Returns the matched song
+   * together with the provider that actually produced it (its platform must be
+   * used when enqueuing), or null if nothing was found anywhere.
+   */
+  private async searchFirst(
+    cmd: ParsedCommand,
+    limit = 1,
+  ): Promise<{ provider: MusicProvider; song: Song } | null> {
+    const provider = this.getProvider(cmd.flags, cmd.args);
+    let result = await provider.search(cmd.args, limit);
+    let chosen = provider;
+    if (
+      result.songs.length === 0 &&
+      provider === this.localProvider &&
+      !cmd.flags.has("l")
+    ) {
+      const yt = await this.youtubeProvider.search(cmd.args, limit);
+      if (yt.songs.length > 0) {
+        result = yt;
+        chosen = this.youtubeProvider;
+      }
+    }
+    if (result.songs.length === 0) return null;
+    return { provider: chosen, song: result.songs[0] };
   }
 
   private registerCoreCommandHandlers() {
@@ -871,6 +977,10 @@ export class BotInstance extends EventEmitter {
       execute: async () => this.generateHelpText()
     });
     this.controlRouter.registerHandler({
+      name: 'test',
+      execute: async () => this.cmdTest()
+    });
+    this.controlRouter.registerHandler({
       name: 'lyrics',
       execute: async (cmd) => {
         if (!cmd.args) return "Usage: !lyrics <song name or queue number>";
@@ -917,7 +1027,125 @@ export class BotInstance extends EventEmitter {
       }
     });
 
+    // === Roast / community layer (ROADMAP Phase 8) ===
+    this.controlRouter.registerHandler({
+      name: 'roast',
+      execute: async () => {
+        if (!this.config.roastEnabled) {
+          return "The roast is switched off. An admin can enable it in Settings.";
+        }
+        const reel = this.buildRoastReel();
+        return reel ?? "Nothing roast-worthy graded yet — give it time.";
+      }
+    });
+    this.controlRouter.registerHandler({
+      name: 'roastout',
+      execute: async (cmd, ctx) => {
+        if (!ctx.invokerUid) return "Couldn't identify you — opt-out not applied.";
+        const removed = this.roastStore.optOut(ctx.invokerUid);
+        return `You're out of the roast. Purged ${removed} captured line${removed === 1 ? "" : "s"} and stopped recording you.`;
+      }
+    });
+
     // Note: "fm" and "artist" were NetEase-specific and removed during de-sinicization.
+  }
+
+  // === Roast / community layer (ROADMAP Phase 8) ===
+
+  /**
+   * Record one chat line as roast material. Skips commands, private DMs, the
+   * bot's own echoed messages, and opted-out users. Gated on roastEnabled and
+   * best-effort (a capture failure must never break message handling).
+   */
+  private captureRoastLine(msg: TS3TextMessage): void {
+    if (!this.config.roastEnabled) return;
+    if (msg.targetMode === 1) return; // don't mine private DMs
+    if (msg.invokerId === String(this.tsClient.getClientId())) return; // not the bot itself
+    const text = msg.message?.trim();
+    if (!text || text.length < 3) return;
+    if (text.startsWith(this.config.commandPrefix)) return; // commands aren't roast material
+    if (!msg.invokerUid) return;
+    try {
+      if (this.roastStore.isOptedOut(msg.invokerUid)) return;
+      this.roastStore.add(msg.invokerUid, msg.invokerName || "someone", text);
+    } catch (err) {
+      this.logger.debug({ err }, "Roast capture failed");
+    }
+  }
+
+  /**
+   * One roast pass, fired from the idle poller: grade a batch of captured lines,
+   * then maybe drop a "greatest hits" compilation if enough people are present.
+   * Serialized via {@link roastCompiling} so slow NPU grading can't overlap with
+   * the next 30s tick. Best-effort — never throws into the poller.
+   */
+  private async runRoastTick(humanCount: number): Promise<void> {
+    if (!this.config.roastEnabled || this.roastCompiling) return;
+    this.roastCompiling = true;
+    try {
+      await this.gradeRoastBatch();
+      await this.maybeRoast(humanCount);
+    } catch (err) {
+      this.logger.debug({ err }, "Roast tick failed");
+    } finally {
+      this.roastCompiling = false;
+    }
+  }
+
+  /**
+   * Grade the oldest ungraded lines with the LLM (0–10 cringe + one-line reason).
+   * Batched and small because the local NPU is slow (~4.5 tok/s). On an empty
+   * LLM response (model down) we stop early and retry next tick; on a non-empty
+   * but unparseable reply we mark the line graded-0 so it can't wedge the queue.
+   */
+  private async gradeRoastBatch(): Promise<void> {
+    if (!this.llmModule) return; // grading needs the LLM
+    const batch = this.roastStore.ungraded(5);
+    if (batch.length === 0) return;
+    const system =
+      "You are a ruthless but witty roast judge. Score how cringe or embarrassing " +
+      "a single chat line is, from 0 (forgettable) to 10 (maximally cringe). Reply " +
+      'with ONLY a JSON object: {"score": <integer 0-10>, "reason": "<short reason>"}.';
+    for (const q of batch) {
+      const out = await this.llmModule.complete(
+        `Chat line from ${q.userName}: ${JSON.stringify(q.text)}`,
+        system,
+      );
+      if (!out) {
+        this.logger.debug("Roast grader got no LLM response — retrying next tick");
+        return; // LLM unavailable; leave the rest ungraded
+      }
+      const parsed = parseRoastGrade(out);
+      if (parsed) this.roastStore.setGrade(q.id, parsed.score, parsed.reason);
+      else this.roastStore.setGrade(q.id, 0, "ungradeable");
+    }
+  }
+
+  /**
+   * Post a roast compilation if {@link BotConfig.roastMinPresent}+ humans are in
+   * the channel and the cooldown has elapsed. Records {@link lastRoastAt} only
+   * when a reel actually goes out, so a presence flap doesn't burn the cooldown.
+   */
+  private async maybeRoast(humanCount: number): Promise<void> {
+    if (humanCount < this.config.roastMinPresent) return;
+    const cooldownMs = this.config.roastCooldownMinutes * 60_000;
+    if (Date.now() - this.lastRoastAt < cooldownMs) return;
+    const reel = this.buildRoastReel();
+    if (!reel) return;
+    this.lastRoastAt = Date.now();
+    await this.tsClient.sendTextMessage(reel);
+  }
+
+  /** Format the top graded lines into a chat-ready reel, or null if none graded. */
+  private buildRoastReel(): string | null {
+    const top = this.roastStore.top(5);
+    if (top.length === 0) return null;
+    const lines = top.map(
+      (q, i) =>
+        `${i + 1}. ${q.userName} (${q.score}/10): "${q.text}"` +
+        (q.reason ? ` — ${q.reason}` : ""),
+    );
+    return `🔥 Roast reel — today's greatest hits 🔥\n${lines.join("\n")}`;
   }
 
   private generateHelpText(): string {
@@ -930,7 +1158,8 @@ export class BotInstance extends EventEmitter {
 !vol <0-100>
 !mode seq|loop|random|rloop
 !queue / !now
-!clear / !remove <n>${askLine}
+!clear / !remove <n>
+!test${askLine}
 !help`;
   }
 
@@ -1113,12 +1342,9 @@ export class BotInstance extends EventEmitter {
     // match was found, the router decision carries it. For now we still support the
     // normal search path here as fallback (and for YouTube/Stream).
 
-    const provider = this.getProvider(cmd.flags, cmd.args);
-    const result = await provider.search(cmd.args, 1);
-    if (result.songs.length === 0)
-      return `No results found for: ${cmd.args}`;
-
-    const song = result.songs[0];
+    const hit = await this.searchFirst(cmd, 1);
+    if (!hit) return `No results found for: ${cmd.args}`;
+    const { provider, song } = hit;
     this.queue.clear();
     this.queue.add({ ...song, platform: provider.platform });
     this.queue.play();
@@ -1132,12 +1358,9 @@ export class BotInstance extends EventEmitter {
 
   private async cmdAdd(cmd: ParsedCommand): Promise<string> {
     if (!cmd.args) return "Usage: !add <song name>";
-    const provider = this.getProvider(cmd.flags, cmd.args);
-    const result = await provider.search(cmd.args, 1);
-    if (result.songs.length === 0)
-      return `No results found for: ${cmd.args}`;
-
-    const song = result.songs[0];
+    const hit = await this.searchFirst(cmd, 1);
+    if (!hit) return `No results found for: ${cmd.args}`;
+    const { provider, song } = hit;
     const wasIdle = this.player.getState() === "idle";
     this.queue.add({ ...song, platform: provider.platform });
 
@@ -1158,12 +1381,9 @@ export class BotInstance extends EventEmitter {
 
   private async cmdPlayNext(cmd: ParsedCommand): Promise<string> {
     if (!cmd.args) return "Usage: !playnext <song name>";
-    const provider = this.getProvider(cmd.flags, cmd.args);
-    const result = await provider.search(cmd.args, 1);
-    if (result.songs.length === 0)
-      return `No results found for: ${cmd.args}`;
-
-    const song = result.songs[0];
+    const hit = await this.searchFirst(cmd, 1);
+    if (!hit) return `No results found for: ${cmd.args}`;
+    const { provider, song } = hit;
     const wasIdle = this.player.getState() === "idle";
     // Capture the slot addNext WILL insert at, before mutating the queue.
     // addNext pushes when currentIndex<0 (slot = size); otherwise splices
@@ -1481,8 +1701,22 @@ export class BotInstance extends EventEmitter {
       `${p}vote         — Vote to skip`,
       `${p}lyrics       — Show lyrics`,
       `${p}now          — Current song info`,
+      `${p}test         — Play https://www.youtube.com/watch?v=52i14wYBef8`,
       `${p}help         — This help message`,
     ].join("\n");
+  }
+
+  private async cmdTest(): Promise<string> {
+    // Play the specific test video requested by the user.
+    // Always routes to YouTube provider; clears queue like a fresh !play.
+    const testTrack = "https://www.youtube.com/watch?v=52i14wYBef8";
+    const cmd: ParsedCommand = {
+      name: "play",
+      args: testTrack,
+      rawArgs: [testTrack],
+      flags: new Set<string>(),
+    };
+    return this.cmdPlay(cmd);
   }
 
   /**

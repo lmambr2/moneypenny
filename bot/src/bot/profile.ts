@@ -8,8 +8,10 @@ import type { QueuedSong } from "../audio/queue.js";
 import type { Logger } from "../logger.js";
 
 const TS3_NICKNAME_MAX = 30;
-/** TS3 avatar max size — server default is ~300 KB. Use 200 KB to be safe. */
-const AVATAR_MAX_BYTES = 200 * 1024;
+/** Avatar size for TS profile upload (server typically enforces ~300-500 KB).
+ * Web UI now accepts up to 1 MB (full size stored/served for web display);
+ * if custom > limit we skip TS sync (web avatar still works). */
+const AVATAR_MAX_BYTES = 1024 * 1024;
 /** Timeout for file-transfer operations (upload / delete). */
 const FILE_TRANSFER_TIMEOUT_MS = 6000;
 
@@ -229,6 +231,13 @@ export class BotProfileManager {
   private async applyIdleAvatar(gen: number): Promise<void> {
     if (!this.customAvatar || this.customAvatar.length === 0) return;
     if (this.permDenied.avatar) return;
+    if (this.customAvatar.length > AVATAR_MAX_BYTES) {
+      this.logger.warn(
+        { bytes: this.customAvatar.length, max: AVATAR_MAX_BYTES },
+        "Custom avatar too large for TS profile — skipping TS upload (web UI avatar will still display at full size)"
+      );
+      return;
+    }
     try {
       await this.withTimeout(this.doAvatarUpload(this.customAvatar), FILE_TRANSFER_TIMEOUT_MS);
       if (this.generation !== gen) return;

@@ -54,6 +54,12 @@ export interface RouterContext {
   // typed commands and LLM-tool-derived commands so natural language can't
   // escalate privileges.
   canRun?: (commandName: string) => boolean;
+  // Invoker identity for handlers that must act per-user (e.g. the roast
+  // opt-out/purge). The registered-handler signature only gets (cmd, ctx,
+  // decision), so the uid/name ride along on the context. Undefined for
+  // synthetic/internal calls with no human invoker.
+  invokerUid?: string;
+  invokerName?: string;
 }
 
 export interface LlmIntent {

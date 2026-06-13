@@ -11,12 +11,27 @@ RKLLM_VERSION="${RKLLM_VERSION:-1.2.3}"
 
 echo "=== Moneypenny NPU Environment Check ==="
 
-# Check for RKNPU device
-if [ ! -e /dev/rknpu ]; then
-  echo "FAIL: /dev/rknpu not found. Install RKNPU driver v0.9.8+."
+# Check for the RKNPU device. Two layouts exist:
+#   - Older char-device builds:  /dev/rknpu
+#   - RK3588 vendor/DRM kernels: a /dev/dri/renderD* node bound to the RKNPU
+#     driver (e.g. renderD129 -> fdab0000.npu). librkllmrt uses this one.
+NPU_NODE=""
+if [ -e /dev/rknpu ]; then
+  NPU_NODE="/dev/rknpu"
+else
+  for d in /sys/class/drm/renderD*; do
+    [ -e "$d/device/driver" ] || continue
+    if [ "$(basename "$(readlink -f "$d/device/driver")")" = "RKNPU" ]; then
+      NPU_NODE="/dev/dri/$(basename "$d")"
+      break
+    fi
+  done
+fi
+if [ -z "$NPU_NODE" ]; then
+  echo "FAIL: no RKNPU device found (neither /dev/rknpu nor a /dev/dri RKNPU render node). Install RKNPU driver v0.9.8+ / flash a matching vendor kernel."
   exit 1
 fi
-echo "OK: /dev/rknpu present"
+echo "OK: RKNPU device present at $NPU_NODE"
 
 # Check driver version against the pinned target (RKNPU<->RKLLM are coupled).
 if [ -f /sys/kernel/debug/rknpu/version ]; then

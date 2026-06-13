@@ -229,6 +229,7 @@ export class TS3Client extends EventEmitter {
         { nickname: info.nickname, id: info.id },
         "Client entered"
       );
+      this.emit("clientEnter", info);
     });
 
     // Inbound voice (DESIGN §10). Re-emit per-speaker Opus packets so the voice

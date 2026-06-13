@@ -106,7 +106,7 @@ describe("bot settings router", () => {
     // Persisted to disk.
     expect(JSON.parse(readFileSync(join(configDir, "config.json"), "utf-8")).llmUrl).toBe("http://npu:8080");
     // Applied to the running bot — llm only (idle/rights untouched).
-    expect(bot.calls).toEqual([["llm", [true, "http://npu:8080", "qwen3-4b"]]]);
+    expect(bot.calls).toEqual([["llm", [true, "http://npu:8080", "qwen3-4b", "", 0.2]]]);
   });
 
   it("updates rights settings and applies them live", async () => {

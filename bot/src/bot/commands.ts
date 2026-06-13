@@ -8,7 +8,8 @@ export interface ParsedCommand {
 export const PUBLIC_COMMANDS = new Set([
   "play", "add", "queue", "list", "now", "lyrics", "vote", "help",
   "playlist", "album", "fm", "prev", "next", "skip", "pause", "resume",
-  "artist", "ask",
+  "artist", "ask", "test",
+  "roast", "roastout",
 ]);
 
 export const ADMIN_COMMANDS = new Set([

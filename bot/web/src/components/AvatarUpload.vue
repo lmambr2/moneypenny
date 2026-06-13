@@ -20,7 +20,7 @@
       </button>
     </div>
     <p v-if="error" class="hint error">{{ error }}</p>
-    <p v-else class="hint">PNG / JPG / WebP, ≤200 KB</p>
+    <p v-else class="hint">PNG / JPG / WebP, ≤1 MB</p>
   </div>
 </template>
 
@@ -44,8 +44,8 @@ function onFile(ev: Event) {
     error.value = 'Only PNG / JPG / WebP supported';
     return;
   }
-  if (file.size > 200 * 1024) {
-    error.value = `Image ${(file.size / 1024).toFixed(0)} KB exceeds 200 KB limit`;
+  if (file.size > 1024 * 1024) {
+    error.value = `Image ${(file.size / 1024 / 1024).toFixed(1)} MB exceeds 1 MB limit`;
     return;
   }
   error.value = null;

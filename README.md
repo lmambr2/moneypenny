@@ -9,6 +9,19 @@
   <b>One repo. One <code>docker compose up</code>. No cloud.</b>
 </p>
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Accessing the Web UI from Another Machine](#accessing-the-web-ui-from-another-machine)
+- [Configuration Guide](#configuration-guide)
+  - [Dummy-Proof Section](#dummy-proof-section-start-here)
+  - [Advanced / Power-User Section](#advanced--power-user-section)
+- [Troubleshooting & Common Commands](#troubleshooting--common-commands)
+  - [Cache-busting stale frontend bundles (the exact steps that worked)](#cache-busting-stale-frontend-bundles-the-exact-steps-that-worked)
+  - [Full clean reset / nuke (for first-run or branding issues)](#full-clean-reset--nuke-for-first-run-or-branding-issues)
+  - [Inspecting current state](#inspecting-current-state)
+- [Common Docker Compose Commands](#common-docker-compose-commands)
+
 ## Status
 
 **Phases 1–3 implemented** (music, LLM Q&A + tool control, rank permissions, voice loop, watchdog, web UI); 300 unit tests passing. Voice STT/TTS sidecars are built but await on-device NPU validation. See [DESIGN.md](./DESIGN.md) for the full architecture, phased plan, hardware requirements, and security posture.
@@ -39,7 +52,7 @@ Prefer to inspect first? Clone and run it locally:
 git clone https://github.com/lmambr2/moneypenny.git && cd moneypenny
 ./install.sh --help          # see all options
 ./install.sh                 # auto
-# ./install.sh --llm ollama --model qwen2.5:3b --with-voice
+# ./install.sh --llm ollama --model gemma4:e4b-it-qat --with-voice
 # ./install.sh --llm http://my-existing-llm:11434   # bring your own endpoint
 ```
 
@@ -56,11 +69,8 @@ ssh -L 3000:localhost:3000 youruser@<pi-ip-address>
 
 Then open **http://localhost:3000** in your browser on the PC. The traffic is securely tunneled over SSH.
 
-<<<<<<< HEAD
-=======
-(See the "Dummy-Proof Section" below for what to do on first load, plus the troubleshooting box there if you don't see the first-time setup form — it covers the legacy `tsmusicbot.db` filename and the need to `docker compose build` after renames.)
+**Important for updates / rebuilds / branding changes:** See the detailed cache-busting steps in the troubleshooting section below. Using a different local port (e.g. 4000 instead of 3000) + fresh private window + DevTools disable cache + `?cb=` + hard reload is often required to pull in a new frontend bundle.
 
->>>>>>> dev
 ### Open the port on the LAN (quick & dirty)
 On the Pi, edit `docker-compose.yml` and change the bot service ports line from:
 
@@ -118,24 +128,145 @@ After `docker compose up` or the installer finishes:
 
 4. Add your bot in the UI (or let the `PHASE0_*` variables in `.env` auto-create one on first start).
 
-**If you don't see the first-time setup screen** (you get the normal "Login to Moneypenny" form instead):
+**If you don't see the first-time setup screen** (you get the normal "Login to Moneypenny" form instead, or the old TSMusicBot/MusicBot branding/logo appears):
 
-The screen only appears when the users table is empty (`/api/session/needs-setup` returns `true`).
+The screen (and correct branding) only appears when:
+- The users table is empty (`/api/session/needs-setup` returns `true` — backend/DB side), **and**
+- Your browser has loaded the *current* frontend bundle (new hashed JS/CSS from the latest build — client side).
 
-- Stop the bot: `docker compose stop bot`
-- Wipe the DB + config (this forces a clean first-run; also covers the legacy filename from the TSMusicBot → Moneypenny rename):
-  ```bash
-  rm -f bot/data/moneypenny.db* bot/data/tsmusicbot.db* bot/data/config.json
-  ```
-- (Re)start: `docker compose up -d` (use the same profile / compose-file flags you normally use).
-- Hard-refresh the browser (or open an incognito window) and go through the tunnel again.
+Old browser-cached `index.html` + old `index-*.js` bundle is the most common cause even after DB wipes and rebuilds (the SPA shell and its router guard live in the JS; stale assets make the app think it's already initialized and show the old logo/guard).
 
-You may also need to rebuild the image after source changes/renames:
+### Cache-busting stale frontend bundles (the exact steps that worked)
+
+Standard "hard-refresh or incognito" is often not enough after a source change + image rebuild. The procedure below (different local tunnel port + fresh private window + DevTools disable cache + `?cb=` + hard reload + verify the JS hash) is what finally pulled in the new bundle.
+
+**On your PC (with tunnel active):**
+
+1. Fresh tunnel on a *different* local port (brand-new origin — zero browser cache/history):
+   ```bash
+   ssh -L 4000:localhost:3000 dietpi@opi5
+   ```
+
+2. Close **every** tab that has ever touched `localhost:3000` (or 4000).
+
+3. Open a **brand new private/incognito window**.
+
+4. In that window, open DevTools **first** (F12) → **Network** tab → tick **"Disable cache"**.
+
+5. Go to `http://localhost:4000/?cb=1725123456789012345` (use a completely fresh number you've never used before — this forces re-fetch of the current index.html).
+
+6. Hard reload: **Ctrl+Shift+R** (or Cmd+Shift+R).
+
+7. In the Network tab, confirm the main JS file loaded has the *new* hash (different from any previous `index-*.js`). The logo should now say Moneypenny.
+
+Then in the console of that same tab:
+```js
+fetch('/api/session/needs-setup').then(r => r.json()).then(console.log)
+```
+
+It should return `{ needsSetup: true }`. The guard will send you to the first-time setup form.
+
+If it still looks wrong, also try manually:
+```
+http://localhost:4000/first-run?cb=1725123456789012345
+```
+(hard reload with disable cache). `/first-run` is a public route.
+
+**Verify what the server is actually advertising (from your laptop, tunnel up):**
+```bash
+curl -s "http://localhost:4000/?cb=$(date +%s)" | grep -o 'src="[^"]*index[^"]*\.js"'
+```
+
+This should match the new hash you saw on the Pi. If it still shows an old hash, the running container's static files are stale — re-run the build + up sequence.
+
+### Full clean reset / nuke (for first-run or branding issues)
+
+**On the Pi (in the project dir):**
 
 ```bash
-docker compose build bot   # or --no-cache bot
-docker compose up -d
+# Stop and remove containers
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu down --remove-orphans
+
+# Remove the old image so the next build is truly fresh
+docker rmi moneypenny-bot:latest || true
+
+# Nuke all local state (DB, config, avatars, logs — this forces users=0 and a fresh Phase-0 bot)
+rm -rf bot/data/*
+
+# Pull latest source (Moneypenny branding + first-run guard fixes)
+git pull
+
+# Full clean build (no cache — this regenerates web/dist with the current logo + guard)
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu build --no-cache bot
+
+# Start fresh
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu up -d --force-recreate bot
 ```
+
+Wait 10-15 s, then verify:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu logs --tail=30 bot
+```
+Look for the new `"using SQLite database"` line with `moneypenny.db` and the web server starting.
+
+### Inspecting current state
+
+**From your laptop (tunnel up) — what bundle the server is currently advertising:**
+```bash
+curl -s "http://localhost:4000/?cb=$(date +%s)" | grep -o 'src="[^"]*index[^"]*\.js"'
+```
+
+**On the Pi — users / bots count (and confirm which DB is live):**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu exec bot node -e '
+  const db = require("better-sqlite3")("/app/data/moneypenny.db");
+  console.log("users:", db.prepare("SELECT COUNT(*) as n FROM users").get().n);
+  console.log("bots:", db.prepare("SELECT COUNT(*) as n FROM bot_instances").get().n);
+  db.close();
+'
+```
+
+**Logs (the one the installer prints):**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu logs -f bot
+```
+
+### Common Docker Compose Commands
+
+For convenience on the Pi, you can set these once (in your current shell or `~/.bashrc`):
+
+```bash
+export COMPOSE_FILE=docker-compose.yml:docker-compose.npu.yml
+export COMPOSE_PROFILES=core,npu
+```
+
+Then the short forms work:
+
+```bash
+# Start / restart
+docker compose up -d --force-recreate bot
+
+# Logs
+docker compose logs -f bot
+
+# Stop just the bot
+docker compose stop bot
+
+# Full down
+docker compose down --remove-orphans
+```
+
+With the long flags (if you don't want the exports):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu up -d --force-recreate bot
+docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu logs -f bot
+```
+
+If you also want the bundled TeamSpeak server or voice sidecars, add `--profile server` or `--profile voice`.
+
+### After first-run
+Once you create the admin account, the DB will have a user, `needsSetup` becomes false, the session cookie is set, and the main app (with correct branding) will load. The WS connection and authenticated calls will start working.
 
 If the container cannot create `bot/data/moneypenny.db` you will see crashes on startup. Make sure the host directory is writable by uid 1000:
 
@@ -144,6 +275,11 @@ mkdir -p bot/data && sudo chown -R 1000:1000 bot/data
 ```
 
 Check logs with `docker compose logs -f bot` for messages about the DB path or any "Migrated legacy..." line. See also the "Accessing the Web UI..." section above for the SSH tunnel and the compose port publishing notes.
+
+### Why the extra cache-busting steps are sometimes required
+Standard "hard-refresh or incognito" is often not enough for a Vite-built SPA after an image rebuild/rename. The old `index.html` (which embeds the old hashed JS filename) can be cached even with `max-age=0` + ETags, and the specific JS file URL stays in the browser's cache. Using a different local tunnel port (fresh origin) + `?cb=` (fresh document URL) + DevTools "Disable cache" + hard reload forces the browser to actually request the current `index.html` from the server, which then loads the current JS bundle.
+
+This procedure (new tunnel port + fresh private window + DevTools disable cache + `?cb=` + hard reload + verify the JS hash in Network tab) is what finally got the new Moneypenny branding + first-run screen after a full nuke + rebuild.
 
 5. Test basic playback with `!play <song or youtube url>` in your TS channel.
 
@@ -170,7 +306,7 @@ See the full `.env.example` in the repo. Important ones:
 - `TS6_SERVER_PASSWORD`, `TS6_API_KEY` (use the API key whenever possible)
 
 **Auto bot creation** (only on first startup when DB is empty)
-- `PHASE0_TEST_PLAY`, `BOT_NAME`, `BOT_NICKNAME`, `DEFAULT_CHANNEL`
+- `PHASE0_TEST_PLAY` (defaults to the canonical unit test/startup video https://www.youtube.com/watch?v=52i14wYBef8 ), `BOT_NAME`, `BOT_NICKNAME`, `DEFAULT_CHANNEL`
 
 **Web / Auth**
 - `BOT_WEB_PORT`

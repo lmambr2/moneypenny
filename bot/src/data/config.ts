@@ -38,6 +38,21 @@ export interface BotConfig {
   // Model name passed to /v1/chat/completions. Empty → RKLLAMA_MODEL env, then
   // the client default (qwen3-1.7b).
   llmModel: string;
+  // System prompt / persona for the LLM. Empty → the built-in
+  // DEFAULT_SYSTEM_PROMPT. Use this to set the bot's personality or pin the
+  // reply language (e.g. "Always respond in English.").
+  llmSystemPrompt: string;
+  // Sampling temperature (0 = deterministic, higher = more varied). Default 0.2.
+  llmTemperature: number;
+  // === Roast / community layer (ROADMAP Phase 8) ===
+  // When true, the bot captures members' chat lines, LLM-grades them for cringe,
+  // and auto-compiles a "greatest hits" reel when enough people are present.
+  // Off by default (opt-in — it records + mocks people). Requires the LLM.
+  roastEnabled: boolean;
+  // Minimum distinct humans in the bot's channel to auto-fire a compilation.
+  roastMinPresent: number;
+  // Cooldown between auto-compilations so it's a treat, not spam.
+  roastCooldownMinutes: number;
   // === Rank gating (Phase 1c, DESIGN §8) ===
   // When true, the ControlRouter enforces the rights model against the
   // invoker's TeamSpeak server-groups. Default ON (fail-safe): the derived
@@ -78,6 +93,11 @@ export function getDefaultConfig(): BotConfig {
     llmEnabled: false,
     llmUrl: "",
     llmModel: "",
+    llmSystemPrompt: "",
+    llmTemperature: 0.2,
+    roastEnabled: false,
+    roastMinPresent: 3,
+    roastCooldownMinutes: 180,
     rightsEnabled: true,
     voice: defaultVoiceConfig(),
     streamBridgeUrl: "",

@@ -11,6 +11,8 @@ export interface LlmModuleOptions {
   client?: LlmClient;
   logger?: Logger;
   systemPrompt?: string;
+  /** Sampling temperature passed on every chat request. Defaults to 0.2. */
+  temperature?: number;
   /** Conversation history store; defaults to a fresh per-module store. */
   history?: ConversationStore;
 }
@@ -24,12 +26,14 @@ export class LlmModule {
   private client: LlmClient;
   private logger?: Logger;
   private systemPrompt: string;
+  private temperature: number;
   private history: ConversationStore;
 
   constructor(options: LlmModuleOptions = {}) {
     this.client = options.client ?? new LlmClient({ logger: options.logger });
     this.logger = options.logger;
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    this.temperature = options.temperature ?? 0.2;
     this.history = options.history ?? new ConversationStore();
   }
 
@@ -47,7 +51,7 @@ export class LlmModule {
     ];
 
     try {
-      const resp = await this.client.chat({ messages, tools: undefined, tool_choice: "none" });
+      const resp = await this.client.chat({ messages, tools: undefined, tool_choice: "none", temperature: this.temperature });
       const content = resp.choices?.[0]?.message?.content?.trim() || "(no response)";
       this.record(conversationId, question, content);
       return content;
@@ -55,6 +59,30 @@ export class LlmModule {
       this.logger?.warn({ err }, "LLM ask failed");
       // Don't persist failed turns — keep history clean for the retry.
       return "Sorry, the local brain is having a moment. Try again in a few seconds.";
+    }
+  }
+
+  /**
+   * One-shot completion with no conversation history and a caller-supplied
+   * system prompt. For structured/background tasks (e.g. the roast grader and
+   * reel writer) that must not be polluted by chat history or the bot persona.
+   * Returns the raw assistant text (empty string on failure — callers decide).
+   */
+  async complete(prompt: string, system?: string): Promise<string> {
+    const messages: ChatMessage[] = [];
+    if (system) messages.push({ role: "system", content: system });
+    messages.push({ role: "user", content: prompt });
+    try {
+      const resp = await this.client.chat({
+        messages,
+        tools: undefined,
+        tool_choice: "none",
+        temperature: this.temperature,
+      });
+      return resp.choices?.[0]?.message?.content?.trim() || "";
+    } catch (err) {
+      this.logger?.warn({ err }, "LLM complete failed");
+      return "";
     }
   }
 
@@ -73,6 +101,7 @@ export class LlmModule {
       { role: "user", content: userMessage },
     ];
     const req = buildToolRequest(messages, { systemPrompt: this.systemPrompt });
+    req.temperature = this.temperature;
 
     try {
       const resp = await this.client.chat(req);

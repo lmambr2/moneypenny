@@ -56,7 +56,7 @@ services:
       # mock = no NPU (canned/echo, for dev + bot end-to-end validation).
       # Set to "native" on the board (and uncomment the librkllmrt mount above).
       - RKLLM_BACKEND=${RKLLM_BACKEND:-mock}
-      - MODEL_PATH=/models/qwen3-1.7b-instruct-w8a8.rkllm
+      - MODEL_PATH=/models/qwen3-4b-instruct-2507-w8a8.rkllm
       - MAX_CONTEXT=2048
     networks:
       - moneypenny
@@ -86,13 +86,23 @@ services:
       # OpenAI-compatible LLM endpoint. Defaults to the NPU service; the installer
       # overrides via .env (e.g. http://ollama:11434 on x86-64).
       - RKLLAMA_URL=${RKLLAMA_URL:-http://rkllama:8080}
-      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-qwen3-1.7b}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-qwen3-4b-instruct-2507}
     volumes:
       # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
       # be writable by uid 1000 (the non-root 'moneypenny' user):
       #   mkdir -p bot/data && sudo chown -R 1000:1000 bot/data
       - ./bot/data:/app/data
-      - ${MUSIC_DIR:-/mnt/music}:/music:ro
+      # Music library (scanned by LocalProvider). rw (not :ro) to support uploads
+      # from the web UI (Library page). Web uploads are isolated under the
+      # `uploads/` subdirectory (see LocalProvider.uploadSong + "secure that mfer"
+      # comments). This makes it easy to audit, permission, snapshot or exclude
+      # UI-added tracks separately from your main managed library.
+      # The bot process runs as uid 1000 inside the container.
+      # For Upload to succeed on the *host*:
+      #   sudo mkdir -p "$MUSIC_DIR/uploads" && sudo chown -R 1000:1000 "$MUSIC_DIR"
+      # If you only ever add music from the host (scp/rsync/NFS) and never intend
+      # to use the UI upload button, you can change this line to end with :ro .
+      - ${MUSIC_DIR:-/mnt/music}:/music
     ports:
       - "127.0.0.1:3000:3000"   # web UI/API — localhost-only by default (§11)
     # Hardening (DESIGN §11): non-root user (Dockerfile), read-only root fs with

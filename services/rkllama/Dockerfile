@@ -12,7 +12,10 @@ FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     python3 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
+# libgomp1 (libgomp.so.1) is a runtime dependency of the host-mounted
+# librkllmrt.so used by the native RKLLM backend — without it ctypes.CDLL fails.
 
 WORKDIR /app
 

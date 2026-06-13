@@ -29,6 +29,11 @@ export function createBotRouter(
       llmEnabled: config.llmEnabled ?? false,
       llmUrl: config.llmUrl ?? "",
       llmModel: config.llmModel ?? "",
+      llmSystemPrompt: config.llmSystemPrompt ?? "",
+      llmTemperature: config.llmTemperature ?? 0.2,
+      roastEnabled: config.roastEnabled ?? false,
+      roastMinPresent: config.roastMinPresent ?? 3,
+      roastCooldownMinutes: config.roastCooldownMinutes ?? 180,
       rightsEnabled: config.rightsEnabled ?? true,
       adminGroups: config.adminGroups ?? [],
       rights: config.rights ?? null,
@@ -40,7 +45,7 @@ export function createBotRouter(
   // running bot (no restart). Mutations are persisted to the config file.
   router.post("/settings", requireAdmin, (req, res) => {
     const body = req.body ?? {};
-    const touched = { idle: false, llm: false, rights: false };
+    const touched = { idle: false, llm: false, rights: false, roast: false };
 
     if ("idleTimeoutMinutes" in body) {
       const v = body.idleTimeoutMinutes;
@@ -76,6 +81,50 @@ export function createBotRouter(
       config.llmModel = body.llmModel.trim();
       touched.llm = true;
     }
+    if ("llmSystemPrompt" in body) {
+      if (typeof body.llmSystemPrompt !== "string") {
+        res.status(400).json({ error: "llmSystemPrompt must be a string" });
+        return;
+      }
+      config.llmSystemPrompt = body.llmSystemPrompt;
+      touched.llm = true;
+    }
+    if ("llmTemperature" in body) {
+      const v = body.llmTemperature;
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 2) {
+        res.status(400).json({ error: "llmTemperature must be a number between 0 and 2", code: "VALIDATION_ERROR" });
+        return;
+      }
+      config.llmTemperature = v;
+      touched.llm = true;
+    }
+
+    if ("roastEnabled" in body) {
+      if (typeof body.roastEnabled !== "boolean") {
+        res.status(400).json({ error: "roastEnabled must be a boolean", code: "VALIDATION_ERROR" });
+        return;
+      }
+      config.roastEnabled = body.roastEnabled;
+      touched.roast = true;
+    }
+    if ("roastMinPresent" in body) {
+      const v = body.roastMinPresent;
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 1) {
+        res.status(400).json({ error: "roastMinPresent must be an integer >= 1", code: "VALIDATION_ERROR" });
+        return;
+      }
+      config.roastMinPresent = v;
+      touched.roast = true;
+    }
+    if ("roastCooldownMinutes" in body) {
+      const v = body.roastCooldownMinutes;
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+        res.status(400).json({ error: "roastCooldownMinutes must be a non-negative number", code: "VALIDATION_ERROR" });
+        return;
+      }
+      config.roastCooldownMinutes = v;
+      touched.roast = true;
+    }
 
     if ("rightsEnabled" in body) {
       if (typeof body.rightsEnabled !== "boolean") {
@@ -110,8 +159,9 @@ export function createBotRouter(
     // idle-timeout tweak doesn't needlessly rebuild the LLM (dropping history).
     for (const bot of botManager.getAllBots()) {
       if (touched.idle) bot.updateIdleTimeout(config.idleTimeoutMinutes ?? 0);
-      if (touched.llm) bot.updateLlm(config.llmEnabled ?? false, config.llmUrl, config.llmModel);
+      if (touched.llm) bot.updateLlm(config.llmEnabled ?? false, config.llmUrl, config.llmModel, config.llmSystemPrompt, config.llmTemperature);
       if (touched.rights) bot.updateRights(config.rightsEnabled ?? true, config.rights);
+      if (touched.roast) bot.updateRoast(config.roastEnabled ?? false, config.roastMinPresent, config.roastCooldownMinutes);
     }
 
     res.json({ ok: true });
@@ -220,8 +270,8 @@ export function createBotRouter(
       res.status(400).json({ error: "empty image" });
       return;
     }
-    if (buf.length > 200 * 1024) {
-      res.status(413).json({ error: "avatar exceeds 200KB limit" });
+    if (buf.length > 1024 * 1024) {
+      res.status(413).json({ error: "avatar exceeds 1MB limit" });
       return;
     }
     const rel = avatarStore.write(id, mime, buf);

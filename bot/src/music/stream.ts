@@ -43,6 +43,15 @@ export function isStreamableUrl(input: string): boolean {
   return !YOUTUBE_HOSTS.test(u.hostname);
 }
 
+export function isYouTubeUrl(input: string): boolean {
+  try {
+    const u = new URL(input.trim());
+    return YOUTUBE_HOSTS.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** True for a Spotify track/playlist/album reference (uri or open.spotify.com URL). */
 export function isSpotifyRef(input: string): boolean {
   const s = input.trim();

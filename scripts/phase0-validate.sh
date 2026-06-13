@@ -3,6 +3,7 @@
 # Phase 0 Validation Helper
 # Usage: ./scripts/phase0-validate.sh [youtube-url-or-local-file]
 #
+# Defaults to the built-in Moneypenny demo/unit-test video if no argument given.
 # This script helps you quickly validate that the bot can connect to a real
 # TeamSpeak 6 server and play audio (the core of Phase 0).
 
@@ -12,16 +13,17 @@ echo "=== Moneypenny Phase 0 Validation Helper ==="
 echo
 
 if [ -z "${1:-}" ]; then
-  echo "Usage: $0 <test-track>"
-  echo "  test-track can be a YouTube URL or a filename in your MUSIC_DIR"
+  # Default to the canonical Moneypenny unit test + startup demo video.
+  # (You can still pass any YouTube URL or local filename from MUSIC_DIR.)
+  TEST_TRACK="https://www.youtube.com/watch?v=52i14wYBef8"
+  echo "No test-track supplied — using default Moneypenny demo/unit-test track:"
+  echo "  $TEST_TRACK"
   echo
-  echo "Example:"
-  echo "  $0 https://youtu.be/dQw4w9wgccc"
-  echo "  $0 'my-test-track.mp3'"
-  exit 1
+else
+  TEST_TRACK="$1"
 fi
 
-TEST_TRACK="$1"
+echo "Phase 0 test track: $TEST_TRACK"
 
 # Create a minimal .env for Phase 0 if one doesn't exist
 if [ ! -f .env ]; then

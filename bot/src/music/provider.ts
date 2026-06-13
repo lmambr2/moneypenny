@@ -89,4 +89,10 @@ export interface MusicProvider {
 
   /** Optional: certainty-based resolution (implemented by LocalProvider) */
   resolve?(input: string): Promise<{ type: 'song' | 'playlist'; item: Song | Playlist } | null>;
+
+  /** Optional: force re-index after external file changes or host-side adds (LocalProvider). Returns the new track count. */
+  refresh?(): Promise<number>;
+
+  /** Optional: upload a file into the local music library (web UI). Returns the indexed Song. Web uploads are isolated under the `uploads/` subdir. */
+  uploadSong?(originalFilename: string, data: Buffer): Promise<Song>;
 }

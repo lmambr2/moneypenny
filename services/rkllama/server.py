@@ -283,8 +283,17 @@ class NativeRkllmBackend(Backend):
             _fields_ = [("prompt_input", ct.c_char_p)]
 
         class RKLLMInput(ct.Structure):
+            # RKLLM 1.2.x prepends `role` + `enable_thinking` before input_type.
+            # Omitting them puts input_type at the wrong offset → the runtime
+            # reports "input_type of rkllm_input is not set". role/enable_thinking
+            # zero-init to NULL/false, which is correct since we pre-render ChatML.
             _anonymous_ = ("u",)
-            _fields_ = [("input_type", ct.c_int), ("u", _RKLLMInputUnion)]
+            _fields_ = [
+                ("role", ct.c_char_p),
+                ("enable_thinking", ct.c_bool),
+                ("input_type", ct.c_int),
+                ("u", _RKLLMInputUnion),
+            ]
 
         # RKLLMInferParam: generate mode, no LoRA / no prompt cache, history off
         # (the bot owns conversation history). `keep_history` was added in 1.2.x.
@@ -411,7 +420,7 @@ def approx_tokens(text: str) -> int:
 
 class Handler(BaseHTTPRequestHandler):
     backend: Backend = MockBackend()
-    model_name: str = "qwen3-1.7b"
+    model_name: str = "qwen3-4b-instruct-2507"
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter logs
         sys.stderr.write("rkllama: " + (fmt % args) + "\n")
@@ -475,7 +484,7 @@ def serve() -> None:
     port = int(os.environ.get("PORT", "8080"))
     host = os.environ.get("BIND_ADDRESS", "0.0.0.0")
     Handler.backend = make_backend()
-    Handler.model_name = os.environ.get("RKLLM_MODEL_NAME", "qwen3-1.7b")
+    Handler.model_name = os.environ.get("RKLLM_MODEL_NAME", "qwen3-4b-instruct-2507")
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f"rkllama gateway on {host}:{port} (backend={Handler.backend.name}, model={Handler.model_name})",
           flush=True)

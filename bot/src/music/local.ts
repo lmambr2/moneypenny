@@ -187,21 +187,25 @@ export class LocalProvider implements MusicProvider {
     await this.ensureIndexed();
 
     const q = query.toLowerCase().trim();
+    let matches: IndexedSong[];
     if (!q) {
-      return { songs: [], playlists: [], albums: [] };
-    }
-
-    const matches = this.songs
-      .filter(song =>
+      // Empty query: return a sample of the library (for home/library views).
+      // Order is walk order (fs readdir); uploads appear after refresh.
+      matches = this.songs;
+    } else {
+      matches = this.songs.filter(song =>
         song.name.toLowerCase().includes(q) ||
         song.artist.toLowerCase().includes(q) ||
         song.album.toLowerCase().includes(q)
-      )
+      );
+    }
+
+    const sliced = matches
       .slice(0, limit)
       .map(({ absolutePath, ...song }) => song); // Don't leak absolutePath to callers
 
     return {
-      songs: matches,
+      songs: sliced,
       playlists: [],
       albums: [],
     };
@@ -452,5 +456,102 @@ export class LocalProvider implements MusicProvider {
     }
 
     return null;
+  }
+
+  // --- Upload + refresh (web UI support) ---
+
+  /**
+   * Force a full re-scan. Safe to call after host-side adds or web uploads.
+   * Next search/resolve will see the new files.
+   * Returns the number of indexed tracks after refresh.
+   */
+  async refresh(): Promise<number> {
+    this.indexed = false;
+    this.indexingPromise = null;
+    await this.ensureIndexed();
+    return this.songs.length;
+  }
+
+  /**
+   * Upload a song file (from web UI) into the music library.
+   *
+   * SECURITY / AUDIT NOTE ("secure that mfer"):
+   *   Web-originated uploads are **isolated to the `uploads/` subdirectory**
+   *   under the configured MUSIC_DIR. This makes it trivial to:
+   *   - Audit / ls what came from the UI vs. host-managed files
+   *   - Apply different host permissions, snapshots, or .dockerignore rules
+   *   - Monitor or later add per-subdir scanning / quarantine rules
+   *   The recursive walker still indexes them automatically.
+   *
+   * - Sanitizes filename (no traversal, restricted chars)
+   * - Ensures unique name (appends " (n)" if needed)
+   * - Writes via tmp + rename for basic atomicity
+   * - Triggers refresh so it is immediately searchable/indexed
+   * - Returns a clean Song (no absolutePath leak)
+   */
+  async uploadSong(originalFilename: string, data: Buffer): Promise<Song> {
+    // Sanitize to a safe basename only
+    let base = path.basename(originalFilename || "upload.bin");
+    // Remove directory separators and most dangerous chars for cross-fs safety
+    base = base.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!base) base = "upload.mp3";
+    const ext = path.extname(base).toLowerCase();
+    if (!this.supportedExtensions.has(ext)) {
+      throw new Error("Unsupported audio format. Allowed: " + Array.from(this.supportedExtensions).join(", "));
+    }
+
+    // Uploads go into a dedicated subdir so we can "secure that mfer"
+    // (audit, perms, exclusion, etc.). Still under musicDir so the walker finds it.
+    const uploadsDir = path.join(this.musicDir, "uploads");
+    await fs.mkdir(uploadsDir, { recursive: true });
+
+    // Choose a non-colliding target path inside uploads/
+    let target = path.join(uploadsDir, base);
+    let counter = 0;
+    const nameNoExt = path.basename(base, ext);
+    while (true) {
+      try {
+        await fs.access(target);
+        counter += 1;
+        target = path.join(uploadsDir, `${nameNoExt} (${counter})${ext}`);
+      } catch {
+        break; // does not exist → usable
+      }
+      if (counter > 9999) {
+        throw new Error("Too many name collisions");
+      }
+    }
+
+    // Write to .tmp then rename (best-effort atomic on same volume)
+    const tmpPath = target + ".uploading";
+    try {
+      await fs.writeFile(tmpPath, data);
+      await fs.rename(tmpPath, target);
+    } catch (e) {
+      // cleanup partial
+      try { await fs.unlink(tmpPath); } catch {}
+      throw e;
+    }
+
+    // Re-index so search/resolve/cards see it (and get real metadata/cover)
+    await this.refresh();
+
+    // Return the clean song object using our ID system
+    const realPath = await fs.realpath(target);
+    const id = this.opaqueId(realPath);
+    // idToPath was populated during refresh's indexFile
+    const song = await this.getSongDetail(id);
+    if (song) return song;
+
+    // Fallback (shouldn't happen)
+    return {
+      id,
+      name: path.basename(target, ext),
+      artist: "Unknown Artist",
+      album: "Unknown Album",
+      duration: 0,
+      coverUrl: "",
+      platform: "local",
+    };
   }
 }

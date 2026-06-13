@@ -67,7 +67,7 @@ export function createWebServer(options: WebServerOptions): WebServer {
     next();
   });
 
-  app.use(express.json({ limit: "400kb" }));
+  app.use(express.json({ limit: "2mb" }));
   app.use(cookieParser());
 
   const users = createUserStore(options.database.db);
