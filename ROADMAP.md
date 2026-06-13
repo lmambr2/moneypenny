@@ -60,6 +60,47 @@ serving stack: vLLM/TGI vs ollama.)
 **Accept:** changing `llmUrl` routes `!ask`/intent to a remote big model with
 tool-calling intact; migration path documented and tried once.
 
+### On-device LLM serving — decisions & benchmarks (2026-06-12)
+
+Benchmarked three serving paths on the Orange Pi 5 Max (16 GB) with the real
+`play_music` tool schema. **Decode throughput converged regardless of accelerator:**
+
+| Serving path | Model | HW | tok/s | Tool-calls |
+|---|---|---|---|---|
+| ollama (OpenAI `/v1`) | Gemma 4 **E4B** QAT GGUF | CPU/Mali | 4.97 | ✅ |
+| NotPunchnox/rkllama | Qwen3-4B `.rkllm` | **NPU** | 4.87 | ✅ |
+| ollama (OpenAI `/v1`) | Gemma 4 **E2B** QAT GGUF (UD-Q4_K_XL) | CPU/Mali | **9.95** | ✅ |
+
+**Key finding: the NPU gives ~no decode speedup over CPU for a 4B here.** RK3588
+LLM *decode* is **memory-bandwidth-bound**, not compute-bound — even Rockchip's own
+optimized NPU runtime (native RKLLM) lands at the same ~4.9 tok/s as ollama on
+CPU. The only lever that actually moves decode is **model size**: dropping 4B→2B
+(Gemma E4B→E2B) ~doubles it to ~10 tok/s with tool-calling intact.
+
+**Current production choice:** **Gemma 4 E2B QAT GGUF on ollama** (`llmUrl=
+http://ollama:11434`, `llmModel=hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL`).
+ollama *is* a maintained OpenAI-compatible GGUF gateway, so this needs no custom
+code; Gemma 4 has native function-calling, so it drives music intent + grades the
+roast. The hand-rolled `services/rkllama/server.py` stays as the NPU/Qwen fallback.
+
+**NotPunchnox/rkllama** (`ghcr.io/notpunchnox/rkllama:main`) is validated as a
+drop-in maintained replacement for `server.py`: OpenAI `/v1`, model management,
+loaded our existing `.rkllm` with no re-conversion, tool-calls work. Adopt it if/
+when we want to consolidate the NPU path — but it buys no speed over ollama-CPU.
+
+**Deferred — GGUF-on-NPU via the `invisiofficial/rk-llama.cpp` fork** (llama.cpp
+with RKNPU2 as a GGML backend; enabled in NotPunchnox via `--llamacpp <bin>`).
+This is the *only* way to run a Gemma GGUF on the NPU, but it's parked, not
+dropped, for three reasons: (1) a from-source C++/cmake build against the RKNPU
+SDK on ARM — high cost, toolchain-fragile; (2) Gemma **4** is days old, so the
+fork's llama.cpp snapshot may not have the arch yet (Gemma 3 is safe, 4 is a
+gamble); (3) per the bench above it can't help **decode** (bandwidth-bound) and a
+community NPU-offload backend is more likely to fall back to CPU than to beat
+native RKLLM. **Where it *would* pay off later:** prompt **prefill** is
+compute-bound (unlike decode), so once Phase 6 doc-RAG is stuffing long
+doctrine/INTSUM context into the prompt, NPU offload of prefill could matter even
+though it does nothing for short music-intent/chat. Revisit then.
+
 ## Phase 5 — Vector store + embeddings (the shared foundation)
 **Goal:** stand up a vector DB sidecar (ChromaDB or Qdrant) + an embedding model
 (small local, or hosted on the big box). Shared substrate for Phases 6 and 7.
