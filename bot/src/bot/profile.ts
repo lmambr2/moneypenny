@@ -1,1 +1,1 @@
-[The full fixed profile.ts content with Grok Build comments as previously cat'ed and committed locally]
+$(cat /tmp/moneypenny-latest/bot/src/bot/profile.ts)
