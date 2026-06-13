@@ -16,10 +16,9 @@ interface EmbeddingResponse {
 }
 
 /**
- * Thin embeddings client for any OpenAI-compatible `/v1/embeddings` endpoint
- * (ROADMAP Phase 5). Mirrors {@link LlmClient}: a config-driven baseUrl/model so
- * the SAME code serves both tracks — EmbeddingGemma on ollama-CPU (RK3588) or a
- * big Qwen3-Embedding on a GPU box — and the endpoint can be local or remote.
+ * Embeddings client for OpenAI-compatible /v1/embeddings (ROADMAP Phase 5).
+ * Config-driven baseUrl/model so same code works for local NPU and remote GPU.
+ * See DESIGN for details.
  */
 export class EmbeddingsClient {
   private baseUrl: string;

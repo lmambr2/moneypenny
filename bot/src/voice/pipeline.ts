@@ -5,25 +5,21 @@ import type { SttProvider, TtsProvider, VoiceOutput, Utterance } from "./types.j
 export interface VoicePipelineOptions {
   router: ControlRouter;
   stt: SttProvider;
-  /** Build the routing context (subject for rank gating, conversationId) for a
-   * speaker. May be async so the subject can be resolved live (rank decisions
-   * must not trust a cached, reusable client-id binding — audit F-5). */
+  /** Build RouterContext for a speaker (subject for rank gating etc.). See DESIGN §10. */
   buildContext: (utterance: Utterance) => RouterContext | Promise<RouterContext>;
   tts?: TtsProvider;
   output?: VoiceOutput;
-  /** Speak replies back via TTS when both tts and output are present. */
+  /** Whether to speak replies via TTS. */
   respondWithVoice?: boolean;
   aliases?: Record<string, string>;
   logger?: Logger;
-  /** Observability hook — fired after each turn (e.g. for the UI / audit). */
+  /** Optional hook after each turn (for UI/audit). */
   onTurn?: (turn: { transcript: string; reply: string | null; speakerUid?: string }) => void;
 }
 
 /**
- * Orchestrates one voice turn (DESIGN §10): STT → ControlRouter.routeVoice →
- * execute → optional spoken reply. Deliberately reuses the chat router so voice
- * inherits deterministic-first dispatch, LLM fuzzy intent, AND rank gating —
- * there is no separate command path for voice.
+ * Voice turn orchestrator (STT → router → optional TTS). Reuses chat router
+ * for consistent dispatch/gating. See DESIGN §10.
  */
 export class VoicePipeline {
   private opts: VoicePipelineOptions;
@@ -35,9 +31,8 @@ export class VoicePipeline {
   }
 
   /**
-   * Process a completed utterance end-to-end. Returns the textual reply (also
-   * spoken aloud when voice replies are enabled), or null if nothing actionable
-   * was heard. Never throws — STT/router/TTS failures degrade gracefully.
+   * End-to-end voice turn. Returns text reply (spoken if enabled).
+   * Failures degrade gracefully. See DESIGN §10.
    */
   async handleUtterance(utterance: Utterance): Promise<string | null> {
     let transcript = "";
