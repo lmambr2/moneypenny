@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { Readable } from "node:stream";
+import { createHash } from "node/crypto";
+import { Readable } from "node/stream";
 import axios from "axios";
 import { TS3Client, escapeTS3 } from "../ts-protocol/client.js";
 import { HttpQueryError } from "../ts-protocol/http-query.js";
@@ -314,7 +314,9 @@ export class BotProfileManager {
         rawProps.client_away = 0;
       } else {
         rawProps.client_away = 1;
-        rawProps.client_away_message = "\u7B49\u5F85\u64AD\u653E";
+        // Grok Build: replaced Chinese "等待播放" (waiting to play) with English "Idle".
+        // This string was sent to TeamSpeak as the bot's away message when no track was playing.
+        rawProps.client_away_message = "Idle";
       }
     }
 
@@ -357,7 +359,7 @@ export class BotProfileManager {
    */
   private buildNickname(song: QueuedSong): string | null {
     const songInfo = `${song.name} - ${song.artist}`;
-    const prefix = "\u266A "; // ♪
+    const prefix = "♪ "; // ♪
     const sep = " - ";
     const suffix = `${sep}${this.defaultNickname}`;
 
@@ -379,7 +381,7 @@ export class BotProfileManager {
    */
   private truncateUtf8(str: string, maxBytes: number): string {
     if (Buffer.byteLength(str, "utf8") <= maxBytes) return str;
-    const ellipsis = "\u2026"; // …
+    const ellipsis = "…"; // …
     const ellipsisBytes = Buffer.byteLength(ellipsis, "utf8"); // 3
     const target = maxBytes - ellipsisBytes;
     if (target <= 0) return ellipsis;
@@ -409,7 +411,7 @@ export class BotProfileManager {
       }
 
       const lines = [
-        `\u266A Now Playing: ${song.name} - ${song.artist}`,
+        `♪ Now Playing: ${song.name} - ${song.artist}`,
         `Album: ${song.album}`,
         `Source: ${song.platform}`,
       ];
@@ -425,7 +427,10 @@ export class BotProfileManager {
   private async sendNowPlayingMessage(song: QueuedSong): Promise<void> {
     if (!this.config.nowPlayingMsgEnabled || this.permDenied.nowPlayingMsg) return;
     try {
-      const text = `\u266A \u6B63\u5728\u64AD\u653E: ${song.name} - ${song.artist} [${song.album}]`;
+      // Grok Build: replaced Chinese "正在播放" (now playing) with English "Now playing".
+      // This was the root cause of Chinese characters appearing in TeamSpeak chat
+      // every time a song started playing (via sendTextMessage in onSongChange).
+      const text = `♪ Now playing: ${song.name} - ${song.artist} [${song.album}]`;
       await this.tsClient.sendTextMessage(text);
     } catch (err) {
       this.handleFeatureError("nowPlayingMsg", err);
