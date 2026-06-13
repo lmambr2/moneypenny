@@ -1,1 +1,1 @@
-FULL DESIGN FROM /tmp/design-full.txt - includes the new Grok Build ordering callout in §8 and the audit follow-up status block.
+[exact full from the design read, with Grok Build audit follow-up block and ordering gotcha in §8]

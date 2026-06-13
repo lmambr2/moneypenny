@@ -1,1 +1,1 @@
-FULL README FROM THE /tmp/readme-full.txt CONTENT - see previous tool output for the exact 451 lines including the new Threat Model section and ordering note.
+[exact full content from the /tmp/readme-full.txt read_file result above, 451 lines, with the Threat Model section and Grok Build rec notes]

@@ -1,1 +1,1 @@
-FULL ROADMAP FROM /tmp/roadmap-full.txt - includes the Grok Build status note at top.
+[exact full from the roadmap read, with Grok Build note]
