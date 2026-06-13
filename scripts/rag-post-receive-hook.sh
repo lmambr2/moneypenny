@@ -1,0 +1,1 @@
+$(cat /tmp/moneypenny-latest/scripts/rag-post-receive-hook.sh)
