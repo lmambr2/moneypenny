@@ -63,7 +63,7 @@ export function createMusicRouter(
     }
   });
 
-  router.get("/search/all", async (req, res) => {
+  router.get("/search/all", searchLimit, async (req, res) => {
     try {
       const { q, limit } = req.query;
       if (!q) {

@@ -83,10 +83,11 @@ services:
       # default. To reach it over the LAN, change the publish to
       # "0.0.0.0:3000:3000" AND firewall :3000 to the LAN in UFW (DESIGN §11).
       - BIND_ADDRESS=0.0.0.0
-      # OpenAI-compatible LLM endpoint. Defaults to the NPU service; the installer
-      # overrides via .env (e.g. http://ollama:11434 on x86-64).
-      - RKLLAMA_URL=${RKLLAMA_URL:-http://rkllama:8080}
-      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-qwen3-4b-instruct-2507}
+      # OpenAI-compatible LLM endpoint. Defaults to Ollama + Gemma 4 E2B (the
+      # validated default — NPU gives no decode speedup, see ROADMAP); the
+      # installer overrides via .env, and --llm npu repoints these at rkllama.
+      - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
     volumes:
       # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
       # be writable by uid 1000 (the non-root 'moneypenny' user):

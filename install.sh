@@ -126,7 +126,9 @@ fi
 
 # ── 2. detect architecture / NPU and resolve the LLM backend ─────────────────
 ARCH="$(uname -m)"
-HAS_NPU=0; [ -e /dev/rknpu ] && HAS_NPU=1
+# Informational only now (auto defaults to ollama). On RK3588 vendor kernels the
+# NPU isn't /dev/rknpu — it's a DRM render node (fdab0000.npu); detect either.
+HAS_NPU=0; { [ -e /dev/rknpu ] || [ -e /sys/class/devfreq/fdab0000.npu ]; } && HAS_NPU=1
 say "Architecture: ${c_b}${ARCH}${c_0}$([ "$HAS_NPU" -eq 1 ] && echo ' (RK3588 NPU detected)')"
 
 if [ "$LLM" = "auto" ]; then
