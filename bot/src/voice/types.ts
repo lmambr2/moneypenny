@@ -1,9 +1,7 @@
 /**
  * Voice pipeline types (DESIGN §10).
- *
- * The pipeline is turn-based: inbound per-speaker audio → VAD end-pointing →
- * STT → the SAME ControlRouter the chat path uses → optional TTS reply. STT/TTS
- * run on the CPU (sherpa-onnx / Kokoro) to keep the NPU free for the LLM.
+ * Turn-based: per-speaker audio → VAD → STT → shared router (same dispatch/gating as chat) → optional TTS.
+ * CPU for STT/TTS (NPU for LLM).
  */
 
 /** A completed, end-pointed speech segment from one speaker. */

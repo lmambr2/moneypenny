@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 
 /**
- * Document chunking for the RAG substrate (ROADMAP Phase 5). Splits markdown into
- * heading-bounded, size-capped chunks with overlap, and assigns each a
- * deterministic id so re-ingesting a source replaces its chunks cleanly (this is
- * the seed of Phase 6's stable `path#section` chunk IDs).
+ * Markdown chunking for RAG (ROADMAP Phase 5/6).
+ * Heading-based + size-capped with overlap. Deterministic IDs for clean re-ingest.
+ * See DESIGN.md for rationale and Phase 6 stable IDs.
  */
 
 export interface Chunk {
@@ -24,19 +23,15 @@ export interface ChunkOptions {
 
 const DEFAULTS: Required<ChunkOptions> = { maxChars: 1200, overlap: 150 };
 
-/**
- * Deterministic chunk id, formatted as a UUID string (Qdrant only accepts
- * uint64 or UUID point ids). Same source+index → same id → upsert replaces.
- */
+/** Deterministic UUID id for a chunk (source+index). Enables clean replace on re-ingest. */
 export function chunkId(source: string, index: number): string {
   const h = createHash("sha1").update(`${source}#${index}`).digest("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
 /**
- * Chunk markdown: split on headings first (a section keeps its heading), then
- * size-bound any section that's too large. Plain text falls through the same
- * path (no headings → one section → size split).
+ * Split md on headings, then size-cap sections with overlap.
+ * See DESIGN for details.
  */
 export function chunkMarkdown(source: string, md: string, opts: ChunkOptions = {}): Chunk[] {
   const { maxChars, overlap } = { ...DEFAULTS, ...opts };
