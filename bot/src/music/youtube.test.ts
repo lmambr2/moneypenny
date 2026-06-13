@@ -19,8 +19,8 @@ describe("YouTubeProvider — default unit test / startup video", () => {
   const provider = new YouTubeProvider();
 
   it("exports the canonical demo video constants", () => {
-    expect(DEFAULT_DEMO_VIDEO_ID).toBe("52i14wYBef8");
-    expect(DEFAULT_DEMO_VIDEO_URL).toBe("https://www.youtube.com/watch?v=52i14wYBef8");
+    expect(DEFAULT_DEMO_VIDEO_ID).toBe("hLOheGDwD_0");
+    expect(DEFAULT_DEMO_VIDEO_URL).toBe("https://www.youtube.com/watch?v=hLOheGDwD_0");
   });
 
   it("canHandle recognizes the default video URL (and short youtu.be form)", () => {

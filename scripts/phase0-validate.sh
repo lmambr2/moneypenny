@@ -15,7 +15,7 @@ echo
 if [ -z "${1:-}" ]; then
   # Default to the canonical Moneypenny unit test + startup demo video.
   # (You can still pass any YouTube URL or local filename from MUSIC_DIR.)
-  TEST_TRACK="https://www.youtube.com/watch?v=52i14wYBef8"
+  TEST_TRACK="https://www.youtube.com/watch?v=hLOheGDwD_0"
   echo "No test-track supplied — using default Moneypenny demo/unit-test track:"
   echo "  $TEST_TRACK"
   echo

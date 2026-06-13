@@ -306,7 +306,7 @@ See the full `.env.example` in the repo. Important ones:
 - `TS6_SERVER_PASSWORD`, `TS6_API_KEY` (use the API key whenever possible)
 
 **Auto bot creation** (only on first startup when DB is empty)
-- `PHASE0_TEST_PLAY` (defaults to the canonical unit test/startup video https://www.youtube.com/watch?v=52i14wYBef8 ), `BOT_NAME`, `BOT_NICKNAME`, `DEFAULT_CHANNEL`
+- `PHASE0_TEST_PLAY` (defaults to the canonical unit test/startup video https://www.youtube.com/watch?v=hLOheGDwD_0 ), `BOT_NAME`, `BOT_NICKNAME`, `DEFAULT_CHANNEL`
 
 **Web / Auth**
 - `BOT_WEB_PORT`

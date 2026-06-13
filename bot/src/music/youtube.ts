@@ -45,7 +45,7 @@ async function getOEmbedEntry(videoId: string): Promise<YtDlpEntry | null> {
  *  - The primary YouTube unit test case (direct URL handling, metadata, stream extraction)
  *  - Docs and phase0-validate.sh examples
  */
-export const DEFAULT_DEMO_VIDEO_ID = "52i14wYBef8";
+export const DEFAULT_DEMO_VIDEO_ID = "hLOheGDwD_0";
 export const DEFAULT_DEMO_VIDEO_URL = `https://www.youtube.com/watch?v=${DEFAULT_DEMO_VIDEO_ID}`;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

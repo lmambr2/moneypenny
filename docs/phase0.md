@@ -31,7 +31,7 @@ Fork builds and runs; its TS6 client connects to a real TeamSpeak 6 server and p
    ```bash
    ./scripts/phase0-validate.sh
    # (defaults to the built-in Moneypenny unit test / startup demo video:
-   #  https://www.youtube.com/watch?v=52i14wYBef8 )
+   #  https://www.youtube.com/watch?v=hLOheGDwD_0 )
    #
    # or pass any other track:
    # ./scripts/phase0-validate.sh "https://youtu.be/..."
@@ -40,7 +40,7 @@ Fork builds and runs; its TS6 client connects to a real TeamSpeak 6 server and p
 
    Or manually:
    ```bash
-   export PHASE0_TEST_PLAY="https://www.youtube.com/watch?v=52i14wYBef8"
+   export PHASE0_TEST_PLAY="https://www.youtube.com/watch?v=hLOheGDwD_0"
    # (this is also the built-in default when the variable is unset)
    docker compose --profile core up --build
    ```

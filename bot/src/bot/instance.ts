@@ -303,7 +303,7 @@ export class BotInstance extends EventEmitter {
     this.profileManager.onConnect();
     this.emit("connected");
 
-    // Default demo / unit test video (https://www.youtube.com/watch?v=52i14wYBef8) for easy Phase 0 startup validation.
+    // Default demo / unit test video (https://www.youtube.com/watch?v=hLOheGDwD_0) for easy Phase 0 startup validation.
     // Override or disable (empty) with PHASE0_TEST_PLAY. Auto-play only triggers in Phase 0 contexts
     // (TS6_* vars present or PHASE0_TEST_PLAY explicitly set) so normal bots don't auto-queue a demo track.
     const envTrack = process.env.PHASE0_TEST_PLAY;
@@ -1701,7 +1701,7 @@ export class BotInstance extends EventEmitter {
       `${p}vote         — Vote to skip`,
       `${p}lyrics       — Show lyrics`,
       `${p}now          — Current song info`,
-      `${p}test         — Play https://www.youtube.com/watch?v=52i14wYBef8`,
+      `${p}test         — Play ${DEFAULT_DEMO_VIDEO_URL}`,
       `${p}help         — This help message`,
     ].join("\n");
   }
@@ -1709,7 +1709,7 @@ export class BotInstance extends EventEmitter {
   private async cmdTest(): Promise<string> {
     // Play the specific test video requested by the user.
     // Always routes to YouTube provider; clears queue like a fresh !play.
-    const testTrack = "https://www.youtube.com/watch?v=52i14wYBef8";
+    const testTrack = DEFAULT_DEMO_VIDEO_URL;
     const cmd: ParsedCommand = {
       name: "play",
       args: testTrack,
