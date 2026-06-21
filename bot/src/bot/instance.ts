@@ -30,6 +30,7 @@ import { MemoryService } from "./community/memory.js";
 import { VoiceSession } from "./voice/session.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
 import { LlmRuntime } from "./llm/runtime.js";
+import type { WorkflowKind } from "../docs/workflow.js";
 import { KnowledgeService } from "./knowledge/service.js";
 import { IdlePoller } from "./lifecycle/idle-poller.js";
 import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
@@ -384,6 +385,10 @@ export class BotInstance extends EventEmitter {
     allowedClassifications?: string[],
   ) {
     return this.knowledge.queryRag(question, topK, allowedClassifications);
+  }
+
+  saveWorkflowDoc(kind: WorkflowKind, markdown: string) {
+    return this.knowledge.saveWorkflowDoc(kind, markdown);
   }
 
   updateMemory(enabled: boolean): void {

@@ -1,5 +1,13 @@
 import { parseCommand, isKnownCommand, type ParsedCommand } from "../bot/commands.js";
 import {
+  buildWorkflowTask,
+  formatWorkflowFollowUp,
+  parseWorkflowCommand,
+  WORKFLOW_ACK_MESSAGE,
+  type WorkflowKind,
+  type WorkflowRequest,
+} from "../docs/workflow.js";
+import {
   DELEGATE_ACK_MESSAGE,
   DELEGATE_TOOL_NAME,
   formatDelegateFollowUp,
@@ -48,6 +56,11 @@ export interface LlmAssist {
   ): Promise<string>;
   /** Whether a delegate endpoint is configured (skip async ack when false). */
   isDelegateConfigured?(): boolean;
+  /** DESIGN §R3 — templated INTSUM / AAR generation via the delegate model. */
+  generateWorkflowDoc?(
+    req: WorkflowRequest,
+    ctx?: { allowedClassifications?: string[]; userUid?: string },
+  ): Promise<string>;
 }
 
 /**
@@ -98,9 +111,12 @@ export interface RouterContext {
 }
 
 export interface LlmIntent {
-  mode: "ask" | "intent" | "delegate";
+  mode: "ask" | "intent" | "delegate" | "workflow";
   /** The question (ask), fuzzy NL (intent), or analyst task (delegate). */
   text: string;
+  /** Present when mode === "workflow". */
+  workflowKind?: WorkflowKind;
+  workflowFlags?: Set<string>;
 }
 
 export interface RouterDecision {
@@ -188,6 +204,19 @@ export class ControlRouter {
     // `!analyst` / `!agent` → heavy delegate path (DESIGN §R1).
     if (command.name === "analyst" || command.name === "agent") {
       return { type: "llm", llmIntent: { mode: "delegate", text: command.args } };
+    }
+
+    // `!intsum` / `!aar` → templated org docs (DESIGN §R3).
+    if (command.name === "intsum" || command.name === "aar") {
+      return {
+        type: "llm",
+        llmIntent: {
+          mode: "workflow",
+          text: command.args,
+          workflowKind: command.name,
+          workflowFlags: command.flags,
+        },
+      };
     }
 
     // Known command → deterministic dispatch (the fast, reliable path).
@@ -348,6 +377,22 @@ export class ControlRouter {
       return this.runDelegate(intent.text, undefined, context);
     }
 
+    if (intent.mode === "workflow") {
+      const kind = intent.workflowKind ?? "intsum";
+      if (context.canRun && !context.canRun(kind)) {
+        return `You don't have permission to use '${kind}'.`;
+      }
+      if (this.llm.isDelegateConfigured && !this.llm.isDelegateConfigured()) {
+        return "Analyst delegation is not configured. Set a delegate URL in Settings.";
+      }
+      const parsed = parseWorkflowCommand(kind, {
+        args: intent.text ?? "",
+        flags: intent.workflowFlags ?? new Set(),
+      });
+      if ("error" in parsed) return parsed.error;
+      return this.runWorkflow(parsed, context);
+    }
+
     // mode === "intent": fuzzy music control via tool-calling.
     return this.executeIntent(intent.text, context);
   }
@@ -437,6 +482,54 @@ export class ControlRouter {
       });
 
     return DELEGATE_ACK_MESSAGE;
+  }
+
+  /**
+   * Run workflow doc generation — async ack when postFollowUp is set (R1b pattern).
+   */
+  private async runWorkflow(req: WorkflowRequest, context: RouterContext): Promise<string> {
+    const ctx = {
+      allowedClassifications: context.allowedClassifications,
+      userUid: context.invokerUid,
+    };
+
+    const finish = async (raw: string): Promise<string> => {
+      let result = raw;
+      if (req.save) {
+        const saved = await context.bot.saveWorkflowDoc(req.kind, raw);
+        result = saved.ok
+          ? `${raw}\n\n💾 Saved to knowledge base: ${saved.source}`
+          : `${raw}\n\n⚠️ Could not save: ${saved.error}`;
+      }
+      return result;
+    };
+
+    const generate = () => {
+      if (this.llm!.generateWorkflowDoc) {
+        return this.llm!.generateWorkflowDoc(req, ctx);
+      }
+      return this.llm!.delegate(buildWorkflowTask(req), undefined, ctx);
+    };
+
+    if (!context.postFollowUp) {
+      return finish(await generate());
+    }
+
+    void generate()
+      .then(async (raw) => {
+        await context.postFollowUp!(formatWorkflowFollowUp(req.kind, await finish(raw), context.invokerName));
+      })
+      .catch(async (err) => {
+        context.logger.warn({ err, kind: req.kind }, "Async workflow failed");
+        const msg = err instanceof Error ? err.message : "Document draft failed.";
+        try {
+          await context.postFollowUp!(formatWorkflowFollowUp(req.kind, msg, context.invokerName));
+        } catch (postErr) {
+          context.logger.warn({ err: postErr }, "Failed to post workflow error follow-up");
+        }
+      });
+
+    return WORKFLOW_ACK_MESSAGE;
   }
 }
 

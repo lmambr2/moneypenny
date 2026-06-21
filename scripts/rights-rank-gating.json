@@ -9,7 +9,7 @@
       "stop", "clear", "move", "moveclient", "moveall", "vol", "mode",
       "follow", "remove", "reindex", "ingeststatus"
     ],
-    "analyst": ["analyst", "agent"],
+    "analyst": ["analyst", "agent", "intsum", "aar"],
     "dj": ["stop", "clear", "vol", "mode", "remove"],
     "mod": ["move", "moveclient", "moveall", "follow"],
     "doctrine_restricted": ["doctrine:restricted"],

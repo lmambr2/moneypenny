@@ -1,5 +1,11 @@
 import { LlmClient, type ChatMessage } from "./client.js";
 import { FallbackLlmClient } from "./fallback-client.js";
+import {
+  buildWorkflowTask,
+  WORKFLOW_SYSTEM_PROMPTS,
+  type WorkflowKind,
+  type WorkflowRequest,
+} from "../docs/workflow.js";
 import { ANALYST_SYSTEM_PROMPT, DelegateClient } from "./delegate.js";
 import { probeLlmEndpoint } from "./probe.js";
 import { DEFAULT_SYSTEM_PROMPT, buildToolRequest, type MusicToolName } from "./tools.js";
@@ -86,6 +92,49 @@ export class LlmModule {
    * Heavy analysis path — `!analyst` / `delegate_to_agent` (DESIGN §R1).
    * Injects RAG context when configured; uses the delegate endpoint only.
    */
+  /**
+   * Templated org-doc path — `!intsum` / `!aar` (DESIGN §R3). Uses the delegate
+   * endpoint with a doc-specific system prompt and RAG grounding.
+   */
+  async generateWorkflowDoc(req: WorkflowRequest, ctx?: AskContext): Promise<string> {
+    if (!this.delegateClient) {
+      return "Analyst delegation is not configured. Set a delegate URL in Settings.";
+    }
+
+    const task = buildWorkflowTask(req);
+    const messages: ChatMessage[] = [
+      { role: "system", content: WORKFLOW_SYSTEM_PROMPTS[req.kind] },
+    ];
+    let sources: string[] = [];
+
+    if (this.retrieve) {
+      try {
+        const chunks = await this.retrieve(task, ctx);
+        if (chunks.length > 0) {
+          const block = chunks.map((c) => `[${c.source}] ${c.text}`).join("\n\n");
+          messages.push({
+            role: "system",
+            content: "Relevant knowledge-base context:\n\n" + block,
+          });
+          sources = [...new Set(chunks.map((c) => c.source).filter(Boolean))];
+        }
+      } catch (err) {
+        this.logger?.warn({ err }, "RAG retrieval failed in generateWorkflowDoc() — continuing without it");
+      }
+    }
+
+    messages.push({ role: "user", content: task });
+
+    try {
+      const content = await this.delegateClient.complete(messages, 0.25);
+      if (!content) return this.delegateClient.offlineMessage();
+      return sources.length > 0 ? `${content}\n\n📎 Sources: ${sources.join(", ")}` : content;
+    } catch (err) {
+      this.logger?.warn({ err, kind: req.kind }, "Workflow doc generation failed");
+      return this.delegateClient.failureMessage(err);
+    }
+  }
+
   async delegate(task: string, extraContext?: string, ctx?: AskContext): Promise<string> {
     if (!this.delegateClient) {
       return "Analyst delegation is not configured. Set a delegate URL in Settings.";

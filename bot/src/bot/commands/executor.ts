@@ -420,6 +420,7 @@ export class CommandExecutor {
       "AI & knowledge (needs LLM / RAG enabled in Settings)",
       `${p}ask <question> — Fast AI; doctrine + your memory when enabled`,
       `${p}analyst <task> · ${p}agent <task> — Heavy delegate model (async ack + follow-up)`,
+      `${p}intsum [-s] [class:<level>] <points> · ${p}aar [-s] [class:<level>] <points> — Templated INTSUM/AAR (@analyst)`,
       `${p}remember <fact> · ${p}recall · ${p}forget <n|all> — Per-user memory`,
       "",
       "Community",

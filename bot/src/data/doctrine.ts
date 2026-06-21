@@ -114,7 +114,7 @@ export class DoctrineStore {
   }
 
   upsert(meta: DoctrineDoc): void {
-    this.upsertStmt.run({ ...meta, tags: meta.tags.join(",") });
+    this.upsertStmt.run({ ...meta, tags: meta.tags.join(","), validUntil: meta.validUntil ?? null });
   }
 
   list(): DoctrineDoc[] {

@@ -322,6 +322,52 @@ describe("ControlRouter — LLM routing", () => {
     expect(out).toBe("Done.");
   });
 
+  it("routes !intsum to workflow generation (sync)", async () => {
+    const llm: LlmAssist = {
+      ask: vi.fn(),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn(),
+      generateWorkflowDoc: vi.fn().mockResolvedValue("---\n# INTSUM\nbody"),
+      isDelegateConfigured: () => true,
+    };
+    const router = new ControlRouter(fakeLogger(), llm);
+    const d = await router.route("!intsum alpha secure; comms ok", makeContext(fakeBot()), "!");
+    expect(d).toEqual({
+      type: "llm",
+      llmIntent: {
+        mode: "workflow",
+        text: "alpha secure; comms ok",
+        workflowKind: "intsum",
+        workflowFlags: new Set(),
+      },
+    });
+    const out = await router.execute(d, makeContext(fakeBot()));
+    expect(llm.generateWorkflowDoc).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "intsum", bullets: ["alpha secure", "comms ok"] }),
+      expect.any(Object),
+    );
+    expect(out).toContain("INTSUM");
+  });
+
+  it("denies !aar when analyst right is missing", async () => {
+    const llm: LlmAssist = {
+      ask: vi.fn(),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn(),
+      generateWorkflowDoc: vi.fn(),
+      isDelegateConfigured: () => true,
+    };
+    const router = new ControlRouter(fakeLogger(), llm);
+    const d = await router.route("!aar objective met", makeContext(fakeBot()), "!");
+    const ctx = {
+      ...makeContext(fakeBot()),
+      canRun: (cmd: string) => cmd !== "aar",
+    };
+    const out = await router.execute(d, ctx);
+    expect(llm.generateWorkflowDoc).not.toHaveBeenCalled();
+    expect(out).toMatch(/permission/i);
+  });
+
   it("denies delegate_to_agent when analyst right is missing", async () => {
     const llm: LlmAssist = {
       ask: vi.fn(),

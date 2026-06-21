@@ -6,7 +6,9 @@ import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
 import { startFileDropWatcher, FILE_DROP_CHANNEL_NAME } from "../../ingest/file-drop.js";
 import type { RetrievalStore } from "../../rag/index.js";
-import { reindexDoctrine, reindexDoctrineSources } from "../../rag/doctrine-ingest.js";
+import type { WorkflowKind } from "../../docs/workflow.js";
+import { workflowSavePath } from "../../docs/workflow.js";
+import { ingestDoctrineDoc, reindexDoctrine, reindexDoctrineSources } from "../../rag/doctrine-ingest.js";
 
 export interface KnowledgeServiceDeps {
   config: BotConfig;
@@ -162,4 +164,38 @@ export class KnowledgeService {
     if (!this.deps.config.ragEnabled || !this.retrieval) return null;
     return this.retrieval.queryStrict(question, topK, allowedClassifications);
   }
+
+  /** Persist a generated workflow doc into doctrine + Qdrant (DESIGN §R3 `-s` flag). */
+  async saveWorkflowDoc(
+    kind: WorkflowKind,
+    markdown: string,
+  ): Promise<{ ok: true; source: string } | { ok: false; error: string }> {
+    if (!this.deps.config.ragEnabled || !this.retrieval || !this.doctrine) {
+      return { ok: false, error: "knowledge base is off" };
+    }
+    const body = stripSourcesFooter(markdown).trim();
+    if (!body) return { ok: false, error: "empty document" };
+
+    let source = workflowSavePath(kind);
+    if (this.doctrine.readFile(source) != null) {
+      const stamp = Date.now();
+      const dot = source.lastIndexOf(".");
+      source = `${source.slice(0, dot)}-${stamp}${source.slice(dot)}`;
+    }
+
+    try {
+      await ingestDoctrineDoc(this.retrieval, this.doctrine, source, body);
+      return { ok: true, source };
+    } catch (err) {
+      this.deps.logger.warn({ err, source, kind }, "Workflow doc save failed");
+      return { ok: false, error: "ingest failed — check vector DB and embeddings" };
+    }
+  }
+}
+
+/** Drop the deterministic citation footer before persisting generated docs. */
+function stripSourcesFooter(text: string): string {
+  const marker = "\n\n📎 Sources:";
+  const idx = text.indexOf(marker);
+  return idx >= 0 ? text.slice(0, idx) : text;
 }
