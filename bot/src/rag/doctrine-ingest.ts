@@ -33,11 +33,16 @@ export async function ingestDoctrineDoc(
   const fm = parseFrontmatter(content);
   const saved = doctrine.saveFile(source, content);
   if (!saved) throw new Error(`invalid doctrine filename: ${source}`);
-  const chunks = await retrieval.ingest(saved, fm.body, { classification: fm.classification, tags: fm.tags });
+  const chunks = await retrieval.ingest(saved, fm.body, {
+    classification: fm.classification,
+    tags: fm.tags,
+    valid_until: fm.validUntil ?? "",
+  });
   doctrine.upsert({
     source: saved,
     classification: fm.classification,
     tags: fm.tags,
+    validUntil: fm.validUntil,
     chunks,
     bytes: Buffer.byteLength(content),
     updatedAt: Date.now(),

@@ -116,10 +116,11 @@ function normClassification(val?: string): string {
 
 /** Whether parsed frontmatter matches the doctrine registry row (for skip-reindex). */
 export function metadataMatchesRegistry(
-  fm: Pick<DocFrontmatter, "classification" | "tags">,
-  existing: { classification: string; tags: string[] },
+  fm: Pick<DocFrontmatter, "classification" | "tags" | "validUntil">,
+  existing: { classification: string; tags: string[]; validUntil?: string },
 ): boolean {
   if (fm.classification !== existing.classification) return false;
+  if ((fm.validUntil ?? "") !== (existing.validUntil ?? "")) return false;
   const a = [...fm.tags].sort();
   const b = [...existing.tags].sort();
   return a.length === b.length && a.every((t, i) => t === b[i]);

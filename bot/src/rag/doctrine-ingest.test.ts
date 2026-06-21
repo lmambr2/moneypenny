@@ -54,7 +54,7 @@ describe("ingestDoctrineDoc", () => {
     const [src, body, meta] = retrieval.ingest.mock.calls[0];
     expect(src).toBe("intsum.md");
     expect(body).toContain("# INTSUM");
-    expect(meta).toEqual({ classification: "secret", tags: ["intel"] });
+    expect(meta).toEqual({ classification: "secret", tags: ["intel"], valid_until: "" });
   });
 });
 

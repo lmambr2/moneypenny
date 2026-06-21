@@ -1,6 +1,7 @@
 import { EmbeddingsClient } from "./embeddings.js";
 import { QdrantClient, type QdrantPoint } from "./qdrant.js";
 import { chunkMarkdown } from "./chunk.js";
+import { isDoctrineExpired } from "./validity.js";
 import type { Logger } from "../logger.js";
 
 export { EmbeddingsClient } from "./embeddings.js";
@@ -107,13 +108,17 @@ export class RetrievalStore {
         allowedClassifications && allowedClassifications.length > 0
           ? { must: [{ key: "classification", match: { any: allowedClassifications } }] }
           : undefined;
-      const hits = await this.qdrant.search(this.collection, vec, topK ?? this.topK, filter);
-      return hits.map((h) => ({
-        text: payloadField(h.payload, "text"),
-        source: payloadField(h.payload, "source"),
-        score: h.score,
-        classification: payloadField(h.payload, "classification", "unclassified"),
-      }));
+      const limit = topK ?? this.topK;
+      const hits = await this.qdrant.search(this.collection, vec, Math.max(limit * 4, limit), filter);
+      return hits
+        .filter((h) => !isDoctrineExpired(payloadField(h.payload, "valid_until") || undefined))
+        .slice(0, limit)
+        .map((h) => ({
+          text: payloadField(h.payload, "text"),
+          source: payloadField(h.payload, "source"),
+          score: h.score,
+          classification: payloadField(h.payload, "classification", "unclassified"),
+        }));
     } catch (err) {
       this.logger?.warn({ err }, "RAG query failed — answering without retrieved context");
       return [];
@@ -133,13 +138,17 @@ export class RetrievalStore {
       allowedClassifications && allowedClassifications.length > 0
         ? { must: [{ key: "classification", match: { any: allowedClassifications } }] }
         : undefined;
-    const hits = await this.qdrant.search(this.collection, vec, topK ?? this.topK, filter);
-    return hits.map((h) => ({
-      text: payloadField(h.payload, "text"),
-      source: payloadField(h.payload, "source"),
-      score: h.score,
-      classification: payloadField(h.payload, "classification", "unclassified"),
-    }));
+    const limit = topK ?? this.topK;
+    const hits = await this.qdrant.search(this.collection, vec, Math.max(limit * 4, limit), filter);
+    return hits
+      .filter((h) => !isDoctrineExpired(payloadField(h.payload, "valid_until") || undefined))
+      .slice(0, limit)
+      .map((h) => ({
+        text: payloadField(h.payload, "text"),
+        source: payloadField(h.payload, "source"),
+        score: h.score,
+        classification: payloadField(h.payload, "classification", "unclassified"),
+      }));
   }
 }
 

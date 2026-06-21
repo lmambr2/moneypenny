@@ -127,7 +127,7 @@ describe("RetrievalStore", () => {
     embeddings.embed.mockResolvedValue([[9, 9, 9]]);
     qdrant.search.mockResolvedValue([{ id: "a", score: 0.8, payload: { text: "answer", source: "doc.md", classification: "unclassified" } }]);
     const out = await store.query("what is the answer?");
-    expect(qdrant.search).toHaveBeenCalledWith("docs", [9, 9, 9], 2, undefined);
+    expect(qdrant.search).toHaveBeenCalledWith("docs", [9, 9, 9], 8, undefined);
     expect(out).toEqual([{ text: "answer", source: "doc.md", score: 0.8, classification: "unclassified" }]);
   });
 
@@ -136,7 +136,7 @@ describe("RetrievalStore", () => {
     embeddings.embed.mockResolvedValue([[1, 2, 3]]);
     qdrant.search.mockResolvedValue([]);
     await store.query("q", 4, ["unclassified", "restricted"]);
-    expect(qdrant.search).toHaveBeenCalledWith("docs", [1, 2, 3], 4, {
+    expect(qdrant.search).toHaveBeenCalledWith("docs", [1, 2, 3], 16, {
       must: [{ key: "classification", match: { any: ["unclassified", "restricted"] } }],
     });
   });
@@ -145,5 +145,17 @@ describe("RetrievalStore", () => {
     const { store, embeddings } = makeStore();
     embeddings.embed.mockRejectedValue(new Error("ollama down"));
     expect(await store.query("x")).toEqual([]);
+  });
+
+  it("query drops chunks past valid_until", async () => {
+    const { store, embeddings, qdrant } = makeStore();
+    embeddings.embed.mockResolvedValue([[1, 0, 0]]);
+    qdrant.search.mockResolvedValue([
+      { id: "fresh", score: 0.9, payload: { text: "current", source: "a.md", classification: "unclassified", valid_until: "2099-01-01" } },
+      { id: "stale", score: 0.95, payload: { text: "old", source: "b.md", classification: "unclassified", valid_until: "2020-01-01" } },
+    ]);
+    const out = await store.query("q", 2);
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe("current");
   });
 });

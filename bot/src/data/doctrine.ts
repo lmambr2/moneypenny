@@ -7,6 +7,7 @@ export interface DoctrineDoc {
   source: string;
   classification: string;
   tags: string[];
+  validUntil?: string;
   chunks: number;
   bytes: number;
   updatedAt: number;
@@ -38,16 +39,23 @@ export class DoctrineStore {
         source TEXT PRIMARY KEY,
         classification TEXT NOT NULL DEFAULT 'unclassified',
         tags TEXT NOT NULL DEFAULT '',
+        valid_until TEXT,
         chunks INTEGER NOT NULL DEFAULT 0,
         bytes INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL
       );
     `);
+    try {
+      this.db.exec(`ALTER TABLE doctrine_docs ADD COLUMN valid_until TEXT`);
+    } catch {
+      /* column exists */
+    }
     this.upsertStmt = this.db.prepare(
-      `INSERT INTO doctrine_docs (source, classification, tags, chunks, bytes, updated_at)
-       VALUES (@source, @classification, @tags, @chunks, @bytes, @updatedAt)
+      `INSERT INTO doctrine_docs (source, classification, tags, valid_until, chunks, bytes, updated_at)
+       VALUES (@source, @classification, @tags, @validUntil, @chunks, @bytes, @updatedAt)
        ON CONFLICT(source) DO UPDATE SET
          classification=excluded.classification, tags=excluded.tags,
+         valid_until=excluded.valid_until,
          chunks=excluded.chunks, bytes=excluded.bytes, updated_at=excluded.updated_at`,
     );
     this.listStmt = this.db.prepare(`SELECT * FROM doctrine_docs ORDER BY source ASC`);
@@ -155,6 +163,7 @@ interface DoctrineRow {
   source: string;
   classification: string;
   tags: string;
+  valid_until?: string | null;
   chunks: number;
   bytes: number;
   updated_at: number;
@@ -165,6 +174,7 @@ function rowToDoc(r: DoctrineRow): DoctrineDoc {
     source: r.source,
     classification: r.classification,
     tags: r.tags ? String(r.tags).split(",").filter(Boolean) : [],
+    validUntil: r.valid_until?.trim() || undefined,
     chunks: r.chunks,
     bytes: r.bytes,
     updatedAt: r.updated_at,
