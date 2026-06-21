@@ -93,7 +93,7 @@ describe("RightsEngine", () => {
     expect(e.can(member, "stop")).toBe(true);
   });
 
-  it("scopes rules to the voice or chat surface (Grok salvage)", () => {
+  it("scopes rules to the voice or chat surface", () => {
     const e = new RightsEngine({
       defaultAllow: ["play"],
       rules: [{ name: "voice-stop", match: { serverGroups: ["105"] }, allow: ["stop"], scope: "voice" }],

@@ -1,0 +1,3 @@
+FROM="model.rkllm"
+HUGGINGFACE_PATH="org/your-instruct-model"
+TEMPERATURE=0.7

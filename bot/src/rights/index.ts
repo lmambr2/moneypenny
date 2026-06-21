@@ -39,7 +39,7 @@ export interface RightsRule {
    * that path; "both" (the default when omitted) applies everywhere. Lets you
    * grant/deny a command for spoken commands without touching typed chat (or vice
    * versa) — e.g. allow `stop` by voice in-channel but require typing it in chat.
-   * (Salvaged + reimplemented from the Grok Build rights work.)
+
    */
   scope?: "voice" | "chat" | "both";
 }

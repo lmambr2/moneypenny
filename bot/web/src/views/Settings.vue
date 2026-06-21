@@ -269,7 +269,7 @@
           <select v-model="ai.llmPreset" class="input" @change="applyLlmPreset">
             <option value="custom">Custom</option>
             <option value="local_ollama">Local — ollama (Orange Pi, recommended)</option>
-            <option value="local_rkllama">Local — RKLLama (NPU, Qwen-only legacy)</option>
+            <option value="local_rkllama">Local — RKLLama (NPU)</option>
             <option value="remote_chat_local_embed">Remote chat (LAN) + local embeddings (Pi)</option>
             <option value="remote_gpu">Remote GPU server (chat + embeddings)</option>
           </select>
@@ -1098,7 +1098,7 @@ const LLM_PRESETS: Record<LlmPresetId, {
   },
   local_rkllama: {
     llmUrl: 'http://rkllama:8080',
-    llmModel: 'qwen3-4b-instruct-2507',
+    llmModel: 'npu-llm',
     llmFallbackUrl: '',
     llmFallbackModel: '',
     llmDelegateUrl: '',

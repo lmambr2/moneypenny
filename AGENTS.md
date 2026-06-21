@@ -1,6 +1,6 @@
 # Moneypenny — Agent Steering
 
-This file is loaded every Grok session in this repo. Follow it unless the user overrides it for a specific task.
+This file guides AI coding assistants working in this repo. Follow it unless the user overrides it for a specific task.
 
 **Default branch:** `dev` (push here; keep `main` aligned when releasing).
 

@@ -15,7 +15,7 @@
 # Usage:
 #   ./install.sh [options]
 #     --llm <npu|ollama|mock|URL>  LLM backend (default: auto by arch)
-#     --model <name>               LLM model (default ollama: gemma-4-E2B GGUF; bigger box? gemma4:e4b-it-qat. npu: qwen3-4b-instruct-2507)
+#     --model <name>               LLM model (default ollama: gemma-4-E2B GGUF; npu: npu-llm — see models/npu-llm/)
 #     --with-voice                 also start Kokoro TTS (voice profile)
 #     --with-server                also start a TeamSpeak 6 server container
 #     --dir <path>                 install dir when bootstrapping (default: ./moneypenny)
@@ -58,7 +58,7 @@ Idempotent: re-run any time. Flags override the auto-detection.
 
 Usage: ./install.sh [options]
   --llm <npu|ollama|mock|URL>  LLM backend (default: auto by arch)
-  --model <name>               LLM model (ollama: gemma4:e4b-it-qat; remote: gemma-4-12B QAT; npu: qwen3-4b only)
+  --model <name>               LLM model (ollama: gemma4:e4b-it-qat; remote: gemma-4-12B QAT; npu: npu-llm)
   --with-voice                 also start Kokoro TTS (voice profile)
   --with-server                also start a TeamSpeak 6 server container
   --with-rag                   also start Qdrant + pull an embedding model (RAG knowledge base)
@@ -145,7 +145,7 @@ LLM_URL=""; PROFILES=("core"); COMPOSE_FILES=(-f docker-compose.yml)
 case "$LLM" in
   npu)
     [ "$ARCH" = "aarch64" ] || warn "LLM 'npu' selected on ${ARCH}; the RK3588 NPU is aarch64-only."
-    : "${MODEL:=qwen3-4b-instruct-2507}"; LLM_URL="http://rkllama:8080"
+    : "${MODEL:=npu-llm}"; LLM_URL="http://rkllama:8080"
     PROFILES+=("npu"); COMPOSE_FILES+=(-f docker-compose.npu.yml)
     say "LLM backend: ${c_b}rkllama (native NPU)${c_0}, model ${MODEL}" ;;
   mock)

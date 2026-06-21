@@ -420,7 +420,7 @@ def approx_tokens(text: str) -> int:
 
 class Handler(BaseHTTPRequestHandler):
     backend: Backend = MockBackend()
-    model_name: str = "qwen3-4b-instruct-2507"
+    model_name: str = "npu-llm"
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter logs
         sys.stderr.write("rkllama: " + (fmt % args) + "\n")
@@ -484,7 +484,7 @@ def serve() -> None:
     port = int(os.environ.get("PORT", "8080"))
     host = os.environ.get("BIND_ADDRESS", "0.0.0.0")
     Handler.backend = make_backend()
-    Handler.model_name = os.environ.get("RKLLM_MODEL_NAME", "qwen3-4b-instruct-2507")
+    Handler.model_name = os.environ.get("RKLLM_MODEL_NAME", "npu-llm")
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f"rkllama gateway on {host}:{port} (backend={Handler.backend.name}, model={Handler.model_name})",
           flush=True)

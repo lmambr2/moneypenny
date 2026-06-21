@@ -8,14 +8,14 @@ INTSUMs), and durable memory of people and events — runnable on either the loc
 RK3588 NPU or a bigger remote/GPU model.
 
 > Status note (2026-06): Phases 0–2 are live on the Orange Pi 5 Max. The NPU LLM
-> path (Qwen3-4B-Instruct-2507, W8A8, rkllama native backend) is deployed and
+> path (operator `.rkllm` via `models/npu-llm/`, rkllama native backend) is deployed and
 > serving tool-calls. Web upload + system-prompt/temperature controls landed.
 
 ## Target architecture
 
 ```
                  ┌──────────────── LLM endpoints (OpenAI /v1) ────────────────┐
-                 │  local: rkllama (RK3588 NPU, Qwen3, cheap/offline)         │
+                 │  local: rkllama (RK3588 NPU, operator .rkllm, offline)   │
    bot ───llmUrl─┤  remote: vLLM/ollama/TGI on x86+GPU (big model, heavy RAG) │
     │            └────────────────────────────────────────────────────────────┘
     │
@@ -84,7 +84,7 @@ Benchmarked three serving paths on the Orange Pi 5 Max (16 GB) with the real
 | Serving path | Model | HW | tok/s | Tool-calls |
 |---|---|---|---|---|
 | ollama (OpenAI `/v1`) | Gemma 4 **E4B** QAT GGUF | CPU/Mali | 4.97 | ✅ |
-| NotPunchnox/rkllama | Qwen3-4B `.rkllm` | **NPU** | 4.87 | ✅ |
+| NotPunchnox/rkllama | 4B-class `.rkllm` | **NPU** | 4.87 | ✅ |
 | ollama (OpenAI `/v1`) | Gemma 4 **E2B** QAT GGUF (UD-Q4_K_XL) | CPU/Mali | **9.95** | ✅ |
 
 **Key finding: the NPU gives ~no decode speedup over CPU for a 4B here.** RK3588

@@ -37,7 +37,7 @@ services:
 
   # NotPunchnox/rkllama — NPU LLM inference (OpenAI compatible). aarch64 / RK3588.
   # Secondary/fallback chat backend when a remote LAN ollama host is primary.
-  # Model layout: ./models/<name>/Modelfile + *.rkllm (see scripts/setup-notpunchnox-model.sh).
+  # Model layout: ./models/<name>/Modelfile + *.rkllm (default slot: models/npu-llm/).
   # Legacy hand-rolled gateway: services/rkllama/ (deprecated — kept for reference).
   rkllama:
     image: ghcr.io/notpunchnox/rkllama:main

@@ -3,7 +3,8 @@
 #
 # Usage:
 #   ./scripts/setup-notpunchnox-model.sh
-#   ./scripts/setup-notpunchnox-model.sh /path/to/model.rkllm qwen3-4b-instruct-2507
+#   ./scripts/setup-notpunchnox-model.sh /path/to/model.rkllm npu-llm
+#   NPU_LLM_HF_REPO=org/your-instruct-model ./scripts/setup-notpunchnox-model.sh
 #
 # Copies (not symlinks) the .rkllm into models/<name>/ because Docker bind
 # mounts do not follow host symlinks reliably.
@@ -11,14 +12,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="${1:-$ROOT/models/qwen3-4b-instruct-2507-w8a8.rkllm}"
-NAME="${2:-qwen3-4b-instruct-2507}"
+NAME="${2:-npu-llm}"
+SRC="${1:-$ROOT/models/$NAME/model.rkllm}"
 DEST_DIR="$ROOT/models/$NAME"
 DEST_FILE="$DEST_DIR/$(basename "$SRC")"
+HF_REPO="${NPU_LLM_HF_REPO:-org/your-instruct-model}"
 
 if [[ ! -f "$SRC" ]]; then
   echo "Source .rkllm not found: $SRC" >&2
-  echo "Place your model at models/qwen3-4b-instruct-2507-w8a8.rkllm or pass a path." >&2
+  echo "Place your model at models/$NAME/model.rkllm or pass a path." >&2
+  echo "Set NPU_LLM_HF_REPO to the Hugging Face repo for tokenizer/chat template." >&2
   exit 1
 fi
 
@@ -32,7 +35,7 @@ fi
 
 cat > "$DEST_DIR/Modelfile" <<EOF
 FROM="$(basename "$SRC")"
-HUGGINGFACE_PATH="Qwen/Qwen3-4B-Instruct-2507"
+HUGGINGFACE_PATH="$HF_REPO"
 TEMPERATURE=0.7
 EOF
 

@@ -151,7 +151,7 @@ offline-resilient).
 
 Check status in Settings → **Check** — shows primary vs fallback reachability.
 
-Optional: NotPunchnox/rkllama (Qwen `.rkllm` on the NPU) remains available via
+Optional: NotPunchnox/rkllama (operator `.rkllm` on the NPU, default slot `models/npu-llm/`) remains available via
 the **Local — RKLLama (NPU)** preset if you explicitly want the NPU path.
 
 ## Fallback to all-local
