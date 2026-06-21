@@ -1,0 +1,260 @@
+# Moneypenny — docker compose orchestration
+#
+# The bot needs an OpenAI-compatible LLM endpoint (RKLLAMA_URL); pick ONE LLM
+# backend profile for your hardware. ./install.sh selects these automatically
+# by architecture.
+#
+# Profiles:
+#   core     : the bot itself (always)
+#   npu      : rkllama on the RK3588 NPU   (aarch64 / Orange Pi)
+#   ollama   : Ollama CPU/GPU inference     (x86-64 / generic)
+#   voice    : sherpa STT + Kokoro TTS        (Phase 2; stt-mock in voice-dev)
+#   memory   : MemPalace semantic memory bridge (Phase 7)
+#   server   : optional TS6 server          (if you don't have one)
+#
+# Examples:
+#   x86-64:        docker compose --profile core --profile ollama up -d
+#   Orange Pi NPU: docker compose -f docker-compose.yml -f docker-compose.npu.yml \
+#                    --profile core --profile npu up -d
+
+services:
+  # Optional: stand up a TS6 instance (use only if you don't already have one)
+  teamspeak:
+    image: teamspeak:latest
+    profiles: ["server"]
+    restart: unless-stopped
+    ports:
+      - "9987:9987/udp"   # voice
+      - "30033:30033/tcp" # file transfer
+      - "10080:10080/tcp" # web query
+      - "10022:10022/tcp" # SSH query (TS6)
+    environment:
+      - TS3SERVER_LICENSE=accept
+    volumes:
+      - ts-data:/var/ts3server/
+    networks:
+      - moneypenny
+
+  # NotPunchnox/rkllama — NPU LLM inference (OpenAI compatible). aarch64 / RK3588.
+  # Secondary/fallback chat backend when a remote LAN ollama host is primary.
+  # Model layout: ./models/<name>/Modelfile + *.rkllm (see scripts/setup-notpunchnox-model.sh).
+  # Legacy hand-rolled gateway: services/rkllama/ (deprecated — kept for reference).
+  rkllama:
+    image: ghcr.io/notpunchnox/rkllama:main
+    profiles: ["npu"]
+    privileged: true
+    restart: unless-stopped
+    volumes:
+      - ./models:/opt/rkllama/models
+    ports:
+      - "127.0.0.1:8080:8080"   # OpenAI-compatible API — localhost only
+    networks:
+      - moneypenny
+
+  # The Moneypenny bot itself (fork + our changes)
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    profiles: ["core"]
+    restart: unless-stopped
+    # No hard depends_on the LLM: the bot starts fine without one (LLM features
+    # are gated and configurable from the web UI), and the backend varies by
+    # arch (rkllama / ollama / external). It reaches the chosen one via RKLLAMA_URL.
+    env_file:
+      # Optional — the bot also configures via the web UI / config.json, so a
+      # missing .env (e.g. before first setup) shouldn't block startup.
+      - path: .env
+        required: false
+    environment:
+      # Bind all interfaces *inside* the container; the published port below is
+      # restricted to localhost on the host, so the UI is not LAN-exposed by
+      # default. To reach it over the LAN, change the publish to
+      # "0.0.0.0:3000:3000" AND firewall :3000 to the LAN in UFW (DESIGN §11).
+      - BIND_ADDRESS=0.0.0.0
+      # OpenAI-compatible LLM endpoint. Defaults to Ollama + Gemma 4 E2B (the
+      # validated default — NPU gives no decode speedup, see ROADMAP); the
+      # installer overrides via .env, and --llm npu repoints these at rkllama.
+      - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
+      # RAG (Phase 5). Empty embedding URL → reuses the LLM endpoint (ollama).
+      # Override EMBEDDING_MODEL in .env if needed (default embeddinggemma).
+      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://qdrant:6333}
+      - EMBEDDING_URL=${EMBEDDING_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
+      # Pi CPU embeddinggemma can take 3+ min/batch — avoid 180s ingest timeouts.
+      - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-600000}
+      # File-drop disk mount (optional — see TS6_FILES_HOST_DIR volume above)
+      - TS6_FILES_DIR=${TS6_FILES_DIR:-}
+      - TS6_VIRTUAL_SERVER_ID=${TS6_VIRTUAL_SERVER_ID:-1}
+      # Container path is always /music (volume mount below). .env MUSIC_DIR is the
+      # *host* bind source (e.g. ./music) — do not pass that through or uploads
+      # resolve to /app/music on the read-only rootfs.
+      - MUSIC_DIR=/music
+    volumes:
+      # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
+      # be writable by uid 1000 (the non-root 'moneypenny' user):
+      #   mkdir -p bot/data && sudo chown -R 1000:1000 bot/data
+      - ./bot/data:/app/data
+      # Music library (scanned by LocalProvider). rw (not :ro) to support uploads
+      # from the web UI (Library page). Web uploads are isolated under the
+      # `uploads/` subdirectory (see LocalProvider.uploadSong + "secure that mfer"
+      # comments). This makes it easy to audit, permission, snapshot or exclude
+      # UI-added tracks separately from your main managed library.
+      # The bot process runs as uid 1000 inside the container.
+      # For Upload to succeed on the *host*:
+      #   sudo mkdir -p "$MUSIC_DIR/uploads" && sudo chown -R 1000:1000 "$MUSIC_DIR"
+      # If you only ever add music from the host (scp/rsync/NFS) and never intend
+      # to use the UI upload button, you can change this line to end with :ro .
+      - ${MUSIC_HOST_DIR:-${MUSIC_DIR:-/mnt/music}}:/music
+      # Co-located TS6 only: read-only bind of the server's file repo so file-drop
+      # can scan dropped files on disk (bypasses ftgetfilelist on TS6 beta). Set
+      # TS6_FILES_HOST_DIR to the host `files/` tree and TS6_FILES_DIR=/ts6-files.
+      - ${TS6_FILES_HOST_DIR:-/tmp/moneypenny-no-ts-files}:/ts6-files:ro
+    ports:
+      - "127.0.0.1:3000:3000"   # web UI/API — localhost-only by default (§11)
+    # Hardening (DESIGN §11): non-root user (Dockerfile), read-only root fs with
+    # state confined to the data volume, no privilege escalation, all caps dropped.
+    read_only: true
+    tmpfs:
+      - /tmp                       # ffmpeg/yt-dlp/TTS scratch
+      - /home/moneypenny/.cache      # yt-dlp / tool caches
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - moneypenny
+
+  # Ollama — CPU/GPU LLM inference (OpenAI-compatible at /v1) for x86-64 and any
+  # non-NPU host. The installer pulls a small model after first start.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"   # OpenAI-compatible API — localhost only
+    environment:
+      # Keep LLM + embedding models resident — !ask needs both on the Pi.
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_NUM_PARALLEL=1
+    networks:
+      - moneypenny
+    # NVIDIA GPU: install nvidia-container-toolkit on the host and uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Phase 2: sherpa-onnx STT (Moonshine v2 tiny-en + Silero VAD streaming, CPU).
+  # SherpaSttClient at http://sherpa-stt:9000. First start downloads nothing —
+  # model is baked into the image.
+  sherpa-stt:
+    build:
+      context: ./services/sherpa-stt
+      dockerfile: Dockerfile
+    profiles: ["voice"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      - NUM_THREADS=${SHERPA_NUM_THREADS:-4}
+      - PARTIAL_DECODE_INTERVAL_S=${SHERPA_PARTIAL_DECODE_INTERVAL_S:-999}
+      - KWS_THRESHOLD=${KWS_THRESHOLD:-0.10}
+      - KWS_SCORE=${KWS_SCORE:-3.0}
+      - KWS_TRAILING_BLANKS=${KWS_TRAILING_BLANKS:-8}
+      - COMMAND_WINDOW_S=${COMMAND_WINDOW_S:-15}
+    networks:
+      - moneypenny
+
+  # Dev-only STT mock (fixed transcript) — no model download, instant CI smoke.
+  # docker compose --profile voice-dev up -d stt-mock
+  stt-mock:
+    build:
+      context: ./services/stt-mock
+      dockerfile: Dockerfile
+    profiles: ["voice-dev"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9001:9000"
+    environment:
+      - MOCK_STT_TEXT=${MOCK_STT_TEXT:-skip}
+    networks:
+      - moneypenny
+
+  # Phase 2: Kokoro TTS (CPU, high quality)
+  kokoro:
+    # CPU image — `kokoro-fastapi:latest` is GHCR-private; cpu tag is public.
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    profiles: ["voice"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8880:8880"
+    environment:
+      - MODEL_PATH=/app/models/kokoro-v0_19.onnx  # or whatever the image expects
+    volumes:
+      - kokoro-models:/app/models
+    networks:
+      - moneypenny
+
+  # Phase 3: Tidal stream bridge (DESIGN §7.3) — real HiFi streaming via your
+  # Tidal account. One-time device login: after `--profile stream up -d`, run
+  # `docker compose logs -f tidal-bridge`, open the link.tidal.com URL it prints,
+  # authorize once (token cached in the tidal-session volume). Then set
+  # STREAM_BRIDGE_URL=http://tidal-bridge:8081 in .env so the bot streams Tidal
+  # links directly. (No bridge → Tidal/Spotify links resolve to YouTube instead.)
+  tidal-bridge:
+    build: ./services/tidal-bridge
+    profiles: ["stream"]
+    restart: unless-stopped
+    environment:
+      - TIDAL_QUALITY=${TIDAL_QUALITY:-LOSSLESS}
+    volumes:
+      - tidal-session:/data
+    networks:
+      - moneypenny
+
+  # ROADMAP Phase 7: MemPalace semantic memory bridge. Per-user facts sync here
+  # for semantic recall in !ask. First start downloads the embedding model
+  # (healthcheck start-period is long). Set MEMPALACE_URL=http://mempalace-bridge:8090
+  # in Settings or .env when using this profile.
+  mempalace-bridge:
+    build: ./services/mempalace-bridge
+    profiles: ["memory"]
+    restart: unless-stopped
+    volumes:
+      - mempalace-data:/data
+    ports:
+      - "127.0.0.1:8090:8090"
+    networks:
+      - moneypenny
+
+  # ROADMAP Phase 5: Qdrant vector store (RAG substrate). Multi-arch (arm64 +
+  # amd64) so it serves both the RK3588 and the x86+GPU track unchanged; the bot
+  # reaches it at http://qdrant:6333. Opt-in via the `rag` profile.
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["rag"]
+    restart: unless-stopped
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    networks:
+      - moneypenny
+
+volumes:
+  ts-data:
+  rkllama-cache:
+  ollama-models:
+  kokoro-models:
+  mempalace-data:
+  qdrant-storage:
+  tidal-session:
+
+networks:
+  moneypenny:
+    driver: bridge

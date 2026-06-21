@@ -1,0 +1,46 @@
+<svg width="1180" height="320" viewBox="0 0 1180 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Moneypenny">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="320" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20242E"/>
+      <stop offset="1" stop-color="#0B0C10"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="60" y1="60" x2="300" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE6A6"/>
+      <stop offset="0.5" stop-color="#F2C063"/>
+      <stop offset="1" stop-color="#D98A2B"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="360" y1="120" x2="360" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE6A6"/>
+      <stop offset="1" stop-color="#E2A23E"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="120" y1="250" x2="232" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2DE2C4"/>
+      <stop offset="1" stop-color="#34B7F2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- icon mark -->
+  <g>
+    <rect x="20" y="20" width="280" height="280" rx="68" fill="url(#bg)"/>
+    <rect x="20.5" y="20.5" width="279" height="279" rx="67.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.07"/>
+    <polyline points="89,221 89,114 160,186 231,114 231,221"
+              fill="none" stroke="url(#gold)" stroke-width="21"
+              stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="231" cy="103" r="9" fill="url(#gold)"/>
+    <g stroke="url(#cyan)" stroke-width="8" stroke-linecap="round">
+      <line x1="118" y1="244" x2="118" y2="232"/>
+      <line x1="132" y1="248" x2="132" y2="228"/>
+      <line x1="146" y1="252" x2="146" y2="224"/>
+      <line x1="160" y1="256" x2="160" y2="220"/>
+      <line x1="174" y1="252" x2="174" y2="224"/>
+      <line x1="188" y1="248" x2="188" y2="228"/>
+      <line x1="202" y1="244" x2="202" y2="232"/>
+    </g>
+  </g>
+
+  <!-- wordmark -->
+  <text x="356" y="180" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="112" font-weight="700" letter-spacing="1" fill="url(#goldText)">Moneypenny</text>
+  <text x="360" y="238" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="33" font-weight="500" letter-spacing="3.5" fill="#8A909C">SELF-HOSTED TS6 AI + MUSIC ASSISTANT</text>
+</svg>

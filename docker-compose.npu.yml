@@ -1,0 +1,34 @@
+# Moneypenny — legacy native RK3588 overlay for services/rkllama/server.py.
+#
+# Not needed when using NotPunchnox/rkllama (ghcr.io/notpunchnox/rkllama:main) —
+# the base docker-compose.yml runs that image with privileged: true. Keep this
+# overlay only if you switch back to the hand-rolled services/rkllama gateway.
+#
+# Use together with the base file (the installer does this for you):
+#   docker compose -f docker-compose.yml -f docker-compose.npu.yml \
+#     --profile core --profile npu up -d
+#
+# Prereq: /usr/lib/librkllmrt.so must exist on the host (run install-npu.sh
+# first) — otherwise the bind mount below makes compose error out.
+
+services:
+  rkllama:
+    environment:
+      - RKLLM_BACKEND=native
+    group_add:
+      # NUMERIC gid of the host 'render' group that owns /dev/dri/renderD129.
+      # Must be numeric — the name "render" usually doesn't exist inside the
+      # container image, so `group_add: [render]` fails to resolve. Default 991
+      # matches Armbian/DietPi RK3588; override via RENDER_GID if `getent group
+      # render` shows a different gid on your board.
+      - "${RENDER_GID:-991}"
+    # RK3588 NPU passthrough — only present on the board, hence the overlay.
+    # On RK3588 vendor/DRM kernels (RKNPU driver 0.9.8) the NPU is NOT a
+    # /dev/rknpu char device — it is a DRM render node under /dev/dri
+    # (renderD129 = fdab0000.npu, driver=RKNPU). librkllmrt opens it there, so we
+    # pass the whole /dev/dri group through. (Older char-device builds exposed
+    # /dev/rknpu; add it back only if `ls /dev/rknpu` exists on your board.)
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - /usr/lib/librkllmrt.so:/usr/lib/librkllmrt.so:ro

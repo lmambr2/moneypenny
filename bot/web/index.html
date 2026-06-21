@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Cross-origin cover art CDNs often reject requests without an allowed Referer,
+       so we must not leak a Referer off-site. "same-origin" sends a full Referer
+       for our own requests and none for cross-origin ones — thumbnails still load.
+       Do NOT switch this back to "no-referrer": per the WHATWG Fetch spec
+       ("Append a request Origin header") no-referrer downgrades the Origin header
+       to the literal string "null" on same-origin non-GET requests. The /api/*
+       CSRF guard (src/web/middleware/csrf.ts) then can't parse a host from it and
+       responds 403 "bad origin", silently breaking EVERY POST/PUT/DELETE — playback
+       controls, settings, bot management, user admin, etc.
+       "same-origin" keeps the real Origin on same-origin requests, so CSRF passes. -->
+  <meta name="referrer" content="same-origin">
+  <title>Moneypenny</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="alternate icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

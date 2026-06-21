@@ -1,0 +1,62 @@
+import { createRouter, createWebHistory } from 'vue-router';
+import { useSession } from '../composables/useSession.js';
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', name: 'home', component: () => import('../views/Home.vue') },
+    { path: '/search', name: 'search', component: () => import('../views/Search.vue') },
+    { path: '/library', name: 'library', component: () => import('../views/Library.vue') },
+    {
+      path: '/playlist/:id',
+      name: 'playlist',
+      component: () => import('../views/Playlist.vue'),
+      meta: { kind: 'playlist' },
+    },
+    {
+      path: '/album/:id',
+      name: 'album',
+      component: () => import('../views/Playlist.vue'),
+      meta: { kind: 'album' },
+    },
+    { path: '/lyrics', name: 'lyrics', component: () => import('../views/Lyrics.vue') },
+    { path: '/history', name: 'history', component: () => import('../views/History.vue') },
+    { path: '/settings', name: 'settings', component: () => import('../views/Settings.vue') },
+    { path: '/setup', name: 'setup', component: () => import('../views/Setup.vue') },
+    { path: '/bot/:id', name: 'bot', component: () => import('../views/BotRedirect.vue') },
+
+    // Auth views
+    { path: '/login', name: 'login', component: () => import('../views/Login.vue'), meta: { public: true } },
+    { path: '/first-run', name: 'first-run', component: () => import('../views/FirstRunSetup.vue'), meta: { public: true } },
+  ],
+});
+
+const PUBLIC_NAMES = new Set(['login', 'first-run']);
+
+router.beforeEach(async (to) => {
+  const session = useSession();
+  if (!session.ready.value) {
+    await session.refresh();
+  }
+
+  if (session.needsSetup.value === true && to.name !== 'first-run') {
+    return { name: 'first-run' };
+  }
+  if (session.needsSetup.value === false && to.name === 'first-run') {
+    return { name: 'home' };
+  }
+
+  if (PUBLIC_NAMES.has(to.name as string)) {
+    if (to.name === 'login' && session.isAuthenticated.value) {
+      return { name: 'home' };
+    }
+    return true;
+  }
+
+  if (!session.isAuthenticated.value) {
+    return { name: 'login', query: { next: to.fullPath } };
+  }
+  return true;
+});
+
+export default router;

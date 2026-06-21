@@ -1,0 +1,1125 @@
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { TS3Client, TS3VoiceData } from "../../ts-protocol/client.js";
+import { CODEC_OPUS_VOICE } from "../../ts-protocol/voice.js";
+import type { AudioPlayer } from "../../audio/player.js";
+import type { PlayQueue, QueuedSong } from "../../audio/queue.js";
+import type { BotConfig } from "../../data/config.js";
+import type { Logger } from "../../logger.js";
+import type { MusicProvider } from "../../music/provider.js";
+import type { RightsEngine } from "../../rights/index.js";
+import type { Subject } from "../../rights/index.js";
+import { resolveSubject as resolveRightsSubject } from "../rights/subject.js";
+import type { ControlRouter, RouterContext } from "../../control/router.js";
+import { createOpusEncoder, type Encoder } from "../../audio/encoder.js";
+import {
+  VoicePipeline,
+  SherpaSttClient,
+  KokoroTtsClient,
+  defaultVoiceConfig,
+  isPlaybackControlReply,
+  voiceReplyClearsSavedMusic,
+  type TtsProvider,
+  type VoiceOutput,
+  type StreamSttResult,
+  type Utterance,
+} from "../../voice/index.js";
+import { probeKokoroTts, probeSherpaStt } from "../../voice/probe.js";
+import {
+  isPcmClipped,
+  MIN_PCM_BOOST_PEAK,
+  normalizePcmForStt,
+  peakAmplitude16,
+} from "../../voice/pcm.js";
+import {
+  extractCommandSegment,
+  extractWatchwordCommand,
+  isActionableVoiceCommand,
+  partialMentionsCommand,
+} from "../../voice/watchword.js";
+import type { BotInstance } from "../instance.js";
+
+export interface VoiceSessionDeps {
+  config: BotConfig;
+  logger: Logger;
+  tsClient: TS3Client;
+  player: AudioPlayer;
+  queue: PlayQueue;
+  router: ControlRouter;
+  bot: BotInstance;
+  rightsEngine: () => RightsEngine | null;
+  getProviderFor: (platform: "local" | "youtube" | "stream") => MusicProvider;
+  isConnected: () => boolean;
+  onClientList: (clients: Array<{ id: number; uid: string; serverGroups: string[]; nickname: string }>) => void;
+}
+
+/** Voice loop: inbound Opus → STT → ControlRouter → TTS (DESIGN §10). */
+export class VoiceSession {
+  private pipeline: VoicePipeline | null = null;
+  private sttClient: SherpaSttClient | null = null;
+  private voiceDecoder: Encoder | null = null;
+  private streamBuffers = new Map<
+    number,
+    {
+      chunks: Buffer[];
+      channels: number;
+      flushTimer: ReturnType<typeof setTimeout> | null;
+      idleTimer: ReturnType<typeof setTimeout> | null;
+      streamSpeaking: boolean;
+      /** Sidecar listening phase mirrored from the last stream chunk. */
+      listening: "passive" | "command";
+      /** Max boosted PCM peak seen this utterance (for logging). */
+      utterancePeak: number;
+    }
+  >();
+  private streamChains = new Map<number, Promise<void>>();
+  private readonly streamFlushMs = 80;
+  /** After inbound audio stops, pad silence so Silero VAD can end-point. */
+  private readonly streamIdleMs = 1200;
+  /** While armed, wait longer for beat-then-command cadence before idle finalize. */
+  private readonly armedStreamIdleMs = 3500;
+  private readonly silenceTailMs = 900;
+  /** Wake phrase (set from voice config in enable()); used to strip wake-bleed from finals. */
+  private watchword = "moneypenny";
+  private duckWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private readonly duckWatchdogMs = 18_000;
+  /** After voice pause/stop, TTS trackEnd must not advance the music queue. */
+  private suppressNextTrackAdvance = false;
+  private segmenterOpts: { sampleRate: number; channels: number; energyThreshold: number } | null = null;
+  private tempDir: string | null = null;
+  private savedMusic: { song: QueuedSong; elapsed: number } | null = null;
+  /** Music volume-ducked at speech onset so bot output does not drown STT. */
+  private captureDuck: { song: QueuedSong; elapsed: number } | null = null;
+  /** Client whose wake word triggered captureDuck. */
+  private captureDuckClientId: number | null = null;
+  private duckMusicOnSpeech = true;
+  private duckMusicVolume = 2;
+  /** Min post-wake window — must cover beat-then-command cadence (≥ sherpa command window). */
+  private static readonly MIN_LISTEN_WINDOW_MS = 15_000;
+  /** Real speech on the wire — ignore Opus DTX comfort noise below this. */
+  private static readonly MIN_SPEECH_PEAK = MIN_PCM_BOOST_PEAK;
+  private static readonly ARMED_ENERGY_THRESHOLD = 40;
+  /** Brief hold while volume duck applies; keep short so trailing verbs are not clipped. */
+  private static readonly DUCK_SETTLE_MS = 25;
+  private commandCaptureReadyAt = new Map<number, number>();
+  private postDuckSettling = new Set<number>();
+  private postDuckResetTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private listenWindowMs = 15_000;
+  private armedUntil = new Map<number, number>();
+  private armTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private armedKeepaliveTimers = new Map<number, ReturnType<typeof setInterval>>();
+  private lastArmedInboundLog = new Map<number, number>();
+  private droppedNonVoiceCodec = 0;
+  private droppedSelfEcho = 0;
+  private attenuatedClipped = 0;
+  private clientInfoCache = new Map<number, { uid: string; serverGroups: string[]; nickname: string }>();
+  private voiceHandler: ((v: TS3VoiceData) => void) | null = null;
+  private inboundPackets = 0;
+  private decodedFrames = 0;
+  private segmentedUtterances = 0;
+  private lastStatsAt = 0;
+  /** Per-speaker generation — stale STT finals are dropped after faster retries. */
+  private voiceTurnGen = new Map<number, number>();
+  /** Avoid double-routing the same armed partial; cleared on fresh wake / disarm. */
+  private partialRoutedCommand = new Map<number, string>();
+
+  constructor(private deps: VoiceSessionDeps) {}
+
+  get isActive(): boolean {
+    return this.pipeline != null;
+  }
+
+  /** Refresh clientId → groups cache (called from idle poller). */
+  refreshClientCache(
+    clients: Array<{ id: number; uid: string; serverGroups?: string[]; nickname: string }>,
+  ): void {
+    if (!this.pipeline) return;
+    this.clientInfoCache.clear();
+    for (const c of clients) {
+      this.clientInfoCache.set(c.id, {
+        uid: c.uid,
+        serverGroups: c.serverGroups ?? [],
+        nickname: c.nickname,
+      });
+    }
+    this.deps.onClientList(
+      clients.map((c) => ({
+        id: c.id,
+        uid: c.uid,
+        serverGroups: c.serverGroups ?? [],
+        nickname: c.nickname,
+      })),
+    );
+  }
+
+  enable(): void {
+    const vc = { ...defaultVoiceConfig(), ...this.deps.config.voice };
+    if (!vc?.enabled) return;
+    if (!vc.sttUrl) {
+      this.deps.logger.warn("Voice enabled but no sttUrl configured — voice loop inactive");
+      return;
+    }
+    const stt = new SherpaSttClient({ url: vc.sttUrl, logger: this.deps.logger });
+    this.sttClient = stt;
+    const tts: TtsProvider | undefined = vc.ttsUrl
+      ? new KokoroTtsClient({ url: vc.ttsUrl, voice: vc.ttsVoice, logger: this.deps.logger })
+      : undefined;
+    const output: VoiceOutput | undefined = tts ? this.createOutput() : undefined;
+
+    this.voiceDecoder = createOpusEncoder(1);
+    this.duckMusicOnSpeech = vc.duckMusicOnSpeech !== false;
+    this.duckMusicVolume = Math.max(0, Math.min(100, vc.duckMusicVolume ?? 2));
+    this.listenWindowMs = Math.max(
+      vc.listenWindowMs ?? VoiceSession.MIN_LISTEN_WINDOW_MS,
+      VoiceSession.MIN_LISTEN_WINDOW_MS,
+    );
+    this.releaseCaptureDuck();
+    this.watchword = vc.watchword;
+    this.clearAllArmTimers();
+    this.segmenterOpts = {
+      sampleRate: 48_000,
+      channels: 1,
+      energyThreshold: vc.energyThreshold ?? 200,
+    };
+    this.pipeline = new VoicePipeline({
+      router: this.deps.router,
+      stt,
+      tts,
+      output,
+      respondWithVoice: vc.respondWithVoice && !!output,
+      aliases: this.deps.config.commandAliases,
+      watchword: vc.watchword,
+      requireWatchword: vc.requireWatchword,
+      listenWindowMs: this.listenWindowMs,
+      textWakeFallback: vc.textWakeFallback ?? false,
+      isArmed: (id) => this.isArmed(id),
+      arm: (id) => this.armSpeaker(id),
+      disarm: (id) => this.disarmSpeaker(id),
+      logger: this.deps.logger,
+      buildContext: (u) => this.buildContext(u),
+      onTurn: ({ transcript, reply, speakerUid }) =>
+        this.deps.logger.info({ transcript, reply, speakerUid }, "Voice turn"),
+    });
+    this.cleanup();
+    this.inboundPackets = 0;
+    this.decodedFrames = 0;
+    this.segmentedUtterances = 0;
+    this.lastStatsAt = 0;
+    this.voiceTurnGen.clear();
+    this.voiceHandler = (v: TS3VoiceData) => this.handleVoiceData(v);
+    this.deps.tsClient.on("voiceData", this.voiceHandler);
+    this.deps.tsClient.ensureInboundVoiceCapture();
+    this.deps.logger.info(
+      {
+        stt: true,
+        tts: !!tts,
+        energyThreshold: this.segmenterOpts.energyThreshold,
+        watchword: vc.requireWatchword ? vc.watchword : "(disabled)",
+        duckMusicOnSpeech: this.duckMusicOnSpeech,
+        duckMusicVolume: this.duckMusicVolume,
+      },
+      "Voice pipeline enabled (streaming STT)",
+    );
+  }
+
+  /** Sidecar + pipeline status for the Settings voice smoke panel. */
+  async getStatus(): Promise<{
+    enabled: boolean;
+    active: boolean;
+    sttUrl: string;
+    ttsUrl: string;
+    ttsVoice: string;
+    respondWithVoice: boolean;
+    sttAvailable: boolean;
+    ttsAvailable: boolean;
+    energyThreshold: number;
+    watchword: string;
+    requireWatchword: boolean;
+    inboundPackets: number;
+  }> {
+    const vc = { ...defaultVoiceConfig(), ...this.deps.config.voice };
+    const [sttAvailable, ttsAvailable] = await Promise.all([
+      vc.sttUrl ? probeSherpaStt(vc.sttUrl) : Promise.resolve(false),
+      vc.ttsUrl ? probeKokoroTts(vc.ttsUrl, vc.ttsVoice) : Promise.resolve(false),
+    ]);
+    return {
+      enabled: !!vc.enabled,
+      active: this.pipeline != null,
+      sttUrl: vc.sttUrl,
+      ttsUrl: vc.ttsUrl,
+      ttsVoice: vc.ttsVoice,
+      respondWithVoice: vc.respondWithVoice,
+      sttAvailable,
+      ttsAvailable,
+      energyThreshold: vc.energyThreshold ?? 200,
+      watchword: vc.watchword,
+      requireWatchword: vc.requireWatchword,
+      inboundPackets: this.inboundPackets,
+    };
+  }
+
+  /**
+   * Admin smoke test: feed a transcript directly (skips STT + Opus decode).
+   * Does not play into the TS channel when `speak` is false.
+   */
+  async runSyntheticTurn(transcript: string, opts: { speak?: boolean } = {}): Promise<{
+    transcript: string;
+    reply: string | null;
+    ttsBytes: number;
+  }> {
+    if (!this.pipeline) {
+      throw new Error("Voice pipeline is not active — enable voice in Settings and ensure STT URL is set");
+    }
+    const utterance: Utterance = {
+      speakerClientId: 0,
+      speakerUid: "voice-smoke-test",
+      pcm: Buffer.alloc(0),
+      sampleRate: 16000,
+      channels: 1,
+      durationMs: 0,
+    };
+    const out = await this.pipeline.handleTranscript(transcript.trim(), utterance, {
+      ...opts,
+      textWakeFallback: true,
+    });
+    return { transcript: transcript.trim(), ...out };
+  }
+
+  /** Tear down STT/TTS listeners (Settings toggle off or config change). */
+  disable(): void {
+    if (this.voiceHandler) {
+      this.deps.tsClient.off("voiceData", this.voiceHandler);
+      this.deps.tsClient.releaseInboundVoiceCapture();
+      this.voiceHandler = null;
+    }
+    this.pipeline = null;
+    this.sttClient = null;
+    this.voiceDecoder = null;
+    this.segmenterOpts = null;
+    this.releaseCaptureDuck();
+    this.duckMusicOnSpeech = true;
+    this.duckMusicVolume = 2;
+    this.clearAllArmTimers();
+    this.cleanup();
+    this.deps.logger.info("Voice pipeline disabled");
+  }
+
+  /**
+   * Player trackEnd hook — resume interrupted music or swallow the event when a
+   * voice transport command (pause/stop) just finished speaking.
+   */
+  async handleTrackEnd(playNext: () => Promise<boolean>): Promise<boolean> {
+    if (this.suppressNextTrackAdvance) {
+      this.suppressNextTrackAdvance = false;
+      this.deps.logger.info("Voice: holding queue after pause/stop reply");
+      return true;
+    }
+    return this.tryResumeMusic(playNext);
+  }
+
+  /** After a voice reply ends, try to resume interrupted music. Returns true if resume attempted. */
+  async tryResumeMusic(playNext: () => Promise<boolean>): Promise<boolean> {
+    if (!this.savedMusic) return false;
+    const saved = this.savedMusic;
+    this.savedMusic = null;
+    const current = this.deps.queue.current();
+    if (!current || current.id !== saved.song.id) {
+      await playNext();
+      return true;
+    }
+    try {
+      const provider = this.deps.getProviderFor(saved.song.platform);
+      const url = await provider.getSongUrl(saved.song.id);
+      if (url && this.deps.isConnected()) {
+        this.deps.player.resetFailures();
+        this.deps.player.play(url, saved.elapsed, saved.song.duration || 0);
+        return true;
+      }
+    } catch (err) {
+      this.deps.logger.warn({ err }, "Failed to resume interrupted music after voice");
+    }
+    await playNext();
+    return true;
+  }
+
+  onPlayerError(): void {
+    this.savedMusic = null;
+  }
+
+  cleanup(): void {
+    this.clearDuckWatchdog();
+    for (const buf of this.streamBuffers.values()) {
+      if (buf.flushTimer) clearTimeout(buf.flushTimer);
+      if (buf.idleTimer) clearTimeout(buf.idleTimer);
+    }
+    this.streamBuffers.clear();
+    this.streamChains.clear();
+    if (this.tempDir) {
+      try {
+        rmSync(this.tempDir, { recursive: true, force: true });
+      } catch { /* best effort */ }
+      this.tempDir = null;
+    }
+  }
+
+  private handleVoiceData(v: TS3VoiceData): void {
+    if (!this.pipeline || !this.voiceDecoder || !this.segmenterOpts) return;
+
+    // STT only consumes human voice codec — bot outbound music uses codec 5.
+    if (v.codec !== CODEC_OPUS_VOICE) {
+      this.droppedNonVoiceCodec++;
+      return;
+    }
+
+    const botClientId = this.deps.tsClient.getClientId();
+    if (botClientId > 0 && v.clientId === botClientId) {
+      this.droppedSelfEcho++;
+      return;
+    }
+
+    this.inboundPackets++;
+    if (this.inboundPackets === 1) {
+      this.deps.logger.info(
+        { clientId: v.clientId, codec: v.codec, opusBytes: v.data.length },
+        "Voice: first inbound packet",
+      );
+    } else if (this.inboundPackets % 500 === 0) {
+      this.logInboundStats();
+    }
+
+    const channels = 1;
+    let pcm: Buffer;
+    try {
+      pcm = this.voiceDecoder.decode(v.data);
+      this.decodedFrames++;
+    } catch (err) {
+      this.deps.logger.warn({ err, clientId: v.clientId, codec: v.codec }, "Voice: opus decode failed");
+      return;
+    }
+
+    let buf = this.streamBuffers.get(v.clientId);
+    if (!buf) {
+      buf = {
+        chunks: [],
+        channels,
+        flushTimer: null,
+        idleTimer: null,
+        streamSpeaking: false,
+        listening: "passive",
+        utterancePeak: 0,
+      };
+      this.streamBuffers.set(v.clientId, buf);
+    }
+    buf.channels = channels;
+    buf.chunks.push(pcm);
+
+    const rawPeak = peakAmplitude16(pcm);
+    if (isPcmClipped(pcm)) {
+      this.attenuatedClipped++;
+      if (this.attenuatedClipped <= 5 || this.attenuatedClipped % 100 === 0) {
+        this.deps.logger.warn(
+          { clientId: v.clientId, rawPeak, count: this.attenuatedClipped },
+          "Voice: inbound PCM clipped — will attenuate for STT",
+        );
+      }
+    }
+    const isSpeech = rawPeak >= VoiceSession.MIN_SPEECH_PEAK;
+
+    if (this.isArmed(v.clientId) && isSpeech) {
+      this.touchArmedWindow(v.clientId);
+      const now = Date.now();
+      const lastLog = this.lastArmedInboundLog.get(v.clientId) ?? 0;
+      if (now - lastLog >= 250) {
+        this.lastArmedInboundLog.set(v.clientId, now);
+        this.deps.logger.info({ clientId: v.clientId, rawPeak }, "Voice: armed inbound speech");
+      }
+    }
+
+    if (isSpeech) this.scheduleStreamIdle(v.clientId, true);
+    else this.scheduleStreamIdle(v.clientId, false);
+
+    if (!buf.flushTimer) {
+      buf.flushTimer = setTimeout(() => {
+        const active = this.streamBuffers.get(v.clientId);
+        if (active) active.flushTimer = null;
+        this.enqueueStreamFlush(v.clientId);
+      }, this.streamFlushMs);
+    }
+  }
+
+  private scheduleStreamIdle(clientId: number, isSpeech: boolean): void {
+    const buf = this.streamBuffers.get(clientId);
+    if (!buf) return;
+
+    const armed = this.isArmed(clientId);
+    const idleMs = armed ? this.armedStreamIdleMs : this.streamIdleMs;
+
+    if (isSpeech) {
+      if (buf.idleTimer) clearTimeout(buf.idleTimer);
+      buf.idleTimer = setTimeout(() => {
+        const active = this.streamBuffers.get(clientId);
+        if (active) active.idleTimer = null;
+        this.enqueueStreamIdleFinalize(clientId);
+      }, idleMs);
+      return;
+    }
+
+    // Comfort-noise frames must not push idle finalize out forever during a held PTT.
+    const shouldFinalize =
+      armed ||
+      buf.streamSpeaking ||
+      !!this.captureDuck ||
+      buf.utterancePeak >= VoiceSession.MIN_SPEECH_PEAK;
+    if (!shouldFinalize || buf.idleTimer) return;
+
+    buf.idleTimer = setTimeout(() => {
+      const active = this.streamBuffers.get(clientId);
+      if (active) active.idleTimer = null;
+      this.enqueueStreamIdleFinalize(clientId);
+    }, idleMs);
+  }
+
+  private enqueueStreamIdleFinalize(clientId: number): void {
+    const prev = this.streamChains.get(clientId) ?? Promise.resolve();
+    const next = prev
+      .then(() => this.finalizeStreamIdle(clientId))
+      .catch((err) => {
+        this.deps.logger.warn({ err, clientId }, "Voice: streaming STT idle finalize failed");
+      });
+    this.streamChains.set(clientId, next);
+  }
+
+  private async finalizeStreamIdle(clientId: number): Promise<void> {
+    if (!this.pipeline || !this.sttClient) return;
+
+    const buf = this.streamBuffers.get(clientId);
+    if (!buf) return;
+
+    if (buf.chunks.length > 0) {
+      await this.flushStreamBuffer(clientId);
+    }
+
+    if (!buf.streamSpeaking && !this.captureDuck) return;
+
+    const samples = Math.floor(48_000 * (this.silenceTailMs / 1000));
+    const silence = Buffer.alloc(samples * 2);
+    const out = await this.sttClient.feedStream(clientId, silence, 48_000, 1);
+    this.applyStreamResult(clientId, out, { peak: 0, pcmBytes: silence.length, channels: 1 });
+
+    if (!out.final && this.captureDuck && !this.isArmed(clientId) && !this.anySpeakerArmed()) {
+      this.deps.logger.info({ clientId }, "Voice: idle finalize missed — restoring music volume");
+      this.abandonCaptureDuck(clientId);
+    }
+  }
+
+  private enqueueStreamFlush(clientId: number): void {
+    const prev = this.streamChains.get(clientId) ?? Promise.resolve();
+    const next = prev
+      .then(() => this.flushStreamBuffer(clientId))
+      .catch((err) => {
+        this.deps.logger.warn({ err, clientId }, "Voice: streaming STT flush failed");
+      });
+    this.streamChains.set(clientId, next);
+  }
+
+  private async flushStreamBuffer(clientId: number): Promise<void> {
+    if (!this.pipeline || !this.sttClient) return;
+
+    const buf = this.streamBuffers.get(clientId);
+    if (!buf || buf.chunks.length === 0) return;
+
+    const channels = buf.channels;
+    const inCommand = buf.listening === "command" || this.isArmed(clientId);
+    const captureReadyAt = this.commandCaptureReadyAt.get(clientId) ?? 0;
+
+    // Hold buffered PCM until duck settle completes — do not concat/clear early.
+    if (inCommand && (Date.now() < captureReadyAt || this.postDuckSettling.has(clientId))) {
+      return;
+    }
+
+    const pcm = Buffer.concat(buf.chunks);
+    buf.chunks = [];
+    const rawPeak = peakAmplitude16(pcm);
+
+    if (inCommand && rawPeak < VoiceSession.MIN_SPEECH_PEAK) {
+      return;
+    }
+
+    // Loud music still streaming — don't pollute command capture until ducked.
+    if (
+      inCommand &&
+      this.deps.player.getState() === "playing" &&
+      !this.deps.player.isSttDucked()
+    ) {
+      return;
+    }
+
+    const pcmForStt = normalizePcmForStt(pcm);
+    const peak = peakAmplitude16(pcmForStt);
+    buf.utterancePeak = Math.max(buf.utterancePeak, peak);
+
+    const out = await this.sttClient.feedStream(clientId, pcmForStt, 48_000, channels);
+    if (this.isArmed(clientId) && rawPeak >= VoiceSession.MIN_SPEECH_PEAK) {
+      this.touchArmedWindow(clientId);
+      this.deps.logger.info({ clientId, peak, rawPeak, listening: out.listening }, "Voice: command capture audio");
+    }
+    this.applyStreamResult(clientId, out, { peak: buf.utterancePeak, pcmBytes: pcm.length, channels });
+  }
+
+  private applyStreamResult(
+    clientId: number,
+    out: StreamSttResult,
+    meta: { peak: number; pcmBytes: number; channels: number },
+  ): void {
+    if (!this.pipeline || !this.sttClient) return;
+
+    const buf = this.streamBuffers.get(clientId);
+    if (!buf) return;
+
+    if (out.error && this.captureDuck && !this.isArmed(clientId) && !this.anySpeakerArmed()) {
+      this.deps.logger.warn({ clientId, detail: out.error }, "Voice: STT failed — restoring music volume");
+      this.abandonCaptureDuck(clientId);
+      return;
+    }
+
+    const wasSpeaking = buf.streamSpeaking;
+    const prevListening = buf.listening;
+    const listening = out.listening ?? prevListening;
+    buf.listening = listening;
+    buf.streamSpeaking = out.speaking;
+
+    if (out.keyword) {
+      this.partialRoutedCommand.delete(clientId);
+      this.deps.logger.info(
+        { clientId, keyword: out.keyword },
+        "Voice: KWS wake-word hit — command window open",
+      );
+      // Extreme duck is tied to KWS only — wake-only "moneypenny" must mute music here.
+      this.ensureMusicDuckedOnWake(clientId);
+      if (this.isArmed(clientId) && this.captureDuck) this.touchArmedWindow(clientId);
+      else this.armSpeaker(clientId);
+      if (!out.commandFinal || !out.final) {
+        this.deps.logger.info({ clientId, windowMs: this.listenWindowMs }, "Voice: wake only — waiting for command");
+      }
+    } else if (listening === "command" && !this.isArmed(clientId)) {
+      this.armSpeaker(clientId);
+    }
+
+    if (prevListening === "command" && listening === "passive" && !this.isArmed(clientId)) {
+      this.deps.logger.info({ clientId }, "Voice: command window closed — restoring music volume");
+      this.abandonCaptureDuck(clientId);
+    }
+
+    if (
+      this.isArmed(clientId) &&
+      (out.speaking || out.partial || meta.peak >= VoiceSession.ARMED_ENERGY_THRESHOLD)
+    ) {
+      this.touchArmedWindow(clientId);
+    }
+
+    if (out.partial) {
+      const level = this.isArmed(clientId) ? "info" : "debug";
+      this.deps.logger[level]({ clientId, partial: out.partial, peak: meta.peak, listening }, "Voice: STT partial");
+      if (
+        this.isArmed(clientId) &&
+        listening === "command" &&
+        this.tryRouteArmedPartial(clientId, out.partial, meta)
+      ) {
+        return;
+      }
+    }
+
+    if (!out.commandFinal || !out.final) {
+      if (
+        wasSpeaking &&
+        !out.speaking &&
+        !out.final &&
+        this.captureDuck &&
+        !this.isArmed(clientId) &&
+        !this.anySpeakerArmed()
+      ) {
+        this.deps.logger.info({ clientId, peak: meta.peak }, "Voice: command capture ended — restoring music volume");
+        this.abandonCaptureDuck(clientId);
+      }
+      return;
+    }
+
+    const silenceTailBytes =
+      Math.floor(48_000 * (this.silenceTailMs / 1000)) * 2 * Math.max(1, meta.channels);
+    if (meta.peak === 0 && meta.pcmBytes <= silenceTailBytes + 960 && !out.keyword) {
+      // A command finished naturally emits its final on the trailing-silence
+      // chunk (peak 0). Only discard the flush if it ISN'T an actual command —
+      // otherwise "moneypenny pause" (heard as "any pause") would be dropped.
+      const candidate = extractCommandSegment(out.final, this.watchword);
+      if (!isActionableVoiceCommand(candidate, this.deps.config.commandAliases)) {
+        this.deps.logger.info(
+          { clientId, transcript: out.final },
+          "Voice: ignoring silence-tail flush",
+        );
+        return;
+      }
+      this.deps.logger.info(
+        { clientId, transcript: out.final, command: candidate },
+        "Voice: silence-tail flush carried a command — routing",
+      );
+    }
+
+    // Command-mode final — routing/TTS may take several seconds; hold duck until done.
+    this.clearDuckWatchdog();
+
+    this.segmentedUtterances++;
+    buf.streamSpeaking = false;
+    buf.utterancePeak = 0;
+    const durationMs = (meta.pcmBytes / 2 / meta.channels / 48_000) * 1000;
+    this.deps.logger.info(
+      {
+        clientId,
+        durationMs: Math.round(durationMs),
+        peak: meta.peak,
+        transcript: out.final,
+        keyword: out.keyword,
+        commandSource: out.commandSource,
+        listening,
+      },
+      out.commandSource === "kws"
+        ? "Voice: command final (KWS) — routing"
+        : "Voice: command final — routing",
+    );
+
+    const utterance: Utterance = {
+      speakerClientId: clientId,
+      speakerUid: this.clientInfoCache.get(clientId)?.uid,
+      pcm: Buffer.alloc(0),
+      sampleRate: 48_000,
+      channels: meta.channels,
+      durationMs,
+    };
+
+    const gen = (this.voiceTurnGen.get(clientId) ?? 0) + 1;
+    this.voiceTurnGen.set(clientId, gen);
+    const kwsDetected = !!out.keyword;
+    void this.processVoiceTurn(clientId, gen, out.final, utterance, kwsDetected);
+  }
+
+  private async processVoiceTurn(
+    clientId: number,
+    gen: number,
+    transcript: string,
+    utterance: Utterance,
+    kwsDetected: boolean,
+  ): Promise<void> {
+    try {
+      const turn = await this.pipeline!.handleTranscript(transcript, utterance, { kwsDetected });
+      if (this.voiceTurnGen.get(clientId) !== gen) {
+        this.deps.logger.info({ clientId, transcript }, "Voice: stale turn dropped");
+        return;
+      }
+      this.finishVoiceTurn({ reply: turn.reply, watchwordOnly: turn.watchwordOnly }, clientId);
+    } catch (err) {
+      this.deps.logger.warn({ err, clientId, transcript }, "Voice: handleTranscript failed");
+      if (this.voiceTurnGen.get(clientId) === gen) {
+        this.finishVoiceTurn({ reply: null, watchwordOnly: false }, clientId);
+      }
+    }
+  }
+
+  private anySpeakerArmed(): boolean {
+    for (const clientId of this.armedUntil.keys()) {
+      if (this.isArmed(clientId)) return true;
+    }
+    return false;
+  }
+
+  private abandonCaptureDuck(clientId: number): void {
+    this.releaseCaptureDuck(clientId);
+    void this.sttClient?.resetStream(clientId);
+  }
+
+  private isArmed(clientId: number): boolean {
+    const until = this.armedUntil.get(clientId);
+    if (!until) return false;
+    if (Date.now() >= until) {
+      this.armedUntil.delete(clientId);
+      return false;
+    }
+    return true;
+  }
+
+  private armSpeaker(clientId: number): void {
+    this.partialRoutedCommand.delete(clientId);
+    this.touchArmedWindow(clientId);
+  }
+
+  /**
+   * Moonshine often hears "Pause." in partials while silence-tail finals are garbage
+   * ("Ours.", "You"). Route actionable verbs immediately while armed.
+   */
+  private tryRouteArmedPartial(
+    clientId: number,
+    partial: string,
+    meta: { peak: number; pcmBytes: number; channels: number },
+  ): boolean {
+    const ww = extractWatchwordCommand(partial, this.watchword, { armed: true });
+    const candidate = ww.matched && ww.command
+      ? ww.command
+      : extractCommandSegment(partial, this.watchword);
+    if (!isActionableVoiceCommand(candidate, this.deps.config.commandAliases)) return false;
+    if (this.partialRoutedCommand.get(clientId) === candidate) return false;
+    if (!partialMentionsCommand(partial, candidate)) return false;
+
+    this.partialRoutedCommand.set(clientId, candidate);
+    this.clearDuckWatchdog();
+    this.segmentedUtterances++;
+    const buf = this.streamBuffers.get(clientId);
+    if (buf) {
+      buf.streamSpeaking = false;
+      buf.utterancePeak = 0;
+    }
+
+    const durationMs = (meta.pcmBytes / 2 / meta.channels / 48_000) * 1000;
+    this.deps.logger.info(
+      { clientId, partial, command: candidate, durationMs: Math.round(durationMs) },
+      "Voice: armed partial — routing",
+    );
+
+    const utterance: Utterance = {
+      speakerClientId: clientId,
+      speakerUid: this.clientInfoCache.get(clientId)?.uid,
+      pcm: Buffer.alloc(0),
+      sampleRate: 48_000,
+      channels: meta.channels,
+      durationMs,
+    };
+
+    const gen = (this.voiceTurnGen.get(clientId) ?? 0) + 1;
+    this.voiceTurnGen.set(clientId, gen);
+    void this.processVoiceTurn(clientId, gen, partial, utterance, false);
+    return true;
+  }
+
+  /** Extend the post-wake window on speech activity so beat-then-pause doesn't time out. */
+  private touchArmedWindow(clientId: number): void {
+    this.clearArmTimer(clientId);
+    this.armedUntil.set(clientId, Date.now() + this.listenWindowMs);
+    const timer = setTimeout(() => {
+      this.armTimers.delete(clientId);
+      this.armedUntil.delete(clientId);
+      this.clearArmedKeepalive(clientId);
+      this.clearPostDuckResetTimer(clientId);
+      this.commandCaptureReadyAt.delete(clientId);
+      this.partialRoutedCommand.delete(clientId);
+      this.deps.logger.info({ clientId }, "Voice: armed window expired — restoring music volume");
+      void this.sttClient?.resetStream(clientId);
+      this.releaseCaptureDuck(clientId);
+    }, this.listenWindowMs);
+    this.armTimers.set(clientId, timer);
+    this.scheduleArmedKeepalive(clientId);
+  }
+
+  private schedulePostDuckCaptureReset(clientId: number): void {
+    this.clearPostDuckResetTimer(clientId);
+    const readyAt = Date.now() + VoiceSession.DUCK_SETTLE_MS;
+    this.commandCaptureReadyAt.set(clientId, readyAt);
+    const timer = setTimeout(() => {
+      this.postDuckResetTimers.delete(clientId);
+      if (!this.isArmed(clientId)) {
+        this.commandCaptureReadyAt.delete(clientId);
+        return;
+      }
+      // Bot held post-wake PCM during settle — clear sherpa wake bleed, then flush it.
+      this.postDuckSettling.add(clientId);
+      void (async () => {
+        try {
+          await this.sttClient?.extendCommandMode(clientId);
+          await this.sttClient?.clearCommandBuffer(clientId);
+          this.commandCaptureReadyAt.delete(clientId);
+          this.deps.logger.info({ clientId }, "Voice: command capture ready after duck settle");
+          this.enqueueStreamFlush(clientId);
+        } finally {
+          this.postDuckSettling.delete(clientId);
+        }
+      })();
+    }, VoiceSession.DUCK_SETTLE_MS);
+    this.postDuckResetTimers.set(clientId, timer);
+  }
+
+  private clearPostDuckResetTimer(clientId: number): void {
+    const timer = this.postDuckResetTimers.get(clientId);
+    if (timer) clearTimeout(timer);
+    this.postDuckResetTimers.delete(clientId);
+  }
+
+  private scheduleArmedKeepalive(clientId: number): void {
+    if (this.armedKeepaliveTimers.has(clientId)) return;
+    const timer = setInterval(() => {
+      if (!this.isArmed(clientId)) {
+        this.clearArmedKeepalive(clientId);
+        return;
+      }
+      void this.sttClient?.extendCommandMode(clientId);
+    }, 3000);
+    this.armedKeepaliveTimers.set(clientId, timer);
+  }
+
+  private clearArmedKeepalive(clientId: number): void {
+    const timer = this.armedKeepaliveTimers.get(clientId);
+    if (timer) clearInterval(timer);
+    this.armedKeepaliveTimers.delete(clientId);
+  }
+
+  private disarmSpeaker(clientId: number): void {
+    this.clearArmTimer(clientId);
+    this.clearArmedKeepalive(clientId);
+    this.clearPostDuckResetTimer(clientId);
+    this.commandCaptureReadyAt.delete(clientId);
+    this.partialRoutedCommand.delete(clientId);
+    this.armedUntil.delete(clientId);
+  }
+
+  private clearArmTimer(clientId: number): void {
+    const timer = this.armTimers.get(clientId);
+    if (timer) clearTimeout(timer);
+    this.armTimers.delete(clientId);
+  }
+
+  private clearAllArmTimers(): void {
+    for (const timer of this.armTimers.values()) clearTimeout(timer);
+    this.armTimers.clear();
+    for (const clientId of this.armedKeepaliveTimers.keys()) this.clearArmedKeepalive(clientId);
+    for (const clientId of this.postDuckResetTimers.keys()) this.clearPostDuckResetTimer(clientId);
+    this.commandCaptureReadyAt.clear();
+    this.postDuckSettling.clear();
+    this.armedUntil.clear();
+  }
+
+  /**
+   * Mute bot music the instant sherpa KWS spots the wake word.
+   * Wake-only ("moneypenny" with no command) still hits this path via out.keyword.
+   * No duck on command-mode audio alone — music must keep playing until KWS fires.
+   */
+  private ensureMusicDuckedOnWake(clientId: number): void {
+    if (!this.duckMusicOnSpeech) return;
+    if (this.deps.player.getState() !== "playing") {
+      this.deps.logger.info(
+        { clientId, state: this.deps.player.getState() },
+        "Voice: wake duck skipped — player not playing",
+      );
+      return;
+    }
+
+    const currentSong = this.deps.queue.current();
+    if (!currentSong) return;
+
+    if (this.captureDuck && !this.deps.player.isSttDucked()) {
+      this.deps.logger.warn({ clientId }, "Voice: stale captureDuck without active duck — re-applying");
+    }
+
+    if (!this.deps.player.duckForStt(this.duckMusicVolume)) {
+      this.deps.logger.warn(
+        {
+          clientId,
+          state: this.deps.player.getState(),
+          volume: this.deps.player.getVolume(),
+          duckLevel: this.duckMusicVolume,
+        },
+        "Voice: failed to duck music on wake",
+      );
+      return;
+    }
+
+    if (!this.captureDuck) {
+      const elapsed = Math.floor(this.deps.player.getElapsed?.() ?? 0);
+      this.captureDuck = { song: currentSong, elapsed };
+      this.captureDuckClientId = clientId;
+      this.schedulePostDuckCaptureReset(clientId);
+      this.scheduleDuckWatchdog(clientId);
+    }
+
+    this.deps.logger.info(
+      {
+        clientId,
+        elapsed: this.captureDuck?.elapsed,
+        userVolume: this.deps.player.getVolume(),
+        duckLevel: this.duckMusicVolume,
+      },
+      "Voice: ducked music on wake",
+    );
+  }
+
+  private scheduleDuckWatchdog(clientId: number): void {
+    this.clearDuckWatchdog();
+    this.duckWatchdog = setTimeout(() => {
+      this.duckWatchdog = null;
+      if (!this.captureDuck) return;
+      if (this.anySpeakerArmed()) return;
+      this.deps.logger.warn({ clientId }, "Voice: duck watchdog — restoring music volume");
+      this.abandonCaptureDuck(clientId);
+    }, this.duckWatchdogMs);
+  }
+
+  private clearDuckWatchdog(): void {
+    if (this.duckWatchdog) clearTimeout(this.duckWatchdog);
+    this.duckWatchdog = null;
+  }
+
+  /** Resume or hand off duck state after each voice turn. */
+  private finishVoiceTurn(
+    turn: { reply: string | null; watchwordOnly: boolean },
+    clientId: number,
+  ): void {
+    if (turn.watchwordOnly) {
+      this.deps.logger.info(
+        { clientId, windowMs: this.listenWindowMs },
+        "Voice: holding music ducked — armed for follow-up",
+      );
+      return;
+    }
+    this.finishCaptureDuck(turn.reply, clientId);
+  }
+
+  /** Restore pre-duck volume and clear captureDuck (arm expiry, abandoned duck, or turn complete). */
+  private releaseCaptureDuck(clientId?: number): void {
+    const hadCapture = !!this.captureDuck;
+    this.captureDuck = null;
+    this.captureDuckClientId = null;
+    this.clearDuckWatchdog();
+    if (clientId !== undefined) {
+      this.resetStreamListeningState(clientId);
+    }
+    if (this.deps.player.isSttDucked()) {
+      this.deps.player.restoreFromSttDuck();
+      this.deps.logger.info("Voice: restored music volume after duck");
+    } else if (hadCapture) {
+      this.deps.logger.warn("Voice: captureDuck cleared but STT duck was not active");
+    }
+  }
+
+  /** Drop mirrored command-mode state so passive KWS can receive audio again. */
+  private resetStreamListeningState(clientId: number): void {
+    const buf = this.streamBuffers.get(clientId);
+    if (!buf) return;
+    buf.listening = "passive";
+    buf.chunks = [];
+    buf.utterancePeak = 0;
+    buf.streamSpeaking = false;
+  }
+
+  /** Release duck after a routed command unless playback intentionally changed. */
+  private finishCaptureDuck(reply: string | null, clientId: number): void {
+    // speak() may already have moved captureDuck → savedMusic before this runs.
+    if (reply && isPlaybackControlReply(reply)) {
+      // Pause/resume/skip must end the armed window — otherwise flushStreamBuffer
+      // keeps treating inbound audio as command capture and drops it while music
+      // plays at full volume (no duck), so the next "moneypenny" never reaches KWS.
+      this.disarmSpeaker(clientId);
+      this.releaseCaptureDuck(clientId);
+      void this.sttClient?.resetStream(clientId);
+      this.deps.logger.info({ clientId, reply }, "Voice: playback command done — disarmed for next wake");
+      if (voiceReplyClearsSavedMusic(reply)) {
+        this.savedMusic = null;
+        this.suppressNextTrackAdvance = true;
+      }
+      return;
+    }
+
+    if (!this.captureDuck) return;
+    if (this.savedMusic) {
+      this.captureDuck = null;
+      this.captureDuckClientId = null;
+      this.clearDuckWatchdog();
+      return;
+    }
+
+    // STT miss or non-pause command while still armed — keep music ducked for retry.
+    if (this.isArmed(clientId)) {
+      this.deps.logger.info({ clientId }, "Voice: follow-up inconclusive — keeping music ducked while armed");
+      return;
+    }
+
+    this.releaseCaptureDuck(clientId);
+  }
+
+  private logInboundStats(): void {
+    const now = Date.now();
+    if (now - this.lastStatsAt < 10_000) return;
+    this.lastStatsAt = now;
+    this.deps.logger.info(
+      {
+        inboundPackets: this.inboundPackets,
+        decodedFrames: this.decodedFrames,
+        segmentedUtterances: this.segmentedUtterances,
+        speakers: this.streamBuffers.size,
+        droppedNonVoiceCodec: this.droppedNonVoiceCodec,
+        droppedSelfEcho: this.droppedSelfEcho,
+        attenuatedClipped: this.attenuatedClipped,
+      },
+      "Voice: inbound capture stats",
+    );
+  }
+
+  private async buildContext(u: Utterance): Promise<RouterContext> {
+    const subject = await this.resolveSubject(u.speakerClientId);
+    u.speakerUid = subject.uid;
+    const engine = this.deps.rightsEngine();
+    const canRun = engine ? (cmd: string) => engine.can(subject, cmd, "voice") : undefined;
+    return {
+      bot: this.deps.bot,
+      logger: this.deps.logger,
+      conversationId: `voice:${subject.uid}`,
+      canRun,
+      invokerUid: subject.uid,
+      invokerName: subject.nickname,
+      message: {
+        invokerName: subject.nickname ?? "",
+        invokerId: String(u.speakerClientId),
+        invokerUid: subject.uid,
+        invokerGroups: subject.serverGroups,
+        message: "",
+        targetMode: 2,
+      },
+      postFollowUp: async (text) => {
+        await this.deps.tsClient.sendTextMessage(text);
+      },
+    };
+  }
+
+  private async resolveSubject(clid: number): Promise<Subject> {
+    return resolveRightsSubject(
+      `client:${clid}`,
+      this.deps.tsClient,
+      this.deps.logger,
+      undefined,
+      clid,
+    );
+  }
+
+  private createOutput(): VoiceOutput {
+    return {
+      speak: async (audio: Buffer, format: string) => {
+        if (!this.deps.isConnected()) return;
+        if (!this.tempDir) this.tempDir = mkdtempSync(join(tmpdir(), "moneypenny-tts-"));
+        const file = join(this.tempDir, `reply.${format}`);
+        writeFileSync(file, audio);
+        if (this.captureDuck) {
+          this.deps.player.restoreFromSttDuck();
+          this.savedMusic = this.captureDuck;
+          this.captureDuck = null;
+          this.captureDuckClientId = null;
+          this.clearDuckWatchdog();
+        } else {
+          const currentSong = this.deps.queue.current();
+          if (currentSong) {
+            const elapsed = Math.floor(this.deps.player.getElapsed?.() ?? 0);
+            this.savedMusic = { song: currentSong, elapsed };
+          }
+        }
+        this.deps.player.resetFailures();
+        this.deps.player.play(file);
+        setTimeout(() => {
+          try { rmSync(file, { force: true }); } catch { /* ignore */ }
+        }, 3000);
+      },
+    };
+  }
+}

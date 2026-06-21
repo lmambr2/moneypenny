@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Build outputs
+dist/
+build/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+# Runtime state dirs only — anchored so they don't swallow source dirs like
+# bot/src/data/ (an unanchored "data/" did exactly that and broke the build).
+/data/
+/bot/data/
+*.pem
+*.key
+
+# Models (large binaries)
+models/*.rkllm
+models/*.onnx
+models/*.bin
+!models/convert/
+
+# Logs & runtime
+*.log
+logs/
+tmp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Docker
+*.pid
+
+# Python (scripts, voice pipeline)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Test artifacts
+coverage/
+.nyc_output/
+
+# Personal quickstart env (real LAN IP) — never commit
+phase0.env
+
+# Machine-local Claude settings (never commit)
+.claude/
+**/.claude/
+**/settings.local.json

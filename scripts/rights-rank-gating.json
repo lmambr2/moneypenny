@@ -1,0 +1,83 @@
+{
+  "defaultAllow": [
+    "play", "add", "queue", "list", "now", "lyrics", "vote", "help",
+    "playlist", "album", "prev", "next", "skip", "pause", "resume",
+    "artist", "ask", "roast", "roastout", "remember", "recall", "forget"
+  ],
+  "commandGroups": {
+    "admin": [
+      "stop", "clear", "move", "moveclient", "moveall", "vol", "mode",
+      "follow", "remove", "reindex", "ingeststatus"
+    ],
+    "analyst": ["analyst", "agent"],
+    "dj": ["stop", "clear", "vol", "mode", "remove"],
+    "mod": ["move", "moveclient", "moveall", "follow"],
+    "doctrine_restricted": ["doctrine:restricted"],
+    "doctrine_confidential": ["doctrine:confidential"],
+    "doctrine_secret": ["doctrine:secret"]
+  },
+  "superAdminUids": [],
+  "rules": [
+    {
+      "name": "guest",
+      "match": { "serverGroups": ["100"] },
+      "deny": ["@analyst", "@admin", "@dj", "@mod"]
+    },
+    {
+      "name": "cadet",
+      "match": { "serverGroups": ["101"] },
+      "deny": ["@analyst", "@admin", "@mod"]
+    },
+    {
+      "name": "specialist-voice-stop",
+      "match": { "serverGroups": ["102"] },
+      "allow": ["stop"],
+      "scope": "voice"
+    },
+    {
+      "name": "specialist-doctrine-restricted",
+      "match": { "serverGroups": ["102"] },
+      "allow": ["@doctrine_restricted"]
+    },
+    {
+      "name": "junior-nco-dj",
+      "match": { "serverGroups": ["103"] },
+      "allow": ["@dj", "@doctrine_restricted"]
+    },
+    {
+      "name": "chief-dj-mod",
+      "match": { "serverGroups": ["104"] },
+      "allow": ["@dj", "@mod", "@doctrine_restricted", "@doctrine_confidential"]
+    },
+    {
+      "name": "field-grade-officer",
+      "match": { "serverGroups": ["105"] },
+      "allow": ["@admin", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+    },
+    {
+      "name": "command-staff",
+      "match": { "serverGroups": ["106"] },
+      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+    },
+    {
+      "name": "server-admin",
+      "match": { "serverGroups": ["107"] },
+      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+    },
+    {
+      "name": "staff-tier-a",
+      "match": { "serverGroups": ["108"] },
+      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+    },
+    {
+      "name": "staff-tier-b",
+      "match": { "serverGroups": ["109"] },
+      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+    },
+    {
+      "name": "department-staff",
+      "match": { "serverGroups": ["110", "111", "112", "113", "114"] },
+      "allow": ["@doctrine_restricted"]
+    }
+  ]
+}
