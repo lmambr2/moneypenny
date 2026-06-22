@@ -6,7 +6,7 @@ import { PlaybackEngine } from "./engine.js";
 import { LocalProvider } from "../../music/local.js";
 import { YtLibrary } from "../../music/ytlibrary.js";
 import Database from "better-sqlite3";
-import { DEFAULT_DEMO_VIDEO_ID } from "../../music/youtube.js";
+import { DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
 import { PlayQueue } from "../../audio/queue.js";
 
 function fakeLogger() {
@@ -79,5 +79,19 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
   it("resolveYoutubeLocalPath finds yt save dir files", async () => {
     const p = await engine.resolveYoutubeLocalPath(DEFAULT_DEMO_VIDEO_ID);
     expect(p).toContain(`[${DEFAULT_DEMO_VIDEO_ID}]`);
+  });
+
+  it("playDemoTrack falls back to YouTube when the local copy cannot be resolved", async () => {
+    vi.spyOn(local, "getSongUrl").mockResolvedValue(null);
+    youtubeSearch.mockResolvedValue({
+      songs: [{ id: DEFAULT_DEMO_VIDEO_ID, name: "Demo", artist: "Artist", album: "", duration: 60 }],
+      playlists: [],
+      albums: [],
+    });
+
+    const msg = await engine.playDemoTrack();
+    expect(msg).toContain("Now playing");
+    expect(youtubeSearch).toHaveBeenCalledWith(DEFAULT_DEMO_VIDEO_URL, 1);
+    expect(play).toHaveBeenCalledTimes(1);
   });
 });

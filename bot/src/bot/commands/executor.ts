@@ -34,7 +34,7 @@ export interface CommandExecutorDeps {
 
 const AUDIO_COMMANDS = new Set([
   "play", "add", "playnext", "pn", "next", "skip", "prev",
-  "playlist", "album", "artist",
+  "playlist", "album", "artist", "test",
 ]);
 
 /**
@@ -438,6 +438,9 @@ export class CommandExecutor {
   }
 
   private async cmdTest(): Promise<string> {
+    if (!this.deps.isConnected()) {
+      return "Bot is not connected to TeamSpeak — start it from the web UI first.";
+    }
     return this.deps.playback.playDemoTrack();
   }
 }

@@ -109,8 +109,12 @@ export class PlaybackEngine {
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
-      if (!ok) return `Cannot play: ${localSong.name}`;
-      return `Now playing: ${localSong.name} - ${localSong.artist} (local)`;
+      if (ok) return `Now playing: ${localSong.name} - ${localSong.artist} (local)`;
+      this.opts.logger.warn(
+        { song: localSong.name },
+        "Local demo copy failed to play — falling back to stream",
+      );
+      this.opts.queue.clear();
     }
 
     const hit = await this.searchFirst(

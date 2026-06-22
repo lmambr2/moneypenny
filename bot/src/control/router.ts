@@ -138,7 +138,7 @@ const RESOLVABLE_MUSIC_COMMANDS = new Set(['play', 'add', 'playnext', 'pn', 'pla
 /** Commands that push audio and therefore require an active TS connection. */
 const AUDIO_COMMANDS = new Set([
   "play", "add", "playnext", "pn", "next", "skip", "prev",
-  "playlist", "album", "artist",
+  "playlist", "album", "artist", "test",
 ]);
 
 /** Strip STT punctuation so "Pause." / "Skip?" still match deterministic commands. */
