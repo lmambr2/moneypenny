@@ -245,6 +245,7 @@ describe("ControlRouter — LLM routing", () => {
       playback: {} as any,
       roast: {} as any,
       memory: {} as any,
+      kg: {} as any,
       knowledge: {} as any,
     });
 
