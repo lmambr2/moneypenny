@@ -273,13 +273,29 @@ describe("ControlRouter — LLM routing", () => {
     };
     const router = new ControlRouter(fakeLogger(), llm);
     const d = await router.route("!analyst summarise recruitment doctrine", makeContext(fakeBot()), "!");
-    expect(d).toEqual({ type: "llm", llmIntent: { mode: "delegate", text: "summarise recruitment doctrine" } });
+    expect(d.type).toBe("llm");
+    expect(d.llmIntent).toMatchObject({ mode: "delegate", text: "summarise recruitment doctrine" });
     const out = await router.execute(d, makeContext(fakeBot()));
     expect(llm.delegate).toHaveBeenCalledWith("summarise recruitment doctrine", undefined, {
       allowedClassifications: undefined,
       userUid: undefined,
     });
-    expect(out).toBe("INTSUM draft");
+    expect(out).toContain("INTSUM draft");
+  });
+
+  it("!analyst -s saves delegate output to doctrine (sync)", async () => {
+    const saveAnalystDoc = vi.fn().mockResolvedValue({ ok: true, source: "reports/analyst-2026-06-22.md" });
+    const llm: LlmAssist = {
+      ask: vi.fn(),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn().mockResolvedValue("# Brief\nOps summary."),
+      isDelegateConfigured: () => true,
+    };
+    const router = new ControlRouter(fakeLogger(), llm);
+    const d = await router.route("!analyst -s class:secret draft brief", makeContext(fakeBot({ saveAnalystDoc })), "!");
+    const out = await router.execute(d, makeContext(fakeBot({ saveAnalystDoc })));
+    expect(saveAnalystDoc).toHaveBeenCalledWith("# Brief\nOps summary.", "secret");
+    expect(out).toContain("Saved to knowledge base");
   });
 
   it("acks !analyst immediately and posts the result via postFollowUp (R1b)", async () => {
@@ -319,7 +335,7 @@ describe("ControlRouter — LLM routing", () => {
     const d = await router.route("!deep analysis please", makeContext(fakeBot()), "!");
     const out = await router.execute(d, makeContext(fakeBot()));
     expect(llm.delegate).toHaveBeenCalledWith("write INTSUM", "ops last week", expect.any(Object));
-    expect(out).toBe("Done.");
+    expect(out).toBe("📋 Analyst result:\nDone.");
   });
 
   it("routes !intsum to workflow generation (sync)", async () => {

@@ -21,23 +21,26 @@ export function parseKgFlags(raw: string): KgDateFlags {
   let text = raw.trim();
   const out: KgDateFlags = { text };
 
-  const pull = (re: RegExp, key: keyof KgDateFlags) => {
+  const pull = (re: RegExp, assign: (val: string) => void) => {
     const m = text.match(re);
     if (!m) return;
-    const val = m[1].trim();
-    if (key === "diary") {
-      const d = val.toLowerCase();
-      if (d === "intel" || d === "logistics") out.diary = d;
-    } else if (isIsoDate(val)) {
-      (out as Record<string, string>)[key] = val;
-    }
+    assign(m[1].trim());
     text = text.replace(m[0], " ").replace(/\s+/g, " ").trim();
   };
 
-  pull(/\bfrom:(\S+)/i, "from");
-  pull(/\buntil:(\S+)/i, "until");
-  pull(/\basof:(\S+)/i, "asOf");
-  pull(/\bdiary:(\S+)/i, "diary");
+  pull(/\bfrom:(\S+)/i, (val) => {
+    if (isIsoDate(val)) out.from = val;
+  });
+  pull(/\buntil:(\S+)/i, (val) => {
+    if (isIsoDate(val)) out.until = val;
+  });
+  pull(/\basof:(\S+)/i, (val) => {
+    if (isIsoDate(val)) out.asOf = val;
+  });
+  pull(/\bdiary:(\S+)/i, (val) => {
+    const d = val.toLowerCase();
+    if (d === "intel" || d === "logistics") out.diary = d;
+  });
 
   out.text = text;
   return out;

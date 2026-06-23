@@ -404,6 +404,10 @@ export class BotInstance extends EventEmitter {
     return this.knowledge.saveWorkflowDoc(kind, markdown);
   }
 
+  saveAnalystDoc(markdown: string, classification?: string) {
+    return this.knowledge.saveAnalystDoc(markdown, classification);
+  }
+
   updateMemory(enabled: boolean): void {
     this.llm.updateMemory(enabled);
   }

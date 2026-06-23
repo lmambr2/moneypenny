@@ -7,6 +7,7 @@ import type { MusicProvider } from "../../music/provider.js";
 import { startFileDropWatcher, FILE_DROP_CHANNEL_NAME } from "../../ingest/file-drop.js";
 import type { RetrievalStore } from "../../rag/index.js";
 import type { WorkflowKind } from "../../docs/workflow.js";
+import { analystSavePath } from "../../docs/analyst.js";
 import { workflowSavePath } from "../../docs/workflow.js";
 import { ingestDoctrineDoc, reindexDoctrine, reindexDoctrineSources } from "../../rag/doctrine-ingest.js";
 
@@ -163,6 +164,43 @@ export class KnowledgeService {
   ) {
     if (!this.deps.config.ragEnabled || !this.retrieval) return null;
     return this.retrieval.queryStrict(question, topK, allowedClassifications);
+  }
+
+  /** Persist arbitrary analyst output into doctrine + Qdrant (DESIGN §R3 `!analyst -s`). */
+  async saveAnalystDoc(
+    markdown: string,
+    classification = "restricted",
+  ): Promise<{ ok: true; source: string } | { ok: false; error: string }> {
+    if (!this.deps.config.ragEnabled || !this.retrieval || !this.doctrine) {
+      return { ok: false, error: "knowledge base is off" };
+    }
+    const body = stripSourcesFooter(markdown).trim();
+    if (!body) return { ok: false, error: "empty document" };
+
+    let content = body;
+    if (!body.startsWith("---")) {
+      const validUntil = new Date();
+      validUntil.setUTCDate(validUntil.getUTCDate() + 30);
+      const date = validUntil.toISOString().slice(0, 10);
+      content =
+        `---\nclassification: ${classification}\ntags: [analyst, report]\nvalid_until: ${date}\n---\n\n` +
+        body;
+    }
+
+    let source = analystSavePath();
+    if (this.doctrine.readFile(source) != null) {
+      const stamp = Date.now();
+      const dot = source.lastIndexOf(".");
+      source = `${source.slice(0, dot)}-${stamp}${source.slice(dot)}`;
+    }
+
+    try {
+      await ingestDoctrineDoc(this.retrieval, this.doctrine, source, content);
+      return { ok: true, source };
+    } catch (err) {
+      this.deps.logger.warn({ err, source }, "Analyst doc save failed");
+      return { ok: false, error: "ingest failed — check vector DB and embeddings" };
+    }
   }
 
   /** Persist a generated workflow doc into doctrine + Qdrant (DESIGN §R3 `-s` flag). */

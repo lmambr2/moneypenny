@@ -1,5 +1,10 @@
 import { parseCommand, isKnownCommand, type ParsedCommand } from "../bot/commands.js";
 import {
+  appendAnalystSaveNotice,
+  parseAnalystCommand,
+  type AnalystRequest,
+} from "../docs/analyst.js";
+import {
   buildWorkflowTask,
   formatWorkflowFollowUp,
   parseWorkflowCommand,
@@ -117,6 +122,8 @@ export interface LlmIntent {
   /** Present when mode === "workflow". */
   workflowKind?: WorkflowKind;
   workflowFlags?: Set<string>;
+  /** Present when mode === "delegate" (`!analyst` / `!agent`). */
+  delegateFlags?: Set<string>;
 }
 
 export interface RouterDecision {
@@ -203,7 +210,10 @@ export class ControlRouter {
 
     // `!analyst` / `!agent` → heavy delegate path (DESIGN §R1).
     if (command.name === "analyst" || command.name === "agent") {
-      return { type: "llm", llmIntent: { mode: "delegate", text: command.args } };
+      return {
+        type: "llm",
+        llmIntent: { mode: "delegate", text: command.args, delegateFlags: command.flags },
+      };
     }
 
     // `!intsum` / `!aar` → templated org docs (DESIGN §R3).
@@ -370,11 +380,15 @@ export class ControlRouter {
       if (context.canRun && !context.canRun("analyst")) {
         return "You don't have permission to use 'analyst'.";
       }
-      if (!intent.text?.trim()) return "Usage: !analyst <task>";
+      const parsed = parseAnalystCommand({
+        args: intent.text ?? "",
+        flags: intent.delegateFlags ?? new Set(),
+      });
+      if ("error" in parsed) return parsed.error;
       if (this.llm.isDelegateConfigured && !this.llm.isDelegateConfigured()) {
         return "Analyst delegation is not configured. Set a delegate URL in Settings.";
       }
-      return this.runDelegate(intent.text, undefined, context);
+      return this.runDelegate(parsed, undefined, context);
     }
 
     if (intent.mode === "workflow") {
@@ -424,7 +438,8 @@ export class ControlRouter {
           outputs.push("You don't have permission to delegate to the analyst.");
           continue;
         }
-        const out = await this.runDelegate(task, extra || undefined, context);
+        const req: AnalystRequest = { task, save: false, classification: "restricted" };
+        const out = await this.runDelegate(req, extra || undefined, context);
         if (out) outputs.push(out);
         continue;
       }
@@ -453,7 +468,7 @@ export class ControlRouter {
    * poster; otherwise await inline (unit tests and callers without TS I/O).
    */
   private async runDelegate(
-    task: string,
+    req: AnalystRequest,
     extraContext: string | undefined,
     context: RouterContext,
   ): Promise<string> {
@@ -462,17 +477,27 @@ export class ControlRouter {
       userUid: context.invokerUid,
     };
 
+    const finish = async (raw: string): Promise<string> => {
+      let result = formatDelegateFollowUp(raw, context.invokerName);
+      if (req.save) {
+        const saved = await context.bot.saveAnalystDoc(raw, req.classification);
+        result = appendAnalystSaveNotice(result, saved);
+      }
+      return result;
+    };
+
     if (!context.postFollowUp) {
-      return this.llm!.delegate(task, extraContext, ctx);
+      const raw = await this.llm!.delegate(req.task, extraContext, ctx);
+      return finish(raw);
     }
 
     void this.llm!
-      .delegate(task, extraContext, ctx)
+      .delegate(req.task, extraContext, ctx)
       .then(async (result) => {
-        await context.postFollowUp!(formatDelegateFollowUp(result, context.invokerName));
+        await context.postFollowUp!(await finish(result));
       })
       .catch(async (err) => {
-        context.logger.warn({ err, task: task.slice(0, 80) }, "Async delegate failed");
+        context.logger.warn({ err, task: req.task.slice(0, 80) }, "Async delegate failed");
         const msg = err instanceof Error ? err.message : "Analyst request failed.";
         try {
           await context.postFollowUp!(formatDelegateFollowUp(msg, context.invokerName));

@@ -61,13 +61,13 @@ Omitted `classification` → `unclassified` (everyone can retrieve). See rank-ga
 
 | Command | Saves to doctrine? | Notes |
 |---------|-------------------|-------|
-| `!analyst <task>` / `!agent <task>` | **No** — posts full text to TeamSpeak chat only | Needs `@analyst` right + delegate URL configured |
+| `!analyst <task>` / `!agent <task>` | **Only with `-s`** → `reports/analyst-YYYY-MM-DD.md` | Needs `@analyst` right + delegate URL configured |
 | `!intsum [-s] [class:<level>] <bullets>` | **Only with `-s`** → `intel/intsum-YYYY-MM-DD.md` | Bullets separated by `;` or `\|` |
 | `!aar [-s] [class:<level>] <bullets>` | **Only with `-s`** → `reports/aar-YYYY-MM-DD.md` | Same bullet syntax |
 
 **Want a generated doc in the editable library?** Use `!intsum -s` or `!aar -s`, or copy `!analyst` chat output → Library upload / **+ New doc** → **Reindex**.
 
-There is no `!analyst -s` today. Do not tell members to symlink MemPalace into RAG — unsupported.
+Use `!analyst -s` or `!intsum -s` / `!aar -s` to auto-save. Do not symlink MemPalace into RAG — unsupported.
 
 ---
 
