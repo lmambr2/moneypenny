@@ -111,6 +111,8 @@ export interface BotConfig {
   // sync to the bridge and `!ask` uses semantic recall instead of SQLite list.
   mempalaceEnabled: boolean;
   mempalaceUrl: string;
+  // Institutional knowledge graph (Phase 7). Injects org facts into !ask when on.
+  kgEnabled: boolean;
   // === TeamSpeak file-browser ingestion (ROADMAP Phase 6, TS-native path) ===
   // When true, the bot polls a hardcoded drop channel's file repository and
   // ingests new files by type: .md/.markdown → doctrine RAG, audio → the music
@@ -166,6 +168,7 @@ export function getDefaultConfig(): BotConfig {
     memoryEnabled: false,
     mempalaceEnabled: false,
     mempalaceUrl: "",
+    kgEnabled: false,
     fileDropEnabled: false,
     fileDropPollSec: 30,
   };

@@ -172,21 +172,19 @@ classification.
 commit; an unauthorized member is denied the gated/classified corpus.
 
 ## Phase 7 — Long-term memory (MemPalace)
-> **Status (dev): MVP IMPLEMENTED.** `!remember <fact>` / `!recall` store per-user
-> facts in SQLite; when enabled, they're injected into that user's `!ask` through
-> the same retrieval seam as doctrine. The heavy parts below (temporal knowledge
-> graph, specialist personas/diaries, MemPalace sidecar) remain future work.
+> **Status (dev): SHIPPED (2026-06).** Per-user: `!remember` / `!recall` in SQLite
+> + optional MemPalace semantic recall. Institutional: temporal **knowledge graph**
+> via `!kg` / `!diary` (SQLite + MemPalace `org_kg` / diary rooms), injected into
+> `!ask` when `kgEnabled` is on. Analysts record; `!kg who <name> [asof:date]`
+> answers temporal roster/role queries.
 
 **Goal:** durable per-user/conversational memory + a temporal knowledge graph
 (who held what role when, fleet comps, op history) — institutional memory.
-**Work:** run MemPalace as a sidecar (Python/MCP + embedding model); bot
-read/writes over HTTP/MCP; optional specialist personas (intel / logistics) with
-separate diaries.
-**Caveats:** MemPalace is young (shipped 2026-04, viral, contested benchmark
-claims) — pilot it, don't bet the architecture on its headline numbers. It is
-*memory*, not a document library; it sits next to Phase 6, not over it.
-**Accept:** the bot recalls per-user facts across sessions; the KG answers a
-"who was X as of <date>" temporal query.
+**Work:** MemPalace sidecar (`docker compose --profile memory`); bot sync over
+HTTP (`/v1/kg/*` on the bridge). Specialist diaries: `!diary intel|logistics`.
+**Caveats:** MemPalace is young — pilot it, don't bet the architecture on headline
+benchmarks. It is *memory*, not a document library; it sits next to Phase 6.
+**Accept:** per-user facts across sessions; KG answers "who was X as of <date>".
 
 ## Post-core — R4 client moves (shipped 2026-06-20)
 

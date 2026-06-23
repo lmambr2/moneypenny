@@ -6,6 +6,15 @@ export interface MemPalaceFact {
   fact: string;
   filedAt?: string;
   score?: number;
+  diary?: string;
+  subject?: string;
+}
+
+export interface KgRememberMeta {
+  subject?: string;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  diary?: string | null;
 }
 
 export interface MemPalaceClientOpts {
@@ -80,6 +89,52 @@ export class MemPalaceClient {
       }));
     } catch (err) {
       this.opts.logger?.warn({ err, userId }, "MemPalace search failed");
+      return [];
+    }
+  }
+
+  async kgRemember(fact: string, meta: KgRememberMeta = {}): Promise<boolean> {
+    try {
+      const { data } = await axios.post(
+        `${this.base}/v1/kg/remember`,
+        {
+          fact,
+          subject: meta.subject ?? "",
+          validFrom: meta.validFrom ?? "",
+          validUntil: meta.validUntil ?? "",
+          diary: meta.diary ?? "",
+        },
+        { timeout: this.timeoutMs },
+      );
+      return !!data?.ok;
+    } catch (err) {
+      this.opts.logger?.warn({ err }, "MemPalace KG remember failed");
+      return false;
+    }
+  }
+
+  async kgSearch(
+    query: string,
+    opts: { asOf?: string; limit?: number } = {},
+  ): Promise<MemPalaceFact[]> {
+    try {
+      const { data } = await axios.post(
+        `${this.base}/v1/kg/search`,
+        { query, asOf: opts.asOf ?? "", limit: opts.limit ?? 8 },
+        { timeout: this.timeoutMs },
+      );
+      if (!data?.ok || !Array.isArray(data.results)) return [];
+      return data.results.map(
+        (row: { drawerId?: string; fact: string; score?: number; diary?: string; subject?: string }) => ({
+          drawerId: row.drawerId,
+          fact: row.fact,
+          score: row.score,
+          diary: row.diary,
+          subject: row.subject,
+        }),
+      );
+    } catch (err) {
+      this.opts.logger?.warn({ err }, "MemPalace KG search failed");
       return [];
     }
   }

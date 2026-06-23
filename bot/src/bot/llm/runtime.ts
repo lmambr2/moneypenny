@@ -1,5 +1,6 @@
 import type { BotConfig } from "../../data/config.js";
 import type { MemoryStore } from "../../data/memory.js";
+import type { KgService } from "../community/kg.js";
 import type { MemPalaceClient } from "../../memory/mempalace-client.js";
 import type { Logger } from "../../logger.js";
 import { LlmModule, type RetrievalHook } from "../../llm/index.js";
@@ -13,6 +14,7 @@ export interface LlmRuntimeDeps {
   config: BotConfig;
   logger: Logger;
   memoryStore: MemoryStore;
+  getKg: () => KgService | null;
   getMemPalace: () => MemPalaceClient | null;
   getRetrieval: () => RetrievalStore | undefined;
   getRightsEngine: () => RightsEngine | null;
@@ -84,12 +86,20 @@ export class LlmRuntime {
     this.refreshRetrieveHook();
   }
 
+  updateKg(enabled: boolean): void {
+    this.deps.config.kgEnabled = enabled;
+    this.deps.getKg()?.updateKg(enabled);
+    this.refreshRetrieveHook();
+  }
+
   refreshRetrieveHook(): void {
     this.module?.setRetrieve(this.buildRetrieveHook());
   }
 
   buildRetrieveHook(): RetrievalHook | undefined {
-    if (!this.deps.config.ragEnabled && !this.deps.config.memoryEnabled) return undefined;
+    if (!this.deps.config.ragEnabled && !this.deps.config.memoryEnabled && !this.deps.config.kgEnabled) {
+      return undefined;
+    }
     return (q, ctx) => this.retrieveContext(q, ctx);
   }
 
@@ -188,6 +198,13 @@ export class LlmRuntime {
       } else {
         const facts = this.deps.memoryStore.recall(ctx.userUid, 10);
         out.push(...facts.map((f) => ({ text: f.fact, source: "your memory", score: 1 })));
+      }
+    }
+    if (this.deps.config.kgEnabled) {
+      const kg = this.deps.getKg();
+      if (kg) {
+        const hits = await kg.recallForQuestion(question);
+        out.push(...hits.map((h) => ({ text: h.text, source: h.source, score: 0.9 })));
       }
     }
     return out;

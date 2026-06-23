@@ -11,6 +11,7 @@ export const PUBLIC_COMMANDS = new Set([
   "artist", "ask", "analyst", "agent", "intsum", "aar", "test",
   "roast", "roastout",
   "remember", "recall", "forget",
+  "kg", "diary",
 ]);
 
 export const ADMIN_COMMANDS = new Set([

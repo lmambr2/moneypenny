@@ -71,15 +71,22 @@ There is no `!analyst -s` today. Do not tell members to symlink MemPalace into R
 
 ---
 
-## MemPalace (personal memory only)
+## MemPalace & knowledge graph (Phase 7)
 
-- **File a fact:** `!remember <something about you>`
-- **List your facts:** `!recall`
-- **Forget:** `!forget <n>` or `!forget all`
-- **Browse/edit store:** upstream **MemPalace dashboard** pointed at the bridge volume (`MEMPALACE_PALACE_PATH`, default `/data/palace` in Docker), or recall API on port `8090`
-- **Settings:** enable MemPalace + bridge URL; **Sync SQLite → MemPalace** backfills prior `!remember` facts
+**Personal memory** (per-user, not doctrine):
 
-MemPalace is for *who you are / what you told the bot* — not SOPs, INTSUMs, or shared doctrine.
+- `!remember <fact>` / `!recall` / `!forget`
+- Settings → **Per-user memory** + **MemPalace**; **Sync SQLite → MemPalace** backfills facts
+
+**Org knowledge graph** (institutional, temporal — not doctrine files):
+
+- `!kg remember <fact> [from:YYYY-MM-DD] [until:YYYY-MM-DD]` — analyst only
+- `!kg who <name> [asof:YYYY-MM-DD]` — temporal lookup (“who was X as of date”)
+- `!kg list` / `!kg forget <n|all>` — analyst for forget
+- `!diary intel|logistics <fact> [from:…] [until:…]` — specialist diary entries
+- Settings → **Org knowledge graph** (`kgEnabled`) injects KG into `!ask`
+
+MemPalace sidecar stores per-user rooms + shared `org_kg` / diary rooms for semantic recall. Not a substitute for RAG doctrine.
 
 ---
 

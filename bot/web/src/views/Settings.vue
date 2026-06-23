@@ -565,6 +565,18 @@
       <label class="profile-toggle">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">
+            <Icon icon="mdi:graph" class="setting-icon" /> Org knowledge graph
+          </div>
+          <div class="profile-toggle-hint">
+            Inject institutional facts from <code>!kg</code> / <code>!diary</code> into <code>!ask</code> (roles, roster, op history with <code>from:</code>/<code>until:</code> windows). Analysts record facts; everyone can query with <code>!kg who</code>.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.kgEnabled" />
+      </label>
+
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
             <Icon icon="mdi:castle" class="setting-icon" /> MemPalace (semantic memory)
           </div>
           <div class="profile-toggle-hint">
@@ -1151,6 +1163,7 @@ const ai = reactive({
   embeddingModel: '',
   ragCollection: 'moneypenny_docs',
   memoryEnabled: false,
+  kgEnabled: false,
   mempalaceEnabled: false,
   mempalaceUrl: '',
   fileDropEnabled: false,
@@ -1248,6 +1261,7 @@ async function loadAiSettings() {
     ai.ragCollection = res.data.ragCollection ?? 'moneypenny_docs';
     ai.llmPreset = detectLlmPreset();
     ai.memoryEnabled = !!res.data.memoryEnabled;
+    ai.kgEnabled = !!res.data.kgEnabled;
     ai.mempalaceEnabled = !!res.data.mempalaceEnabled;
     ai.mempalaceUrl = res.data.mempalaceUrl ?? '';
     ai.fileDropEnabled = !!res.data.fileDropEnabled;
@@ -1602,6 +1616,7 @@ async function saveAiSettings() {
       embeddingModel: ai.embeddingModel.trim(),
       ragCollection: ai.ragCollection.trim() || 'moneypenny_docs',
       memoryEnabled: ai.memoryEnabled,
+      kgEnabled: ai.kgEnabled,
       mempalaceEnabled: ai.mempalaceEnabled,
       mempalaceUrl: ai.mempalaceUrl.trim(),
       fileDropEnabled: ai.fileDropEnabled,

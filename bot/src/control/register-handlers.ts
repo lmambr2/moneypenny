@@ -2,6 +2,7 @@ import type { ParsedCommand } from "../bot/commands.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
 import type { RoastService } from "../bot/community/roast.js";
 import type { MemoryService } from "../bot/community/memory.js";
+import type { KgService } from "../bot/community/kg.js";
 import type { KnowledgeService } from "../bot/knowledge/service.js";
 import type { PlaybackEngine } from "../bot/playback/engine.js";
 import type { CommandExecutor } from "../bot/commands/executor.js";
@@ -13,6 +14,7 @@ export interface CommandHandlerHost {
   playback: PlaybackEngine;
   roast: RoastService;
   memory: MemoryService;
+  kg: KgService;
   knowledge: KnowledgeService;
 }
 
@@ -49,7 +51,10 @@ const DELEGATED_COMMANDS = [
 ] as const;
 
 /** Community / knowledge-base commands — not in executeCommand's switch. */
-const SPECIAL_COMMANDS = ["roast", "roastout", "remember", "recall", "forget", "reindex", "ingeststatus"] as const;
+const SPECIAL_COMMANDS = [
+  "roast", "roastout", "remember", "recall", "forget",
+  "kg", "diary", "reindex", "ingeststatus",
+] as const;
 
 /**
  * Wire all deterministic command handlers into the ControlRouter.
@@ -86,6 +91,8 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     remember: async (cmd, ctx) => host.memory.handleRemember(cmd.args, ctx.invokerUid),
     recall: async (_cmd, ctx) => host.memory.handleRecall(ctx.invokerUid),
     forget: async (cmd, ctx) => host.memory.handleForget(cmd.args, ctx.invokerUid),
+    kg: async (cmd, ctx) => host.kg.handleKg(cmd.args, ctx.invokerUid, ctx.canRun),
+    diary: async (cmd, ctx) => host.kg.handleDiary(cmd.args, ctx.invokerUid, ctx.canRun),
     reindex: async (cmd) => host.knowledge.handleReindex(cmd.rawArgs.length ? cmd.rawArgs : undefined),
     ingeststatus: async () => host.knowledge.handleIngestStatus(),
   };

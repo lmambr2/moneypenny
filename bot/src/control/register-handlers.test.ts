@@ -24,6 +24,10 @@ function makeHost(overrides: Partial<CommandHandlerHost> = {}): CommandHandlerHo
       handleForget: vi.fn(),
       setMemPalace: vi.fn(),
     } as unknown as CommandHandlerHost["memory"],
+    kg: {
+      handleKg: vi.fn(),
+      handleDiary: vi.fn(),
+    } as unknown as CommandHandlerHost["kg"],
     knowledge: {
       handleReindex: vi.fn(),
       handleIngestStatus: vi.fn(),

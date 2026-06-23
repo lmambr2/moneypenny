@@ -11,6 +11,8 @@ SQLite resets (Phase 7 ROADMAP).
   GET  /v1/recall     ?userId=...&limit=15
   POST /v1/search     { "userId": "...", "query": "...", "limit": 5 }
   POST /v1/forget     { "userId": "...", "index": 1 } | { "userId": "...", "all": true }
+  POST /v1/kg/remember { "fact": "...", "subject": "...", "validFrom": "...", "validUntil": "...", "diary": "intel|logistics" }
+  POST /v1/kg/search   { "query": "...", "asOf": "YYYY-MM-DD", "limit": 8 }
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 PORT = int(os.environ.get("PORT", "8090"))
 PALACE_PATH = os.environ.get("MEMPALACE_PALACE_PATH", "/data/palace")
 WING = os.environ.get("MEMPALACE_WING", "moneypenny")
+KG_ROOM = os.environ.get("MEMPALACE_KG_ROOM", "org_kg")
 _init_lock = threading.Lock()
 _ready = False
 
@@ -169,6 +172,138 @@ def _search_facts(user_id: str, query: str, limit: int = 5) -> list[dict]:
     return hits
 
 
+def _kg_room(diary: str | None = None) -> str:
+    from mempalace.config import sanitize_name
+
+    if diary in ("intel", "logistics"):
+        return sanitize_name(f"diary_{diary}", "room")
+    return sanitize_name(KG_ROOM, "room")
+
+
+def _parse_kg_tags(text: str) -> dict:
+    import re
+
+    out: dict = {"fact": text.strip()}
+    for key, pat in (
+        ("subject", r"@subject:([^|]+)"),
+        ("validFrom", r"@from:(\d{4}-\d{2}-\d{2})"),
+        ("validUntil", r"@until:(\d{4}-\d{2}-\d{2})"),
+        ("diary", r"@diary:(intel|logistics)"),
+    ):
+        m = re.search(pat, text, re.I)
+        if m:
+            out[key] = m.group(1).strip()
+    if " | " in text:
+        out["fact"] = text.split(" | ", 1)[1].strip()
+    return out
+
+
+def _kg_active_at(valid_from: str | None, valid_until: str | None, as_of: str) -> bool:
+    if not as_of or len(as_of) < 10:
+        return True
+    try:
+        y, m, d = int(as_of[0:4]), int(as_of[5:7]), int(as_of[8:10])
+        ref = datetime(y, m, d, 12, 0, 0, tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    if valid_from:
+        try:
+            fy, fm, fd = int(valid_from[0:4]), int(valid_from[5:7]), int(valid_from[8:10])
+            if ref < datetime(fy, fm, fd, tzinfo=timezone.utc):
+                return False
+        except ValueError:
+            pass
+    if valid_until:
+        try:
+            uy, um, ud = int(valid_until[0:4]), int(valid_until[5:7]), int(valid_until[8:10])
+            if ref > datetime(uy, um, ud, 23, 59, 59, tzinfo=timezone.utc):
+                return False
+        except ValueError:
+            pass
+    return True
+
+
+def _add_kg_fact(
+    fact: str,
+    subject: str | None = None,
+    valid_from: str | None = None,
+    valid_until: str | None = None,
+    diary: str | None = None,
+) -> dict:
+    from mempalace.config import sanitize_content
+    from mempalace.ids import make_drawer_id_from_content
+    from mempalace.palace import get_collection
+
+    _ensure_palace()
+    room = _kg_room(diary)
+    content = sanitize_content(fact.strip())
+    if not content:
+        return {"ok": False, "error": "empty fact"}
+
+    col = get_collection(PALACE_PATH, create=True)
+    drawer_id = make_drawer_id_from_content(WING, room, content)
+    meta = {
+        "wing": WING,
+        "room": room,
+        "source_file": "kg:moneypenny",
+        "added_by": "moneypenny",
+        "filed_at": datetime.now(timezone.utc).isoformat(),
+        "chunk_index": 0,
+        "subject": subject or "",
+        "valid_from": valid_from or "",
+        "valid_until": valid_until or "",
+        "diary": diary or "",
+    }
+
+    try:
+        existing = col.get(ids=[drawer_id], include=[])
+        ids = getattr(existing, "ids", None) or (existing.get("ids") if isinstance(existing, dict) else None)
+        if ids:
+            return {"ok": True, "drawerId": drawer_id, "duplicate": True}
+    except Exception:
+        pass
+
+    col.upsert(ids=[drawer_id], documents=[content], metadatas=[meta])
+    return {"ok": True, "drawerId": drawer_id}
+
+
+def _search_kg(query: str, as_of: str | None = None, limit: int = 8) -> list[dict]:
+    from mempalace.searcher import search_memories
+
+    _ensure_palace()
+    ref = (as_of or "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    hits: list[dict] = []
+    for diary in (None, "intel", "logistics"):
+        room = _kg_room(diary)
+        out = search_memories(
+            query=query.strip() or "organization roles and operations",
+            palace_path=PALACE_PATH,
+            wing=WING,
+            room=room,
+            n_results=max(1, min(limit * 2, 20)),
+        )
+        if out.get("error"):
+            continue
+        for hit in out.get("results") or []:
+            text = (hit.get("text") or "").strip()
+            if not text:
+                continue
+            tags = _parse_kg_tags(text)
+            if not _kg_active_at(tags.get("validFrom"), tags.get("validUntil"), ref):
+                continue
+            hits.append(
+                {
+                    "fact": tags.get("fact") or text,
+                    "drawerId": hit.get("metadata", {}).get("id") or hit.get("drawer_id"),
+                    "score": hit.get("bm25_score"),
+                    "diary": tags.get("diary") or diary,
+                    "subject": tags.get("subject"),
+                }
+            )
+    hits.sort(key=lambda h: h.get("score") or 0, reverse=True)
+    return hits[: max(1, min(limit, 20))]
+
+
 def _forget_fact(user_id: str, index: int | None = None, forget_all: bool = False) -> dict:
     from mempalace.palace import get_collection
 
@@ -259,6 +394,38 @@ class Handler(BaseHTTPRequestHandler):
                 limit = 5
             try:
                 hits = _search_facts(user_id, query, limit)
+                _json_response(self, 200, {"ok": True, "results": hits})
+            except Exception as exc:
+                _json_response(self, 500, {"ok": False, "error": str(exc)})
+            return
+
+        if parsed.path.rstrip("/") == "/v1/kg/remember":
+            fact = str(body.get("fact", "")).strip()
+            if not fact:
+                _json_response(self, 400, {"ok": False, "error": "fact required"})
+                return
+            try:
+                out = _add_kg_fact(
+                    fact,
+                    subject=str(body.get("subject", "")).strip() or None,
+                    valid_from=str(body.get("validFrom", "")).strip() or None,
+                    valid_until=str(body.get("validUntil", "")).strip() or None,
+                    diary=str(body.get("diary", "")).strip() or None,
+                )
+                _json_response(self, 200 if out.get("ok") else 400, out)
+            except Exception as exc:
+                _json_response(self, 500, {"ok": False, "error": str(exc)})
+            return
+
+        if parsed.path.rstrip("/") == "/v1/kg/search":
+            query = str(body.get("query", "")).strip()
+            as_of = str(body.get("asOf", "")).strip() or None
+            try:
+                limit = int(body.get("limit", 8))
+            except (TypeError, ValueError):
+                limit = 8
+            try:
+                hits = _search_kg(query, as_of, limit)
                 _json_response(self, 200, {"ok": True, "results": hits})
             except Exception as exc:
                 _json_response(self, 500, {"ok": False, "error": str(exc)})

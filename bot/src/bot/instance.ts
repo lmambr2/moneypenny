@@ -19,6 +19,7 @@ import { ControlRouter } from "../control/router.js";
 import { registerBotCommandHandlers } from "../control/register-handlers.js";
 import type { RetrievalStore } from "../rag/index.js";
 import { MemoryStore } from "../data/memory.js";
+import { KgStore } from "../data/kg.js";
 import { MemPalaceClient } from "../memory/mempalace-client.js";
 import type { DoctrineStore } from "../data/doctrine.js";
 import type { FileDropStore } from "../data/file-drop.js";
@@ -27,6 +28,7 @@ import { PlaybackEngine } from "./playback/engine.js";
 import { CommandExecutor } from "./commands/executor.js";
 import { RoastService } from "./community/roast.js";
 import { MemoryService } from "./community/memory.js";
+import { KgService } from "./community/kg.js";
 import { VoiceSession } from "./voice/session.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
 import { LlmRuntime } from "./llm/runtime.js";
@@ -85,6 +87,7 @@ export class BotInstance extends EventEmitter {
   private commands: CommandExecutor;
   private roast: RoastService;
   private memory: MemoryService;
+  private kg: KgService;
   private knowledge: KnowledgeService;
   private llm: LlmRuntime;
   private idlePoller: IdlePoller;
@@ -113,6 +116,7 @@ export class BotInstance extends EventEmitter {
 
     const roastStore = new RoastStore(this.database.db);
     const memoryStore = new MemoryStore(this.database.db);
+    const kgStore = new KgStore(this.database.db);
     const ytLibrary = createYtLibrary({
       db: this.database.db,
       localProvider: this.localProvider,
@@ -151,10 +155,18 @@ export class BotInstance extends EventEmitter {
 
     this.mempalace = this.createMemPalaceClient();
 
+    this.kg = new KgService({
+      store: kgStore,
+      config: this.config,
+      mempalace: this.mempalace,
+      logger: this.logger,
+    });
+
     this.llm = new LlmRuntime({
       config: this.config,
       logger: this.logger,
       memoryStore,
+      getKg: () => this.kg,
       getMemPalace: () => this.mempalace,
       getRetrieval: () => this.knowledge.getRetrieval(),
       getRightsEngine: () => this.rights.getEngine(),
@@ -264,6 +276,7 @@ export class BotInstance extends EventEmitter {
       playback: this.playback,
       roast: this.roast,
       memory: this.memory,
+      kg: this.kg,
       knowledge: this.knowledge,
     });
 
@@ -400,7 +413,16 @@ export class BotInstance extends EventEmitter {
     if (url !== undefined) this.config.mempalaceUrl = url;
     this.mempalace = this.createMemPalaceClient();
     this.memory.setMemPalace(this.mempalace, enabled, url);
+    this.kg.setMemPalace(this.mempalace);
     this.llm.refreshRetrieveHook();
+  }
+
+  updateKg(enabled: boolean): void {
+    this.llm.updateKg(enabled);
+  }
+
+  async syncKgToMemPalace(): Promise<{ synced: number; failed: number; skipped: boolean }> {
+    return this.kg.syncToMemPalace();
   }
 
   async syncMemoryToMemPalace(): Promise<{ synced: number; failed: number; skipped: boolean }> {

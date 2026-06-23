@@ -47,6 +47,7 @@ export function createBotRouter(
       ragEnabled: config.ragEnabled ?? false,
       ragTopK: config.ragTopK ?? 4,
       memoryEnabled: config.memoryEnabled ?? false,
+      kgEnabled: config.kgEnabled ?? false,
       mempalaceEnabled: config.mempalaceEnabled ?? false,
       mempalaceUrl: config.mempalaceUrl ?? "",
       fileDropEnabled: config.fileDropEnabled ?? false,
@@ -75,6 +76,7 @@ export function createBotRouter(
       roast: false,
       rag: false,
       memory: false,
+      kg: false,
       mempalace: false,
       fileDrop: false,
       stream: false,
@@ -248,6 +250,14 @@ export function createBotRouter(
       config.memoryEnabled = body.memoryEnabled;
       touched.memory = true;
     }
+    if ("kgEnabled" in body) {
+      if (typeof body.kgEnabled !== "boolean") {
+        res.status(400).json({ error: "kgEnabled must be a boolean", code: "VALIDATION_ERROR" });
+        return;
+      }
+      config.kgEnabled = body.kgEnabled;
+      touched.kg = true;
+    }
     if ("mempalaceEnabled" in body) {
       if (typeof body.mempalaceEnabled !== "boolean") {
         res.status(400).json({ error: "mempalaceEnabled must be a boolean", code: "VALIDATION_ERROR" });
@@ -384,6 +394,7 @@ export function createBotRouter(
       if (touched.rag) bot.updateRag(config.ragEnabled ?? false, config.ragTopK);
       if (touched.fileDrop) bot.updateFileDrop(config.fileDropEnabled ?? false, config.fileDropPollSec);
       if (touched.memory) bot.updateMemory(config.memoryEnabled ?? false);
+      if (touched.kg) bot.updateKg(config.kgEnabled ?? false);
       if (touched.mempalace) {
         bot.updateMemPalace(config.mempalaceEnabled ?? false, config.mempalaceUrl);
       }
@@ -442,8 +453,9 @@ export function createBotRouter(
       return;
     }
     try {
-      const result = await bot.syncMemoryToMemPalace();
-      res.json({ ok: true, ...result });
+      const userMemory = await bot.syncMemoryToMemPalace();
+      const kg = await bot.syncKgToMemPalace();
+      res.json({ ok: true, userMemory, kg });
     } catch (err: unknown) {
       res.status(502).json({ error: errorMessage(err, "memory sync failed"), code: "MEMORY_ERROR" });
     }
