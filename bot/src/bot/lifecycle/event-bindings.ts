@@ -5,11 +5,13 @@ import type { KnowledgeService } from "../knowledge/service.js";
 import type { IdlePoller } from "./idle-poller.js";
 import type { TextMessageHandler } from "../control/text-handler.js";
 import type { VoiceSession } from "../voice/session.js";
+import type { RadioDirector } from "../../radio/index.js";
 
 export interface PlayerEventBindings {
   player: AudioPlayer;
   tsClient: TS3Client;
   voice: VoiceSession;
+  radio: RadioDirector;
   logger: Logger;
   playNext: () => Promise<boolean>;
 }
@@ -20,11 +22,15 @@ export function bindPlayerEvents(deps: PlayerEventBindings): void {
   });
 
   deps.player.on("trackEnd", () => {
+    // Voice keeps precedence: if it resumed its saved music, we're done. Otherwise
+    // the radio director decides — inject a bumper or advance the queue. While
+    // radio is disabled onTrackBoundary() just calls playNext(), byte-identical
+    // to the previous bare-playNext path (docs/radio.md §5.1).
     void deps.voice.handleTrackEnd(() => deps.playNext()).then((resumed) => {
       if (resumed) return;
       deps.logger.debug("Track ended, advancing queue");
-      deps.playNext().catch((err) => {
-        deps.logger.error({ err }, "playNext failed after trackEnd");
+      deps.radio.onTrackBoundary().catch((err) => {
+        deps.logger.error({ err }, "radio.onTrackBoundary failed after trackEnd");
       });
     });
   });

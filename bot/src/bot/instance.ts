@@ -31,6 +31,15 @@ import { MemoryService } from "./community/memory.js";
 import { KgService } from "./community/kg.js";
 import { VoiceSession } from "./voice/session.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
+import { KokoroTtsClient, type TtsProvider } from "../voice/index.js";
+import {
+  RadioDirector,
+  RadioBumperFactory,
+  SpeechSink,
+  PrerecordedPool,
+  BumperCache,
+} from "../radio/index.js";
+import { dirname, isAbsolute, join } from "node:path";
 import { LlmRuntime } from "./llm/runtime.js";
 import type { WorkflowKind } from "../docs/workflow.js";
 import { KnowledgeService } from "./knowledge/service.js";
@@ -91,6 +100,7 @@ export class BotInstance extends EventEmitter {
   private knowledge: KnowledgeService;
   private llm: LlmRuntime;
   private idlePoller: IdlePoller;
+  private radio: RadioDirector;
   private text: TextMessageHandler;
   private rights: RightsRuntime;
   private routed: RoutedCommandExecutor;
@@ -219,6 +229,52 @@ export class BotInstance extends EventEmitter {
       logger: this.logger,
     });
 
+    // === Radio / autonomous DJ (docs/radio.md R-R1) ===
+    // Always constructed so hot-reloading radio.enabled needs no re-init; the
+    // director short-circuits to playNext() while disabled (byte-identical).
+    // Bumpers live under the data dir (dirname of the sqlite file) — NOT under
+    // MUSIC_DIR, so prerecorded assets are never indexed as songs.
+    const dataDir = dirname(this.database.db.name);
+    const radioBumperDir = this.config.radio.bumperDir
+      ? isAbsolute(this.config.radio.bumperDir)
+        ? this.config.radio.bumperDir
+        : join(dataDir, this.config.radio.bumperDir)
+      : join(dataDir, "bumpers");
+    const radioTtsVoice = this.config.radio.ttsVoice ?? this.config.voice.ttsVoice;
+    const radioTts: TtsProvider = this.config.voice.ttsUrl
+      ? new KokoroTtsClient({ url: this.config.voice.ttsUrl, voice: radioTtsVoice, logger: this.logger })
+      : { synthesize: () => Promise.reject(new Error("TTS not configured")) };
+    const bumperCache = new BumperCache({
+      db: this.database.db,
+      cacheDir: join(dataDir, "bumper-cache"),
+      logger: this.logger,
+    });
+    const speechSink = new SpeechSink({
+      tts: radioTts,
+      cache: bumperCache,
+      logger: this.logger,
+      voice: radioTtsVoice,
+      player: this.player,
+    });
+    const bumperFactory = new RadioBumperFactory({
+      getConfig: () => this.config.radio,
+      prerecorded: new PrerecordedPool({ dir: radioBumperDir, logger: this.logger }),
+      speech: speechSink,
+      getNowPlaying: () => {
+        const cur = this.queue.current();
+        return cur ? { previous: { name: cur.name, artist: cur.artist } } : {};
+      },
+      stationName: this.name,
+      logger: this.logger,
+    });
+    this.radio = new RadioDirector({
+      getConfig: () => this.config.radio,
+      player: this.player,
+      bumperFactory,
+      playNext: () => this.playNext(),
+      logger: this.logger,
+    });
+
     this.idlePoller = new IdlePoller({
       config: this.config,
       logger: this.logger,
@@ -227,6 +283,7 @@ export class BotInstance extends EventEmitter {
       onDisconnect: () => this.disconnect(),
       onPoll: (clients, userCount) => {
         this.voice.refreshClientCache(clients);
+        this.radio.onPoll(clients, userCount);
         if (this.config.roastEnabled) {
           this.roast.runTick(userCount).catch(() => {});
         }
@@ -294,6 +351,7 @@ export class BotInstance extends EventEmitter {
       player: this.player,
       tsClient: this.tsClient,
       voice: this.voice,
+      radio: this.radio,
       logger: this.logger,
       playNext: () => this.playNext(),
     });
@@ -334,6 +392,7 @@ export class BotInstance extends EventEmitter {
     this.knowledge.stopFileDropWatcher();
     this.player.stop();
     this.voice.cleanup();
+    this.radio.dispose();
     this.connected = false;
     if (!this.disconnectEmitted) {
       this.disconnectEmitted = true;
