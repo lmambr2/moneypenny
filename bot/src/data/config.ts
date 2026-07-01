@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { RightsConfig } from "../rights/index.js";
 import { type VoiceConfig, defaultVoiceConfig } from "../voice/index.js";
+import { type RadioConfig, defaultRadioConfig } from "../radio/index.js";
 
 export interface BotConfig {
   webPort: number;
@@ -78,6 +79,10 @@ export interface BotConfig {
   // Inbound voice loop (VAD/STT → router → TTS). Disabled by default; requires
   // the sherpa-onnx / Kokoro sidecars and is unvalidated against real hardware.
   voice: VoiceConfig;
+  // === Radio / autonomous DJ (docs/radio.md) ===
+  // Program director over the single-stream player: bumpers every N songs / on
+  // dead air. Off by default — enabled=false is byte-identical to today.
+  radio: RadioConfig;
   // === Stream bridge (Phase 3, DESIGN §7.3) ===
   // Base URL of an external Spotify/Tidal stream bridge (librespot/ncspot).
   // Empty → only direct http(s)/Icecast stream URLs are playable.
@@ -154,6 +159,7 @@ export function getDefaultConfig(): BotConfig {
     roastMinScore: 4,
     rightsEnabled: true,
     voice: defaultVoiceConfig(),
+    radio: defaultRadioConfig(),
     streamBridgeUrl: "",
     youtubeSaveEnabled: false,
     // Endpoint/model default empty → the clients use their built-in defaults
