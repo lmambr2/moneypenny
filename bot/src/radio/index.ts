@@ -14,3 +14,11 @@ export {
   type BumperFactory,
   type BuiltBumper,
 } from "./director.js";
+export { BumperCache, type BumperCacheOptions, type BumperCacheEntry } from "./bumper-cache.js";
+export { SpeechSink, type SpeechSinkDeps } from "./speech.js";
+export { PrerecordedPool, type PrerecordedPoolDeps } from "./prerecorded.js";
+export {
+  RadioBumperFactory,
+  type RadioBumperFactoryDeps,
+  type NowPlayingInfo,
+} from "./bumper-factory.js";
