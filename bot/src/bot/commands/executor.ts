@@ -3,7 +3,7 @@ import type { TS3Client } from "../../ts-protocol/client.js";
 import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
-import type { MusicProvider } from "../../music/provider.js";
+import type { MusicProvider, Song } from "../../music/provider.js";
 import type { ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
 import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
@@ -34,8 +34,16 @@ export interface CommandExecutorDeps {
 
 const AUDIO_COMMANDS = new Set([
   "play", "add", "playnext", "pn", "next", "skip", "prev",
-  "playlist", "album", "artist", "test",
+  "playlist", "album", "artist", "test", "chevron7",
 ]);
+
+/**
+ * Easter egg: `!chevron7` ("chevron seven locked") dials the Stargate SG-1 theme.
+ * Fixed YouTube source — but the PlaybackEngine caches the MP3 into the local
+ * library on first play (YtLibrary), so subsequent invocations serve the local
+ * file and the URL only needs to be reachable once.
+ */
+const SG1_THEME_URL = "https://www.youtube.com/watch?v=aafGXNWHGaw";
 
 /**
  * Deterministic `!command` implementations. Delegates playback to PlaybackEngine.
@@ -52,6 +60,7 @@ export class CommandExecutor {
     }
     switch (cmd.name) {
       case "play": return this.cmdPlay(cmd);
+      case "chevron7": return this.cmdChevron7();
       case "add": return this.cmdAdd(cmd);
       case "playnext":
       case "pn": return this.cmdPlayNext(cmd);
@@ -86,16 +95,47 @@ export class CommandExecutor {
 
   private async cmdPlay(cmd: ParsedCommand): Promise<string> {
     if (!cmd.args) return "Usage: !play <song name or URL>";
+    const r = await this.replaceQueueWithFirstHit(cmd);
+    if (r.ok) return `Now playing: ${r.song.name} - ${r.song.artist}`;
+    return r.reason === "noresults"
+      ? `No results found for: ${cmd.args}`
+      : `Cannot play: ${r.song.name}`;
+  }
+
+  /**
+   * Resolve a single query/URL, replace the queue with that one hit, and start
+   * it. Shared by `!play` and the `!chevron7` easter egg so the play sequence
+   * lives in one place.
+   */
+  private async replaceQueueWithFirstHit(
+    cmd: ParsedCommand,
+  ): Promise<
+    | { ok: true; song: Song }
+    | { ok: false; reason: "noresults" }
+    | { ok: false; reason: "cantplay"; song: Song }
+  > {
     const hit = await this.deps.playback.searchFirst(cmd, 1);
-    if (!hit) return `No results found for: ${cmd.args}`;
+    if (!hit) return { ok: false, reason: "noresults" };
     const { provider, song } = hit;
     this.deps.queue.clear();
     this.deps.queue.add({ ...song, platform: provider.platform });
     this.deps.queue.play();
     this.deps.player.resetFailures();
     const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
-    if (!ok) return `Cannot play: ${song.name}`;
-    return `Now playing: ${song.name} - ${song.artist}`;
+    if (!ok) return { ok: false, reason: "cantplay", song };
+    return { ok: true, song };
+  }
+
+  private async cmdChevron7(): Promise<string> {
+    const cmd: ParsedCommand = {
+      name: "play",
+      args: SG1_THEME_URL,
+      rawArgs: [SG1_THEME_URL],
+      flags: new Set<string>(),
+    };
+    const r = await this.replaceQueueWithFirstHit(cmd);
+    if (r.ok) return "Chevron seven... locked! 🌌 Dialing the SG-1 theme.";
+    return "Chevron seven won't engage — could not dial the SG-1 theme.";
   }
 
   private async cmdAdd(cmd: ParsedCommand): Promise<string> {

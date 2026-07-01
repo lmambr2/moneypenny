@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseCommand } from "./commands.js";
+import { parseCommand, isKnownCommand } from "./commands.js";
 
 describe("Command Parser", () => {
   it("parses simple command", () => {
@@ -58,5 +58,12 @@ describe("Command Parser", () => {
     const result = parseCommand("!remove 3", "!");
     expect(result!.name).toBe("remove");
     expect(result!.args).toBe("3");
+  });
+
+  it("recognizes the chevron7 easter egg as a known command", () => {
+    // Must route deterministically (not fall through to LLM fuzzy intent).
+    const result = parseCommand("!chevron7", "!");
+    expect(result!.name).toBe("chevron7");
+    expect(isKnownCommand("chevron7")).toBe(true);
   });
 });

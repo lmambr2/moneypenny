@@ -12,6 +12,7 @@ export const PUBLIC_COMMANDS = new Set([
   "roast", "roastout",
   "remember", "recall", "forget",
   "kg", "diary",
+  "chevron7", // easter egg: dials the SG-1 theme
 ]);
 
 export const ADMIN_COMMANDS = new Set([
