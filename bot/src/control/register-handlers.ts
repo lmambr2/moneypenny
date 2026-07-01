@@ -48,6 +48,8 @@ const DELEGATED_COMMANDS = [
   "follow",
   "prev",
   "artist",
+  "chevron7",
+  "radio",
 ] as const;
 
 /** Community / knowledge-base commands — not in executeCommand's switch. */

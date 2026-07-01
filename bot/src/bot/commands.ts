@@ -13,11 +13,14 @@ export const PUBLIC_COMMANDS = new Set([
   "remember", "recall", "forget",
   "kg", "diary",
   "chevron7", // easter egg: dials the SG-1 theme
+  "radio", // radio/DJ mode — status is public; on/off gated by radio.power (below)
 ]);
 
 export const ADMIN_COMMANDS = new Set([
   "stop", "clear", "move", "moveclient", "moveall", "vol", "mode", "follow", "remove",
   "reindex", "ingeststatus",
+  // Token (not a typed command): `!radio on/off` is gated on this in the router.
+  "radio.power",
 ]);
 
 /**

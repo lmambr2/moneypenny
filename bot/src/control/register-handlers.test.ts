@@ -64,4 +64,24 @@ describe("registerBotCommandHandlers", () => {
       msg,
     );
   });
+
+  // Regression: a command in PUBLIC/ADMIN_COMMANDS with an executor switch case
+  // but no registered handler routes to "Unknown command". Both of these must
+  // reach executeCommand.
+  it.each(["chevron7", "radio"])("delegates %s to executeCommand", async (name) => {
+    const decision = await router.route(`!${name}`, {
+      bot: { isConnected: () => true } as any,
+      logger: fakeLogger(),
+    });
+    const out = await router.execute(decision, {
+      bot: { isConnected: () => true } as any,
+      logger: fakeLogger(),
+      message: {} as TS3TextMessage,
+    });
+    expect(out).toBe("ok");
+    expect(executeCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ name }) as ParsedCommand,
+      expect.anything(),
+    );
+  });
 });

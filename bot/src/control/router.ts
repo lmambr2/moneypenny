@@ -145,7 +145,7 @@ const RESOLVABLE_MUSIC_COMMANDS = new Set(['play', 'add', 'playnext', 'pn', 'pla
 /** Commands that push audio and therefore require an active TS connection. */
 const AUDIO_COMMANDS = new Set([
   "play", "add", "playnext", "pn", "next", "skip", "prev",
-  "playlist", "album", "artist", "test",
+  "playlist", "album", "artist", "test", "chevron7",
 ]);
 
 /** Strip STT punctuation so "Pause." / "Skip?" still match deterministic commands. */
@@ -336,6 +336,16 @@ export class ControlRouter {
     if (context.canRun && !context.canRun(cmd.name)) {
       this.logger.debug({ command: cmd.name }, "Command denied by rights");
       return `You don't have permission to use '${cmd.name}'.`;
+    }
+
+    // `!radio` is public (status), but toggling power (on/off) needs the admin
+    // `radio.power` token (docs/radio.md §12). Granular radio.* tokens + the @dj
+    // group arrive in R-R3; R-R1 splits just status vs power.
+    if (cmd.name === "radio") {
+      const sub = (cmd.rawArgs[0] ?? "").toLowerCase();
+      if ((sub === "on" || sub === "off") && context.canRun && !context.canRun("radio.power")) {
+        return "You don't have permission to toggle radio mode (needs 'radio.power').";
+      }
     }
 
     // Centralized audio command guard (owned by the router)

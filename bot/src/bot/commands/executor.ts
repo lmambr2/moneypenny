@@ -4,6 +4,7 @@ import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
+import type { RadioConfig } from "../../radio/index.js";
 import type { ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
 import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
@@ -61,6 +62,7 @@ export class CommandExecutor {
     switch (cmd.name) {
       case "play": return this.cmdPlay(cmd);
       case "chevron7": return this.cmdChevron7();
+      case "radio": return this.cmdRadio(cmd);
       case "add": return this.cmdAdd(cmd);
       case "playnext":
       case "pn": return this.cmdPlayNext(cmd);
@@ -136,6 +138,37 @@ export class CommandExecutor {
     const r = await this.replaceQueueWithFirstHit(cmd);
     if (r.ok) return "Chevron seven... locked! 🌌 Dialing the SG-1 theme.";
     return "Chevron seven won't engage — could not dial the SG-1 theme.";
+  }
+
+  /**
+   * `!radio [on|off|status]` — the R-R1 control surface (docs/radio.md §12).
+   * on/off is a runtime toggle (the director reads config live); the persistent
+   * default lives in Settings. The admin gate on on/off is enforced upstream in
+   * the router via the `radio.power` token.
+   */
+  private async cmdRadio(cmd: ParsedCommand): Promise<string> {
+    const radio = this.deps.config.radio;
+    const p = this.deps.config.commandPrefix;
+    const sub = (cmd.rawArgs[0] ?? "status").toLowerCase();
+    switch (sub) {
+      case "on":
+        radio.enabled = true;
+        return `📻 Radio mode ON. ${this.radioSummary(radio)} (runtime toggle — set a persistent default in Settings.)`;
+      case "off":
+        radio.enabled = false;
+        return "📻 Radio mode OFF.";
+      case "status":
+        return radio.enabled
+          ? `📻 Radio mode ON. ${this.radioSummary(radio)}`
+          : `📻 Radio mode OFF. Use ${p}radio on to start.`;
+      default:
+        return `Usage: ${p}radio [on|off|status]`;
+    }
+  }
+
+  private radioSummary(radio: RadioConfig): string {
+    const cadence = radio.everyNSongs > 0 ? `Bumpers every ${radio.everyNSongs} songs` : "Clock-only";
+    return `${cadence}; profile '${radio.activeProfile}'; sources: ${radio.sources.join(", ")}.`;
   }
 
   private async cmdAdd(cmd: ParsedCommand): Promise<string> {
@@ -456,6 +489,7 @@ export class CommandExecutor {
       `${p}queue · ${p}now · ${p}clear · ${p}remove <n> · ${p}vol <0-100> · ${p}mode <seq|loop|random|rloop>`,
       `${p}playlist <name|id> · ${p}album <id> · ${p}artist <name> · ${p}lyrics · ${p}vote`,
       `${p}test — Demo track (local copy if saved, else ${DEFAULT_DEMO_VIDEO_URL})`,
+      `${p}radio [on|off|status] — Autonomous DJ: bumpers between tracks (on/off = admin)`,
       "",
       "AI & knowledge (needs LLM / RAG enabled in Settings)",
       `${p}ask <question> — Fast AI; doctrine + your memory when enabled`,

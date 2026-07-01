@@ -502,3 +502,31 @@ describe("ControlRouter — rank gating", () => {
     expect(llm.ask).not.toHaveBeenCalled();
   });
 });
+
+describe("ControlRouter — radio.power gating", () => {
+  it("denies !radio on without the radio.power token", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "toggled");
+    router.registerHandler({ name: "radio", execute: handler });
+    const d = await router.route("!radio on", makeContext(fakeBot()), "!");
+    const out = await router.execute(d, {
+      ...makeContext(fakeBot()),
+      canRun: (c: string) => c !== "radio.power",
+    });
+    expect(out).toMatch(/permission/i);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("allows !radio status without radio.power (status is public)", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "status ok");
+    router.registerHandler({ name: "radio", execute: handler });
+    const d = await router.route("!radio", makeContext(fakeBot()), "!");
+    const out = await router.execute(d, {
+      ...makeContext(fakeBot()),
+      canRun: (c: string) => c !== "radio.power",
+    });
+    expect(out).toBe("status ok");
+    expect(handler).toHaveBeenCalled();
+  });
+});
