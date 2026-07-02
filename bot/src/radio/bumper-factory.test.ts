@@ -9,6 +9,7 @@ function harness(opts: {
   prerecordedPick?: string | null;
   render?: (text: string) => Promise<string | null>;
   nowPlaying?: NowPlayingInfo;
+  getBumperAsset?: () => Promise<string | null>;
 }) {
   const cfg: RadioConfig = {
     ...defaultRadioConfig(),
@@ -23,6 +24,7 @@ function harness(opts: {
     prerecorded,
     speech,
     getNowPlaying: () => opts.nowPlaying ?? {},
+    getBumperAsset: opts.getBumperAsset,
     stationName: "Moneypenny Radio",
     logger,
     now: () => new Date(2026, 5, 30, 14, 5).getTime(),
@@ -36,6 +38,25 @@ describe("RadioBumperFactory", () => {
     const b = await factory.build({ slot: "bumper", sources: ["prerecorded", "stationId"] });
     expect(b).toEqual({ path: "/bumpers/id.mp3", label: "prerecorded" });
     expect(renderFn).not.toHaveBeenCalled();
+  });
+
+  it("prefers a bumper-flagged library asset over the dir pool (§9.2)", async () => {
+    const { factory, prerecorded } = harness({
+      prerecordedPick: "/bumpers/dir.mp3",
+      getBumperAsset: async () => "/music/flagged-jingle.mp3",
+    });
+    const b = await factory.build({ slot: "bumper", sources: ["prerecorded"] });
+    expect(b).toEqual({ path: "/music/flagged-jingle.mp3", label: "prerecorded" });
+    expect(prerecorded.pick).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the dir pool when no flagged asset resolves", async () => {
+    const { factory } = harness({
+      prerecordedPick: "/bumpers/dir.mp3",
+      getBumperAsset: async () => null,
+    });
+    const b = await factory.build({ slot: "bumper", sources: ["prerecorded"] });
+    expect(b).toEqual({ path: "/bumpers/dir.mp3", label: "prerecorded" });
   });
 
   it("falls through to the next source when prerecorded is empty", async () => {

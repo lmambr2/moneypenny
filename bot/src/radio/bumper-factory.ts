@@ -30,6 +30,10 @@ export interface RadioBumperFactoryDeps {
   speech: SpeechSink;
   /** Snapshot of what just played / what's next, for the nowPlaying source. */
   getNowPlaying: () => NowPlayingInfo;
+  /** Resolve a bumper-flagged library asset to a playable path (§9.2), or null.
+   *  Tried before the prerecorded dir pool. Optional — absent falls back to the
+   *  R-R1 dir scan. */
+  getBumperAsset?: () => Promise<string | null>;
   /** Short station identifier spoken by stationId (e.g. the bot/station name). */
   stationName: string;
   logger: Logger;
@@ -55,7 +59,9 @@ export class RadioBumperFactory implements BumperFactory {
     try {
       switch (source) {
         case "prerecorded": {
-          const path = this.deps.prerecorded.pick();
+          // Bumper-flagged library assets (§9.2) first, then the R-R1 dir pool.
+          const flagged = this.deps.getBumperAsset ? await this.deps.getBumperAsset() : null;
+          const path = flagged ?? this.deps.prerecorded.pick();
           return path ? { path, label: "prerecorded" } : null;
         }
         case "stationId":

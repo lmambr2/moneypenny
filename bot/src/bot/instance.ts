@@ -38,6 +38,7 @@ import {
   SpeechSink,
   PrerecordedPool,
   BumperCache,
+  TagStore,
 } from "../radio/index.js";
 import { dirname, isAbsolute, join } from "node:path";
 import { LlmRuntime } from "./llm/runtime.js";
@@ -256,6 +257,7 @@ export class BotInstance extends EventEmitter {
       voice: radioTtsVoice,
       player: this.player,
     });
+    const radioTagStore = new TagStore({ db: this.database.db });
     const bumperFactory = new RadioBumperFactory({
       getConfig: () => this.config.radio,
       prerecorded: new PrerecordedPool({ dir: radioBumperDir, logger: this.logger }),
@@ -263,6 +265,15 @@ export class BotInstance extends EventEmitter {
       getNowPlaying: () => {
         const cur = this.queue.current();
         return cur ? { previous: { name: cur.name, artist: cur.artist } } : {};
+      },
+      // Bumper-flagged library assets for the active profile (§9.2); trackKey is
+      // LocalProvider's opaque id, so getSongUrl resolves it (search hides these,
+      // getSongUrl doesn't). Falls back to the prerecorded dir pool.
+      getBumperAsset: async () => {
+        const keys = radioTagStore.bumperKeys(this.config.radio.activeProfile);
+        if (keys.length === 0) return null;
+        const key = keys[Math.floor(Math.random() * keys.length)];
+        return this.localProvider.getSongUrl(key);
       },
       stationName: this.name,
       logger: this.logger,
