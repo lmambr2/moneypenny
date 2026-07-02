@@ -91,7 +91,76 @@ export class TagStore {
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_track_tags_bumper ON track_tags(bumper);
+
+      CREATE TABLE IF NOT EXISTS track_ratings (
+        track_key TEXT NOT NULL,
+        rater TEXT NOT NULL,
+        stars INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (track_key, rater)
+      );
     `);
+  }
+
+  // --- ratings (§9.7): per-rater rows + a smoothed aggregate on track_tags ---
+
+  /** Set a rater's 1–5 stars for a track (upsert) and refresh the aggregate.
+   *  `rater` is namespaced (`ts:<uid>` | `web:<userId>`). */
+  rate(trackKey: string, rater: string, stars: number): void {
+    const s = Math.round(stars);
+    if (s < 1 || s > 5) throw new Error("rating must be 1..5"); // trust boundary
+    const now = this.nowFn();
+    this.db
+      .prepare(
+        `INSERT INTO track_ratings (track_key, rater, stars, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(track_key, rater) DO UPDATE SET stars = excluded.stars, updated_at = excluded.updated_at`,
+      )
+      .run(trackKey, rater, s, now);
+    this.recomputeRating(trackKey, now);
+  }
+
+  /** Remove a rater's rating. Returns whether a rating existed. */
+  unrate(trackKey: string, rater: string): boolean {
+    const info = this.db.prepare(`DELETE FROM track_ratings WHERE track_key = ? AND rater = ?`).run(trackKey, rater);
+    this.recomputeRating(trackKey, this.nowFn());
+    return info.changes > 0;
+  }
+
+  /** Raw average + count for a track (what the UI shows). */
+  getRating(trackKey: string): { avg: number; count: number } {
+    const row = this.selectRow(trackKey);
+    return { avg: row?.rating_avg ?? 0, count: row?.rating_count ?? 0 };
+  }
+
+  /** IMDB-style Bayesian mean (§9.7): (C*m + Σstars) / (C + n), so a lone 5-star
+   *  doesn't outrank a well-rated track. Thresholds (select_tracks ratingMin)
+   *  use this, not the raw average. */
+  smoothedScore(trackKey: string): number {
+    const { avg, count } = this.getRating(trackKey);
+    const m = this.globalMean();
+    if (count === 0) return m;
+    const C = 5;
+    return (C * m + avg * count) / (C + count);
+  }
+
+  private globalMean(): number {
+    const r = this.db.prepare(`SELECT AVG(stars) avg FROM track_ratings`).get() as { avg: number | null };
+    return r.avg ?? 3; // ponytail: mid-scale prior when nothing's rated yet
+  }
+
+  private recomputeRating(trackKey: string, now: number): void {
+    const r = this.db
+      .prepare(`SELECT COUNT(*) n, AVG(stars) avg FROM track_ratings WHERE track_key = ?`)
+      .get(trackKey) as { n: number; avg: number | null };
+    if (this.selectRow(trackKey)) {
+      this.db
+        .prepare(`UPDATE track_tags SET rating_avg = ?, rating_count = ?, updated_at = ? WHERE track_key = ?`)
+        .run(r.avg, r.n, now, trackKey);
+    } else if (r.n > 0) {
+      this.db
+        .prepare(`INSERT INTO track_tags (track_key, rating_avg, rating_count, updated_at) VALUES (?, ?, ?, ?)`)
+        .run(trackKey, r.avg, r.n, now);
+    }
   }
 
   get(trackKey: string): TrackTags | null {

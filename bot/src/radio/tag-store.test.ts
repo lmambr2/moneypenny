@@ -50,4 +50,41 @@ describe("TagStore", () => {
       expect(store.get("k")).toMatchObject({ bumper: true, bpm: 100, source: "analyzer" });
     });
   });
+
+  describe("ratings (§9.7)", () => {
+    it("aggregates per-rater stars, one row per rater (upsert)", () => {
+      store.rate("t", "ts:alice", 4);
+      store.rate("t", "ts:bob", 2);
+      expect(store.getRating("t")).toEqual({ avg: 3, count: 2 });
+      store.rate("t", "ts:alice", 5); // re-rate, not a new row
+      expect(store.getRating("t")).toEqual({ avg: 3.5, count: 2 });
+    });
+
+    it("unrate removes a rating and updates the aggregate", () => {
+      store.rate("t", "ts:alice", 5);
+      store.rate("t", "ts:bob", 3);
+      expect(store.unrate("t", "ts:alice")).toBe(true);
+      expect(store.getRating("t")).toEqual({ avg: 3, count: 1 });
+      expect(store.unrate("t", "ts:nobody")).toBe(false);
+    });
+
+    it("rejects out-of-range stars (trust boundary)", () => {
+      expect(() => store.rate("t", "ts:a", 0)).toThrow();
+      expect(() => store.rate("t", "ts:a", 6)).toThrow();
+    });
+
+    it("Bayesian smoothing: a well-rated track outranks a lone 5-star", () => {
+      for (let i = 0; i < 10; i++) store.rate("hits", `ts:${i}`, 5);
+      store.rate("one", "ts:x", 5);
+      for (let i = 0; i < 5; i++) store.rate("low", `ts:l${i}`, 1);
+      expect(store.smoothedScore("hits")).toBeGreaterThan(store.smoothedScore("one"));
+      expect(store.smoothedScore("one")).toBeLessThan(5); // damped toward the mean
+    });
+
+    it("unrated tracks score at the global mean", () => {
+      store.rate("a", "ts:x", 4);
+      store.rate("b", "ts:y", 2);
+      expect(store.smoothedScore("never-rated")).toBe(3); // (4+2)/2
+    });
+  });
 });
