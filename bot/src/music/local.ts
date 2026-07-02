@@ -464,6 +464,13 @@ export class LocalProvider implements MusicProvider {
     return this.musicDir;
   }
 
+  /** Server-side track list for the radio analyzer (path + stable overlay key).
+   *  Exposes absolutePath, but only in-process (never crosses the API). */
+  async listForAnalysis(): Promise<{ absPath: string; trackKey: string }[]> {
+    await this.ensureIndexed();
+    return this.songs.map((s) => ({ absPath: s.absolutePath, trackKey: s.id }));
+  }
+
   /**
    * Find a track saved from YouTube (filename contains `[videoId]`).
    * Used by !test and YouTube playback to prefer a local copy over streaming.

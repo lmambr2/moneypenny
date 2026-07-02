@@ -6,7 +6,7 @@ import { createDatabase } from "./data/database.js";
 import { createLogger } from "./logger.js";
 import { YouTubeProvider } from "./music/youtube.js";
 import { LocalProvider } from "./music/local.js";
-import { TagStore } from "./radio/index.js";
+import { TagStore, RadioAnalyzer } from "./radio/index.js";
 import { StreamProvider } from "./music/stream.js";
 import { Watchdog } from "./watchdog.js";
 import { createAvatarStore } from "./data/avatars.js";
@@ -89,6 +89,22 @@ async function main() {
     bridgeUrl: config.streamBridgeUrl || process.env.STREAM_BRIDGE_URL || "",
     logger,
   });
+
+  // Radio analyzer (docs/radio.md §9.5, OQ2). Off by default; when enabled, tag
+  // the library's key/BPM in the background at startup — never blocks boot, and
+  // skip-already-analyzed keeps later starts cheap (only new tracks). No-ops if
+  // keyfinder-cli/aubio aren't installed.
+  const radioAnalyzer = new RadioAnalyzer({ tags: tagStore, getConfig: () => config.radio, logger });
+  if (config.radio.analyzer?.enabled) {
+    void (async () => {
+      try {
+        const res = await radioAnalyzer.analyzeAll(await localProvider.listForAnalysis());
+        logger.info(res, "radio analyzer: startup pass complete");
+      } catch (err) {
+        logger.warn({ err }, "radio analyzer: startup pass failed");
+      }
+    })();
+  }
 
   // Retrieval / RAG substrate (ROADMAP Phase 5). Off unless ragEnabled. Endpoint
   // + model are config-driven so the same code serves the RK3588 (EmbeddingGemma
