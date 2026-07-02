@@ -15,6 +15,14 @@ export {
   type BuiltBumper,
 } from "./director.js";
 export { TagStore, type TrackTags, type TagSource } from "./tag-store.js";
+export {
+  RadioAnalyzer,
+  parseKey,
+  parseBpm,
+  type RadioAnalyzerDeps,
+  type AnalyzeTrack,
+  type CommandRunner,
+} from "./analyzer.js";
 export { BumperCache, type BumperCacheOptions, type BumperCacheEntry } from "./bumper-cache.js";
 export { SpeechSink, type SpeechSinkDeps } from "./speech.js";
 export { PrerecordedPool, type PrerecordedPoolDeps } from "./prerecorded.js";
