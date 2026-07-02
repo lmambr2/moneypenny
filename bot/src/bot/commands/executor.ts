@@ -4,7 +4,7 @@ import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
-import type { RadioConfig } from "../../radio/index.js";
+import type { RadioConfig, TagStore } from "../../radio/index.js";
 import type { ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
 import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
@@ -31,6 +31,8 @@ export interface CommandExecutorDeps {
   isConnected: () => boolean;
   playNext: (maxRetries?: number) => Promise<boolean>;
   getProvider: (flags: Set<string>, query?: string) => MusicProvider;
+  /** Radio tag overlay, for !rate/!unrate (§9.7). Optional — ratings are inert if absent. */
+  tagStore?: TagStore;
 }
 
 const AUDIO_COMMANDS = new Set([
@@ -63,6 +65,8 @@ export class CommandExecutor {
       case "play": return this.cmdPlay(cmd);
       case "chevron7": return this.cmdChevron7();
       case "radio": return this.cmdRadio(cmd);
+      case "rate": return this.cmdRate(cmd, msg);
+      case "unrate": return this.cmdUnrate(msg);
       case "add": return this.cmdAdd(cmd);
       case "playnext":
       case "pn": return this.cmdPlayNext(cmd);
@@ -169,6 +173,41 @@ export class CommandExecutor {
   private radioSummary(radio: RadioConfig): string {
     const cadence = radio.everyNSongs > 0 ? `Bumpers every ${radio.everyNSongs} songs` : "Clock-only";
     return `${cadence}; profile '${radio.activeProfile}'; sources: ${radio.sources.join(", ")}.`;
+  }
+
+  /** `!rate <1-5> [song]` — rate the now-playing track (or a searched one) as
+   *  this TS user (§9.7). Per-rater, aggregated; one rating per rater (upsert). */
+  private async cmdRate(cmd: ParsedCommand, msg?: TS3TextMessage): Promise<string> {
+    if (!this.deps.tagStore) return "Ratings are not available.";
+    const p = this.deps.config.commandPrefix;
+    const stars = Number.parseInt(cmd.rawArgs[0] ?? "", 10);
+    if (!(stars >= 1 && stars <= 5)) return `Usage: ${p}rate <1-5> [song]`;
+    const rater = `ts:${msg?.invokerUid ?? "unknown"}`;
+
+    let target: { id: string; name: string } | null;
+    const query = cmd.rawArgs.slice(1).join(" ");
+    if (query) {
+      const hit = await this.deps.playback.searchFirst(
+        { name: "play", args: query, rawArgs: cmd.rawArgs.slice(1), flags: cmd.flags },
+        1,
+      );
+      target = hit?.song ?? null;
+      if (!target) return `No results for: ${query}`;
+    } else {
+      target = this.deps.queue.current();
+      if (!target) return "Nothing is playing to rate.";
+    }
+    this.deps.tagStore.rate(target.id, rater, stars);
+    return `⭐ Rated "${target.name}" ${stars}/5.`;
+  }
+
+  /** `!unrate` — remove your rating for the now-playing track. */
+  private cmdUnrate(msg?: TS3TextMessage): string {
+    if (!this.deps.tagStore) return "Ratings are not available.";
+    const cur = this.deps.queue.current();
+    if (!cur) return "Nothing is playing to unrate.";
+    const removed = this.deps.tagStore.unrate(cur.id, `ts:${msg?.invokerUid ?? "unknown"}`);
+    return removed ? `Removed your rating for "${cur.name}".` : `You hadn't rated "${cur.name}".`;
   }
 
   private async cmdAdd(cmd: ParsedCommand): Promise<string> {
@@ -490,6 +529,7 @@ export class CommandExecutor {
       `${p}playlist <name|id> · ${p}album <id> · ${p}artist <name> · ${p}lyrics · ${p}vote`,
       `${p}test — Demo track (local copy if saved, else ${DEFAULT_DEMO_VIDEO_URL})`,
       `${p}radio [on|off|status] — Autonomous DJ: bumpers between tracks (on/off = admin)`,
+      `${p}rate <1-5> [song] · ${p}unrate — Rate the current (or a searched) track`,
       "",
       "AI & knowledge (needs LLM / RAG enabled in Settings)",
       `${p}ask <question> — Fast AI; doctrine + your memory when enabled`,

@@ -128,6 +128,7 @@ export class BotInstance extends EventEmitter {
     const roastStore = new RoastStore(this.database.db);
     const memoryStore = new MemoryStore(this.database.db);
     const kgStore = new KgStore(this.database.db);
+    const radioTagStore = new TagStore({ db: this.database.db });
     const ytLibrary = createYtLibrary({
       db: this.database.db,
       localProvider: this.localProvider,
@@ -213,6 +214,7 @@ export class BotInstance extends EventEmitter {
       isConnected: () => this.connected,
       playNext: (n) => this.playNext(n),
       getProvider: (flags, q) => this.playback.pickProvider(flags, q),
+      tagStore: radioTagStore,
     });
 
     this.roast = new RoastService({
@@ -257,7 +259,6 @@ export class BotInstance extends EventEmitter {
       voice: radioTtsVoice,
       player: this.player,
     });
-    const radioTagStore = new TagStore({ db: this.database.db });
     const bumperFactory = new RadioBumperFactory({
       getConfig: () => this.config.radio,
       prerecorded: new PrerecordedPool({ dir: radioBumperDir, logger: this.logger }),

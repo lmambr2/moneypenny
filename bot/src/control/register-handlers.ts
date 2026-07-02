@@ -50,6 +50,8 @@ const DELEGATED_COMMANDS = [
   "artist",
   "chevron7",
   "radio",
+  "rate",
+  "unrate",
 ] as const;
 
 /** Community / knowledge-base commands — not in executeCommand's switch. */

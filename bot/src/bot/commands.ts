@@ -14,6 +14,7 @@ export const PUBLIC_COMMANDS = new Set([
   "kg", "diary",
   "chevron7", // easter egg: dials the SG-1 theme
   "radio", // radio/DJ mode — status is public; on/off gated by radio.power (below)
+  "rate", "unrate", // star ratings (§9.7) — broadly granted
 ]);
 
 export const ADMIN_COMMANDS = new Set([
