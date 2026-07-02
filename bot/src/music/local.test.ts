@@ -199,3 +199,34 @@ describe("LocalProvider - uploadSong + refresh (web UI)", () => {
     expect(song.platform).toBe("local");
   });
 });
+
+describe("LocalProvider - bumper exclusion from search (§9.2)", () => {
+  let tmpDir: string;
+  const excluded = new Set<string>();
+
+  beforeEach(async () => {
+    excluded.clear();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "moneypenny-exclude-test-"));
+    await fs.writeFile(path.join(tmpDir, "song.mp3"), "fake-mp3");
+    await fs.writeFile(path.join(tmpDir, "jingle.mp3"), "fake-mp3");
+  });
+  afterEach(async () => {
+    try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it("hides excluded ids from search but still resolves them directly", async () => {
+    const provider = new LocalProvider({ musicDir: tmpDir, excludedIds: () => excluded });
+    const all = await provider.search("");
+    expect(all.songs.length).toBe(2);
+
+    const victim = all.songs[0];
+    excluded.add(victim.id); // flag it as a bumper
+
+    const after = await provider.search("");
+    expect(after.songs.length).toBe(1);
+    expect(after.songs.map((s) => s.id)).not.toContain(victim.id);
+
+    // Direct resolve still works — the prerecorded source plays flagged assets by id.
+    expect(await provider.getSongUrl(victim.id)).toBeTruthy();
+  });
+});

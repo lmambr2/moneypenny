@@ -6,6 +6,7 @@ import { createDatabase } from "./data/database.js";
 import { createLogger } from "./logger.js";
 import { YouTubeProvider } from "./music/youtube.js";
 import { LocalProvider } from "./music/local.js";
+import { TagStore } from "./radio/index.js";
 import { StreamProvider } from "./music/stream.js";
 import { Watchdog } from "./watchdog.js";
 import { createAvatarStore } from "./data/avatars.js";
@@ -78,7 +79,11 @@ async function main() {
   const avatarStore = createAvatarStore(AVATAR_DIR);
 
   const musicDir = process.env.MUSIC_DIR || "/music";
-  const localProvider = new LocalProvider({ musicDir });
+  const tagStore = new TagStore({ db: db.db });
+  const localProvider = new LocalProvider({
+    musicDir,
+    excludedIds: () => tagStore.bumperKeySet(), // hide bumper-flagged assets from music search (§9.2)
+  });
   const youtubeProvider = new YouTubeProvider();
   const streamProvider = new StreamProvider({
     bridgeUrl: config.streamBridgeUrl || process.env.STREAM_BRIDGE_URL || "",

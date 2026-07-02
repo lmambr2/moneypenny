@@ -19,6 +19,10 @@ export interface LocalProviderOptions {
   musicDir: string;
   /** File extensions to index (case-insensitive) */
   extensions?: string[];
+  /** Ids to hide from music discovery (search/albums) — bumper-flagged assets
+   *  so they never surface as songs (docs/radio.md §9.2). Resolved lazily so a
+   *  live TagStore can back it. */
+  excludedIds?: () => Set<string>;
 }
 
 interface IndexedSong extends Song {
@@ -38,12 +42,24 @@ export class LocalProvider implements MusicProvider {
   private playlistIdToPath = new Map<string, string>();
 
   private readonly supportedExtensions: Set<string>;
+  private readonly excludedIds?: () => Set<string>;
 
   constructor(options: LocalProviderOptions) {
     this.musicDir = path.resolve(options.musicDir);
+    this.excludedIds = options.excludedIds;
     this.supportedExtensions = new Set(
       (options.extensions ?? [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"]).map(e => e.toLowerCase())
     );
+  }
+
+  /** Songs visible to music discovery — excludes bumper-flagged assets (§9.2)
+   *  so they never surface as songs. ponytail: hides from search/albums only; a
+   *  direct id/path resolve still plays them (that's how the prerecorded bumper
+   *  source fetches them). */
+  private visibleSongs(): IndexedSong[] {
+    const excluded = this.excludedIds?.();
+    if (!excluded || excluded.size === 0) return this.songs;
+    return this.songs.filter(s => !excluded.has(s.id));
   }
 
   /** Stable, opaque public ID for a path — never expose the path itself (F-2). */
@@ -190,9 +206,9 @@ export class LocalProvider implements MusicProvider {
     if (!q) {
       // Empty query: return a sample of the library (for home/library views).
       // Order is walk order (fs readdir); uploads appear after refresh.
-      matches = this.songs;
+      matches = this.visibleSongs();
     } else {
-      matches = this.songs.filter(song =>
+      matches = this.visibleSongs().filter(song =>
         song.name.toLowerCase().includes(q) ||
         song.artist.toLowerCase().includes(q) ||
         song.album.toLowerCase().includes(q)
@@ -242,7 +258,7 @@ export class LocalProvider implements MusicProvider {
 
   async getAlbumSongs(albumId: string): Promise<Song[]> {
     await this.ensureIndexed();
-    return this.songs
+    return this.visibleSongs()
       .filter(s => s.album.toLowerCase() === albumId.toLowerCase())
       .map(({ absolutePath, ...song }) => song);
   }
