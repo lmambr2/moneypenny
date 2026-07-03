@@ -8,6 +8,7 @@ export {
   defaultRadioConfig,
 } from "./types.js";
 export { FormatClock, isWithinQuietHours } from "./clock.js";
+export { floorFromMembers, type PresentMember } from "./floor.js";
 export {
   RadioDirector,
   type RadioDirectorDeps,

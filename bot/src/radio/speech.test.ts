@@ -50,6 +50,25 @@ describe("SpeechSink", () => {
     expect(tts.synthesize).not.toHaveBeenCalled();
   });
 
+  it("a higher-clearance floor renders ephemeral and never touches the cache (§6.5)", async () => {
+    const shared = cache();
+    const tts = { synthesize: vi.fn(async () => ({ audio: Buffer.from("classified"), format: "wav" })) };
+    const sink = new SpeechSink({ tts, cache: shared, logger, voice: "af" });
+
+    const p1 = await sink.render("cleared-room brief", "doctrine", { floor: ["unclassified", "secret"] });
+    expect(p1).toBeTruthy();
+    expect(p1).toContain(tmpdir()); // ephemeral, not the cache dir
+
+    // Same text again: still not served from cache — synthesized twice.
+    await sink.render("cleared-room brief", "doctrine", { floor: ["unclassified", "secret"] });
+    expect(tts.synthesize).toHaveBeenCalledTimes(2);
+
+    // And an unclassified render of the same text is a fresh cache entry, not a leak.
+    const p3 = await sink.render("cleared-room brief", "doctrine", { floor: ["unclassified"] });
+    expect(p3).not.toBe(p1);
+    try { rmSync(p1!, { force: true }); } catch { /* ignore */ }
+  });
+
   it("playSpeech renders then plays", async () => {
     const tts = { synthesize: vi.fn(async () => ({ audio: Buffer.from("aa"), format: "wav" })) };
     const player = { play: vi.fn(), resetFailures: vi.fn() };

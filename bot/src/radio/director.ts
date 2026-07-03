@@ -29,8 +29,10 @@ export interface BuiltBumper {
 
 /** The bumper source the director drives (concrete factory lands with R-R2/R-R4). */
 export interface BumperFactory {
-  /** Resolve a bumper for this slot, or null if none is available/ready. */
-  build(slot: WheelSlot): Promise<BuiltBumper | null>;
+  /** Resolve a bumper for this slot, or null if none is available/ready.
+   *  `floor` is the broadcast classification floor (§6.3) — the intersection of
+   *  every present member's clearance; generated sources must retrieve at it. */
+  build(slot: WheelSlot, floor: string[]): Promise<BuiltBumper | null>;
 }
 
 export interface RadioDirectorDeps {
@@ -40,6 +42,9 @@ export interface RadioDirectorDeps {
   /** Advance the queue; resolves false when the queue is dry (drives dead air). */
   playNext: () => Promise<boolean>;
   logger: Logger;
+  /** Resolve the classification floor from the last-polled channel members
+   *  (§6.3). Absent or throwing → the director uses ["unclassified"] (§14). */
+  resolveFloor?: (clients: unknown[]) => string[];
   /** Injectable clock (ms epoch) for cooldown/rate tests. */
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -54,6 +59,7 @@ export class RadioDirector {
   private lastBumperAt = 0;
   private bumperTimes: number[] = [];
   private lastHumanCount = 0;
+  private lastClients: unknown[] = [];
   private deadAirHandle: ReturnType<typeof setTimeout> | null = null;
   private clockCache: { sig: string; clock: FormatClock } | null = null;
 
@@ -103,7 +109,8 @@ export class RadioDirector {
    * Idle-poller backstop (§5.3): refresh presence and, if we're sitting idle
    * with listeners and no dead-air timer armed, arm one.
    */
-  onPoll(_clients: unknown[], humanCount: number): void {
+  onPoll(clients: unknown[], humanCount: number): void {
+    this.lastClients = clients;
     this.lastHumanCount = humanCount;
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
@@ -128,11 +135,26 @@ export class RadioDirector {
     else this.armDeadAir();
   }
 
+  /** Broadcast classification floor (§6.3): config override wins, then the
+   *  injected resolver over present members; any uncertainty → unclassified-only
+   *  (§14). One uncleared listener floors the whole window. */
+  private currentFloor(cfg: RadioConfig): string[] {
+    if (cfg.classificationFloor && cfg.classificationFloor.length > 0) return cfg.classificationFloor;
+    if (!this.deps.resolveFloor) return ["unclassified"];
+    try {
+      const floor = this.deps.resolveFloor(this.lastClients);
+      return floor.length > 0 ? floor : ["unclassified"];
+    } catch (err) {
+      this.deps.logger.warn({ err }, "radio: floor resolution failed — defaulting to unclassified");
+      return ["unclassified"];
+    }
+  }
+
   private async tryBumper(cfg: RadioConfig, slot: WheelSlot): Promise<boolean> {
     if (this.bumperInFlight) return false;
     this.bumperInFlight = true;
     try {
-      const bumper = await this.deps.bumperFactory.build(this.resolveSources(cfg, slot));
+      const bumper = await this.deps.bumperFactory.build(this.resolveSources(cfg, slot), this.currentFloor(cfg));
       if (!bumper) return false; // §14: not ready → caller advances (music first)
       this.recordBumper();
       this.pendingAfterBumper = true;

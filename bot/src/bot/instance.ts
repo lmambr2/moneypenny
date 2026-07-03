@@ -39,6 +39,8 @@ import {
   PrerecordedPool,
   BumperCache,
   TagStore,
+  floorFromMembers,
+  type PresentMember,
 } from "../radio/index.js";
 import { dirname, isAbsolute, join } from "node:path";
 import { LlmRuntime } from "./llm/runtime.js";
@@ -49,6 +51,7 @@ import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
 import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
 import { TextMessageHandler } from "./control/text-handler.js";
 import { RightsRuntime } from "./rights/runtime.js";
+import { allowedClassificationsFor } from "./rights/subject.js";
 import { RoutedCommandExecutor } from "./control/routed-executor.js";
 import { createYtLibrary } from "./factory/yt-library.js";
 
@@ -277,6 +280,8 @@ export class BotInstance extends EventEmitter {
         return this.localProvider.getSongUrl(key);
       },
       stationName: this.name,
+      getRetrieval: () => this.knowledge.getRetrieval() ?? null,
+      getLlm: () => this.llm.getModule() ?? null,
       logger: this.logger,
     });
     this.radio = new RadioDirector({
@@ -284,6 +289,15 @@ export class BotInstance extends EventEmitter {
       player: this.player,
       bumperFactory,
       playNext: () => this.playNext(),
+      // §6.3: broadcast floor = intersection of every present member's clearance
+      // (idle-poller ClientInfo: uid + serverGroups; the bot itself is skipped).
+      resolveFloor: (clients) => {
+        const engine = this.rights.getEngine();
+        if (!engine) return ["unclassified"];
+        return floorFromMembers(clients as PresentMember[], (subject) =>
+          allowedClassificationsFor(subject, engine),
+        );
+      },
       logger: this.logger,
     });
 

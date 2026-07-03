@@ -10,10 +10,15 @@ function harness(opts: {
   render?: (text: string) => Promise<string | null>;
   nowPlaying?: NowPlayingInfo;
   getBumperAsset?: () => Promise<string | null>;
+  retrieval?: { query: ReturnType<typeof vi.fn> } | null;
+  llm?: { complete: ReturnType<typeof vi.fn> } | null;
+  profile?: { topics?: string[]; tone?: string };
 }) {
   const cfg: RadioConfig = {
     ...defaultRadioConfig(),
     sources: opts.sources ?? ["prerecorded", "stationId", "timeCheck", "nowPlaying"],
+    activeProfile: "ops",
+    profiles: { ops: { name: "ops", bumper: opts.profile ?? { topics: ["refinery yields"] } } },
   };
   const prerecorded = { pick: vi.fn(() => opts.prerecordedPick ?? null) } as unknown as PrerecordedPool;
   const renderFn = vi.fn(opts.render ?? (async (t: string) => `/cache/${t.length}.wav`));
@@ -26,6 +31,8 @@ function harness(opts: {
     getNowPlaying: () => opts.nowPlaying ?? {},
     getBumperAsset: opts.getBumperAsset,
     stationName: "Moneypenny Radio",
+    getRetrieval: () => (opts.retrieval === undefined ? null : opts.retrieval) as never,
+    getLlm: () => (opts.llm === undefined ? null : opts.llm) as never,
     logger,
     now: () => new Date(2026, 5, 30, 14, 5).getTime(),
   });
@@ -105,8 +112,67 @@ describe("RadioBumperFactory", () => {
     expect(await factory.build({ slot: "bumper", sources: ["prerecorded", "nowPlaying"] })).toBeNull();
   });
 
-  it("doctrine/memory resolve to null in R-R1", async () => {
-    const { factory } = harness({ sources: ["doctrine", "memory"] });
-    expect(await factory.build({ slot: "bumper", sources: ["doctrine", "memory"] })).toBeNull();
+  it("memory resolves to null (OQ1 dormant)", async () => {
+    const { factory } = harness({ sources: ["memory"] });
+    expect(await factory.build({ slot: "bumper", sources: ["memory"] })).toBeNull();
+  });
+});
+
+describe("doctrine source (§6.1/§6.2/§6.3)", () => {
+  const retrieval = (text: string | null) => ({
+    query: vi.fn(async () => (text ? [{ text, source: "doctrine/x.md" }] : [])),
+  });
+  const llm = (reply: string) => ({ complete: vi.fn(async () => reply) });
+
+  it("floored retrieval → LLM rewrite → render with the floor", async () => {
+    const r = retrieval("Quantanium must be refined within 40 minutes.");
+    const l = llm("Remember: quantanium sours in forty minutes — refine it fast.");
+    const { factory, renderFn } = harness({ sources: ["doctrine"], retrieval: r, llm: l });
+
+    const b = await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]);
+    expect(b?.label).toBe("doctrine");
+    // Floor reaches the retrieval filter BEFORE the model sees text (§6.3).
+    expect(r.query).toHaveBeenCalledWith("refinery yields", 3, ["unclassified"]);
+    expect(renderFn).toHaveBeenCalledWith(expect.stringContaining("quantanium"), "doctrine", {
+      floor: ["unclassified"],
+    });
+  });
+
+  it("caps the script to the word budget", async () => {
+    const long = Array.from({ length: 300 }, (_, i) => `w${i}`).join(" ");
+    const { factory, renderFn } = harness({
+      sources: ["doctrine"],
+      retrieval: retrieval("material"),
+      llm: llm(long),
+    });
+    await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]);
+    const script = (renderFn.mock.calls[0] as unknown[])[0] as string;
+    expect(script.split(/\s+/).length).toBeLessThanOrEqual(75); // 30s * 2.5 wpm-per-s
+  });
+
+  it("LLM/RAG down → falls through to the next source (canned fallback)", async () => {
+    const { factory, renderFn } = harness({
+      sources: ["doctrine", "stationId"],
+      retrieval: null, // RAG off
+      llm: llm("never used"),
+    });
+    const b = await factory.build({ slot: "bumper", sources: ["doctrine", "stationId"] }, ["unclassified"]);
+    expect(b?.label).toBe("stationId"); // music/canned never blocked by a dead substrate
+    expect(renderFn).toHaveBeenCalledWith("This is Moneypenny Radio.", "stationId");
+  });
+
+  it("no retrieved material → null (invent nothing)", async () => {
+    const { factory } = harness({ sources: ["doctrine"], retrieval: retrieval(null), llm: llm("made up") });
+    expect(await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"])).toBeNull();
+  });
+
+  it("no curated topics → null (nothing to talk about)", async () => {
+    const { factory } = harness({
+      sources: ["doctrine"],
+      retrieval: retrieval("x"),
+      llm: llm("y"),
+      profile: { topics: [] },
+    });
+    expect(await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"])).toBeNull();
   });
 });

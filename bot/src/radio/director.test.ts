@@ -142,6 +142,54 @@ describe("RadioDirector", () => {
     });
   });
 
+  describe("classification floor (§6.3)", () => {
+    function floorHarness(over: Partial<RadioConfig> = {}, resolveFloor?: (c: unknown[]) => string[]) {
+      const hh = harness({ clock: { wheel: [{ slot: "bumper" }] }, minPresentToBroadcast: 1, ...over });
+      const director = new RadioDirector({
+        getConfig: () => ({ ...defaultRadioConfig(), enabled: true, clock: { wheel: [{ slot: "bumper" }] }, minPresentToBroadcast: 1, ...over }),
+        player: hh.player,
+        bumperFactory: hh.bumperFactory,
+        playNext: hh.playNext,
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never,
+        resolveFloor,
+        now: () => 1_000_000_000,
+      });
+      return { director, build: hh.bumperFactory.build };
+    }
+
+    it("passes the resolved floor (from polled members) to the factory", async () => {
+      const resolve = vi.fn(() => ["unclassified", "restricted"]);
+      const { director, build } = floorHarness({}, resolve);
+      const clients = [{ uid: "a" }, { uid: "b" }];
+      director.onPoll(clients, 2);
+      await director.onTrackBoundary();
+      expect(resolve).toHaveBeenCalledWith(clients);
+      expect(build).toHaveBeenCalledWith(expect.anything(), ["unclassified", "restricted"]);
+    });
+
+    it("defaults to unclassified with no resolver or a throwing one (§14)", async () => {
+      const { director, build } = floorHarness();
+      director.onPoll([], 1);
+      await director.onTrackBoundary();
+      expect(build).toHaveBeenCalledWith(expect.anything(), ["unclassified"]);
+
+      const { director: d2, build: b2 } = floorHarness({}, () => { throw new Error("ts down"); });
+      d2.onPoll([], 1);
+      await d2.onTrackBoundary();
+      expect(b2).toHaveBeenCalledWith(expect.anything(), ["unclassified"]);
+    });
+
+    it("config classificationFloor override wins over the resolver", async () => {
+      const { director, build } = floorHarness(
+        { classificationFloor: ["unclassified"] },
+        () => ["unclassified", "secret"],
+      );
+      director.onPoll([], 1);
+      await director.onTrackBoundary();
+      expect(build).toHaveBeenCalledWith(expect.anything(), ["unclassified"]);
+    });
+  });
+
   describe("dead air", () => {
     it("arms a fill timer when the queue runs dry and fills with a bumper", async () => {
       h = harness({ everyNSongs: 4, minPresentToBroadcast: 1 });

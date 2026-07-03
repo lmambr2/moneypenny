@@ -24,6 +24,16 @@ export interface NowPlayingInfo {
   next?: { name: string; artist?: string };
 }
 
+/** Narrow retrieval seam (RetrievalStore.query) — floored server-side (§6.3). */
+export interface BumperRetrieval {
+  query(text: string, topK?: number, allowedClassifications?: string[]): Promise<{ text: string; source: string }[]>;
+}
+
+/** Narrow LLM seam (LlmModule.complete) — plain completion, tool_choice "none". */
+export interface BumperLlm {
+  complete(prompt: string, system?: string): Promise<string>;
+}
+
 export interface RadioBumperFactoryDeps {
   getConfig: () => RadioConfig;
   prerecorded: PrerecordedPool;
@@ -36,26 +46,33 @@ export interface RadioBumperFactoryDeps {
   getBumperAsset?: () => Promise<string | null>;
   /** Short station identifier spoken by stationId (e.g. the bot/station name). */
   stationName: string;
+  /** RAG substrate for the doctrine source (R-R4). Getters because both are
+   *  hot-swappable at runtime; null → the source falls through (§14). */
+  getRetrieval?: () => BumperRetrieval | null;
+  getLlm?: () => BumperLlm | null;
   logger: Logger;
   now?: () => number;
 }
 
+/** ~150 spoken wpm (§6.2): seconds → word budget. */
+const wordCap = (seconds: number): number => Math.max(20, Math.round(seconds * 2.5));
+
 export class RadioBumperFactory implements BumperFactory {
   constructor(private deps: RadioBumperFactoryDeps) {}
 
-  async build(slot: WheelSlot): Promise<BuiltBumper | null> {
+  async build(slot: WheelSlot, floor: string[] = ["unclassified"]): Promise<BuiltBumper | null> {
     const cfg = this.deps.getConfig();
     const enabled = new Set(cfg.sources);
     const wanted = slot.sources && slot.sources.length > 0 ? slot.sources : cfg.sources;
     for (const src of wanted) {
       if (!enabled.has(src)) continue; // a slot can't use a globally-disabled source
-      const built = await this.buildOne(src);
+      const built = await this.buildOne(src, floor);
       if (built) return built;
     }
     return null;
   }
 
-  private async buildOne(source: BumperSource): Promise<BuiltBumper | null> {
+  private async buildOne(source: BumperSource, floor: string[]): Promise<BuiltBumper | null> {
     try {
       switch (source) {
         case "prerecorded": {
@@ -73,8 +90,9 @@ export class RadioBumperFactory implements BumperFactory {
           return text ? this.speak(text, "nowPlaying") : null;
         }
         case "doctrine":
+          return this.doctrineBumper(floor);
         case "memory":
-          return null; // R-R4
+          return null; // OQ1: org MemPalace namespace — dormant until curated + opted in
         default:
           return null;
       }
@@ -82,6 +100,40 @@ export class RadioBumperFactory implements BumperFactory {
       this.deps.logger.warn({ err, source }, "radio: bumper source failed");
       return null;
     }
+  }
+
+  /** Doctrine → spoken bumper (§6.1/§6.2): floored retrieval → LLM rewrite
+   *  (tool_choice "none" via LlmModule.complete) → capped script → TTS. Any
+   *  missing piece returns null and the caller falls through (§14). */
+  private async doctrineBumper(floor: string[]): Promise<BuiltBumper | null> {
+    const retrieval = this.deps.getRetrieval?.() ?? null;
+    const llm = this.deps.getLlm?.() ?? null;
+    if (!retrieval || !llm) return null;
+
+    const cfg = this.deps.getConfig();
+    const profile = cfg.profiles[cfg.activeProfile];
+    const topics = profile?.bumper?.topics ?? [];
+    if (topics.length === 0) return null; // nothing curated to talk about
+    const topic = topics[Math.floor(Math.random() * topics.length)];
+
+    // Floor applied to the retrieval filter BEFORE text reaches the model (§6.3).
+    const chunks = await retrieval.query(topic, 3, floor);
+    const material = chunks[0]?.text?.trim();
+    if (!material) return null;
+
+    const cap = wordCap(cfg.maxBumperSeconds);
+    const tone = profile?.bumper?.tone ? ` Tone: ${profile.bumper.tone}.` : "";
+    const script = (
+      await llm.complete(
+        `Rewrite the following as a spoken radio bumper: under ${cap} words, one breath, plain speech, no markdown, no lists. Invent nothing — only rephrase what is given.${tone}\n\n${material}`,
+        "You are a radio announcer. Reply with only the spoken line itself.",
+      )
+    ).trim();
+    if (!script) return null;
+
+    const capped = script.split(/\s+/).slice(0, cap).join(" ");
+    const path = await this.deps.speech.render(capped, "doctrine", { floor });
+    return path ? { path, label: "doctrine" } : null;
   }
 
   private async speak(text: string, label: string): Promise<BuiltBumper | null> {
