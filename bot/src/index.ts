@@ -216,6 +216,7 @@ async function main() {
     config,
     configPath: CONFIG_PATH,
     logger,
+    tagStore,
     staticDir: STATIC_DIR,
     retrieval,
     doctrine,

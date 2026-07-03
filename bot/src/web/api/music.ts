@@ -8,6 +8,7 @@ import { createRateLimit } from "../middleware/rateLimit.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 import { errorCode, errorMessage } from "../../util/error.js";
 import { multerArray, uploadedFiles } from "./upload.js";
+import type { TagStore, TrackTags } from "../../radio/index.js";
 
 const MAX_SEARCH_LIMIT = 50;
 
@@ -21,7 +22,8 @@ export function createMusicRouter(
   localProvider: MusicProvider,
   youtubeProvider: MusicProvider,
   streamProvider: MusicProvider,
-  logger: Logger
+  logger: Logger,
+  tagStore?: TagStore
 ): Router {
   const router = Router();
 
@@ -281,6 +283,68 @@ export function createMusicRouter(
       res.status(500).json({ error: errorMessage(err, "Refresh failed"), code: "INTERNAL_ERROR" });
     }
   });
+
+  // ─── Radio tag overlay (docs/radio.md §9.3) ───────────────────────────────
+  // Admin-gated like the rest of the mutating music API. ponytail: @dj web
+  // gating needs the rights engine wired into this router (it isn't) — admin
+  // covers the common case; @dj-via-web is a follow-up.
+  if (tagStore) {
+    // Selection-tag fields an editor may set; strings trimmed, numbers coerced.
+    const STRING_TAGS = ["genre", "subgenre", "mood", "musicalKey", "keyScale"] as const;
+    const NUMBER_TAGS = ["bpm", "energy", "danceability"] as const;
+
+    router.patch("/tracks/:id/tags", requireAdmin, (req, res) => {
+      const id = String(req.params.id);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const tags: Partial<TrackTags> = {};
+      for (const f of STRING_TAGS) {
+        if (typeof body[f] === "string") (tags as Record<string, unknown>)[f] = (body[f] as string).trim();
+      }
+      for (const f of NUMBER_TAGS) {
+        if (body[f] != null && Number.isFinite(Number(body[f]))) (tags as Record<string, unknown>)[f] = Number(body[f]);
+      }
+      try {
+        if (Object.keys(tags).length > 0) tagStore.upsert(id, tags, "manual");
+        // Bumper flag is orthogonal (§9.2) — set only when the field is present.
+        if (typeof body.bumper === "boolean") {
+          tagStore.setBumper(id, {
+            bumper: body.bumper,
+            bumperKind: typeof body.bumperKind === "string" ? body.bumperKind : undefined,
+            opsScope: typeof body.opsScope === "string" ? body.opsScope : undefined,
+          });
+        }
+        res.json({ success: true, tags: tagStore.get(id) });
+      } catch (err) {
+        logger.error({ err, id }, "tag edit failed");
+        res.status(500).json({ error: errorMessage(err, "Tag edit failed"), code: "INTERNAL_ERROR" });
+      }
+    });
+
+    // Rating: the authenticated web user is the rater (§9.7). Any signed-in user.
+    router.post("/tracks/:id/rating", (req, res) => {
+      if (!req.user) {
+        res.status(401).json({ error: "unauthenticated" });
+        return;
+      }
+      const stars = Number((req.body ?? {}).stars);
+      if (!(stars >= 1 && stars <= 5)) {
+        res.status(400).json({ error: "stars must be 1..5", code: "BAD_REQUEST" });
+        return;
+      }
+      tagStore.rate(req.params.id, `web:${req.user.id}`, stars);
+      res.json({ success: true, rating: tagStore.getRating(req.params.id) });
+    });
+
+    // Remove the caller's rating.
+    router.delete("/tracks/:id/rating", (req, res) => {
+      if (!req.user) {
+        res.status(401).json({ error: "unauthenticated" });
+        return;
+      }
+      const removed = tagStore.unrate(req.params.id, `web:${req.user.id}`);
+      res.json({ success: true, removed, rating: tagStore.getRating(req.params.id) });
+    });
+  }
 
   return router;
 }
