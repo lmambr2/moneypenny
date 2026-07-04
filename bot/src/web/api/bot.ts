@@ -84,224 +84,74 @@ export function createBotRouter(
       voice: false,
     };
 
-    if ("idleTimeoutMinutes" in body) {
-      const v = body.idleTimeoutMinutes;
-      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-        res.status(400).json({ error: "idleTimeoutMinutes must be a non-negative number", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.idleTimeoutMinutes = v;
-      touched.idle = true;
-    }
+    // Flat config keys, table-driven: {type, bounds, subsystem to re-apply}.
+    // Bespoke object blocks (adminGroups/rights/voice/radio) follow below.
+    type Touched = keyof typeof touched;
+    const FLAT_SETTINGS: {
+      key: string;
+      type: "boolean" | "string" | "number" | "int";
+      min?: number;
+      max?: number;
+      touch?: Touched;
+      msg?: string;
+    }[] = [
+      { key: "idleTimeoutMinutes", type: "number", min: 0, touch: "idle" },
+      { key: "llmEnabled", type: "boolean", touch: "llm" },
+      { key: "llmUrl", type: "string", touch: "llm" },
+      { key: "llmModel", type: "string", touch: "llm" },
+      { key: "llmFallbackUrl", type: "string", touch: "llm" },
+      { key: "llmFallbackModel", type: "string", touch: "llm" },
+      { key: "llmDelegateUrl", type: "string", touch: "llm" },
+      { key: "llmDelegateModel", type: "string", touch: "llm" },
+      { key: "llmSystemPrompt", type: "string", touch: "llm" },
+      { key: "llmTemperature", type: "number", min: 0, max: 2, touch: "llm", msg: "llmTemperature must be a number between 0 and 2" },
+      { key: "roastEnabled", type: "boolean", touch: "roast" },
+      { key: "roastMinPresent", type: "int", min: 1, touch: "roast" },
+      { key: "roastCooldownMinutes", type: "number", min: 0, touch: "roast" },
+      { key: "roastMinScore", type: "int", min: 0, max: 10, touch: "roast", msg: "roastMinScore must be an integer 0\u201310" },
+      // youtubeSaveEnabled is read live from the shared config — no re-apply.
+      { key: "youtubeSaveEnabled", type: "boolean" },
+      { key: "ragEnabled", type: "boolean", touch: "rag" },
+      { key: "ragTopK", type: "int", min: 1, touch: "rag" },
+      { key: "vectorDbUrl", type: "string" },
+      { key: "embeddingUrl", type: "string" },
+      { key: "embeddingModel", type: "string" },
+      { key: "ragCollection", type: "string" },
+      { key: "memoryEnabled", type: "boolean", touch: "memory" },
+      { key: "kgEnabled", type: "boolean", touch: "kg" },
+      { key: "mempalaceEnabled", type: "boolean", touch: "mempalace" },
+      { key: "mempalaceUrl", type: "string", touch: "mempalace" },
+      { key: "fileDropEnabled", type: "boolean", touch: "fileDrop" },
+      { key: "fileDropPollSec", type: "int", min: 5, touch: "fileDrop" },
+      { key: "rightsEnabled", type: "boolean", touch: "rights" },
+      { key: "streamBridgeUrl", type: "string", touch: "stream" },
+    ];
 
-    if ("llmEnabled" in body) {
-      if (typeof body.llmEnabled !== "boolean") {
-        res.status(400).json({ error: "llmEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.llmEnabled = body.llmEnabled;
-      touched.llm = true;
-    }
-    if ("llmUrl" in body) {
-      if (typeof body.llmUrl !== "string") {
-        res.status(400).json({ error: "llmUrl must be a string" });
-        return;
-      }
-      config.llmUrl = body.llmUrl.trim();
-      touched.llm = true;
-    }
-    if ("llmModel" in body) {
-      if (typeof body.llmModel !== "string") {
-        res.status(400).json({ error: "llmModel must be a string" });
-        return;
-      }
-      config.llmModel = body.llmModel.trim();
-      touched.llm = true;
-    }
-    if ("llmFallbackUrl" in body) {
-      if (typeof body.llmFallbackUrl !== "string") {
-        res.status(400).json({ error: "llmFallbackUrl must be a string", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.llmFallbackUrl = body.llmFallbackUrl.trim();
-      touched.llm = true;
-    }
-    if ("llmFallbackModel" in body) {
-      if (typeof body.llmFallbackModel !== "string") {
-        res.status(400).json({ error: "llmFallbackModel must be a string", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.llmFallbackModel = body.llmFallbackModel.trim();
-      touched.llm = true;
-    }
-    if ("llmDelegateUrl" in body) {
-      if (typeof body.llmDelegateUrl !== "string") {
-        res.status(400).json({ error: "llmDelegateUrl must be a string", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.llmDelegateUrl = body.llmDelegateUrl.trim();
-      touched.llm = true;
-    }
-    if ("llmDelegateModel" in body) {
-      if (typeof body.llmDelegateModel !== "string") {
-        res.status(400).json({ error: "llmDelegateModel must be a string", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.llmDelegateModel = body.llmDelegateModel.trim();
-      touched.llm = true;
-    }
-    if ("llmSystemPrompt" in body) {
-      if (typeof body.llmSystemPrompt !== "string") {
-        res.status(400).json({ error: "llmSystemPrompt must be a string" });
-        return;
-      }
-      config.llmSystemPrompt = body.llmSystemPrompt;
-      touched.llm = true;
-    }
-    if ("llmTemperature" in body) {
-      const v = body.llmTemperature;
-      if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 2) {
-        res.status(400).json({ error: "llmTemperature must be a number between 0 and 2", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.llmTemperature = v;
-      touched.llm = true;
-    }
-
-    if ("roastEnabled" in body) {
-      if (typeof body.roastEnabled !== "boolean") {
-        res.status(400).json({ error: "roastEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.roastEnabled = body.roastEnabled;
-      touched.roast = true;
-    }
-    if ("roastMinPresent" in body) {
-      const v = body.roastMinPresent;
-      if (typeof v !== "number" || !Number.isInteger(v) || v < 1) {
-        res.status(400).json({ error: "roastMinPresent must be an integer >= 1", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.roastMinPresent = v;
-      touched.roast = true;
-    }
-    if ("roastCooldownMinutes" in body) {
-      const v = body.roastCooldownMinutes;
-      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-        res.status(400).json({ error: "roastCooldownMinutes must be a non-negative number", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.roastCooldownMinutes = v;
-      touched.roast = true;
-    }
-    if ("roastMinScore" in body) {
-      const v = body.roastMinScore;
-      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 10) {
-        res.status(400).json({ error: "roastMinScore must be an integer 0–10", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.roastMinScore = v;
-      touched.roast = true;
-    }
-    if ("youtubeSaveEnabled" in body) {
-      if (typeof body.youtubeSaveEnabled !== "boolean") {
-        res.status(400).json({ error: "youtubeSaveEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      // Read live from the shared config in resolveAndPlay — no per-bot apply needed.
-      config.youtubeSaveEnabled = body.youtubeSaveEnabled;
-    }
-
-    if ("ragEnabled" in body) {
-      if (typeof body.ragEnabled !== "boolean") {
-        res.status(400).json({ error: "ragEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.ragEnabled = body.ragEnabled;
-      touched.rag = true;
-    }
-    if ("ragTopK" in body) {
-      const v = body.ragTopK;
-      if (typeof v !== "number" || !Number.isInteger(v) || v < 1) {
-        res.status(400).json({ error: "ragTopK must be an integer >= 1", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.ragTopK = v;
-      touched.rag = true;
-    }
-    for (const [key, label] of [
-      ["vectorDbUrl", "vectorDbUrl"],
-      ["embeddingUrl", "embeddingUrl"],
-      ["embeddingModel", "embeddingModel"],
-      ["ragCollection", "ragCollection"],
-    ] as const) {
-      if (key in body) {
-        if (typeof body[key] !== "string") {
-          res.status(400).json({ error: `${label} must be a string`, code: "VALIDATION_ERROR" });
+    const cfg = config as unknown as Record<string, unknown>;
+    for (const spec of FLAT_SETTINGS) {
+      if (!(spec.key in body)) continue;
+      const v = body[spec.key];
+      const fail = (msg: string) => res.status(400).json({ error: msg, code: "VALIDATION_ERROR" });
+      if (spec.type === "boolean") {
+        if (typeof v !== "boolean") { fail(spec.msg ?? `${spec.key} must be a boolean`); return; }
+        cfg[spec.key] = v;
+      } else if (spec.type === "string") {
+        if (typeof v !== "string") { fail(spec.msg ?? `${spec.key} must be a string`); return; }
+        cfg[spec.key] = v.trim();
+      } else {
+        const isInt = spec.type === "int";
+        const ok = typeof v === "number" && Number.isFinite(v) && (!isInt || Number.isInteger(v)) &&
+          (spec.min === undefined || v >= spec.min) && (spec.max === undefined || v <= spec.max);
+        if (!ok) {
+          const bound = spec.min !== undefined && spec.min > 0 ? ` >= ${spec.min}` : "";
+          fail(spec.msg ?? (isInt ? `${spec.key} must be an integer${bound}` : `${spec.key} must be a non-negative number`));
           return;
         }
-        config[key] = body[key].trim();
+        cfg[spec.key] = v;
       }
-    }
-    if ("memoryEnabled" in body) {
-      if (typeof body.memoryEnabled !== "boolean") {
-        res.status(400).json({ error: "memoryEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.memoryEnabled = body.memoryEnabled;
-      touched.memory = true;
-    }
-    if ("kgEnabled" in body) {
-      if (typeof body.kgEnabled !== "boolean") {
-        res.status(400).json({ error: "kgEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.kgEnabled = body.kgEnabled;
-      touched.kg = true;
-    }
-    if ("mempalaceEnabled" in body) {
-      if (typeof body.mempalaceEnabled !== "boolean") {
-        res.status(400).json({ error: "mempalaceEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.mempalaceEnabled = body.mempalaceEnabled;
-      touched.mempalace = true;
-    }
-    if ("mempalaceUrl" in body) {
-      if (typeof body.mempalaceUrl !== "string") {
-        res.status(400).json({ error: "mempalaceUrl must be a string", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.mempalaceUrl = body.mempalaceUrl.trim();
-      touched.mempalace = true;
+      if (spec.touch) touched[spec.touch] = true;
     }
 
-    if ("fileDropEnabled" in body) {
-      if (typeof body.fileDropEnabled !== "boolean") {
-        res.status(400).json({ error: "fileDropEnabled must be a boolean", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.fileDropEnabled = body.fileDropEnabled;
-      touched.fileDrop = true;
-    }
-    if ("fileDropPollSec" in body) {
-      const v = body.fileDropPollSec;
-      if (typeof v !== "number" || !Number.isInteger(v) || v < 5) {
-        res.status(400).json({ error: "fileDropPollSec must be an integer >= 5", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.fileDropPollSec = v;
-      touched.fileDrop = true;
-    }
-
-    if ("rightsEnabled" in body) {
-      if (typeof body.rightsEnabled !== "boolean") {
-        res.status(400).json({ error: "rightsEnabled must be a boolean" });
-        return;
-      }
-      config.rightsEnabled = body.rightsEnabled;
-      touched.rights = true;
-    }
     if ("adminGroups" in body) {
       const v = body.adminGroups;
       if (!Array.isArray(v) || !v.every((n: unknown) => typeof n === "number" && Number.isInteger(n) && n >= 0)) {
@@ -323,15 +173,6 @@ export function createBotRouter(
         config.rights = v;
         touched.rights = true;
       }
-    }
-
-    if ("streamBridgeUrl" in body) {
-      if (typeof body.streamBridgeUrl !== "string") {
-        res.status(400).json({ error: "streamBridgeUrl must be a string", code: "VALIDATION_ERROR" });
-        return;
-      }
-      config.streamBridgeUrl = body.streamBridgeUrl.trim();
-      touched.stream = true;
     }
 
     if ("voice" in body) {
