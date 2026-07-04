@@ -2,7 +2,8 @@
   "defaultAllow": [
     "play", "add", "queue", "list", "now", "lyrics", "vote", "help",
     "playlist", "album", "prev", "next", "skip", "pause", "resume",
-    "artist", "ask", "test", "roast", "roastout", "remember", "recall", "forget", "kg", "diary"
+    "artist", "ask", "test", "roast", "roastout", "remember", "recall", "forget", "kg", "diary",
+    "rate", "unrate", "selecttracks", "radio"
   ],
   "commandGroups": {
     "admin": [

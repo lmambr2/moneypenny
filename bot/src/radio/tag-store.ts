@@ -243,6 +243,45 @@ export class TagStore {
     return new Set(this.bumperKeys());
   }
 
+  /** Tag-driven selection (§9.4): trackKeys matching the filters, bumper-flagged
+   *  assets always excluded. String filters are case-insensitive; `ratingMin`
+   *  thresholds the smoothed Bayesian score (§9.7), not the raw average. */
+  selectTracks(f: {
+    mood?: string[];
+    genreAny?: string[];
+    subgenreAny?: string[];
+    bpmMin?: number;
+    bpmMax?: number;
+    musicalKey?: string;
+    energyMin?: number;
+    energyMax?: number;
+    ratingMin?: number;
+    limit?: number;
+  }): string[] {
+    const where: string[] = ["bumper = 0"];
+    const params: unknown[] = [];
+    const anyOf = (col: string, vals?: string[]) => {
+      if (!vals || vals.length === 0) return;
+      where.push(`LOWER(${col}) IN (${vals.map(() => "?").join(",")})`);
+      params.push(...vals.map((v) => v.toLowerCase()));
+    };
+    anyOf("mood", f.mood);
+    anyOf("genre", f.genreAny);
+    anyOf("subgenre", f.subgenreAny);
+    if (f.bpmMin != null) { where.push("bpm >= ?"); params.push(f.bpmMin); }
+    if (f.bpmMax != null) { where.push("bpm <= ?"); params.push(f.bpmMax); }
+    if (f.musicalKey) { where.push("LOWER(musical_key) = ?"); params.push(f.musicalKey.toLowerCase()); }
+    if (f.energyMin != null) { where.push("energy >= ?"); params.push(f.energyMin); }
+    if (f.energyMax != null) { where.push("energy <= ?"); params.push(f.energyMax); }
+
+    const rows = this.db
+      .prepare(`SELECT track_key FROM track_tags WHERE ${where.join(" AND ")}`)
+      .all(...params) as { track_key: string }[];
+    let keys = rows.map((r) => r.track_key);
+    if (f.ratingMin != null) keys = keys.filter((k) => this.smoothedScore(k) >= f.ratingMin!);
+    return keys.slice(0, Math.max(1, Math.min(f.limit ?? 25, 100)));
+  }
+
   // --- internals ---
 
   private selectRow(trackKey: string): Row | null {

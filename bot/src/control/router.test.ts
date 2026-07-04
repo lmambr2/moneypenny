@@ -55,6 +55,15 @@ describe("toolCallToCommand", () => {
     expect(cmd!.args).toBe("jazz");
   });
 
+  it("maps select_tracks to selecttracks with JSON filter args", () => {
+    const cmd = toolCallToCommand({
+      name: "select_tracks",
+      arguments: { genreAny: ["ambient"], bpmMax: 110 },
+    });
+    expect(cmd!.name).toBe("selecttracks");
+    expect(JSON.parse(cmd!.args)).toEqual({ genreAny: ["ambient"], bpmMax: 110 });
+  });
+
   it("maps set_volume to vol with a rounded integer arg", () => {
     const cmd = toolCallToCommand({ name: "set_volume", arguments: { level: 42.6 } });
     expect(cmd!.name).toBe("vol");

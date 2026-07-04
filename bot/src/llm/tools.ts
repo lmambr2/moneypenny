@@ -40,6 +40,29 @@ export const MUSIC_CONTROL_TOOLS = [
   {
     type: "function",
     function: {
+      name: "select_tracks",
+      description:
+        "Queue LOCAL library tracks by tags: mood, genre, BPM range, musical key, energy, minimum star rating. Use for tag-shaped requests like 'play calm ambient under 110 bpm' or 'queue our four-star favourites'.",
+      parameters: {
+        type: "object",
+        properties: {
+          mood: { type: "array", items: { type: "string" }, description: "Moods to match (any of)." },
+          genreAny: { type: "array", items: { type: "string" }, description: "Genres to match (any of)." },
+          subgenreAny: { type: "array", items: { type: "string" }, description: "Sub-genres to match (any of)." },
+          bpmMin: { type: "number" },
+          bpmMax: { type: "number" },
+          musicalKey: { type: "string", description: "Exact musical key (e.g. 8A, Am)." },
+          energyMin: { type: "number" },
+          energyMax: { type: "number" },
+          ratingMin: { type: "number", description: "Minimum star rating 1-5 (smoothed aggregate)." },
+          limit: { type: "number", description: "Max tracks to queue (default 25)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "skip",
       description: "Skip the current track and play the next one in the queue.",
       parameters: { type: "object", properties: {} },

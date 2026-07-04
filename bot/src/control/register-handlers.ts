@@ -52,6 +52,7 @@ const DELEGATED_COMMANDS = [
   "radio",
   "rate",
   "unrate",
+  "selecttracks",
 ] as const;
 
 /** Community / knowledge-base commands — not in executeCommand's switch. */

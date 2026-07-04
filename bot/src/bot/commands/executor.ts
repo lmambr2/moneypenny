@@ -67,6 +67,7 @@ export class CommandExecutor {
       case "radio": return this.cmdRadio(cmd);
       case "rate": return this.cmdRate(cmd, msg);
       case "unrate": return this.cmdUnrate(msg);
+      case "selecttracks": return this.cmdSelectTracks(cmd);
       case "add": return this.cmdAdd(cmd);
       case "playnext":
       case "pn": return this.cmdPlayNext(cmd);
@@ -199,6 +200,56 @@ export class CommandExecutor {
     }
     this.deps.tagStore.rate(target.id, rater, stars);
     return `⭐ Rated "${target.name}" ${stars}/5.`;
+  }
+
+  /**
+   * `selecttracks <json-filters>` — tag-driven selection (§9.4), normally
+   * reached via the select_tracks LLM tool. Queries the TagStore overlay,
+   * queues the matching LOCAL tracks, and starts playback if idle. Each field
+   * is validated here (the LLM proposes, the executor disposes); unknown keys
+   * are dropped.
+   */
+  private async cmdSelectTracks(cmd: ParsedCommand): Promise<string> {
+    if (!this.deps.tagStore) return "Tag selection is not available.";
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(cmd.args || "{}") as Record<string, unknown>;
+    } catch {
+      return "Usage: selecttracks {\"genreAny\":[\"ambient\"],\"bpmMax\":110}";
+    }
+    const strArr = (v: unknown) =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
+    const num = (v: unknown) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
+    const keys = this.deps.tagStore.selectTracks({
+      mood: strArr(raw.mood),
+      genreAny: strArr(raw.genreAny),
+      subgenreAny: strArr(raw.subgenreAny),
+      bpmMin: num(raw.bpmMin),
+      bpmMax: num(raw.bpmMax),
+      musicalKey: typeof raw.musicalKey === "string" ? raw.musicalKey : undefined,
+      energyMin: num(raw.energyMin),
+      energyMax: num(raw.energyMax),
+      ratingMin: num(raw.ratingMin),
+      limit: num(raw.limit),
+    });
+    if (keys.length === 0) return "No tracks match those tags.";
+
+    const local = this.deps.getProvider(new Set(["l"]));
+    const wasIdle = this.deps.player.getState() === "idle";
+    let queued = 0;
+    for (const key of keys) {
+      const song = await local.getSongDetail(key).catch(() => null);
+      if (!song) continue; // stale overlay row (file removed)
+      this.deps.queue.add({ ...song, platform: "local" });
+      queued++;
+    }
+    if (queued === 0) return "No tracks match those tags.";
+    if (wasIdle) {
+      this.deps.queue.play();
+      this.deps.player.resetFailures();
+      await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
+    }
+    return `Queued ${queued} track${queued === 1 ? "" : "s"} by tags.`;
   }
 
   /** `!unrate` — remove your rating for the now-playing track. */

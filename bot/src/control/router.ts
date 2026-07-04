@@ -603,6 +603,11 @@ export function toolCallToCommand(tc: { name: string; arguments?: Record<string,
       // §9 queue(query) = add to the end of the queue without interrupting.
       return make("add", query);
     }
+    case "select_tracks": {
+      // Filters travel as JSON args to the internal `selecttracks` command
+      // (§9.4) — the executor validates each field; unknown keys are dropped.
+      return make("selecttracks", JSON.stringify(a));
+    }
     case "skip":
       return make("skip");
     case "pause":

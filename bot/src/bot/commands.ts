@@ -15,6 +15,7 @@ export const PUBLIC_COMMANDS = new Set([
   "chevron7", // easter egg: dials the SG-1 theme
   "radio", // radio/DJ mode — status is public; on/off gated by radio.power (below)
   "rate", "unrate", // star ratings (§9.7) — broadly granted
+  "selecttracks", // tag-driven selection (§9.4); mostly reached via the select_tracks LLM tool
 ]);
 
 export const ADMIN_COMMANDS = new Set([

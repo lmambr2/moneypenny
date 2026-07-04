@@ -51,6 +51,30 @@ describe("TagStore", () => {
     });
   });
 
+  describe("selectTracks (§9.4)", () => {
+    it("filters by tags, case-insensitively, and always excludes bumpers", () => {
+      store.upsert("calm1", { mood: "Calm", genre: "Ambient", bpm: 90 }, "analyzer");
+      store.upsert("calm2", { mood: "calm", genre: "synthwave", bpm: 105 }, "analyzer");
+      store.upsert("hype", { mood: "hype", genre: "dnb", bpm: 174 }, "analyzer");
+      store.upsert("jingle", { mood: "calm", genre: "ambient" }, "manual");
+      store.setBumper("jingle", { bumper: true });
+
+      const keys = store.selectTracks({ mood: ["calm"], bpmMax: 110 });
+      expect(keys.sort()).toEqual(["calm1", "calm2"]);
+      expect(store.selectTracks({ genreAny: ["AMBIENT"] })).toEqual(["calm1"]);
+    });
+
+    it("ratingMin thresholds the smoothed score, and limit caps", () => {
+      for (const k of ["a", "b", "c"]) store.upsert(k, { genre: "ambient" }, "analyzer");
+      for (let i = 0; i < 10; i++) store.rate("a", `ts:a${i}`, 5); // strong favourite
+      for (let i = 0; i < 10; i++) store.rate("c", `ts:c${i}`, 1); // strong dud (keeps the global mean moderate)
+      store.rate("b", "ts:x", 5); // lone 5-star — damped toward the ~3.1 mean, below 4
+
+      expect(store.selectTracks({ genreAny: ["ambient"], ratingMin: 4 })).toEqual(["a"]);
+      expect(store.selectTracks({ genreAny: ["ambient"], limit: 2 })).toHaveLength(2);
+    });
+  });
+
   describe("ratings (§9.7)", () => {
     it("aggregates per-rater stars, one row per rater (upsert)", () => {
       store.rate("t", "ts:alice", 4);
