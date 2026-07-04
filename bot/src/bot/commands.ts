@@ -5,25 +5,107 @@ export interface ParsedCommand {
   flags: Set<string>;
 }
 
-export const PUBLIC_COMMANDS = new Set([
-  "play", "add", "queue", "list", "now", "lyrics", "vote", "help",
-  "playlist", "album", "prev", "next", "skip", "pause", "resume",
-  "artist", "ask", "analyst", "agent", "intsum", "aar", "test",
-  "roast", "roastout",
-  "remember", "recall", "forget",
-  "kg", "diary",
-  "chevron7", // easter egg: dials the SG-1 theme
-  "radio", // radio/DJ mode — status is public; on/off gated by radio.power (below)
-  "rate", "unrate", // star ratings (§9.7) — broadly granted
-  "selecttracks", // tag-driven selection (§9.4); mostly reached via the select_tracks LLM tool
-]);
+/** How a command reaches its implementation. */
+export type CommandKind =
+  | "resolved" // register-handlers: LocalProvider.resolve-first music commands
+  | "delegated" // register-handlers: delegates to BotInstance.executeCommand
+  | "special" // register-handlers: service-backed (roast/memory/kg/knowledge)
+  | "router"; // handled inside ControlRouter itself (LLM/workflow intents)
+
+export interface CommandSpec {
+  name: string;
+  kind: CommandKind;
+  /** Legacy admin tier (rights default build + gating). Absent = public. */
+  admin?: boolean;
+  /** Requires a live TeamSpeak connection (router + executor guard). */
+  audio?: boolean;
+}
+
+/**
+ * THE single source of truth for typed commands. Every derived surface —
+ * PUBLIC/ADMIN sets, the audio guard, register-handlers' lists — is generated
+ * from this table, and tests assert the rights template stays aligned. Adding
+ * a command = one entry here + a `case` in CommandExecutor (or a special
+ * runner) — nothing else. (Previously a name lived in up to six hand-kept
+ * lists; `!chevron7` and `!playnext` both broke from exactly that drift.)
+ */
+export const COMMAND_MANIFEST: readonly CommandSpec[] = [
+  // Music — resolve local first, then fall through to executeCommand.
+  { name: "play", kind: "resolved", audio: true },
+  { name: "add", kind: "resolved", audio: true },
+  { name: "playnext", kind: "resolved", audio: true },
+  { name: "pn", kind: "resolved", audio: true },
+  { name: "playlist", kind: "resolved", audio: true },
+  { name: "album", kind: "resolved", audio: true },
+  // Transport + queue (delegated to the executor switch).
+  { name: "skip", kind: "delegated", audio: true },
+  { name: "next", kind: "delegated", audio: true },
+  { name: "prev", kind: "delegated", audio: true },
+  { name: "pause", kind: "delegated" },
+  { name: "resume", kind: "delegated" },
+  { name: "stop", kind: "delegated", admin: true },
+  { name: "clear", kind: "delegated", admin: true },
+  { name: "vol", kind: "delegated", admin: true },
+  { name: "remove", kind: "delegated", admin: true },
+  { name: "mode", kind: "delegated", admin: true },
+  { name: "now", kind: "delegated" },
+  { name: "queue", kind: "delegated" },
+  { name: "list", kind: "delegated" },
+  { name: "artist", kind: "delegated", audio: true },
+  { name: "test", kind: "delegated", audio: true },
+  { name: "lyrics", kind: "delegated" },
+  { name: "vote", kind: "delegated" },
+  { name: "help", kind: "delegated" },
+  { name: "chevron7", kind: "delegated", audio: true }, // easter egg: dials the SG-1 theme
+  // Radio / DJ (docs/radio.md §12; sensitive subcommands carry radio.* tokens).
+  { name: "radio", kind: "delegated" },
+  { name: "rate", kind: "delegated" },
+  { name: "unrate", kind: "delegated" },
+  { name: "selecttracks", kind: "delegated" }, // §9.4; mostly via the select_tracks LLM tool
+  // Channel admin.
+  { name: "move", kind: "delegated", admin: true },
+  { name: "moveclient", kind: "delegated", admin: true },
+  { name: "moveall", kind: "delegated", admin: true },
+  { name: "follow", kind: "delegated", admin: true },
+  // Community / knowledge (service-backed runners in register-handlers).
+  { name: "roast", kind: "special" },
+  { name: "roastout", kind: "special" },
+  { name: "remember", kind: "special" },
+  { name: "recall", kind: "special" },
+  { name: "forget", kind: "special" },
+  { name: "kg", kind: "special" },
+  { name: "diary", kind: "special" },
+  { name: "reindex", kind: "special", admin: true },
+  { name: "ingeststatus", kind: "special", admin: true },
+  // LLM / workflow intents routed inside ControlRouter.
+  { name: "ask", kind: "router" },
+  { name: "analyst", kind: "router" },
+  { name: "agent", kind: "router" },
+  { name: "intsum", kind: "router" },
+  { name: "aar", kind: "router" },
+];
+
+/** Rights tokens that are gated but not typed commands themselves. */
+const ADMIN_TOKENS = ["radio.power"] as const;
+
+export const PUBLIC_COMMANDS = new Set(
+  COMMAND_MANIFEST.filter((c) => !c.admin).map((c) => c.name),
+);
 
 export const ADMIN_COMMANDS = new Set([
-  "stop", "clear", "move", "moveclient", "moveall", "vol", "mode", "follow", "remove",
-  "reindex", "ingeststatus",
-  // Token (not a typed command): `!radio on/off` is gated on this in the router.
-  "radio.power",
+  ...COMMAND_MANIFEST.filter((c) => c.admin).map((c) => c.name),
+  ...ADMIN_TOKENS,
 ]);
+
+/** Commands that require a live TS connection (router + executor guard). */
+export const AUDIO_COMMANDS = new Set(
+  COMMAND_MANIFEST.filter((c) => c.audio).map((c) => c.name),
+);
+
+/** Names of a given kind, for register-handlers' generated lists. */
+export function commandsOfKind(kind: CommandKind): string[] {
+  return COMMAND_MANIFEST.filter((c) => c.kind === kind).map((c) => c.name);
+}
 
 /**
  * Whether a parsed command name is a real, recognized command (public or admin).

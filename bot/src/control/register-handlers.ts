@@ -1,4 +1,4 @@
-import type { ParsedCommand } from "../bot/commands.js";
+import { commandsOfKind, type ParsedCommand } from "../bot/commands.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
 import type { RoastService } from "../bot/community/roast.js";
 import type { MemoryService } from "../bot/community/memory.js";
@@ -18,48 +18,11 @@ export interface CommandHandlerHost {
   knowledge: KnowledgeService;
 }
 
-/** Commands that try LocalProvider.resolve before falling back to executeCommand. */
-const RESOLVED_MUSIC_COMMANDS = ["play", "add", "playnext", "pn", "playlist", "album"] as const;
-
-/**
- * Everything else implemented in BotInstance.executeCommand — delegate so the
- * router never runs duplicate/stub handlers (prev, vote, move, lyrics, etc.).
- */
-const DELEGATED_COMMANDS = [
-  "skip",
-  "next",
-  "pause",
-  "resume",
-  "stop",
-  "clear",
-  "vol",
-  "remove",
-  "mode",
-  "now",
-  "queue",
-  "list",
-  "help",
-  "test",
-  "lyrics",
-  "vote",
-  "move",
-  "moveclient",
-  "moveall",
-  "follow",
-  "prev",
-  "artist",
-  "chevron7",
-  "radio",
-  "rate",
-  "unrate",
-  "selecttracks",
-] as const;
-
-/** Community / knowledge-base commands — not in executeCommand's switch. */
-const SPECIAL_COMMANDS = [
-  "roast", "roastout", "remember", "recall", "forget",
-  "kg", "diary", "reindex", "ingeststatus",
-] as const;
+// All three lists are generated from the single command manifest
+// (bot/src/bot/commands.ts) — adding a command there wires it here for free.
+const RESOLVED_MUSIC_COMMANDS = commandsOfKind("resolved");
+const DELEGATED_COMMANDS = commandsOfKind("delegated");
+const SPECIAL_COMMANDS = commandsOfKind("special");
 
 /**
  * Wire all deterministic command handlers into the ControlRouter.
@@ -90,7 +53,7 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     });
   }
 
-  const specialRunners: Record<(typeof SPECIAL_COMMANDS)[number], (cmd: ParsedCommand, ctx: RouterContext) => Promise<string>> = {
+  const specialRunners: Record<string, (cmd: ParsedCommand, ctx: RouterContext) => Promise<string>> = {
     roast: async () => host.roast.handleCommand(),
     roastout: async (_cmd, ctx) => host.roast.handleOptOut(ctx.invokerUid),
     remember: async (cmd, ctx) => host.memory.handleRemember(cmd.args, ctx.invokerUid),
@@ -103,9 +66,12 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
   };
 
   for (const name of SPECIAL_COMMANDS) {
-    router.registerHandler({
-      name,
-      execute: async (cmd, ctx) => specialRunners[name](cmd, ctx),
-    });
+    const runner = specialRunners[name];
+    if (!runner) {
+      // A manifest "special" entry without a runner is a wiring bug — fail at
+      // startup, not with a silent unknown-command at use time.
+      throw new Error(`No special-command runner registered for '${name}'`);
+    }
+    router.registerHandler({ name, execute: async (cmd, ctx) => runner(cmd, ctx) });
   }
 }

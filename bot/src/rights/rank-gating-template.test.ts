@@ -2,6 +2,14 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isRightsConfig } from "./index.js";
+import { PUBLIC_COMMANDS } from "../bot/commands.js";
+
+/**
+ * Public commands deliberately NOT in the template's defaultAllow — granted
+ * through a command group instead. Anything else missing is drift (the class
+ * of bug that broke !chevron7 and !playnext).
+ */
+const GROUP_GRANTED = new Set(["analyst", "agent", "intsum", "aar"]); // @analyst
 
 /** Starter template must stay aligned with PUBLIC_COMMANDS the bot documents as public. */
 describe("scripts/rights-rank-gating.json", () => {
@@ -14,5 +22,18 @@ describe("scripts/rights-rank-gating.json", () => {
 
   it("allows !test for everyone (demo track smoke command)", () => {
     expect(config.defaultAllow).toContain("test");
+  });
+
+  it("defaultAllow covers every public command (minus group-granted ones)", () => {
+    const allowed = new Set(config.defaultAllow as string[]);
+    const missing = [...PUBLIC_COMMANDS].filter((c) => !allowed.has(c) && !GROUP_GRANTED.has(c));
+    expect(missing).toEqual([]);
+  });
+
+  it("defaultAllow lists no unknown commands (stale entries)", () => {
+    const stale = (config.defaultAllow as string[]).filter(
+      (c) => !PUBLIC_COMMANDS.has(c) && !GROUP_GRANTED.has(c),
+    );
+    expect(stale).toEqual([]);
   });
 });

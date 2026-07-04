@@ -1,4 +1,4 @@
-import { parseCommand, isKnownCommand, type ParsedCommand } from "../bot/commands.js";
+import { parseCommand, isKnownCommand, AUDIO_COMMANDS, type ParsedCommand } from "../bot/commands.js";
 import {
   appendAnalystSaveNotice,
   parseAnalystCommand,
@@ -143,10 +143,7 @@ export interface RouterDecision {
 const RESOLVABLE_MUSIC_COMMANDS = new Set(['play', 'add', 'playnext', 'pn', 'playlist', 'album']);
 
 /** Commands that push audio and therefore require an active TS connection. */
-const AUDIO_COMMANDS = new Set([
-  "play", "add", "playnext", "pn", "next", "skip", "prev",
-  "playlist", "album", "artist", "test", "chevron7",
-]);
+// Audio-gated commands come from the single manifest (bot/commands.ts).
 
 /** Strip STT punctuation so "Pause." / "Skip?" still match deterministic commands. */
 export function normalizeVoiceTranscript(transcript: string): string {

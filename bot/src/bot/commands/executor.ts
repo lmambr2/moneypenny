@@ -5,7 +5,7 @@ import { PlayMode, type PlayQueue, type QueuedSong } from "../../audio/queue.js"
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import type { RadioConfig, RadioProfile, TagStore } from "../../radio/index.js";
-import type { ParsedCommand } from "../commands.js";
+import { AUDIO_COMMANDS, type ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
 import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
 import type { PlaybackEngine } from "../playback/engine.js";
@@ -40,11 +40,6 @@ export interface CommandExecutorDeps {
     skipBumper(): "cue" | "next";
   };
 }
-
-const AUDIO_COMMANDS = new Set([
-  "play", "add", "playnext", "pn", "next", "skip", "prev",
-  "playlist", "album", "artist", "test", "chevron7",
-]);
 
 /** Validate raw select_tracks filters (§9.4) — the LLM proposes, the executor
  *  disposes. Unknown keys are dropped; malformed values become undefined. */
