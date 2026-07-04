@@ -101,20 +101,6 @@ export class FallbackLlmClient {
     }
   }
 
-  async ask(prompt: string, systemPrompt?: string): Promise<string> {
-    this.lastUsedFallback = false;
-    try {
-      return await this.primary.ask(prompt, systemPrompt);
-    } catch (err) {
-      if (!this.fallback || !isRetryableLlmError(err)) throw err;
-      this.logger?.warn(
-        { err: errorMessage(err), fallbackUrl: this.fallback.getBaseUrl() },
-        "Primary LLM failed — retrying on fallback",
-      );
-      this.lastUsedFallback = true;
-      return this.fallback.ask(prompt, systemPrompt);
-    }
-  }
 }
 
 export function createLlmClient(opts: {

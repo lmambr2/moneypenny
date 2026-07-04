@@ -116,18 +116,4 @@ export class LlmClient {
     }
   }
 
-  /**
-   * Convenience: simple text Q&A (no tools).
-   */
-  async ask(prompt: string, systemPrompt?: string): Promise<string> {
-    const messages: ChatMessage[] = [];
-    if (systemPrompt) {
-      messages.push({ role: "system", content: systemPrompt });
-    }
-    messages.push({ role: "user", content: prompt });
-
-    const resp = await this.chat({ messages, tools: undefined, tool_choice: "none" });
-    const content = resp.choices?.[0]?.message?.content?.trim();
-    return content || "(no response)";
-  }
 }
