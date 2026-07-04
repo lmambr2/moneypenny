@@ -66,6 +66,8 @@ export interface BotInstanceOptions {
   config: BotConfig;
   logger: Logger;
   avatarStore: AvatarStore;
+  /** Shared radio tag overlay (one per process); constructed here if absent. */
+  tagStore?: TagStore;
 }
 
 export interface BotStatus {
@@ -131,7 +133,7 @@ export class BotInstance extends EventEmitter {
     const roastStore = new RoastStore(this.database.db);
     const memoryStore = new MemoryStore(this.database.db);
     const kgStore = new KgStore(this.database.db);
-    const radioTagStore = new TagStore({ db: this.database.db });
+    const radioTagStore = options.tagStore ?? new TagStore({ db: this.database.db });
     const ytLibrary = createYtLibrary({
       db: this.database.db,
       localProvider: this.localProvider,

@@ -16,6 +16,7 @@ import type { AvatarStore } from "../data/avatars.js";
 import type { RetrievalStore } from "../rag/index.js";
 import type { DoctrineStore } from "../data/doctrine.js";
 import type { FileDropStore } from "../data/file-drop.js";
+import type { TagStore } from "../radio/index.js";
 
 /**
  * Run bot.connect() with a hard deadline. If the handshake hangs (e.g. the
@@ -84,6 +85,7 @@ export class BotManager extends EventEmitter {
   private fileDropStore?: FileDropStore;
   private tsFilesDir?: string;
   private tsVirtualServerId?: number;
+  private tagStore?: TagStore;
 
   constructor(
     localProvider: MusicProvider,
@@ -97,7 +99,8 @@ export class BotManager extends EventEmitter {
     doctrine?: DoctrineStore,
     fileDropStore?: FileDropStore,
     tsFilesDir?: string,
-    tsVirtualServerId?: number
+    tsVirtualServerId?: number,
+    tagStore?: TagStore
   ) {
     super();
     this.localProvider = localProvider;
@@ -107,6 +110,7 @@ export class BotManager extends EventEmitter {
     this.config = config;
     this.logger = logger;
     this.avatarStore = avatarStore;
+    this.tagStore = tagStore;
     this.retrieval = retrieval;
     this.doctrine = doctrine;
     this.fileDropStore = fileDropStore;
@@ -144,6 +148,7 @@ export class BotManager extends EventEmitter {
         virtualServerId: this.tsVirtualServerId ?? 1,
       },
       localProvider: this.localProvider,
+      tagStore: this.tagStore,
       youtubeProvider: this.youtubeProvider,
       streamProvider: this.streamProvider,
       database: this.database,
@@ -277,6 +282,7 @@ export class BotManager extends EventEmitter {
           virtualServerId: this.tsVirtualServerId ?? 1,
         },
         localProvider: this.localProvider,
+      tagStore: this.tagStore,
         youtubeProvider: this.youtubeProvider,
         streamProvider: this.streamProvider,
         database: this.database,
@@ -328,6 +334,7 @@ export class BotManager extends EventEmitter {
           virtualServerId: this.tsVirtualServerId ?? 1,
         },
         localProvider: this.localProvider,
+      tagStore: this.tagStore,
         youtubeProvider: this.youtubeProvider,
         streamProvider: this.streamProvider,
         database: this.database,

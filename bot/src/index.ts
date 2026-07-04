@@ -167,7 +167,8 @@ async function main() {
     doctrine,
     fileDropStore,
     tsFilesDir,
-    tsVirtualServerId
+    tsVirtualServerId,
+    tagStore
   );
   await botManager.loadSavedBots();
 
