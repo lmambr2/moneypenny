@@ -226,6 +226,24 @@ describe("bot settings router", () => {
     expect(badSource.status).toBe(400);
   });
 
+  it("rejects unknown/misshapen radio keys instead of spreading them (S1)", async () => {
+    const post = (radio: unknown) =>
+      request(app).post("/api/bot/settings").set("Cookie", adminCookie).send({ radio });
+    expect((await post({ evilKey: 1 })).status).toBe(400); // unknown key
+    expect((await post({ profiles: "nope" })).status).toBe(400); // wrong shape
+    expect((await post({ profiles: { mining: [] } })).status).toBe(400); // profile not an object
+    expect((await post({ clock: { wheel: "nope" } })).status).toBe(400); // wheel not an array
+    expect((await post({ classificationFloor: [1] })).status).toBe(400); // non-string floor
+    // Valid shapes still pass and land in config.
+    const ok = await post({
+      profiles: { mining: { name: "mining" } },
+      clock: { wheel: [{ slot: "song" }, { slot: "bumper" }] },
+    });
+    expect(ok.status).toBe(200);
+    expect(config.radio?.profiles?.mining?.name).toBe("mining");
+    expect(config.radio?.clock?.wheel).toHaveLength(2);
+  });
+
   it("persists RAG substrate URLs (restart required to apply)", async () => {
     const res = await request(app)
       .post("/api/bot/settings")

@@ -250,8 +250,53 @@ export function createBotRouter(
           return;
         }
       }
-      if ("activeProfile" in patch && typeof patch.activeProfile !== "string") {
-        res.status(400).json({ error: "radio.activeProfile must be a string", code: "VALIDATION_ERROR" });
+      for (const key of ["activeProfile", "ttsVoice", "bumperDir"] as const) {
+        if (key in patch && typeof patch[key] !== "string") {
+          res.status(400).json({ error: `radio.${key} must be a string`, code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      if ("profiles" in patch) {
+        const p = patch.profiles;
+        const ok = typeof p === "object" && p !== null && !Array.isArray(p) &&
+          Object.values(p).every((prof) => typeof prof === "object" && prof !== null && !Array.isArray(prof));
+        if (!ok) {
+          res.status(400).json({ error: "radio.profiles must be an object of profile objects", code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      if ("clock" in patch) {
+        const c = patch.clock;
+        const ok = typeof c === "object" && c !== null && Array.isArray((c as { wheel?: unknown }).wheel) &&
+          ((c as { wheel: unknown[] }).wheel).every(
+            (s) => s !== null && typeof s === "object" && typeof (s as { slot?: unknown }).slot === "string",
+          );
+        if (!ok) {
+          res.status(400).json({ error: "radio.clock must have a wheel of {slot} entries", code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      if ("classificationFloor" in patch) {
+        const f = patch.classificationFloor;
+        if (!Array.isArray(f) || !f.every((x) => typeof x === "string")) {
+          res.status(400).json({ error: "radio.classificationFloor must be an array of strings", code: "VALIDATION_ERROR" });
+          return;
+        }
+        // §6.3: this overrides the presence-based broadcast floor — loud trail.
+        logger.warn({ floor: f }, "radio.classificationFloor override set via settings");
+      }
+      // S1: only known RadioConfig keys pass — an unexpected key is rejected,
+      // not silently spread into config.
+      const KNOWN_RADIO_KEYS = new Set([
+        "enabled", "everyNSongs", "deadAirSeconds", "maxBumperSeconds",
+        "minPresentToBroadcast", "cooldownSeconds", "maxBumpersPerHour",
+        "quietHours", "sources", "memoryBroadcastOptIn", "classificationFloor",
+        "activeProfile", "profiles", "clock", "ttsVoice", "bumperDir",
+        "analyzer", "ratingWeight", "harmonicSequencing", "icecast",
+      ]);
+      const unknown = Object.keys(patch).filter((k) => !KNOWN_RADIO_KEYS.has(k));
+      if (unknown.length > 0) {
+        res.status(400).json({ error: `unknown radio settings: ${unknown.join(", ")}`, code: "VALIDATION_ERROR" });
         return;
       }
       // The director reads config.radio live at every boundary, so replacing

@@ -78,8 +78,9 @@ export function createWebServer(options: WebServerOptions): WebServer {
     next();
   });
 
-  // Doctrine editor PUTs can be up to 15 MiB (see MAX_DOCTRINE_FILE_BYTES).
-  app.use(express.json({ limit: "20mb" }));
+  // S2: JSON body limits are scoped, and the big parsers sit BEHIND the auth
+  // gates (below) so unauthenticated requests never buffer large bodies. The
+  // pre-auth surface (login/setup) gets the body-parser default (100kb).
   app.use(cookieParser());
 
   const users = createUserStore(options.database.db);
@@ -104,12 +105,20 @@ export function createWebServer(options: WebServerOptions): WebServer {
   app.use("/api/session/login", loginLimit);
   app.use("/api/session/setup", setupLimit);
 
-  app.use("/api/session", createSessionRouter(users, sessions, audit, logger));
+  app.use("/api/session", express.json(), createSessionRouter(users, sessions, audit, logger));
 
   // ─── Gates for everything else under /api ───────────────────────────────
   const requireAuth = createRequireAuth(sessions);
   app.use("/api", csrfOriginCheck);
   app.use("/api", requireAuth);
+
+  // Authed-only body parsing. Only the (admin-gated) doctrine editor
+  // legitimately sends huge JSON (up to MAX_DOCTRINE_FILE_BYTES = 15 MiB);
+  // everything else caps at 2mb — the biggest remaining body is the avatar
+  // dataUrl (1MB image ≈ 1.4MB base64). The /api/rag parser is mounted first,
+  // so the global 2mb parser skips bodies it already parsed.
+  app.use("/api/rag", express.json({ limit: "16mb" }));
+  app.use("/api", express.json({ limit: "2mb" }));
 
   // ─── Protected routes ───────────────────────────────────────────────────
   app.use(

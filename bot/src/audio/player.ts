@@ -1,4 +1,4 @@
-import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { accessSync, chmodSync, constants, rmSync } from "node:fs";
@@ -28,7 +28,7 @@ function isExecutable(binPath: string): boolean {
 
 function ffmpegWorks(bin: string): boolean {
   try {
-    execSync(`"${bin}" -version`, { timeout: 5000, stdio: "pipe" });
+    execFileSync(bin, ["-version"], { timeout: 5000, stdio: "pipe" }); // arg-array: no shell parsing of the path
     return true;
   } catch {
     return false;
