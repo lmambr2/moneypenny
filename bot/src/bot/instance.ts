@@ -218,6 +218,12 @@ export class BotInstance extends EventEmitter {
       playNext: (n) => this.playNext(n),
       getProvider: (flags, q) => this.playback.pickProvider(flags, q),
       tagStore: radioTagStore,
+      // Lazy delegate — the director is constructed a few steps below.
+      radio: {
+        cueBumper: (topic) => this.radio.cueBumper(topic),
+        cueSay: (text) => this.radio.cueSay(text),
+        skipBumper: () => this.radio.skipBumper(),
+      },
     });
 
     this.roast = new RoastService({

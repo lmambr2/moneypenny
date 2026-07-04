@@ -33,6 +33,8 @@ export interface BumperFactory {
    *  `floor` is the broadcast classification floor (§6.3) — the intersection of
    *  every present member's clearance; generated sources must retrieve at it. */
   build(slot: WheelSlot, floor: string[]): Promise<BuiltBumper | null>;
+  /** One-off operator liner (`!radio say`, §12) — TTS'd but never cached. */
+  say?(text: string): Promise<BuiltBumper | null>;
 }
 
 export interface RadioDirectorDeps {
@@ -62,6 +64,11 @@ export class RadioDirector {
   private lastClients: unknown[] = [];
   private deadAirHandle: ReturnType<typeof setTimeout> | null = null;
   private clockCache: { sig: string; clock: FormatClock } | null = null;
+  /** Operator cue (`!radio bumper` / `!radio say`, §6.4/§12): consumed at the
+   *  next boundary, or fired immediately when idle. Explicit operator action —
+   *  bypasses the rate/quiet gates but never the classification floor. */
+  private cued: { slot?: WheelSlot; sayText?: string } | null = null;
+  private skipNext = false;
 
   constructor(private deps: RadioDirectorDeps) {}
 
@@ -94,8 +101,19 @@ export class RadioDirector {
       await this.advance();
       return;
     }
+    if (this.cued) {
+      // Operator cue fires in place of this boundary's slot; the wheel cursor
+      // is untouched so rotation resumes exactly where it was.
+      if (!(await this.fireCued(cfg))) await this.advance();
+      return;
+    }
     const slot = this.clock().nextSlot();
     if (slot.slot === "song") {
+      await this.advance();
+      return;
+    }
+    if (this.skipNext) {
+      this.skipNext = false; // `!radio skip` — drop this bumper slot, music instead
       await this.advance();
       return;
     }
@@ -103,6 +121,67 @@ export class RadioDirector {
       await this.advance(); // gate failed or bumper unready → music first
     }
     // else: the bumper is playing; its trackEnd will drive the next advance.
+  }
+
+  /** `!radio bumper [topic]` (§6.4/§12): cue a bumper — immediate when idle,
+   *  otherwise at the next track boundary. Returns what happened for the reply. */
+  async cueBumper(topic?: string): Promise<"played" | "cued" | "unavailable"> {
+    const cfg = this.deps.getConfig();
+    if (!cfg.enabled) return "unavailable";
+    // A topic targets the doctrine source (still subject to the global source
+    // toggle — an operator can't resurrect a source the admin disabled).
+    this.cued = { slot: { slot: "bumper", sources: topic ? ["doctrine"] : cfg.sources, topic } };
+    return this.maybeFireNow(cfg);
+  }
+
+  /** `!radio say <text>` (§12): one-off spoken liner, same cue semantics. */
+  async cueSay(text: string): Promise<"played" | "cued" | "unavailable"> {
+    const cfg = this.deps.getConfig();
+    if (!cfg.enabled || !this.deps.bumperFactory.say) return "unavailable";
+    this.cued = { sayText: text };
+    return this.maybeFireNow(cfg);
+  }
+
+  /** `!radio skip` (§12): drop the operator cue if present, else the next
+   *  scheduled bumper slot. Returns which one was skipped. */
+  skipBumper(): "cue" | "next" {
+    if (this.cued) {
+      this.cued = null;
+      return "cue";
+    }
+    this.skipNext = true;
+    return "next";
+  }
+
+  private async maybeFireNow(cfg: RadioConfig): Promise<"played" | "cued" | "unavailable"> {
+    if (this.deps.player.getState() !== "idle") return "cued";
+    const ok = await this.fireCued(cfg);
+    return ok ? "played" : "unavailable";
+  }
+
+  /** Consume and play the operator cue. Bypasses the rate/quiet gates (explicit
+   *  operator action) but keeps the classification floor (§6.3 is security, the
+   *  gates are anti-spam). */
+  private async fireCued(cfg: RadioConfig): Promise<boolean> {
+    const cue = this.cued;
+    this.cued = null;
+    if (!cue) return false;
+    try {
+      const bumper = cue.sayText
+        ? await this.deps.bumperFactory.say?.(cue.sayText) ?? null
+        : await this.deps.bumperFactory.build(cue.slot!, this.currentFloor(cfg));
+      if (!bumper) return false;
+      this.recordBumper(); // still counts against the hourly window
+      this.pendingAfterBumper = true;
+      this.deps.player.resetFailures();
+      this.deps.player.play(bumper.path);
+      this.deps.logger.info({ path: bumper.path, label: bumper.label, forced: true }, "radio: forced bumper");
+      return true;
+    } catch (err) {
+      this.deps.logger.warn({ err }, "radio: forced bumper failed");
+      this.pendingAfterBumper = false;
+      return false;
+    }
   }
 
   /**

@@ -17,7 +17,10 @@ function harness(cfgOverrides: Partial<RadioConfig> = {}) {
     play: vi.fn(),
     resetFailures: vi.fn(),
   };
-  const bumperFactory = { build: vi.fn(async () => bumper) };
+  const bumperFactory = {
+    build: vi.fn(async () => bumper),
+    say: vi.fn(async (text: string) => ({ path: `/tmp/say-${text.length}.wav`, label: "say" })),
+  };
   const playNext = vi.fn(async () => queueHasMore);
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
 
@@ -128,6 +131,26 @@ describe("RadioDirector", () => {
       expect(h.player.play).toHaveBeenCalledTimes(2);
     });
 
+    it("holds the hourly cap under flood (§13 R-R5)", async () => {
+      h = harness({
+        clock: { wheel: [{ slot: "bumper" }] },
+        cooldownSeconds: 0,
+        maxBumpersPerHour: 3,
+        minPresentToBroadcast: 1,
+      });
+      h.director.onPoll([], 1);
+      // Flood: every boundary wants a bumper; only 3 may fire within the hour.
+      for (let i = 0; i < 10; i++) {
+        await h.director.onTrackBoundary();
+        h.advanceNow(1000);
+      }
+      expect(h.player.play).toHaveBeenCalledTimes(3);
+
+      h.advanceNow(3_600_000); // window rolls over → allowed again
+      await h.director.onTrackBoundary();
+      expect(h.player.play).toHaveBeenCalledTimes(4);
+    });
+
     it("respects quiet hours", async () => {
       h = harness({
         clock: { wheel: [{ slot: "bumper" }] },
@@ -187,6 +210,69 @@ describe("RadioDirector", () => {
       director.onPoll([], 1);
       await director.onTrackBoundary();
       expect(build).toHaveBeenCalledWith(expect.anything(), ["unclassified"]);
+    });
+  });
+
+  describe("operator cue / skip (§6.4/§12, R-R5)", () => {
+    it("cueBumper while playing fires at the next boundary in place of the slot, wheel untouched", async () => {
+      h = harness({ everyNSongs: 2, minPresentToBroadcast: 1, cooldownSeconds: 9999 });
+      h.director.onPoll([], 1);
+
+      expect(await h.director.cueBumper()).toBe("cued"); // player is 'playing'
+      await h.director.onTrackBoundary(); // would be a song slot — cue takes it
+      expect(h.player.play).toHaveBeenCalledTimes(1); // forced, despite the cooldown gate
+      await h.director.onTrackBoundary(); // bumper's own end → advance
+
+      // Wheel resumes where it was: song, song, then the scheduled bumper slot.
+      await h.director.onTrackBoundary(); // song 2
+      expect(h.playNext).toHaveBeenCalledTimes(2);
+    });
+
+    it("cueBumper fires immediately when idle and reports 'played'", async () => {
+      h = harness({ minPresentToBroadcast: 0 });
+      h.setPlayerState("idle");
+      expect(await h.director.cueBumper()).toBe("played");
+      expect(h.player.play).toHaveBeenCalledTimes(1);
+    });
+
+    it("a topic cue targets the doctrine source but keeps the classification floor", async () => {
+      h = harness({ minPresentToBroadcast: 1 });
+      h.director.onPoll([], 1);
+      h.setPlayerState("idle");
+      await h.director.cueBumper("refinery yields");
+      expect(h.bumperFactory.build).toHaveBeenCalledWith(
+        { slot: "bumper", sources: ["doctrine"], topic: "refinery yields" },
+        ["unclassified"],
+      );
+    });
+
+    it("cueSay speaks via the factory's say path", async () => {
+      h = harness({});
+      h.setPlayerState("idle");
+      expect(await h.director.cueSay("stand by for briefing")).toBe("played");
+      expect(h.bumperFactory.say).toHaveBeenCalledWith("stand by for briefing");
+      expect(h.bumperFactory.build).not.toHaveBeenCalled();
+    });
+
+    it("returns unavailable when radio is off", async () => {
+      h = harness({ enabled: false });
+      expect(await h.director.cueBumper()).toBe("unavailable");
+      expect(await h.director.cueSay("x")).toBe("unavailable");
+    });
+
+    it("skipBumper cancels a pending cue, else skips the next scheduled bumper slot", async () => {
+      h = harness({ everyNSongs: 1, minPresentToBroadcast: 1 }); // [song, bumper]
+      h.director.onPoll([], 1);
+
+      await h.director.cueBumper();
+      expect(h.director.skipBumper()).toBe("cue"); // cancels the cue
+      await h.director.onTrackBoundary(); // song slot — no forced bumper fires
+      expect(h.player.play).not.toHaveBeenCalled();
+
+      expect(h.director.skipBumper()).toBe("next");
+      await h.director.onTrackBoundary(); // the wheel's bumper slot — skipped
+      expect(h.player.play).not.toHaveBeenCalled();
+      expect(h.playNext).toHaveBeenCalledTimes(2); // music instead, both times
     });
   });
 

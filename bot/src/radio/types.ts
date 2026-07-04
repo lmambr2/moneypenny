@@ -24,6 +24,8 @@ export interface WheelSlot {
   slot: SlotKind;
   /** For bumper slots: candidate sources, highest-priority first. */
   sources?: BumperSource[];
+  /** Optional topic override for generated sources (`!radio bumper <topic>`). */
+  topic?: string;
 }
 
 /** Declarative rotation wheel (§7). `clock?` in RadioConfig; optional — the

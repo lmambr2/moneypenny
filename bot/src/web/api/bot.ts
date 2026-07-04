@@ -9,6 +9,7 @@ import type { BotDatabase } from "../../data/database.js";
 import type { AvatarStore } from "../../data/avatars.js";
 import { isRightsConfig, type RightsConfig } from "../../rights/index.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../../voice/types.js";
+import { defaultRadioConfig, type RadioConfig } from "../../radio/index.js";
 import { errorMessage } from "../../util/error.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 
@@ -368,6 +369,53 @@ export function createBotRouter(
       }
       config.voice = { ...defaultVoiceConfig(), ...config.voice, ...patch };
       touched.voice = true;
+    }
+
+    if ("radio" in body) {
+      const r = body.radio;
+      if (typeof r !== "object" || r === null || Array.isArray(r)) {
+        res.status(400).json({ error: "radio must be an object", code: "VALIDATION_ERROR" });
+        return;
+      }
+      const patch = r as Partial<RadioConfig>;
+      for (const key of ["enabled", "memoryBroadcastOptIn"] as const) {
+        if (key in patch && typeof patch[key] !== "boolean") {
+          res.status(400).json({ error: `radio.${key} must be a boolean`, code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      for (const key of [
+        "everyNSongs", "deadAirSeconds", "maxBumperSeconds",
+        "minPresentToBroadcast", "cooldownSeconds", "maxBumpersPerHour",
+      ] as const) {
+        const v = patch[key];
+        if (key in patch && (typeof v !== "number" || !Number.isFinite(v) || v < 0)) {
+          res.status(400).json({ error: `radio.${key} must be a non-negative number`, code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      if ("sources" in patch) {
+        const valid = new Set(["prerecorded", "stationId", "timeCheck", "nowPlaying", "doctrine", "memory"]);
+        if (!Array.isArray(patch.sources) || !patch.sources.every((s) => typeof s === "string" && valid.has(s))) {
+          res.status(400).json({ error: "radio.sources must be an array of known source names", code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      if ("quietHours" in patch) {
+        const ok = Array.isArray(patch.quietHours) &&
+          patch.quietHours.every((w) => w && typeof w.from === "string" && typeof w.to === "string");
+        if (!ok) {
+          res.status(400).json({ error: "radio.quietHours must be [{from,to}] of HH:MM strings", code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      if ("activeProfile" in patch && typeof patch.activeProfile !== "string") {
+        res.status(400).json({ error: "radio.activeProfile must be a string", code: "VALIDATION_ERROR" });
+        return;
+      }
+      // The director reads config.radio live at every boundary, so replacing
+      // the block hot-applies with no per-bot re-init (unlike voice/llm).
+      config.radio = { ...defaultRadioConfig(), ...config.radio, ...patch };
     }
 
     saveConfig(configPath, config);

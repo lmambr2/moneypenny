@@ -33,6 +33,12 @@ export interface CommandExecutorDeps {
   getProvider: (flags: Set<string>, query?: string) => MusicProvider;
   /** Radio tag overlay, for !rate/!unrate (§9.7). Optional — ratings are inert if absent. */
   tagStore?: TagStore;
+  /** Radio director operator surface (!radio bumper/say/skip, §12). */
+  radio?: {
+    cueBumper(topic?: string): Promise<"played" | "cued" | "unavailable">;
+    cueSay(text: string): Promise<"played" | "cued" | "unavailable">;
+    skipBumper(): "cue" | "next";
+  };
 }
 
 const AUDIO_COMMANDS = new Set([
@@ -184,12 +190,35 @@ export class CommandExecutor {
         return "📻 Radio mode OFF.";
       case "ops":
         return this.cmdRadioOps(cmd, radio);
+      case "bumper": {
+        if (!this.deps.radio) return "Radio controls are not available.";
+        const topic = cmd.rawArgs.slice(1).join(" ").trim() || undefined;
+        const r = await this.deps.radio.cueBumper(topic);
+        return r === "played" ? "📻 Bumper playing."
+          : r === "cued" ? "📻 Bumper cued for the next track break."
+          : "No bumper available (radio off, or no source could produce one).";
+      }
+      case "say": {
+        if (!this.deps.radio) return "Radio controls are not available.";
+        const text = cmd.rawArgs.slice(1).join(" ").trim();
+        if (!text) return `Usage: ${p}radio say <text>`;
+        const r = await this.deps.radio.cueSay(text);
+        return r === "played" ? "📻 On air."
+          : r === "cued" ? "📻 Liner cued for the next track break."
+          : "Can't speak right now (radio off or TTS unavailable).";
+      }
+      case "skip": {
+        if (!this.deps.radio) return "Radio controls are not available.";
+        return this.deps.radio.skipBumper() === "cue"
+          ? "Cued bumper cancelled."
+          : "Next scheduled bumper will be skipped.";
+      }
       case "status":
         return radio.enabled
           ? `📻 Radio mode ON. ${this.radioSummary(radio)}`
           : `📻 Radio mode OFF. Use ${p}radio on to start.`;
       default:
-        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list]`;
+        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip]`;
     }
   }
 
@@ -657,7 +686,7 @@ export class CommandExecutor {
       `${p}queue · ${p}now · ${p}clear · ${p}remove <n> · ${p}vol <0-100> · ${p}mode <seq|loop|random|rloop>`,
       `${p}playlist <name|id> · ${p}album <id> · ${p}artist <name> · ${p}lyrics · ${p}vote`,
       `${p}test — Demo track (local copy if saved, else ${DEFAULT_DEMO_VIDEO_URL})`,
-      `${p}radio [on|off|status] — Autonomous DJ: bumpers between tracks (on/off = admin)`,
+      `${p}radio [on|off|status|ops <profile>|bumper|say|skip] — Autonomous DJ (on/off admin; ops/bumper/say/skip @dj)`,
       `${p}rate <1-5> [song] · ${p}unrate — Rate the current (or a searched) track`,
       "",
       "AI & knowledge (needs LLM / RAG enabled in Settings)",

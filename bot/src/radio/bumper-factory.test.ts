@@ -118,6 +118,25 @@ describe("RadioBumperFactory", () => {
   });
 });
 
+describe("say (§12 operator liner)", () => {
+  it("speaks capped text with the non-cacheable operator floor", async () => {
+    const { factory, renderFn } = harness({});
+    const long = Array.from({ length: 200 }, (_, i) => `w${i}`).join(" ");
+    const b = await factory.say(long);
+    expect(b?.label).toBe("say");
+    const [text, source, opts] = renderFn.mock.calls[0] as unknown as [string, string, { floor: string[] }];
+    expect(text.split(/\s+/).length).toBeLessThanOrEqual(75); // 30s cap
+    expect(source).toBe("say");
+    expect(opts.floor).toContain("operator"); // never enters the persistent cache
+  });
+
+  it("rejects empty text", async () => {
+    const { factory, renderFn } = harness({});
+    expect(await factory.say("   ")).toBeNull();
+    expect(renderFn).not.toHaveBeenCalled();
+  });
+});
+
 describe("doctrine source (§6.1/§6.2/§6.3)", () => {
   const retrieval = (text: string | null) => ({
     query: vi.fn(async () => (text ? [{ text, source: "doctrine/x.md" }] : [])),

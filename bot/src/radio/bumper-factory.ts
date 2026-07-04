@@ -66,13 +66,25 @@ export class RadioBumperFactory implements BumperFactory {
     const wanted = slot.sources && slot.sources.length > 0 ? slot.sources : cfg.sources;
     for (const src of wanted) {
       if (!enabled.has(src)) continue; // a slot can't use a globally-disabled source
-      const built = await this.buildOne(src, floor);
+      const built = await this.buildOne(src, floor, slot.topic);
       if (built) return built;
     }
     return null;
   }
 
-  private async buildOne(source: BumperSource, floor: string[]): Promise<BuiltBumper | null> {
+  /** One-off operator liner (`!radio say`, §12): spoken as-is, length-capped,
+   *  and rendered ephemeral — free operator text has no classification
+   *  metadata, so it must never enter the persistent cache. */
+  async say(text: string): Promise<BuiltBumper | null> {
+    const clean = text.trim();
+    if (!clean) return null;
+    const cap = wordCap(this.deps.getConfig().maxBumperSeconds);
+    const capped = clean.split(/\s+/).slice(0, cap).join(" ");
+    const path = await this.deps.speech.render(capped, "say", { floor: ["unclassified", "operator"] });
+    return path ? { path, label: "say" } : null;
+  }
+
+  private async buildOne(source: BumperSource, floor: string[], topic?: string): Promise<BuiltBumper | null> {
     try {
       switch (source) {
         case "prerecorded": {
@@ -90,7 +102,7 @@ export class RadioBumperFactory implements BumperFactory {
           return text ? this.speak(text, "nowPlaying") : null;
         }
         case "doctrine":
-          return this.doctrineBumper(floor);
+          return this.doctrineBumper(floor, topic);
         case "memory":
           return null; // OQ1: org MemPalace namespace — dormant until curated + opted in
         default:
@@ -105,14 +117,14 @@ export class RadioBumperFactory implements BumperFactory {
   /** Doctrine → spoken bumper (§6.1/§6.2): floored retrieval → LLM rewrite
    *  (tool_choice "none" via LlmModule.complete) → capped script → TTS. Any
    *  missing piece returns null and the caller falls through (§14). */
-  private async doctrineBumper(floor: string[]): Promise<BuiltBumper | null> {
+  private async doctrineBumper(floor: string[], topicOverride?: string): Promise<BuiltBumper | null> {
     const retrieval = this.deps.getRetrieval?.() ?? null;
     const llm = this.deps.getLlm?.() ?? null;
     if (!retrieval || !llm) return null;
 
     const cfg = this.deps.getConfig();
     const profile = cfg.profiles[cfg.activeProfile];
-    const topics = profile?.bumper?.topics ?? [];
+    const topics = topicOverride ? [topicOverride] : profile?.bumper?.topics ?? [];
     if (topics.length === 0) return null; // nothing curated to talk about
     const topic = topics[Math.floor(Math.random() * topics.length)];
 

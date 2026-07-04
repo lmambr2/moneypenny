@@ -350,6 +350,12 @@ export class ControlRouter {
       if (sub === "ops" && opsArg && opsArg !== "list" && !context.canRun("radio.ops")) {
         return "You don't have permission to set the op context (needs 'radio.ops').";
       }
+      // §12: each operator control carries its own token (@dj + admin).
+      for (const [name, token] of [["bumper", "radio.bumper"], ["say", "radio.say"], ["skip", "radio.skip"]] as const) {
+        if (sub === name && !context.canRun(token)) {
+          return `You don't have permission to use 'radio ${name}' (needs '${token}').`;
+        }
+      }
     }
 
     // Centralized audio command guard (owned by the router)

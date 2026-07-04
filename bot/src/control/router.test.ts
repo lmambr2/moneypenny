@@ -540,6 +540,23 @@ describe("ControlRouter — radio.power gating", () => {
     expect(await router.execute(list, { ...makeContext(fakeBot()), canRun })).toBe("ok");
   });
 
+  it.each([
+    ["bumper", "radio.bumper"],
+    ["say hello there", "radio.say"],
+    ["skip", "radio.skip"],
+  ])("denies !radio %s without %s", async (subArgs, token) => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "ok");
+    router.registerHandler({ name: "radio", execute: handler });
+    const d = await router.route(`!radio ${subArgs}`, makeContext(fakeBot()), "!");
+    const out = await router.execute(d, {
+      ...makeContext(fakeBot()),
+      canRun: (c: string) => c !== token,
+    });
+    expect(out).toMatch(/permission/i);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("allows !radio status without radio.power (status is public)", async () => {
     const router = new ControlRouter(fakeLogger());
     const handler = vi.fn(async () => "status ok");

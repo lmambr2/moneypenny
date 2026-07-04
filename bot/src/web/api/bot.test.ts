@@ -194,6 +194,38 @@ describe("bot settings router", () => {
     expect(bot.calls).toContainEqual(["voice", [expect.objectContaining({ enabled: true, sttUrl: "http://stt:9000" })]]);
   });
 
+  it("updates radio settings (hot-applied: the director reads config live)", async () => {
+    const res = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({
+        radio: {
+          enabled: true,
+          everyNSongs: 6,
+          quietHours: [{ from: "02:00", to: "08:00" }],
+          sources: ["prerecorded", "stationId"],
+        },
+      });
+    expect(res.status).toBe(200);
+    expect(config.radio?.enabled).toBe(true);
+    expect(config.radio?.everyNSongs).toBe(6);
+    expect(config.radio?.quietHours).toEqual([{ from: "02:00", to: "08:00" }]);
+    expect(config.radio?.maxBumperSeconds).toBe(30); // untouched fields keep defaults
+  });
+
+  it("rejects malformed radio settings", async () => {
+    const bad = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({ radio: { everyNSongs: -1 } });
+    expect(bad.status).toBe(400);
+    const badSource = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({ radio: { sources: ["prerecorded", "evil"] } });
+    expect(badSource.status).toBe(400);
+  });
+
   it("persists RAG substrate URLs (restart required to apply)", async () => {
     const res = await request(app)
       .post("/api/bot/settings")
