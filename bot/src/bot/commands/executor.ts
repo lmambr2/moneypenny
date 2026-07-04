@@ -1,10 +1,10 @@
 import type { TS3TextMessage } from "../../ts-protocol/client.js";
 import type { TS3Client } from "../../ts-protocol/client.js";
 import type { AudioPlayer } from "../../audio/player.js";
-import { PlayMode, type PlayQueue } from "../../audio/queue.js";
+import { PlayMode, type PlayQueue, type QueuedSong } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
-import type { RadioConfig, TagStore } from "../../radio/index.js";
+import type { RadioConfig, RadioProfile, TagStore } from "../../radio/index.js";
 import type { ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
 import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
@@ -39,6 +39,26 @@ const AUDIO_COMMANDS = new Set([
   "play", "add", "playnext", "pn", "next", "skip", "prev",
   "playlist", "album", "artist", "test", "chevron7",
 ]);
+
+/** Validate raw select_tracks filters (§9.4) — the LLM proposes, the executor
+ *  disposes. Unknown keys are dropped; malformed values become undefined. */
+function parseTagFilters(raw: Record<string, unknown>): Parameters<TagStore["selectTracks"]>[0] {
+  const strArr = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
+  const num = (v: unknown) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
+  return {
+    mood: strArr(raw.mood),
+    genreAny: strArr(raw.genreAny),
+    subgenreAny: strArr(raw.subgenreAny),
+    bpmMin: num(raw.bpmMin),
+    bpmMax: num(raw.bpmMax),
+    musicalKey: typeof raw.musicalKey === "string" ? raw.musicalKey : undefined,
+    energyMin: num(raw.energyMin),
+    energyMax: num(raw.energyMax),
+    ratingMin: num(raw.ratingMin),
+    limit: num(raw.limit),
+  };
+}
 
 /**
  * Easter egg: `!chevron7` ("chevron seven locked") dials the Stargate SG-1 theme.
@@ -162,13 +182,75 @@ export class CommandExecutor {
       case "off":
         radio.enabled = false;
         return "📻 Radio mode OFF.";
+      case "ops":
+        return this.cmdRadioOps(cmd, radio);
       case "status":
         return radio.enabled
           ? `📻 Radio mode ON. ${this.radioSummary(radio)}`
           : `📻 Radio mode OFF. Use ${p}radio on to start.`;
       default:
-        return `Usage: ${p}radio [on|off|status]`;
+        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list]`;
     }
+  }
+
+  /** `!radio ops <profile>` / `!radio ops list` — set the op context (§8/§12).
+   *  One switch retunes bumper topics (the doctrine source reads activeProfile)
+   *  AND reprograms the music queue from the profile. The radio.ops gate on the
+   *  switch is enforced upstream in the router; `list` is member-level. */
+  private async cmdRadioOps(cmd: ParsedCommand, radio: RadioConfig): Promise<string> {
+    const p = this.deps.config.commandPrefix;
+    const names = Object.keys(radio.profiles);
+    const arg = (cmd.rawArgs[1] ?? "list").toLowerCase();
+    if (arg === "list") {
+      return names.length > 0
+        ? `Profiles: ${names.join(", ")} (active: ${radio.activeProfile})`
+        : "No radio profiles configured.";
+    }
+    const profile = radio.profiles[arg];
+    if (!profile) {
+      return `Unknown profile '${arg}'.${names.length ? ` Profiles: ${names.join(", ")}` : ""}`;
+    }
+    radio.activeProfile = arg;
+    const programmed = await this.programFromProfile(profile);
+    return `🎛 Op context: ${arg}. ${programmed}`;
+  }
+
+  /** Build the profile's music pool (§8 selection precedence: tag select +
+   *  playlistRefs, then seedQueries as sparse-data fallback) and replace the
+   *  queue with it. Empty pool → keep whatever is playing (never open a gap). */
+  private async programFromProfile(profile: RadioProfile): Promise<string> {
+    const music = profile.music ?? {};
+    const pool: QueuedSong[] = [];
+
+    if (music.select && this.deps.tagStore) {
+      const keys = this.deps.tagStore.selectTracks(parseTagFilters(music.select as Record<string, unknown>));
+      pool.push(...(await this.tagKeysToSongs(keys)));
+    }
+    for (const ref of music.playlistRefs ?? []) {
+      if (ref.platform !== "local" && ref.platform !== "youtube") continue; // §8.1: spotify/tidal skipped with a log
+      const flag = ref.platform === "youtube" ? "y" : "l";
+      try {
+        const provider = this.deps.getProvider(new Set([flag]));
+        const songs = await this.resolvePlaylistSongs(provider, ref.ref);
+        pool.push(...songs.map((s) => ({ ...s, platform: provider.platform })));
+      } catch { /* a dead ref never blocks the profile */ }
+    }
+    if (pool.length === 0) {
+      for (const seed of music.seedQueries ?? []) {
+        const hit = await this.deps.playback
+          .searchFirst({ name: "play", args: seed, rawArgs: seed.split(/\s+/), flags: new Set() }, 1)
+          .catch(() => null);
+        if (hit) pool.push({ ...hit.song, platform: hit.provider.platform });
+      }
+    }
+    if (pool.length === 0) return "Bumper topics retuned; no music sources matched.";
+
+    this.deps.queue.clear();
+    for (const song of pool) this.deps.queue.add(song);
+    const first = this.deps.queue.play();
+    this.deps.player.resetFailures();
+    if (first) await this.deps.playback.resolveAndPlay(first);
+    return `Programmed ${pool.length} track${pool.length === 1 ? "" : "s"}.`;
   }
 
   private radioSummary(radio: RadioConfig): string {
@@ -217,39 +299,29 @@ export class CommandExecutor {
     } catch {
       return "Usage: selecttracks {\"genreAny\":[\"ambient\"],\"bpmMax\":110}";
     }
-    const strArr = (v: unknown) =>
-      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
-    const num = (v: unknown) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
-    const keys = this.deps.tagStore.selectTracks({
-      mood: strArr(raw.mood),
-      genreAny: strArr(raw.genreAny),
-      subgenreAny: strArr(raw.subgenreAny),
-      bpmMin: num(raw.bpmMin),
-      bpmMax: num(raw.bpmMax),
-      musicalKey: typeof raw.musicalKey === "string" ? raw.musicalKey : undefined,
-      energyMin: num(raw.energyMin),
-      energyMax: num(raw.energyMax),
-      ratingMin: num(raw.ratingMin),
-      limit: num(raw.limit),
-    });
-    if (keys.length === 0) return "No tracks match those tags.";
+    const keys = this.deps.tagStore.selectTracks(parseTagFilters(raw));
+    const songs = await this.tagKeysToSongs(keys);
+    if (songs.length === 0) return "No tracks match those tags.";
 
-    const local = this.deps.getProvider(new Set(["l"]));
     const wasIdle = this.deps.player.getState() === "idle";
-    let queued = 0;
-    for (const key of keys) {
-      const song = await local.getSongDetail(key).catch(() => null);
-      if (!song) continue; // stale overlay row (file removed)
-      this.deps.queue.add({ ...song, platform: "local" });
-      queued++;
-    }
-    if (queued === 0) return "No tracks match those tags.";
+    for (const song of songs) this.deps.queue.add(song);
     if (wasIdle) {
       this.deps.queue.play();
       this.deps.player.resetFailures();
       await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
     }
-    return `Queued ${queued} track${queued === 1 ? "" : "s"} by tags.`;
+    return `Queued ${songs.length} track${songs.length === 1 ? "" : "s"} by tags.`;
+  }
+
+  /** Overlay keys → playable local Songs; stale rows (deleted files) skipped. */
+  private async tagKeysToSongs(keys: string[]): Promise<QueuedSong[]> {
+    const local = this.deps.getProvider(new Set(["l"]));
+    const songs: QueuedSong[] = [];
+    for (const key of keys) {
+      const song = await local.getSongDetail(key).catch(() => null);
+      if (song) songs.push({ ...song, platform: "local" });
+    }
+    return songs;
   }
 
   /** `!unrate` — remove your rating for the now-playing track. */
@@ -384,30 +456,36 @@ export class CommandExecutor {
     return `Play mode set to: ${cmd.args}`;
   }
 
-  private async cmdPlaylist(cmd: ParsedCommand): Promise<string> {
-    if (!cmd.args) return "Usage: !playlist <playlist name or ID>";
-    const provider = this.deps.getProvider(cmd.flags);
-    const id = this.deps.playback.extractId(cmd.args);
-    const isNumericId = /^\d+$/.test(cmd.args.trim());
+  /** Resolve a playlist reference (URL, numeric id, or name) to its songs.
+   *  Shared by !playlist and radio ops profile programming (§8.1). */
+  private async resolvePlaylistSongs(provider: MusicProvider, ref: string): Promise<Song[]> {
+    const id = this.deps.playback.extractId(ref);
+    const isNumericId = /^\d+$/.test(ref.trim());
     let playlistId: string;
-    if (isNumericId || id !== cmd.args) {
+    if (isNumericId || id !== ref) {
       playlistId = id;
     } else {
-      const result = await provider.search(cmd.args);
+      const result = await provider.search(ref);
       let playlists = result.playlists ?? [];
       if (provider.getUserPlaylists) {
         try {
           const userPlaylists = await provider.getUserPlaylists();
-          const query = cmd.args.toLowerCase();
+          const query = ref.toLowerCase();
           const matched = userPlaylists.filter((p) => p.name.toLowerCase().includes(query));
           playlists = [...playlists, ...matched];
         } catch { /* continue */ }
       }
-      if (playlists.length === 0) return `No playlists found for: ${cmd.args}`;
+      if (playlists.length === 0) return [];
       playlistId = playlists[0].id;
     }
-    const songs = await provider.getPlaylistSongs(playlistId);
-    if (songs.length === 0) return "Playlist is empty or not found";
+    return provider.getPlaylistSongs(playlistId);
+  }
+
+  private async cmdPlaylist(cmd: ParsedCommand): Promise<string> {
+    if (!cmd.args) return "Usage: !playlist <playlist name or ID>";
+    const provider = this.deps.getProvider(cmd.flags);
+    const songs = await this.resolvePlaylistSongs(provider, cmd.args);
+    if (songs.length === 0) return `Playlist is empty or not found: ${cmd.args}`;
     this.deps.queue.clear();
     for (const song of songs) {
       this.deps.queue.add({ ...song, platform: provider.platform });

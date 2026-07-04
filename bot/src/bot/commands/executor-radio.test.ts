@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import Database from "better-sqlite3";
 import { CommandExecutor } from "./executor.js";
-import { defaultRadioConfig, type RadioConfig } from "../../radio/index.js";
+import { defaultRadioConfig, TagStore, type RadioConfig } from "../../radio/index.js";
 
 function executor(radio: RadioConfig = defaultRadioConfig()) {
   const config = { commandPrefix: "!", radio } as never;
@@ -55,5 +56,95 @@ describe("cmdRadio", () => {
   it("shows usage for an unknown subcommand", async () => {
     const out = await run(executor().ex, ["frobnicate"]);
     expect(out).toContain("Usage:");
+  });
+});
+
+describe("cmdRadio ops (§8/§12)", () => {
+  function opsHarness() {
+    const radio = defaultRadioConfig();
+    radio.profiles = {
+      mining: {
+        name: "mining",
+        music: {
+          select: { genreAny: ["ambient"] },
+          playlistRefs: [
+            { platform: "local", ref: "ops-mining" },
+            { platform: "spotify", ref: "https://open.spotify.com/playlist/x" }, // skipped (§8.1)
+          ],
+          seedQueries: ["ambient focus"],
+        },
+        bumper: { topics: ["refinery yields"] },
+      },
+      empty: { name: "empty", music: { seedQueries: [] } },
+    };
+
+    const tagStore = new TagStore({ db: new Database(":memory:") });
+    tagStore.upsert("t1", { genre: "ambient" }, "analyzer");
+
+    const queued: { id: string }[] = [];
+    const queue = {
+      clear: vi.fn(() => queued.splice(0)),
+      add: vi.fn((s: { id: string }) => queued.push(s)),
+      play: vi.fn(() => queued[0] ?? null),
+      current: vi.fn(() => queued[0] ?? null),
+    };
+    const localProvider = {
+      platform: "local",
+      getSongDetail: vi.fn(async (id: string) => ({ id, name: id, artist: "", album: "", duration: 1, coverUrl: "", platform: "local" })),
+      search: vi.fn(async () => ({ songs: [], playlists: [{ id: "pl1", name: "ops-mining" }], albums: [] })),
+      getPlaylistSongs: vi.fn(async () => [
+        { id: "m3u-1", name: "m3u-1", artist: "", album: "", duration: 1, coverUrl: "", platform: "local" },
+      ]),
+    };
+    const ex = new CommandExecutor({
+      playback: {
+        resolveAndPlay: vi.fn(async () => true),
+        extractId: (s: string) => s,
+        searchFirst: vi.fn(async () => ({
+          provider: { platform: "local" },
+          song: { id: "seed-1", name: "seed", artist: "", album: "", duration: 1, coverUrl: "", platform: "local" },
+        })),
+      } as never,
+      player: { getState: () => "idle", resetFailures: vi.fn() } as never,
+      queue: queue as never,
+      config: { commandPrefix: "!", radio } as never,
+      profileManager: {} as never,
+      tsClient: {} as never,
+      isConnected: () => true,
+      playNext: vi.fn(),
+      getProvider: vi.fn(() => localProvider as never),
+      tagStore,
+    });
+    return { ex, radio, queue, queued };
+  }
+
+  it("ops list names profiles and the active one", async () => {
+    const { ex } = opsHarness();
+    const out = await run(ex, ["ops", "list"]);
+    expect(out).toContain("mining");
+    expect(out).toContain("active: idle");
+  });
+
+  it("ops <profile> sets the op context and programs music from tags + playlists", async () => {
+    const { ex, radio, queued } = opsHarness();
+    const out = await run(ex, ["ops", "mining"]);
+    expect(radio.activeProfile).toBe("mining"); // doctrine bumper topics now read this
+    expect(out).toContain("Op context: mining");
+    const ids = queued.map((s) => s.id);
+    expect(ids).toContain("t1"); // tag select
+    expect(ids).toContain("m3u-1"); // local playlist ref (spotify ref skipped)
+  });
+
+  it("a profile with no matching sources retunes bumpers without touching music", async () => {
+    const { ex, radio, queue } = opsHarness();
+    const out = await run(ex, ["ops", "empty"]);
+    expect(radio.activeProfile).toBe("empty");
+    expect(out).toContain("no music sources matched");
+    expect(queue.clear).not.toHaveBeenCalled(); // never opens a gap
+  });
+
+  it("unknown profile lists what exists", async () => {
+    const { ex } = opsHarness();
+    expect(await run(ex, ["ops", "nope"])).toContain("Unknown profile 'nope'");
   });
 });

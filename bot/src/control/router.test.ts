@@ -526,6 +526,20 @@ describe("ControlRouter — radio.power gating", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("denies !radio ops <profile> without radio.ops, but ops list stays public", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "ok");
+    router.registerHandler({ name: "radio", execute: handler });
+    const canRun = (c: string) => c !== "radio.ops";
+
+    const setOps = await router.route("!radio ops mining", makeContext(fakeBot()), "!");
+    expect(await router.execute(setOps, { ...makeContext(fakeBot()), canRun })).toMatch(/permission/i);
+    expect(handler).not.toHaveBeenCalled();
+
+    const list = await router.route("!radio ops list", makeContext(fakeBot()), "!");
+    expect(await router.execute(list, { ...makeContext(fakeBot()), canRun })).toBe("ok");
+  });
+
   it("allows !radio status without radio.power (status is public)", async () => {
     const router = new ControlRouter(fakeLogger());
     const handler = vi.fn(async () => "status ok");

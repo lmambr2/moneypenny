@@ -338,13 +338,17 @@ export class ControlRouter {
       return `You don't have permission to use '${cmd.name}'.`;
     }
 
-    // `!radio` is public (status), but toggling power (on/off) needs the admin
-    // `radio.power` token (docs/radio.md §12). Granular radio.* tokens + the @dj
-    // group arrive in R-R3; R-R1 splits just status vs power.
-    if (cmd.name === "radio") {
+    // `!radio` is public (status / ops list), but the sensitive subcommands
+    // carry their own tokens (docs/radio.md §12): on/off needs the admin
+    // `radio.power`; `ops <profile>` needs `radio.ops` (granted to @dj + admin).
+    if (cmd.name === "radio" && context.canRun) {
       const sub = (cmd.rawArgs[0] ?? "").toLowerCase();
-      if ((sub === "on" || sub === "off") && context.canRun && !context.canRun("radio.power")) {
+      if ((sub === "on" || sub === "off") && !context.canRun("radio.power")) {
         return "You don't have permission to toggle radio mode (needs 'radio.power').";
+      }
+      const opsArg = (cmd.rawArgs[1] ?? "").toLowerCase();
+      if (sub === "ops" && opsArg && opsArg !== "list" && !context.canRun("radio.ops")) {
+        return "You don't have permission to set the op context (needs 'radio.ops').";
       }
     }
 
