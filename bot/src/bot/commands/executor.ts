@@ -4,7 +4,8 @@ import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue, type QueuedSong } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
-import type { RadioConfig, RadioProfile, TagStore } from "../../radio/index.js";
+import type { TagStore } from "../../radio/index.js";
+import { RadioCommands } from "./radio-commands.js";
 import { AUDIO_COMMANDS, type ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
 import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
@@ -41,26 +42,6 @@ export interface CommandExecutorDeps {
   };
 }
 
-/** Validate raw select_tracks filters (§9.4) — the LLM proposes, the executor
- *  disposes. Unknown keys are dropped; malformed values become undefined. */
-function parseTagFilters(raw: Record<string, unknown>): Parameters<TagStore["selectTracks"]>[0] {
-  const strArr = (v: unknown) =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
-  const num = (v: unknown) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
-  return {
-    mood: strArr(raw.mood),
-    genreAny: strArr(raw.genreAny),
-    subgenreAny: strArr(raw.subgenreAny),
-    bpmMin: num(raw.bpmMin),
-    bpmMax: num(raw.bpmMax),
-    musicalKey: typeof raw.musicalKey === "string" ? raw.musicalKey : undefined,
-    energyMin: num(raw.energyMin),
-    energyMax: num(raw.energyMax),
-    ratingMin: num(raw.ratingMin),
-    limit: num(raw.limit),
-  };
-}
-
 /**
  * Easter egg: `!chevron7` ("chevron seven locked") dials the Stargate SG-1 theme.
  * Fixed YouTube source — but the PlaybackEngine caches the MP3 into the local
@@ -75,8 +56,12 @@ const SG1_THEME_URL = "https://www.youtube.com/watch?v=aafGXNWHGaw";
 export class CommandExecutor {
   private moveClientLimiter = new MoveClientRateLimiter();
   private moveAllPending = new MoveAllPendingStore();
+  /** Radio/DJ + rating commands (docs/radio.md §9/§12) live in their own module. */
+  private radioCommands: RadioCommands;
 
-  constructor(private deps: CommandExecutorDeps) {}
+  constructor(private deps: CommandExecutorDeps) {
+    this.radioCommands = new RadioCommands(deps, (provider, ref) => this.resolvePlaylistSongs(provider, ref));
+  }
 
   async execute(cmd: ParsedCommand, msg?: TS3TextMessage): Promise<string | null> {
     if (!this.deps.isConnected() && AUDIO_COMMANDS.has(cmd.name)) {
@@ -85,10 +70,10 @@ export class CommandExecutor {
     switch (cmd.name) {
       case "play": return this.cmdPlay(cmd);
       case "chevron7": return this.cmdChevron7();
-      case "radio": return this.cmdRadio(cmd);
-      case "rate": return this.cmdRate(cmd, msg);
-      case "unrate": return this.cmdUnrate(msg);
-      case "selecttracks": return this.cmdSelectTracks(cmd);
+      case "radio": return this.radioCommands.radio(cmd);
+      case "rate": return this.radioCommands.rate(cmd, msg);
+      case "unrate": return this.radioCommands.unrate(msg);
+      case "selecttracks": return this.radioCommands.selectTracks(cmd);
       case "add": return this.cmdAdd(cmd);
       case "playnext":
       case "pn": return this.cmdPlayNext(cmd);
@@ -164,197 +149,6 @@ export class CommandExecutor {
     const r = await this.replaceQueueWithFirstHit(cmd);
     if (r.ok) return "Chevron seven... locked! 🌌 Dialing the SG-1 theme.";
     return "Chevron seven won't engage — could not dial the SG-1 theme.";
-  }
-
-  /**
-   * `!radio [on|off|status]` — the R-R1 control surface (docs/radio.md §12).
-   * on/off is a runtime toggle (the director reads config live); the persistent
-   * default lives in Settings. The admin gate on on/off is enforced upstream in
-   * the router via the `radio.power` token.
-   */
-  private async cmdRadio(cmd: ParsedCommand): Promise<string> {
-    const radio = this.deps.config.radio;
-    const p = this.deps.config.commandPrefix;
-    const sub = (cmd.rawArgs[0] ?? "status").toLowerCase();
-    switch (sub) {
-      case "on":
-        radio.enabled = true;
-        return `📻 Radio mode ON. ${this.radioSummary(radio)} (runtime toggle — set a persistent default in Settings.)`;
-      case "off":
-        radio.enabled = false;
-        return "📻 Radio mode OFF.";
-      case "ops":
-        return this.cmdRadioOps(cmd, radio);
-      case "bumper": {
-        if (!this.deps.radio) return "Radio controls are not available.";
-        const topic = cmd.rawArgs.slice(1).join(" ").trim() || undefined;
-        const r = await this.deps.radio.cueBumper(topic);
-        return r === "played" ? "📻 Bumper playing."
-          : r === "cued" ? "📻 Bumper cued for the next track break."
-          : "No bumper available (radio off, or no source could produce one).";
-      }
-      case "say": {
-        if (!this.deps.radio) return "Radio controls are not available.";
-        const text = cmd.rawArgs.slice(1).join(" ").trim();
-        if (!text) return `Usage: ${p}radio say <text>`;
-        const r = await this.deps.radio.cueSay(text);
-        return r === "played" ? "📻 On air."
-          : r === "cued" ? "📻 Liner cued for the next track break."
-          : "Can't speak right now (radio off or TTS unavailable).";
-      }
-      case "skip": {
-        if (!this.deps.radio) return "Radio controls are not available.";
-        return this.deps.radio.skipBumper() === "cue"
-          ? "Cued bumper cancelled."
-          : "Next scheduled bumper will be skipped.";
-      }
-      case "status":
-        return radio.enabled
-          ? `📻 Radio mode ON. ${this.radioSummary(radio)}`
-          : `📻 Radio mode OFF. Use ${p}radio on to start.`;
-      default:
-        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip]`;
-    }
-  }
-
-  /** `!radio ops <profile>` / `!radio ops list` — set the op context (§8/§12).
-   *  One switch retunes bumper topics (the doctrine source reads activeProfile)
-   *  AND reprograms the music queue from the profile. The radio.ops gate on the
-   *  switch is enforced upstream in the router; `list` is member-level. */
-  private async cmdRadioOps(cmd: ParsedCommand, radio: RadioConfig): Promise<string> {
-    const p = this.deps.config.commandPrefix;
-    const names = Object.keys(radio.profiles);
-    const arg = (cmd.rawArgs[1] ?? "list").toLowerCase();
-    if (arg === "list") {
-      return names.length > 0
-        ? `Profiles: ${names.join(", ")} (active: ${radio.activeProfile})`
-        : "No radio profiles configured.";
-    }
-    const profile = radio.profiles[arg];
-    if (!profile) {
-      return `Unknown profile '${arg}'.${names.length ? ` Profiles: ${names.join(", ")}` : ""}`;
-    }
-    radio.activeProfile = arg;
-    const programmed = await this.programFromProfile(profile);
-    return `🎛 Op context: ${arg}. ${programmed}`;
-  }
-
-  /** Build the profile's music pool (§8 selection precedence: tag select +
-   *  playlistRefs, then seedQueries as sparse-data fallback) and replace the
-   *  queue with it. Empty pool → keep whatever is playing (never open a gap). */
-  private async programFromProfile(profile: RadioProfile): Promise<string> {
-    const music = profile.music ?? {};
-    const pool: QueuedSong[] = [];
-
-    if (music.select && this.deps.tagStore) {
-      const keys = this.deps.tagStore.selectTracks(parseTagFilters(music.select as Record<string, unknown>));
-      pool.push(...(await this.tagKeysToSongs(keys)));
-    }
-    for (const ref of music.playlistRefs ?? []) {
-      if (ref.platform !== "local" && ref.platform !== "youtube") continue; // §8.1: spotify/tidal skipped with a log
-      const flag = ref.platform === "youtube" ? "y" : "l";
-      try {
-        const provider = this.deps.getProvider(new Set([flag]));
-        const songs = await this.resolvePlaylistSongs(provider, ref.ref);
-        pool.push(...songs.map((s) => ({ ...s, platform: provider.platform })));
-      } catch { /* a dead ref never blocks the profile */ }
-    }
-    if (pool.length === 0) {
-      for (const seed of music.seedQueries ?? []) {
-        const hit = await this.deps.playback
-          .searchFirst({ name: "play", args: seed, rawArgs: seed.split(/\s+/), flags: new Set() }, 1)
-          .catch(() => null);
-        if (hit) pool.push({ ...hit.song, platform: hit.provider.platform });
-      }
-    }
-    if (pool.length === 0) return "Bumper topics retuned; no music sources matched.";
-
-    this.deps.queue.clear();
-    for (const song of pool) this.deps.queue.add(song);
-    const first = this.deps.queue.play();
-    this.deps.player.resetFailures();
-    if (first) await this.deps.playback.resolveAndPlay(first);
-    return `Programmed ${pool.length} track${pool.length === 1 ? "" : "s"}.`;
-  }
-
-  private radioSummary(radio: RadioConfig): string {
-    const cadence = radio.everyNSongs > 0 ? `Bumpers every ${radio.everyNSongs} songs` : "Clock-only";
-    return `${cadence}; profile '${radio.activeProfile}'; sources: ${radio.sources.join(", ")}.`;
-  }
-
-  /** `!rate <1-5> [song]` — rate the now-playing track (or a searched one) as
-   *  this TS user (§9.7). Per-rater, aggregated; one rating per rater (upsert). */
-  private async cmdRate(cmd: ParsedCommand, msg?: TS3TextMessage): Promise<string> {
-    if (!this.deps.tagStore) return "Ratings are not available.";
-    const p = this.deps.config.commandPrefix;
-    const stars = Number.parseInt(cmd.rawArgs[0] ?? "", 10);
-    if (!(stars >= 1 && stars <= 5)) return `Usage: ${p}rate <1-5> [song]`;
-    const rater = `ts:${msg?.invokerUid ?? "unknown"}`;
-
-    let target: { id: string; name: string } | null;
-    const query = cmd.rawArgs.slice(1).join(" ");
-    if (query) {
-      const hit = await this.deps.playback.searchFirst(
-        { name: "play", args: query, rawArgs: cmd.rawArgs.slice(1), flags: cmd.flags },
-        1,
-      );
-      target = hit?.song ?? null;
-      if (!target) return `No results for: ${query}`;
-    } else {
-      target = this.deps.queue.current();
-      if (!target) return "Nothing is playing to rate.";
-    }
-    this.deps.tagStore.rate(target.id, rater, stars);
-    return `⭐ Rated "${target.name}" ${stars}/5.`;
-  }
-
-  /**
-   * `selecttracks <json-filters>` — tag-driven selection (§9.4), normally
-   * reached via the select_tracks LLM tool. Queries the TagStore overlay,
-   * queues the matching LOCAL tracks, and starts playback if idle. Each field
-   * is validated here (the LLM proposes, the executor disposes); unknown keys
-   * are dropped.
-   */
-  private async cmdSelectTracks(cmd: ParsedCommand): Promise<string> {
-    if (!this.deps.tagStore) return "Tag selection is not available.";
-    let raw: Record<string, unknown>;
-    try {
-      raw = JSON.parse(cmd.args || "{}") as Record<string, unknown>;
-    } catch {
-      return "Usage: selecttracks {\"genreAny\":[\"ambient\"],\"bpmMax\":110}";
-    }
-    const keys = this.deps.tagStore.selectTracks(parseTagFilters(raw));
-    const songs = await this.tagKeysToSongs(keys);
-    if (songs.length === 0) return "No tracks match those tags.";
-
-    const wasIdle = this.deps.player.getState() === "idle";
-    for (const song of songs) this.deps.queue.add(song);
-    if (wasIdle) {
-      this.deps.queue.play();
-      this.deps.player.resetFailures();
-      await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
-    }
-    return `Queued ${songs.length} track${songs.length === 1 ? "" : "s"} by tags.`;
-  }
-
-  /** Overlay keys → playable local Songs; stale rows (deleted files) skipped. */
-  private async tagKeysToSongs(keys: string[]): Promise<QueuedSong[]> {
-    const local = this.deps.getProvider(new Set(["l"]));
-    const songs: QueuedSong[] = [];
-    for (const key of keys) {
-      const song = await local.getSongDetail(key).catch(() => null);
-      if (song) songs.push({ ...song, platform: "local" });
-    }
-    return songs;
-  }
-
-  /** `!unrate` — remove your rating for the now-playing track. */
-  private cmdUnrate(msg?: TS3TextMessage): string {
-    if (!this.deps.tagStore) return "Ratings are not available.";
-    const cur = this.deps.queue.current();
-    if (!cur) return "Nothing is playing to unrate.";
-    const removed = this.deps.tagStore.unrate(cur.id, `ts:${msg?.invokerUid ?? "unknown"}`);
-    return removed ? `Removed your rating for "${cur.name}".` : `You hadn't rated "${cur.name}".`;
   }
 
   private async cmdAdd(cmd: ParsedCommand): Promise<string> {
