@@ -2,6 +2,7 @@ import path from "node:path";
 import { existsSync, renameSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { loadConfig, saveConfig } from "./data/config.js";
+import { migrateRightsConfig } from "./rights/migrations.js";
 import { createDatabase } from "./data/database.js";
 import { createLogger } from "./logger.js";
 import { YouTubeProvider } from "./music/youtube.js";
@@ -62,6 +63,17 @@ if (!existsSync(DB_PATH) && existsSync(LEGACY_DB_PATH)) {
 
 async function main() {
   const config = loadConfig(CONFIG_PATH);
+  // Bring a persisted custom ruleset up to date with shipped rights deltas
+  // (append-only, versioned — see src/rights/migrations.ts). Without this,
+  // commands added after the ruleset was written are silently denied.
+  {
+    const m = migrateRightsConfig(config.rights, config.rightsSchemaVersion ?? 0);
+    if (m.applied.length > 0) {
+      config.rights = m.rights;
+      console.log(`[rights] migrated custom ruleset to v${m.version}:`, m.applied.join(", "));
+    }
+    config.rightsSchemaVersion = m.version;
+  }
   saveConfig(CONFIG_PATH, config);
 
   const logger = createLogger(LOG_DIR);

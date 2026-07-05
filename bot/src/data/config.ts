@@ -75,6 +75,8 @@ export interface BotConfig {
   // commands). The same LLM-driven action is gated identically — no escalation
   // via natural language.
   rights?: RightsConfig;
+  /** Last applied rights delta (src/rights/migrations.ts). Absent = 0. */
+  rightsSchemaVersion?: number;
   // === Voice pipeline (Phase 2, DESIGN §10) ===
   // Inbound voice loop (VAD/STT → router → TTS). Disabled by default; requires
   // the sherpa-onnx / Kokoro sidecars and is unvalidated against real hardware.
