@@ -114,6 +114,12 @@ export class TS6HttpQuery {
           timeout: timeoutMs,
           headers,
           rejectUnauthorized: false, // self-signed certs common on self-hosted
+          // No keep-alive: Node's global agent reuses sockets the TS6 server
+          // has already idle-closed, and the next request on a stale socket
+          // dies with ECONNRESET ("socket hang up") — seen live as failing
+          // profile updates / server-group enrichment. These are tiny LAN
+          // calls; a fresh connection per request removes the class.
+          agent: false,
         },
         (res) => {
           let data = "";
