@@ -66,6 +66,11 @@ export class CommandExecutor {
     this.radioCommands = new RadioCommands(deps, (provider, ref) => this.resolvePlaylistSongs(provider, ref));
   }
 
+  /** Dead-air auto-program hook for the RadioDirector (docs/radio.md §7). */
+  autoProgramRadio(): Promise<boolean> {
+    return this.radioCommands.autoProgram();
+  }
+
   async execute(cmd: ParsedCommand, msg?: TS3TextMessage): Promise<string | null> {
     if (!this.deps.isConnected() && AUDIO_COMMANDS.has(cmd.name)) {
       throw new Error("Bot is not connected to TeamSpeak");

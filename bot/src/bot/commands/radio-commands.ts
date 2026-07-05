@@ -99,14 +99,24 @@ export class RadioCommands {
       return `Unknown profile '${arg}'.${names.length ? ` Profiles: ${names.join(", ")}` : ""}`;
     }
     radio.activeProfile = arg;
-    const programmed = await this.programFromProfile(profile);
-    return `🎛 Op context: ${arg}. ${programmed}`;
+    const n = await this.programFromProfile(profile);
+    return `🎛 Op context: ${arg}. ${n > 0 ? `Programmed ${n} track${n === 1 ? "" : "s"}.` : "Bumper topics retuned; no music sources matched."}`;
+  }
+
+  /** Dead-air self-heal (§7 `thenAutoProgram`): restock + start music from the
+   *  active profile. False when there is no profile or nothing matched. */
+  async autoProgram(): Promise<boolean> {
+    const radio = this.deps.config.radio;
+    const profile = radio.profiles[radio.activeProfile];
+    if (!profile?.music) return false;
+    return (await this.programFromProfile(profile)) > 0;
   }
 
   /** Build the profile's music pool (§8 selection precedence: tag select +
-   *  playlistRefs, then seedQueries as sparse-data fallback) and replace the
-   *  queue with it. Empty pool → keep whatever is playing (never open a gap). */
-  private async programFromProfile(profile: RadioProfile): Promise<string> {
+   *  playlistRefs, then seedQueries as sparse-data fallback), replace the queue
+   *  with it, and start playback. Returns the pool size; 0 = queue untouched
+   *  (never open a gap). */
+  private async programFromProfile(profile: RadioProfile): Promise<number> {
     const music = profile.music ?? {};
     const pool: QueuedSong[] = [];
 
@@ -131,14 +141,14 @@ export class RadioCommands {
         if (hit) pool.push({ ...hit.song, platform: hit.provider.platform });
       }
     }
-    if (pool.length === 0) return "Bumper topics retuned; no music sources matched.";
+    if (pool.length === 0) return 0;
 
     this.deps.queue.clear();
     for (const song of pool) this.deps.queue.add(song);
     const first = this.deps.queue.play();
     this.deps.player.resetFailures();
     if (first) await this.deps.playback.resolveAndPlay(first);
-    return `Programmed ${pool.length} track${pool.length === 1 ? "" : "s"}.`;
+    return pool.length;
   }
 
   /** Live rotation position (§12: "songs-until-next-bumper"). */

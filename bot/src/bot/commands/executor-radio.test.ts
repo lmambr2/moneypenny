@@ -143,6 +143,17 @@ describe("cmdRadio ops (§8/§12)", () => {
     expect(queue.clear).not.toHaveBeenCalled(); // never opens a gap
   });
 
+  it("autoProgramRadio restocks from the active profile (dead-air self-heal)", async () => {
+    const { ex, radio, queued } = opsHarness();
+    radio.activeProfile = "mining";
+    expect(await ex.autoProgramRadio()).toBe(true);
+    expect(queued.length).toBeGreaterThan(0);
+    radio.activeProfile = "nope"; // no such profile → false, queue untouched
+    const before = queued.length;
+    expect(await ex.autoProgramRadio()).toBe(false);
+    expect(queued.length).toBe(before);
+  });
+
   it("unknown profile lists what exists", async () => {
     const { ex } = opsHarness();
     expect(await run(ex, ["ops", "nope"])).toContain("Unknown profile 'nope'");

@@ -299,6 +299,7 @@ export class BotInstance extends EventEmitter {
       player: this.player,
       bumperFactory,
       playNext: () => this.playNext(),
+      autoProgram: () => this.commands.autoProgramRadio(),
       // §6.3: broadcast floor = intersection of every present member's clearance
       // (idle-poller ClientInfo: uid + serverGroups; the bot itself is skipped).
       resolveFloor: (clients) => {

@@ -47,6 +47,9 @@ export interface RadioDirectorDeps {
   /** Resolve the classification floor from the last-polled channel members
    *  (§6.3). Absent or throwing → the director uses ["unclassified"] (§14). */
   resolveFloor?: (clients: unknown[]) => string[];
+  /** Dead-air self-heal (§7 thenAutoProgram): reprogram + start music from the
+   *  active profile. Resolves false when no profile/source matched. */
+  autoProgram?: () => Promise<boolean>;
   /** Injectable clock (ms epoch) for cooldown/rate tests. */
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -69,6 +72,8 @@ export class RadioDirector {
    *  bypasses the rate/quiet gates but never the classification floor. */
   private cued: { slot?: WheelSlot; sayText?: string } | null = null;
   private skipNext = false;
+  /** Set when a dead-air fill bumper fires: restock music at its trackEnd. */
+  private autoProgramAfterBumper = false;
 
   constructor(private deps: RadioDirectorDeps) {}
 
@@ -99,6 +104,12 @@ export class RadioDirector {
     if (this.pendingAfterBumper) {
       // Our own bumper just ended (§5.2) — consume the boundary, don't re-inject.
       this.pendingAfterBumper = false;
+      if (this.autoProgramAfterBumper) {
+        // Dead-air sequence: the fill bumper has finished — now restock music
+        // from the active profile (it starts playback itself; don't advance).
+        this.autoProgramAfterBumper = false;
+        if (await this.tryAutoProgram()) return "advanced";
+      }
       await this.advance();
       return "advanced";
     }
@@ -263,18 +274,41 @@ export class RadioDirector {
     }
   }
 
-  /** Fill an idle window with a bumper (§5.3). Queue-seeding (`thenAutoProgram`)
-   *  is R-R4; R-R1 just plays a throttled fill and re-arms if still dry. */
+  /** Fill an idle window (§5.3/§7): play a fill bumper, then self-heal the
+   *  queue from the active profile (`thenAutoProgram`, default on). The
+   *  broadcast gates apply only to the bumper — restocking MUSIC is not a
+   *  broadcast, so quiet hours/cooldown never leave the channel silent. */
   private async fillDeadAir(): Promise<void> {
     this.deadAirHandle = null;
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
     if (this.deps.player.getState() !== "idle") return; // music resumed meanwhile
-    if (!this.canBroadcast(cfg)) return;
-    const fill = cfg.clock?.deadAir?.fill ?? (["prerecorded", "stationId"] as const);
-    await this.tryBumper(cfg, { slot: "bumper", sources: [...fill] });
-    // On the fill bumper's trackEnd the pending guard advances; if still dry the
-    // advance re-arms this timer.
+    const wantProgram = cfg.clock?.deadAir?.thenAutoProgram ?? true;
+    if (this.canBroadcast(cfg)) {
+      const fill = cfg.clock?.deadAir?.fill ?? (["prerecorded", "stationId"] as const);
+      if (await this.tryBumper(cfg, { slot: "bumper", sources: [...fill] })) {
+        // Music restock happens at the bumper's trackEnd (single stream).
+        this.autoProgramAfterBumper = wantProgram;
+        return;
+      }
+    }
+    if (wantProgram && (await this.tryAutoProgram())) return;
+    this.armDeadAir(); // nothing to play yet — retry after another window
+  }
+
+  private async tryAutoProgram(): Promise<boolean> {
+    if (!this.deps.autoProgram) return false;
+    try {
+      const ok = await this.deps.autoProgram();
+      if (ok) {
+        this.cancelDeadAir();
+        this.deps.logger.info("radio: dead air — auto-programmed from the active profile");
+      }
+      return ok;
+    } catch (err) {
+      this.deps.logger.warn({ err }, "radio: auto-program failed");
+      return false;
+    }
   }
 
   private armDeadAir(): void {

@@ -22,6 +22,7 @@ function harness(cfgOverrides: Partial<RadioConfig> = {}) {
     say: vi.fn(async (text: string) => ({ path: `/tmp/say-${text.length}.wav`, label: "say" })),
   };
   const playNext = vi.fn(async () => queueHasMore);
+  const autoProgram = vi.fn(async () => false);
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
 
   const director = new RadioDirector({
@@ -29,6 +30,7 @@ function harness(cfgOverrides: Partial<RadioConfig> = {}) {
     player,
     bumperFactory,
     playNext,
+    autoProgram,
     logger,
     now: () => nowMs,
     setTimer: (fn) => {
@@ -43,6 +45,7 @@ function harness(cfgOverrides: Partial<RadioConfig> = {}) {
     player,
     bumperFactory,
     playNext,
+    autoProgram,
     cfg,
     setNow: (ms: number) => (nowMs = ms),
     advanceNow: (ms: number) => (nowMs += ms),
@@ -319,6 +322,64 @@ describe("RadioDirector", () => {
       await Promise.resolve();
       expect(h.bumperFactory.build).toHaveBeenCalledTimes(1);
       expect(h.player.play).toHaveBeenCalledWith("/bumpers/id.mp3", 0, 0, { volumePctFloor: 85 });
+    });
+
+    it("self-heals: bumper first, music restocked from the profile at its end", async () => {
+      h = harness({ everyNSongs: 4, minPresentToBroadcast: 1 });
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false); // queue dry
+      h.autoProgram.mockResolvedValue(true);
+
+      await h.director.onTrackBoundary(); // dry advance → dead-air timer armed
+      h.setPlayerState("idle");
+      h.fireTimers(); // fill fires: bumper plays
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.player.play).toHaveBeenCalledTimes(1);
+      expect(h.autoProgram).not.toHaveBeenCalled(); // not during the bumper (single stream)
+
+      await h.director.onTrackBoundary(); // the fill bumper's own trackEnd
+      expect(h.autoProgram).toHaveBeenCalledTimes(1); // music restocked now
+      expect(h.playNext).toHaveBeenCalledTimes(1); // autoProgram started music itself — no extra advance
+    });
+
+    it("restocks music directly when no fill bumper is available (gates or TTS down)", async () => {
+      h = harness({ minPresentToBroadcast: 5 }); // gate blocks the bumper
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false);
+      h.autoProgram.mockResolvedValue(true);
+
+      await h.director.onTrackBoundary();
+      h.setPlayerState("idle");
+      h.fireTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.player.play).not.toHaveBeenCalled(); // bumper gated
+      expect(h.autoProgram).toHaveBeenCalledTimes(1); // music is NOT a broadcast — restocked anyway
+    });
+
+    it("re-arms and retries when nothing can play (no profile either)", async () => {
+      h = harness({ minPresentToBroadcast: 5 });
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false);
+      await h.director.onTrackBoundary();
+      h.setPlayerState("idle");
+      expect(h.pendingTimerCount()).toBe(1);
+      h.fireTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.pendingTimerCount()).toBe(1); // re-armed for another window
+    });
+
+    it("thenAutoProgram:false keeps the old bumper-only behavior", async () => {
+      h = harness({
+        minPresentToBroadcast: 5,
+        clock: { wheel: [{ slot: "song" }], deadAir: { afterSeconds: 25, fill: ["stationId"], thenAutoProgram: false } },
+      });
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false);
+      await h.director.onTrackBoundary();
+      h.setPlayerState("idle");
+      h.fireTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.autoProgram).not.toHaveBeenCalled();
     });
 
     it("does not fill if music resumed before the timer fired", async () => {
