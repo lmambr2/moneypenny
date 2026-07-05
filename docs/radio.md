@@ -12,10 +12,16 @@
 > key/BPM) and the recommended selection substrate is **your own analyzer-populated
 > tags, not a third-party API**.
 
-**Status:** proposed — the §15 open questions were **resolved 2026-06-30** (decisions
-inline in §15; defaults baked into §11). No code landed beyond the OQ3 measurement
-tool `bot/scripts/library-tag-scan.ts` (§9.5).
-**Gating:** off by default (`radio.enabled = false`).
+**Status:** backend **implemented** (R-R1 – R-R5 mechanism-complete on `dev`,
+2026-07-03; commit refs in §13). The §15 open questions were resolved
+2026-06-30. Still pending: the Vue surfaces (Tracks tag editor, star widget,
+Radio/DJ settings panel), `!radio pin`, opi5 live verification (OQ3 scan,
+analyzer calibration, smoke test), and optional R-R6.
+**Gating:** off by default (`radio.enabled = false`); no profiles ship — author
+them in config before `!radio ops` has anything to switch to.
+**Note:** command registration now goes through the single `COMMAND_MANIFEST`
+(`bot/src/bot/commands.ts`); the multi-list registration described against
+older revisions no longer exists.
 
 ---
 
@@ -559,37 +565,37 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
 
 ## 13. Phasing + acceptance
 
-- [ ] **R-R1 — Director MVP (zero new deps).** `RadioDirector` + pure `FormatClock`
+- [x] **R-R1 — Director MVP** (`8bfac36`, `cc62a7e`, `ae6327e`, `75586aa`). `RadioDirector` + pure `FormatClock`
   + `prerecorded`/`stationId`/`timeCheck`/`nowPlaying` + `SpeechSink` + dead-air
   timer + idle-poller backstop + bumper cache (§6.5). Off by default. **Touches the
   shared `event-bindings.ts` voice seam (§5.1) — coordinate with the voice session.**
   *Accept:* a prerecorded/canned bumper plays every N tracks; a fill fires after
   `deadAirSeconds`; radio-off is byte-identical to today; a TTS outage never opens a
   music gap.
-- [ ] **R-R2 — TagStore + analyzer + index extension (core).** Overlay table,
+- [x] **R-R2 — TagStore + analyzer** (`e9d0e4a`, `846d32d`, `ba02614`, `85eaf6e`, `0184783`). Overlay table,
   `indexFile` reads embedded tags, analyzer sidecar (**keyfinder+aubio default**, OQ2)
   batch + on-ingest, `bumper`-eligible flag + the prerecorded source consuming it.
   *Accept:* a re-analyze pass populates key/BPM (+ mood/genre if Essentia opt-in);
   an uploaded jingle marked `bumper` plays as a bumper and never appears in music
   search.
-- [ ] **R-R3 — Tag editor UI + `@dj` group + star ratings.** `PATCH …/tags` +
+- [x] **R-R3 — backend** (`a13cba6`, `52c309b`, `a7811f9`); **Vue Tracks tab / star widget still pending** (opi5 browser-verify session). `PATCH …/tags` +
   Library Tracks tab + bulk + bumper-flag actions; `@dj` rights entry + granular
   `radio.*` tokens; the `track_ratings` table + `!rate`/`!unrate` + star widget +
   `POST …/rating` + denormalized aggregate (§9.7). *Accept:* a `@dj` user sets tags
   and runs `!radio ops`/`!radio bumper` but cannot toggle power or run
   transport-admin commands; tag edits + ratings persist across re-index;
   `select_tracks ratingMin: 4` returns only station favorites.
-- [ ] **R-R4 — Bumper content engine + `select_tracks` + profiles.** Doctrine/memory
+- [x] **R-R4 — content engine + select_tracks + profiles** (`d528dbe`, `c0014ca`, `fd03d8b`). Doctrine/memory
   → LLM script (`tool_choice:"none"`, capped) with the **classification floor**;
   `select_tracks` tool; profiles bind `music.select` + `playlistRefs` (local + YouTube,
   §8.1) + bumper themes; `!radio ops`. *Accept:* a doctrine note becomes a ≤cap spoken
   bumper; an uncleared member present forces unclassified-only (adversarial floor
   test); `!radio ops mining` shifts both music and bumper topics; LLM/RAG down →
   prerecorded/canned fallback.
-- [ ] **R-R5 — Clock + dayparting + Settings panel.** Custom wheels, quiet hours,
+- [x] **R-R5 — backend** (`e851666`: operator cue/say/skip, flood pin, validated settings branch); **Settings-panel Vue UI still pending**. Custom wheels, quiet hours,
   limits, the Radio/DJ panel + harmonic-sequencing toggle (OQ5). *Accept:* a custom
   wheel honored; quiet hours suppress; limits hold under flood.
-- [ ] **R-R6 (optional) — Broadcast out / relay in + streaming providers (OQ8).**
+- [ ] **R-R6 (optional, not started) — Broadcast out / relay in + streaming providers (OQ8).**
   Icecast tee; `relayUrl`; **Spotify/Tidal `getPlaylistSongs`** (enumerate → resolve
   each track, §8.1); opportunistic Tidal key/BPM + AcousticBrainz fill. *Accept:* same
   program on an Icecast mount; relay profile drops bumpers over a third-party stream;

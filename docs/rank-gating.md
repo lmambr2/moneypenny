@@ -49,10 +49,19 @@ Also available under **Settings → Rights debug**.
 
 | Group | Commands |
 |-------|----------|
-| `@dj` | `stop`, `clear`, `vol`, `mode`, `remove` |
+| `@dj` | `stop`, `clear`, `vol`, `mode`, `remove`, `radio.ops`, `radio.bumper`, `radio.say`, `radio.skip`, `radio.tags` |
 | `@mod` | `move`, `moveclient`, `moveall`, `follow` |
-| `@admin` | All `@dj` + `@mod` + `reindex`, `ingeststatus` |
+| `@admin` | All `@dj` + `@mod` + `reindex`, `ingeststatus`, `radio.power` |
 | `@analyst` | `analyst`, `agent` |
+
+`radio.*` are **sub-command tokens**, not typed commands: `!radio` itself is
+public (status / `ops list`), but the router additionally checks `radio.power`
+for `on`/`off`, `radio.ops` for `ops <profile>`, and `radio.bumper`/`radio.say`/
+`radio.skip` for the operator controls ([docs/radio.md](./radio.md) §12). So a
+section lead in `@dj` can run the station's *programming* without holding
+`radio.power` or any transport-admin rights. `radio.tags` gates the tag-edit
+API (admin-or-`@dj`; the web endpoint is admin-only until the rights engine is
+wired into the music router).
 
 ---
 

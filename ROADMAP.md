@@ -244,3 +244,27 @@ flakes on some videos (age/region) → fall back to streaming, don't save those.
 **Accept:** play a YouTube URL → it streams + a tagged MP3 appears in the library;
 replay the same (or a different URL form of the same video) → served from the
 saved local file, no re-download.
+
+---
+
+## Phase 9 — Radio mode / autonomous DJ (backend shipped 2026-07)
+
+Full design + phasing in **[docs/radio.md](./docs/radio.md)**. Moneypenny runs
+the channel like a station: every *N* tracks (or on dead air) she inserts a
+short **bumper** — a prerecorded jingle, a canned station ID / time check, or a
+doctrine note retrieved at the **classification floor of everyone present**,
+rewritten by the LLM (`tool_choice:"none"`, word-capped) and spoken via TTS.
+`!radio ops <profile>` retunes music selection *and* bumper topics in one
+switch. Built as a thin program director over the existing single-stream
+player — the model is never between a user and the music; every failure falls
+open to `playNext()`.
+
+**Status:** phases R-R1 – R-R5 (director/clock, tag overlay + analyzer,
+ratings + tag/rating API + `@dj` tokens, content engine + `select_tracks` +
+profiles, operator controls + settings) are **mechanism-complete and tested**
+on `dev`; everything ships **off by default** (`radio.enabled=false`, no
+profiles). Remaining: the Vue surfaces (Library Tracks tag editor, star
+widget, Radio/DJ settings panel), `!radio pin`, live verification on the opi5
+(OQ3 tag-coverage scan, keyfinder/aubio calibration, smoke test), and the
+optional R-R6 extensions (Icecast tee, relay-in, Spotify/Tidal playlist
+expansion).
