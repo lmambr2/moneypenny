@@ -156,3 +156,21 @@ describe("AudioPlayer per-play volume floor (radio speech)", () => {
     expect((player as unknown as { playVolumeFloor: number | null }).playVolumeFloor).toBeNull();
   });
 });
+
+describe("speech floor vs STT courtesy duck", () => {
+  it("a floored playback (radio speech) is not buried by the speech duck", () => {
+    const player = new AudioPlayer(silentLogger);
+    player.setVolume(30);
+    (player as unknown as { state: string }).state = "playing";
+    player.duckForStt(2); // someone is talking in channel → duck to 2
+
+    const pcm = Buffer.alloc(4);
+    pcm.writeInt16LE(10000, 0);
+    const apply = (b: Buffer) => (player as unknown as { applyVolume(x: Buffer): Buffer }).applyVolume(b);
+
+    const ducked = apply(pcm).readInt16LE(0); // music under duck: factor 0.004
+    (player as unknown as { playVolumeFloor: number | null }).playVolumeFloor = 85;
+    const bumper = apply(pcm).readInt16LE(0); // bumper: floor beats duck
+    expect(bumper).toBeGreaterThan(ducked * 10);
+  });
+});

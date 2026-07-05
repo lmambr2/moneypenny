@@ -364,8 +364,12 @@ export class AudioPlayer extends EventEmitter {
   }
 
   private applyVolume(pcm: Buffer): Buffer {
-    const base = Math.max(this.volume, this.playVolumeFloor ?? 0);
-    const effectiveVolume = this.sttDuckActive ? this.sttDuckLevel : base;
+    const floor = this.playVolumeFloor ?? 0;
+    const base = Math.max(this.volume, floor);
+    // The courtesy duck (duckMusicOnSpeech) lowers MUSIC while members talk —
+    // but a floored playback IS the bot talking (radio bumper/liner), and the
+    // announcer doesn't duck for chatter: the floor beats the duck too.
+    const effectiveVolume = this.sttDuckActive ? Math.max(this.sttDuckLevel, floor) : base;
     if (effectiveVolume === 100) return Buffer.from(pcm);
     const factor = (effectiveVolume / 100) * 0.2;
     const out = Buffer.alloc(pcm.length);
