@@ -34,6 +34,21 @@ describe("FormatClock", () => {
     expect(c.nextSlot().slot).toBe("song");
   });
 
+  it("songsUntilNonSong counts down as the wheel advances", () => {
+    const c = FormatClock.fromEveryN(2); // [song, song, bumper]
+    expect(c.songsUntilNonSong()).toBe(2);
+    c.nextSlot();
+    expect(c.songsUntilNonSong()).toBe(1);
+    c.nextSlot();
+    expect(c.songsUntilNonSong()).toBe(0); // bumper at the next break
+    c.nextSlot(); // the bumper slot
+    expect(c.songsUntilNonSong()).toBe(2); // wrapped
+  });
+
+  it("songsUntilNonSong is null for an all-song wheel (everyN=0)", () => {
+    expect(FormatClock.fromEveryN(0).songsUntilNonSong()).toBeNull();
+  });
+
   it("peek does not advance", () => {
     const c = FormatClock.fromEveryN(2);
     expect(c.peek().slot).toBe("song");

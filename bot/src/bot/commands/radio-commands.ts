@@ -73,10 +73,10 @@ export class RadioCommands {
           ? "Cued bumper cancelled."
           : "Next scheduled bumper will be skipped.";
       }
-      case "status":
-        return radio.enabled
-          ? `📻 Radio mode ON. ${this.summary(radio)}`
-          : `📻 Radio mode OFF. Use ${p}radio on to start.`;
+      case "status": {
+        if (!radio.enabled) return `📻 Radio mode OFF. Use ${p}radio on to start.`;
+        return `📻 Radio mode ON. ${this.summary(radio)}${this.countdown()}`;
+      }
       default:
         return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip]`;
     }
@@ -139,6 +139,18 @@ export class RadioCommands {
     this.deps.player.resetFailures();
     if (first) await this.deps.playback.resolveAndPlay(first);
     return `Programmed ${pool.length} track${pool.length === 1 ? "" : "s"}.`;
+  }
+
+  /** Live rotation position (§12: "songs-until-next-bumper"). */
+  private countdown(): string {
+    const st = this.deps.radio?.status();
+    if (!st) return "";
+    if (st.cuePending) return " Bumper cued for the next track break.";
+    if (st.skipNextPending) return " Next scheduled bumper will be skipped.";
+    if (st.songsUntilBumper === null) return "";
+    return st.songsUntilBumper === 0
+      ? " Bumper at the next track break."
+      : ` Next bumper in ${st.songsUntilBumper} track${st.songsUntilBumper === 1 ? "" : "s"}.`;
   }
 
   private summary(radio: RadioConfig): string {

@@ -125,3 +125,34 @@ describe("cleanupTempDir", () => {
     expect(() => cleanupTempDir(dir)).not.toThrow();
   });
 });
+
+describe("AudioPlayer per-play volume floor (radio speech)", () => {
+  const pcm = () => {
+    const b = Buffer.alloc(8);
+    for (let i = 0; i < 4; i++) b.writeInt16LE(10000, i * 2);
+    return b;
+  };
+  const apply = (p: AudioPlayer, buf: Buffer) =>
+    (p as unknown as { applyVolume(b: Buffer): Buffer }).applyVolume(buf);
+  const setFloor = (p: AudioPlayer, v: number | null) =>
+    ((p as unknown as { playVolumeFloor: number | null }).playVolumeFloor = v);
+
+  it("speech floor lifts output above a low music slider", () => {
+    const player = new AudioPlayer(silentLogger);
+    player.setVolume(30);
+    const quiet = apply(player, pcm()).readInt16LE(0); // 30 → factor 0.06
+    setFloor(player, 85);
+    const loud = apply(player, pcm()).readInt16LE(0); // max(30,85) → factor 0.17
+    expect(loud).toBeGreaterThan(quiet * 2);
+  });
+
+  it("floor never lowers a higher slider, and stop() clears it", () => {
+    const player = new AudioPlayer(silentLogger);
+    player.setVolume(90);
+    const before = apply(player, pcm()).readInt16LE(0);
+    setFloor(player, 85);
+    expect(apply(player, pcm()).readInt16LE(0)).toBe(before); // max(90,85)=90
+    player.stop();
+    expect((player as unknown as { playVolumeFloor: number | null }).playVolumeFloor).toBeNull();
+  });
+});

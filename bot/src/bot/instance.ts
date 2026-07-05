@@ -225,6 +225,8 @@ export class BotInstance extends EventEmitter {
         cueBumper: (topic) => this.radio.cueBumper(topic),
         cueSay: (text) => this.radio.cueSay(text),
         skipBumper: () => this.radio.skipBumper(),
+        onTrackBoundary: () => this.radio.onTrackBoundary(),
+        status: () => this.radio.status(),
       },
     });
 

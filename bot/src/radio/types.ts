@@ -64,6 +64,9 @@ export interface RadioConfig {
   everyNSongs: number; // default 4; 0 = clock-only (no every-N injection)
   deadAirSeconds: number; // default 25
   maxBumperSeconds: number; // default 30
+  /** Volume floor for spoken bumpers/liners (0-100). Speech plays at
+   *  max(player volume, this) so it cuts through a low music fader. */
+  speechVolumePct: number; // default 85
   minPresentToBroadcast: number;
   cooldownSeconds: number;
   maxBumpersPerHour: number;
@@ -93,6 +96,7 @@ export function defaultRadioConfig(): RadioConfig {
     everyNSongs: 4,
     deadAirSeconds: 25,
     maxBumperSeconds: 30,
+    speechVolumePct: 85,
     minPresentToBroadcast: 1,
     cooldownSeconds: 180,
     maxBumpersPerHour: 12,

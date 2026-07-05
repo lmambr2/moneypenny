@@ -50,6 +50,18 @@ export class FormatClock {
     return this.wheel[this.cursor % this.wheel.length];
   }
 
+  /** Song slots remaining before the next non-song slot fires (0 = the very
+   *  next boundary is a bumper/ID). Null when the wheel never leaves songs. */
+  songsUntilNonSong(): number | null {
+    let songs = 0;
+    for (let i = 0; i < this.wheel.length; i++) {
+      const slot = this.wheel[(this.cursor + i) % this.wheel.length];
+      if (slot.slot !== "song") return songs;
+      songs++;
+    }
+    return null;
+  }
+
   reset(): void {
     this.cursor = 0;
   }

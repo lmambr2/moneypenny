@@ -85,42 +85,46 @@ export class RadioDirector {
   }
 
   /**
-   * A track boundary fired and voice did not resume its saved music. Decide
-   * whether to inject a bumper or advance the queue. This is the seam wired into
-   * `event-bindings.ts` in place of the bare `playNext()` (§5.1).
+   * A track boundary fired — either a natural trackEnd (after voice declined to
+   * resume; wired in `event-bindings.ts`, §5.1) or a manual `!skip` (a skip IS a
+   * track break from the listener's side). Decide whether to inject a bumper or
+   * advance the queue; returns which happened so callers can phrase the reply.
    */
-  async onTrackBoundary(): Promise<void> {
+  async onTrackBoundary(): Promise<"bumper" | "advanced"> {
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) {
       await this.deps.playNext();
-      return;
+      return "advanced";
     }
     if (this.pendingAfterBumper) {
       // Our own bumper just ended (§5.2) — consume the boundary, don't re-inject.
       this.pendingAfterBumper = false;
       await this.advance();
-      return;
+      return "advanced";
     }
     if (this.cued) {
       // Operator cue fires in place of this boundary's slot; the wheel cursor
       // is untouched so rotation resumes exactly where it was.
-      if (!(await this.fireCued(cfg))) await this.advance();
-      return;
+      if (await this.fireCued(cfg)) return "bumper";
+      await this.advance();
+      return "advanced";
     }
     const slot = this.clock().nextSlot();
     if (slot.slot === "song") {
       await this.advance();
-      return;
+      return "advanced";
     }
     if (this.skipNext) {
       this.skipNext = false; // `!radio skip` — drop this bumper slot, music instead
       await this.advance();
-      return;
+      return "advanced";
     }
     if (!this.canBroadcast(cfg) || !(await this.tryBumper(cfg, slot))) {
       await this.advance(); // gate failed or bumper unready → music first
+      return "advanced";
     }
-    // else: the bumper is playing; its trackEnd will drive the next advance.
+    // The bumper is playing; its trackEnd will drive the next advance.
+    return "bumper";
   }
 
   /** `!radio bumper [topic]` (§6.4/§12): cue a bumper — immediate when idle,
@@ -140,6 +144,15 @@ export class RadioDirector {
     if (!cfg.enabled || !this.deps.bumperFactory.say) return "unavailable";
     this.cued = { sayText: text };
     return this.maybeFireNow(cfg);
+  }
+
+  /** Live rotation position for `!radio status` (§12). */
+  status(): { songsUntilBumper: number | null; cuePending: boolean; skipNextPending: boolean } {
+    return {
+      songsUntilBumper: this.deps.getConfig().enabled ? this.clock().songsUntilNonSong() : null,
+      cuePending: this.cued !== null,
+      skipNextPending: this.skipNext,
+    };
   }
 
   /** `!radio skip` (§12): drop the operator cue if present, else the next
@@ -174,7 +187,7 @@ export class RadioDirector {
       this.recordBumper(); // still counts against the hourly window
       this.pendingAfterBumper = true;
       this.deps.player.resetFailures();
-      this.deps.player.play(bumper.path);
+      this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
       this.deps.logger.info({ path: bumper.path, label: bumper.label, forced: true }, "radio: forced bumper");
       return true;
     } catch (err) {
@@ -238,7 +251,7 @@ export class RadioDirector {
       this.recordBumper();
       this.pendingAfterBumper = true;
       this.deps.player.resetFailures();
-      this.deps.player.play(bumper.path);
+      this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
       this.deps.logger.info({ path: bumper.path, label: bumper.label }, "radio: bumper injected");
       return true;
     } catch (err) {

@@ -86,7 +86,7 @@ describe("RadioDirector", () => {
 
       await h.director.onTrackBoundary(); // bumper slot → inject
       expect(h.bumperFactory.build).toHaveBeenCalledTimes(1);
-      expect(h.player.play).toHaveBeenCalledWith("/bumpers/id.mp3");
+      expect(h.player.play).toHaveBeenCalledWith("/bumpers/id.mp3", 0, 0, { volumePctFloor: 85 });
       expect(h.playNext).toHaveBeenCalledTimes(2); // did NOT advance the queue
 
       await h.director.onTrackBoundary(); // the bumper's own trackEnd → guard consumes it
@@ -276,6 +276,34 @@ describe("RadioDirector", () => {
     });
   });
 
+  describe("boundary result + status (skip-as-boundary, countdown)", () => {
+    it("reports 'bumper' when one fires and 'advanced' otherwise", async () => {
+      h = harness({ everyNSongs: 1, minPresentToBroadcast: 1 }); // [song, bumper]
+      h.director.onPoll([], 1);
+      expect(await h.director.onTrackBoundary()).toBe("advanced"); // song slot
+      expect(await h.director.onTrackBoundary()).toBe("bumper"); // bumper slot
+      expect(await h.director.onTrackBoundary()).toBe("advanced"); // bumper's own end
+    });
+
+    it("status exposes the live countdown and pending flags", async () => {
+      h = harness({ everyNSongs: 2, minPresentToBroadcast: 1 });
+      h.director.onPoll([], 1);
+      expect(h.director.status().songsUntilBumper).toBe(2);
+      await h.director.onTrackBoundary();
+      expect(h.director.status().songsUntilBumper).toBe(1);
+      await h.director.cueBumper();
+      expect(h.director.status().cuePending).toBe(true);
+      h.director.skipBumper(); // cancels the cue
+      h.director.skipBumper(); // now flags skip-next
+      expect(h.director.status()).toMatchObject({ cuePending: false, skipNextPending: true });
+    });
+
+    it("status countdown is null when radio is off", () => {
+      h = harness({ enabled: false });
+      expect(h.director.status().songsUntilBumper).toBeNull();
+    });
+  });
+
   describe("dead air", () => {
     it("arms a fill timer when the queue runs dry and fills with a bumper", async () => {
       h = harness({ everyNSongs: 4, minPresentToBroadcast: 1 });
@@ -290,7 +318,7 @@ describe("RadioDirector", () => {
       h.fireTimers();
       await Promise.resolve();
       expect(h.bumperFactory.build).toHaveBeenCalledTimes(1);
-      expect(h.player.play).toHaveBeenCalledWith("/bumpers/id.mp3");
+      expect(h.player.play).toHaveBeenCalledWith("/bumpers/id.mp3", 0, 0, { volumePctFloor: 85 });
     });
 
     it("does not fill if music resumed before the timer fired", async () => {

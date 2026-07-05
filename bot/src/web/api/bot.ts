@@ -226,7 +226,7 @@ export function createBotRouter(
         }
       }
       for (const key of [
-        "everyNSongs", "deadAirSeconds", "maxBumperSeconds",
+        "everyNSongs", "deadAirSeconds", "maxBumperSeconds", "speechVolumePct",
         "minPresentToBroadcast", "cooldownSeconds", "maxBumpersPerHour",
       ] as const) {
         const v = patch[key];
@@ -288,7 +288,7 @@ export function createBotRouter(
       // S1: only known RadioConfig keys pass — an unexpected key is rejected,
       // not silently spread into config.
       const KNOWN_RADIO_KEYS = new Set([
-        "enabled", "everyNSongs", "deadAirSeconds", "maxBumperSeconds",
+        "enabled", "everyNSongs", "deadAirSeconds", "maxBumperSeconds", "speechVolumePct",
         "minPresentToBroadcast", "cooldownSeconds", "maxBumpersPerHour",
         "quietHours", "sources", "memoryBroadcastOptIn", "classificationFloor",
         "activeProfile", "profiles", "clock", "ttsVoice", "bumperDir",

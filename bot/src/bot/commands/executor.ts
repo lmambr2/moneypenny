@@ -39,6 +39,9 @@ export interface CommandExecutorDeps {
     cueBumper(topic?: string): Promise<"played" | "cued" | "unavailable">;
     cueSay(text: string): Promise<"played" | "cued" | "unavailable">;
     skipBumper(): "cue" | "next";
+    /** Manual skip = a track boundary: wheel advances, due/cued bumpers fire. */
+    onTrackBoundary(): Promise<"bumper" | "advanced">;
+    status(): { songsUntilBumper: number | null; cuePending: boolean; skipNextPending: boolean };
   };
 }
 
@@ -206,7 +209,16 @@ export class CommandExecutor {
   }
 
   private async cmdNext(): Promise<string> {
-    await this.deps.playNext();
+    // A manual skip is a track boundary: with radio on, the wheel advances and
+    // a due (or cued) bumper plays instead of jumping straight to the next
+    // song. Radio off → onTrackBoundary is a plain playNext, identical to before.
+    if (this.deps.radio) {
+      if ((await this.deps.radio.onTrackBoundary()) === "bumper") {
+        return "📻 Station break — music resumes after.";
+      }
+    } else {
+      await this.deps.playNext();
+    }
     const current = this.deps.queue.current();
     if (current) return `Now playing: ${current.name} - ${current.artist}`;
     return "Queue is empty";

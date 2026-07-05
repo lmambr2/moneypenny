@@ -91,6 +91,8 @@ export class AudioPlayer extends EventEmitter {
   private encoder: Encoder;
   private state: PlayerState = "idle";
   private volume = 30;
+  /** Per-play floor (see play() opts); null = slider only. */
+  private playVolumeFloor: number | null = null;
   /** Extra attenuation during voice capture — independent of the volume slider. */
   private sttDuckActive = false;
   private sttDuckLevel = 2;
@@ -122,9 +124,13 @@ export class AudioPlayer extends EventEmitter {
     this.logger = logger;
   }
 
-  play(url: string, seekSeconds = 0, songDuration = 0): void {
+  play(url: string, seekSeconds = 0, songDuration = 0, opts?: { volumePctFloor?: number }): void {
     // 1. Stop all current playback; bump sessionId to invalidate stale callbacks.
     this.stop();
+    // Per-play volume floor (radio speech): spoken audio must not ride the
+    // music fader into inaudibility — effective volume is max(slider, floor)
+    // for THIS playback only; cleared by stop()/the next play().
+    this.playVolumeFloor = opts?.volumePctFloor ?? null;
 
     const currentSessionId = this.sessionId; 
     this.currentUrl = url;
@@ -190,6 +196,7 @@ export class AudioPlayer extends EventEmitter {
   }
 
   stop(): void {
+    this.playVolumeFloor = null;
     // 3. Incrementing the ID is the most effective logical "isolation wall".
     this.sessionId++;
     this.frameLoopRunning = false;
@@ -357,7 +364,8 @@ export class AudioPlayer extends EventEmitter {
   }
 
   private applyVolume(pcm: Buffer): Buffer {
-    const effectiveVolume = this.sttDuckActive ? this.sttDuckLevel : this.volume;
+    const base = Math.max(this.volume, this.playVolumeFloor ?? 0);
+    const effectiveVolume = this.sttDuckActive ? this.sttDuckLevel : base;
     if (effectiveVolume === 100) return Buffer.from(pcm);
     const factor = (effectiveVolume / 100) * 0.2;
     const out = Buffer.alloc(pcm.length);

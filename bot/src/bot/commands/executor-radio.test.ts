@@ -148,3 +148,41 @@ describe("cmdRadio ops (§8/§12)", () => {
     expect(await run(ex, ["ops", "nope"])).toContain("Unknown profile 'nope'");
   });
 });
+
+describe("!skip routes through the radio director (skip = boundary)", () => {
+  function skipHarness(result: "bumper" | "advanced") {
+    const radio = {
+      cueBumper: vi.fn(), cueSay: vi.fn(), skipBumper: vi.fn(),
+      onTrackBoundary: vi.fn(async () => result),
+      status: vi.fn(() => ({ songsUntilBumper: null, cuePending: false, skipNextPending: false })),
+    };
+    const playNext = vi.fn();
+    const ex = new CommandExecutor({
+      playback: {} as never,
+      player: {} as never,
+      queue: { current: () => ({ name: "Next Song", artist: "A" }) } as never,
+      config: { commandPrefix: "!", radio: defaultRadioConfig() } as never,
+      profileManager: {} as never,
+      tsClient: {} as never,
+      isConnected: () => true,
+      playNext,
+      getProvider: vi.fn(),
+      radio: radio as never,
+    });
+    return { ex, radio, playNext };
+  }
+
+  it("a due bumper plays on skip and the reply says so", async () => {
+    const { ex, radio, playNext } = skipHarness("bumper");
+    const out = await ex.execute({ name: "skip", args: "", rawArgs: [], flags: new Set() });
+    expect(radio.onTrackBoundary).toHaveBeenCalledTimes(1);
+    expect(playNext).not.toHaveBeenCalled(); // director owns the advance
+    expect(out).toContain("Station break");
+  });
+
+  it("a song slot advances normally with the usual reply", async () => {
+    const { ex } = skipHarness("advanced");
+    const out = await ex.execute({ name: "skip", args: "", rawArgs: [], flags: new Set() });
+    expect(out).toContain("Now playing: Next Song");
+  });
+});
