@@ -1,6 +1,7 @@
 import axios from "axios";
 import type { Logger } from "../logger.js";
 import type { TtsProvider } from "./types.js";
+import { normalizeLoudness } from "./loudness.js";
 
 /**
  * Text-to-speech client for Kokoro-FastAPI (DESIGN §10) — its OpenAI-compatible
@@ -23,6 +24,8 @@ export class KokoroTtsClient implements TtsProvider {
   private logger?: Logger;
   private timeoutMs: number;
 
+  private normalize: (audio: Buffer, format: string, logger?: Logger) => Promise<Buffer>;
+
   constructor(opts: {
     url: string;
     voice?: string;
@@ -30,6 +33,8 @@ export class KokoroTtsClient implements TtsProvider {
     format?: string;
     logger?: Logger;
     timeoutMs?: number;
+    /** Injectable for tests; defaults to ffmpeg loudnorm (see loudness.ts). */
+    normalize?: (audio: Buffer, format: string, logger?: Logger) => Promise<Buffer>;
   }) {
     this.url = opts.url.replace(/\/$/, "");
     this.voice = opts.voice || "bf_emma";
@@ -37,6 +42,7 @@ export class KokoroTtsClient implements TtsProvider {
     this.format = opts.format || "wav";
     this.logger = opts.logger;
     this.timeoutMs = opts.timeoutMs ?? 20_000;
+    this.normalize = opts.normalize ?? normalizeLoudness;
   }
 
   async synthesize(text: string): Promise<{ audio: Buffer; format: string }> {
@@ -46,7 +52,9 @@ export class KokoroTtsClient implements TtsProvider {
       { model: this.model, input: text, voice: this.voice, response_format: this.format },
       { timeout, responseType: "arraybuffer" },
     );
-    const audio = Buffer.from(data);
+    let audio = Buffer.from(data);
+    // Bring speech up to music loudness (fail-open — raw audio on any error).
+    audio = await this.normalize(audio, this.format, this.logger);
     this.logger?.debug({ bytes: audio.length, format: this.format }, "TTS synthesized reply");
     return { audio, format: this.format };
   }
