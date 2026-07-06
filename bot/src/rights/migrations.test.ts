@@ -22,6 +22,7 @@ describe("migrateRightsConfig", () => {
     expect(m.rights!.defaultAllow).toContain("playnext");
     expect(m.rights!.commandGroups!.dj).toContain("radio.say");
     expect(m.rights!.commandGroups!.admin).toContain("radio.power");
+    expect(m.rights!.commandGroups!.admin).toContain("radio.pin");
     expect(m.rights!.commandGroups!.analyst).toContain("intsum");
     expect(m.applied.length).toBeGreaterThan(0);
   });

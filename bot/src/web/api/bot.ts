@@ -58,6 +58,7 @@ export function createBotRouter(
       rights: config.rights ?? null,
       streamBridgeUrl: config.streamBridgeUrl ?? "",
       voice: { ...defaultVoiceConfig(), ...config.voice },
+      radio: { ...defaultRadioConfig(), ...config.radio },
       vectorDbUrl: config.vectorDbUrl ?? "",
       embeddingUrl: config.embeddingUrl ?? "",
       embeddingModel: config.embeddingModel ?? "",
@@ -407,6 +408,36 @@ export function createBotRouter(
       return;
     }
     res.json(await bot.getMemPalaceStatus());
+  });
+
+  // GET /api/bot/radio/status — live director state (admin).
+  router.get("/radio/status", requireAdmin, async (_req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.json({ enabled: config.radio?.enabled ?? false, connected: false });
+      return;
+    }
+    res.json({ connected: true, ...bot.getRadioStatus() });
+  });
+
+  // POST /api/bot/radio/test-bumper — cue a bumper now (admin; needs radio on + TTS/voice).
+  router.post("/radio/test-bumper", requireAdmin, async (req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    if (!(config.radio?.enabled ?? false)) {
+      res.status(409).json({ error: "Radio mode is off — enable it in Settings first", code: "RADIO_OFF" });
+      return;
+    }
+    const topic = typeof req.body?.topic === "string" ? req.body.topic.trim() : undefined;
+    try {
+      const result = await bot.cueRadioBumper(topic || undefined);
+      res.json({ ok: true, result });
+    } catch (err: unknown) {
+      res.status(502).json({ error: errorMessage(err, "bumper cue failed"), code: "RADIO_ERROR" });
+    }
   });
 
   // GET /api/bot/rag/status — knowledge-base configured + vector substrate reachable.

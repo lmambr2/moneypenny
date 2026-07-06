@@ -20,6 +20,18 @@ function build(role: "admin" | "member" | null) {
   return { app, tagStore };
 }
 
+describe("GET /tracks/:id/tags", () => {
+  it("returns overlay tags and aggregate rating", async () => {
+    const { app, tagStore } = build("member");
+    tagStore.upsert("abc", { genre: "ambient", mood: "calm" }, "manual");
+    tagStore.rate("abc", "web:u1", 5);
+    const res = await request(app).get("/tracks/abc/tags");
+    expect(res.status).toBe(200);
+    expect(res.body.tags.genre).toBe("ambient");
+    expect(res.body.rating.count).toBeGreaterThan(0);
+  });
+});
+
 describe("PATCH /tracks/:id/tags", () => {
   it("admin can set selection tags and the bumper flag", async () => {
     const { app, tagStore } = build("admin");

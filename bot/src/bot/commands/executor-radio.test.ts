@@ -122,7 +122,7 @@ describe("cmdRadio ops (§8/§12)", () => {
     const { ex } = opsHarness();
     const out = await run(ex, ["ops", "list"]);
     expect(out).toContain("mining");
-    expect(out).toContain("active: idle");
+    expect(out).toContain("active: lobby");
   });
 
   it("ops <profile> sets the op context and programs music from tags + playlists", async () => {

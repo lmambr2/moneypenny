@@ -103,8 +103,23 @@ export function defaultRadioConfig(): RadioConfig {
     quietHours: [],
     sources: ["prerecorded", "stationId", "timeCheck", "nowPlaying"],
     memoryBroadcastOptIn: false,
-    activeProfile: "idle",
-    profiles: {},
+    activeProfile: "lobby",
+    profiles: {
+      lobby: {
+        name: "lobby",
+        music: { seedQueries: ["chill", "ambient"], shuffle: true },
+        bumper: { topics: ["station", "welcome"] },
+      },
+      focus: {
+        name: "focus",
+        music: {
+          select: { mood: ["calm"], bpmMax: 110 },
+          seedQueries: ["focus", "ambient"],
+          shuffle: true,
+        },
+        bumper: { topics: ["ops", "briefing"] },
+      },
+    },
     ratingWeight: { enabled: true, exponent: 1, maxRatio: 3 },
     harmonicSequencing: false,
   };

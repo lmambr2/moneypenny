@@ -293,6 +293,11 @@ export function createMusicRouter(
     const STRING_TAGS = ["genre", "subgenre", "mood", "musicalKey", "keyScale"] as const;
     const NUMBER_TAGS = ["bpm", "energy", "danceability"] as const;
 
+    router.get("/tracks/:id/tags", (req, res) => {
+      const id = String(req.params.id);
+      res.json({ id, tags: tagStore.get(id), rating: tagStore.getRating(id) });
+    });
+
     router.patch("/tracks/:id/tags", requireAdmin, (req, res) => {
       const id = String(req.params.id);
       const body = (req.body ?? {}) as Record<string, unknown>;

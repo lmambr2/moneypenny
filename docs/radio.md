@@ -13,10 +13,10 @@
 > tags, not a third-party API**.
 
 **Status:** backend **implemented** (R-R1 – R-R5 mechanism-complete on `dev`,
-2026-07-03; commit refs in §13). The §15 open questions were resolved
-2026-06-30. Still pending: the Vue surfaces (Tracks tag editor, star widget,
-Radio/DJ settings panel), `!radio pin`, opi5 live verification (OQ3 scan,
-analyzer calibration, smoke test), and optional R-R6.
+2026-07-03; commit refs in §13). Dashboard surfaces shipped: Settings **Radio /
+DJ** panel, Library **Track tags** editor + star ratings, `!radio pin`
+(pin-to-pool). Still pending: opi5 live verification (OQ3 scan, analyzer
+calibration, smoke test), and optional R-R6.
 **Gating:** off by default (`radio.enabled = false`); no profiles ship — author
 them in config before `!radio ops` has anything to switch to.
 **Note:** command registration now goes through the single `COMMAND_MANIFEST`
@@ -578,7 +578,7 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
   *Accept:* a re-analyze pass populates key/BPM (+ mood/genre if Essentia opt-in);
   an uploaded jingle marked `bumper` plays as a bumper and never appears in music
   search.
-- [x] **R-R3 — backend** (`a13cba6`, `52c309b`, `a7811f9`); **Vue Tracks tab / star widget still pending** (opi5 browser-verify session). `PATCH …/tags` +
+- [x] **R-R3 — backend + Vue** (`a13cba6`, `52c309b`, `a7811f9` + Library track-tags + star widget). `PATCH …/tags` +
   Library Tracks tab + bulk + bumper-flag actions; `@dj` rights entry + granular
   `radio.*` tokens; the `track_ratings` table + `!rate`/`!unrate` + star widget +
   `POST …/rating` + denormalized aggregate (§9.7). *Accept:* a `@dj` user sets tags
@@ -592,7 +592,7 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
   bumper; an uncleared member present forces unclassified-only (adversarial floor
   test); `!radio ops mining` shifts both music and bumper topics; LLM/RAG down →
   prerecorded/canned fallback.
-- [x] **R-R5 — backend** (`e851666`: operator cue/say/skip, flood pin, validated settings branch); **Settings-panel Vue UI still pending**. Custom wheels, quiet hours,
+- [x] **R-R5 — backend + Settings panel** (`e851666` + Radio/DJ panel, test-bumper, status API). Custom wheels, quiet hours,
   limits, the Radio/DJ panel + harmonic-sequencing toggle (OQ5). *Accept:* a custom
   wheel honored; quiet hours suppress; limits hold under flood.
 - [ ] **R-R6 (optional, not started) — Broadcast out / relay in + streaming providers (OQ8).**

@@ -97,6 +97,50 @@
       </div>
     </section>
 
+    <!-- Radio tag overlay (docs/radio.md §9.3) -->
+    <section v-if="store.localRecent.length > 0" class="section">
+      <h2 class="section-title">
+        Track tags
+        <span class="section-count">{{ Math.min(store.localRecent.length, 12) }}</span>
+      </h2>
+      <p class="upload-hint" style="margin-bottom:10px">
+        Tag local tracks for <code>select_tracks</code> / radio profiles. Star ratings feed rotation weighting. Admins can edit tags and mark bumper-eligible assets.
+      </p>
+      <div class="track-tags-table">
+        <div v-for="song in store.localRecent.slice(0, 12)" :key="`tag-${song.id}`" class="track-tags-row">
+          <div class="track-tags-main">
+            <span class="track-tags-name">{{ song.name }}</span>
+            <span class="track-tags-artist">{{ song.artist }}</span>
+          </div>
+          <StarRating
+            :model-value="trackTags[song.id]?.myStars ?? null"
+            :aggregate="trackTags[song.id]?.ratingLabel"
+            :busy="trackTags[song.id]?.ratingBusy"
+            @rate="(n) => rateTrack(song.id, n)"
+            @unrate="() => unrateTrack(song.id)"
+          />
+          <template v-if="session.isAdmin.value && trackTags[song.id]">
+            <input
+              v-model="trackTags[song.id]!.genre"
+              class="input tag-input"
+              placeholder="genre"
+              @blur="saveTrackTags(song.id)"
+            />
+            <input
+              v-model="trackTags[song.id]!.mood"
+              class="input tag-input"
+              placeholder="mood"
+              @blur="saveTrackTags(song.id)"
+            />
+            <label class="bumper-flag">
+              <input type="checkbox" v-model="trackTags[song.id]!.bumper" @change="saveTrackTags(song.id)" />
+              bumper
+            </label>
+          </template>
+        </div>
+      </div>
+    </section>
+
     <!-- Recent Plays (across sources) -->
     <section class="section">
       <h2 class="section-title">Recently Played</h2>
@@ -336,9 +380,23 @@ import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
 import { renderMarkdownPreview } from '../utils/markdownPreview.js';
 import CoverArt from '../components/CoverArt.vue';
 import SongCard from '../components/SongCard.vue';
+import StarRating from '../components/StarRating.vue';
 import SourceTabs from '../components/SourceTabs.vue';
+import { useSession } from '../composables/useSession.js';
 
 const store = usePlayerStore();
+const session = useSession();
+
+interface TrackTagRow {
+  genre: string;
+  mood: string;
+  bumper: boolean;
+  myStars: number | null;
+  ratingLabel: string;
+  ratingBusy: boolean;
+  loaded: boolean;
+}
+const trackTags = ref<Record<string, TrackTagRow>>({});
 
 const history = ref<Song[]>([]);
 const historyLoading = ref(true);
@@ -561,6 +619,7 @@ onMounted(async () => {
   }
 
   store.fetchHomeData();
+  void loadTrackTagsForRecent();
 
   if (store.activeBotId) {
     try {
@@ -580,6 +639,82 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onDoctrineEditorKeydown);
 });
+
+function ensureTagRow(id: string): TrackTagRow {
+  if (!trackTags.value[id]) {
+    trackTags.value[id] = {
+      genre: '',
+      mood: '',
+      bumper: false,
+      myStars: null,
+      ratingLabel: '',
+      ratingBusy: false,
+      loaded: false,
+    };
+  }
+  return trackTags.value[id];
+}
+
+async function loadTrackTagsForRecent() {
+  for (const song of store.localRecent.slice(0, 12)) ensureTagRow(song.id);
+  for (const song of store.localRecent.slice(0, 12)) {
+    try {
+      const res = await api.get(`/api/music/tracks/${encodeURIComponent(song.id)}/tags`);
+      const row = ensureTagRow(song.id);
+      const t = res.data?.tags ?? {};
+      row.genre = t.genre ?? '';
+      row.mood = t.mood ?? '';
+      row.bumper = !!t.bumper;
+      const r = res.data?.rating;
+      if (r?.avg != null && r.count) row.ratingLabel = `${r.avg.toFixed(1)}★ (${r.count})`;
+      row.loaded = true;
+    } catch { /* tag overlay optional */ }
+  }
+}
+
+async function saveTrackTags(id: string) {
+  const row = ensureTagRow(id);
+  try {
+    await api.patch(`/api/music/tracks/${encodeURIComponent(id)}/tags`, {
+      genre: row.genre.trim() || undefined,
+      mood: row.mood.trim() || undefined,
+      bumper: row.bumper,
+    });
+  } catch (err: any) {
+    store.notify(err?.response?.data?.error ?? 'Tag save failed (admin only)', 'error');
+  }
+}
+
+async function rateTrack(id: string, stars: number) {
+  const row = ensureTagRow(id);
+  row.ratingBusy = true;
+  try {
+    const res = await api.post(`/api/music/tracks/${encodeURIComponent(id)}/rating`, { stars });
+    row.myStars = stars;
+    const r = res.data?.rating;
+    if (r?.avg != null && r.count) row.ratingLabel = `${r.avg.toFixed(1)}★ (${r.count})`;
+  } catch (err: any) {
+    store.notify(err?.response?.data?.error ?? 'Rating failed', 'error');
+  } finally {
+    row.ratingBusy = false;
+  }
+}
+
+async function unrateTrack(id: string) {
+  const row = ensureTagRow(id);
+  row.ratingBusy = true;
+  try {
+    const res = await api.delete(`/api/music/tracks/${encodeURIComponent(id)}/rating`);
+    row.myStars = null;
+    const r = res.data?.rating;
+    if (r?.avg != null && r.count) row.ratingLabel = `${r.avg.toFixed(1)}★ (${r.count})`;
+    else row.ratingLabel = '';
+  } catch (err: any) {
+    store.notify(err?.response?.data?.error ?? 'Unrate failed', 'error');
+  } finally {
+    row.ratingBusy = false;
+  }
+}
 
 async function onUpload(e: Event) {
   const input = e.target as HTMLInputElement;
@@ -1320,5 +1455,45 @@ async function refreshIndex() {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+}
+
+.track-tags-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.track-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elev);
+}
+.track-tags-main {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+.track-tags-name {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+}
+.track-tags-artist {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.tag-input {
+  width: 90px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.bumper-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 </style>

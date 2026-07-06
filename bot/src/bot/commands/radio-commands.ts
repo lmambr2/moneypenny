@@ -2,7 +2,7 @@ import type { TS3TextMessage } from "../../ts-protocol/client.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import type { QueuedSong } from "../../audio/queue.js";
 import type { ParsedCommand } from "../commands.js";
-import type { RadioConfig, RadioProfile, TagStore } from "../../radio/index.js";
+import { isUnderBumperDir, pinBumperToPool, type RadioConfig, type RadioProfile, type TagStore } from "../../radio/index.js";
 import type { CommandExecutorDeps } from "./executor.js";
 
 /** Validate raw select_tracks filters (§9.4) — the LLM proposes, the executor
@@ -73,12 +73,24 @@ export class RadioCommands {
           ? "Cued bumper cancelled."
           : "Next scheduled bumper will be skipped.";
       }
+      case "pin": {
+        if (!this.deps.radio) return "Radio controls are not available.";
+        const last = this.deps.radio.getLastPlayedBumper?.() ?? null;
+        const dir = this.deps.getBumperDir?.();
+        if (!dir) return "Bumper pool directory is not configured.";
+        if (last && isUnderBumperDir(last.path, dir)) {
+          return "Last bumper is already in the prerecorded pool.";
+        }
+        const r = pinBumperToPool(last, dir);
+        if (!r.ok) return `Could not pin bumper: ${r.error}`;
+        return `📌 Pinned to prerecorded pool: ${r.dest}`;
+      }
       case "status": {
         if (!radio.enabled) return `📻 Radio mode OFF. Use ${p}radio on to start.`;
         return `📻 Radio mode ON. ${this.summary(radio)}${this.countdown()}`;
       }
       default:
-        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip]`;
+        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip|pin]`;
     }
   }
 

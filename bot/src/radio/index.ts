@@ -32,3 +32,4 @@ export {
   type RadioBumperFactoryDeps,
   type NowPlayingInfo,
 } from "./bumper-factory.js";
+export { pinBumperToPool, isUnderBumperDir, type LastPlayedBumper } from "./pin.js";

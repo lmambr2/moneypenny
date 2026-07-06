@@ -39,10 +39,13 @@ export interface CommandExecutorDeps {
     cueBumper(topic?: string): Promise<"played" | "cued" | "unavailable">;
     cueSay(text: string): Promise<"played" | "cued" | "unavailable">;
     skipBumper(): "cue" | "next";
+    getLastPlayedBumper?(): { path: string; label?: string } | null;
     /** Manual skip = a track boundary: wheel advances, due/cued bumpers fire. */
     onTrackBoundary(): Promise<"bumper" | "advanced">;
     status(): { songsUntilBumper: number | null; cuePending: boolean; skipNextPending: boolean };
   };
+  /** Absolute path to prerecorded bumper assets (`!radio pin`, §6.5). */
+  getBumperDir?: () => string;
 }
 
 /**

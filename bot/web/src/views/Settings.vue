@@ -458,6 +458,71 @@
       <label class="profile-toggle">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">
+            <Icon icon="mdi:radio" class="setting-icon" /> Radio / DJ mode
+          </div>
+          <div class="profile-toggle-hint">
+            Autonomous program director: bumpers every N songs and on dead air, op-context profiles (<code>!radio ops</code>), tag-driven selection. Requires voice TTS for generated liners. Off by default.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioEnabled" />
+      </label>
+
+      <div v-if="ai.radioEnabled" class="form-row" style="margin: 8px 0 4px">
+        <div class="form-group">
+          <label>Bumpers every N songs</label>
+          <input v-model.number="ai.radioEveryNSongs" type="number" min="0" step="1" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Dead air (seconds)</label>
+          <input v-model.number="ai.radioDeadAirSeconds" type="number" min="5" step="1" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Max bumper length (s)</label>
+          <input v-model.number="ai.radioMaxBumperSeconds" type="number" min="5" step="1" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Speech volume floor (%)</label>
+          <input v-model.number="ai.radioSpeechVolumePct" type="number" min="1" max="100" step="1" class="input" />
+        </div>
+      </div>
+
+      <div v-if="ai.radioEnabled" class="form-row" style="margin: 0 0 8px">
+        <div class="form-group" style="flex:1">
+          <label>Active profile</label>
+          <select v-model="ai.radioActiveProfile" class="input">
+            <option v-for="p in ai.radioProfileNames" :key="p" :value="p">{{ p }}</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>&nbsp;</label>
+          <label class="profile-toggle" style="margin:0">
+            <span>Rating-weighted rotation</span>
+            <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioRatingWeight" />
+          </label>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>&nbsp;</label>
+          <label class="profile-toggle" style="margin:0">
+            <span>Analyzer on ingest</span>
+            <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioAnalyzerEnabled" />
+          </label>
+        </div>
+      </div>
+
+      <div v-if="ai.radioEnabled" class="llm-status-card" style="margin-bottom:12px">
+        <button type="button" class="btn-sm" :disabled="radioPanel.busy" @click="refreshRadioStatus">
+          {{ radioPanel.busy ? 'Checking…' : 'Refresh radio status' }}
+        </button>
+        <button type="button" class="btn-sm" style="margin-left:8px" :disabled="radioPanel.testing" @click="testRadioBumper">
+          {{ radioPanel.testing ? 'Cueing…' : 'Test bumper now' }}
+        </button>
+        <p v-if="radioPanel.statusText" class="profile-toggle-hint" style="margin:8px 0 0">{{ radioPanel.statusText }}</p>
+        <p v-if="radioPanel.error" class="user-error">{{ radioPanel.error }}</p>
+      </div>
+
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
             <Icon icon="mdi:book-search-outline" class="setting-icon" /> Knowledge base (RAG)
           </div>
           <div class="profile-toggle-hint">
@@ -1181,6 +1246,21 @@ const ai = reactive({
   voiceRequireWatchword: true,
   voiceDuckMusicOnSpeech: true,
   voiceRespondWithVoice: true,
+  radioEnabled: false,
+  radioEveryNSongs: 4,
+  radioDeadAirSeconds: 25,
+  radioMaxBumperSeconds: 30,
+  radioSpeechVolumePct: 85,
+  radioActiveProfile: 'lobby',
+  radioProfileNames: ['lobby', 'focus'] as string[],
+  radioRatingWeight: true,
+  radioAnalyzerEnabled: false,
+});
+const radioPanel = reactive({
+  busy: false,
+  testing: false,
+  error: '',
+  statusText: '',
 });
 const rightsDebug = reactive({
   uid: '',
@@ -1285,12 +1365,25 @@ async function loadAiSettings() {
     ai.voiceRequireWatchword = voice.requireWatchword !== false;
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
     ai.voiceRespondWithVoice = voice.respondWithVoice !== false;
+    const radio = res.data.radio ?? {};
+    ai.radioEnabled = !!radio.enabled;
+    ai.radioEveryNSongs = radio.everyNSongs ?? 4;
+    ai.radioDeadAirSeconds = radio.deadAirSeconds ?? 25;
+    ai.radioMaxBumperSeconds = radio.maxBumperSeconds ?? 30;
+    ai.radioSpeechVolumePct = radio.speechVolumePct ?? 85;
+    ai.radioActiveProfile = radio.activeProfile ?? 'lobby';
+    ai.radioProfileNames = Object.keys(radio.profiles ?? {}).length
+      ? Object.keys(radio.profiles)
+      : ['lobby', 'focus'];
+    ai.radioRatingWeight = radio.ratingWeight?.enabled !== false;
+    ai.radioAnalyzerEnabled = !!radio.analyzer?.enabled;
   } catch (e) { console.error('Settings load/save failed', e); }
   if (ai.llmEnabled) refreshLlmStatus();
   if (ai.ragEnabled) refreshRagStatus();
   if (ai.streamBridgeUrl.trim()) refreshBridgeStatus();
   if (ai.mempalaceEnabled && ai.mempalaceUrl.trim()) refreshMemPalaceStatus();
   if (ai.voiceEnabled) refreshVoiceStatus();
+  if (ai.radioEnabled) refreshRadioStatus();
 }
 
 function detectLlmPreset(): LlmPresetId {
@@ -1460,6 +1553,41 @@ async function refreshVoiceStatus() {
     voicePanel.ttsAvailable = false;
   } finally {
     voicePanel.checking = false;
+  }
+}
+
+async function refreshRadioStatus() {
+  radioPanel.busy = true;
+  radioPanel.error = '';
+  try {
+    const res = await api.get('/api/bot/radio/status');
+    const s = res.data ?? {};
+    const parts = [
+      s.enabled ? 'ON' : 'OFF',
+      s.activeProfile ? `profile ${s.activeProfile}` : '',
+      s.songsUntilBumper != null ? `next bumper in ${s.songsUntilBumper} track(s)` : '',
+      s.cuePending ? 'bumper cued' : '',
+      s.lastBumper?.label ? `last: ${s.lastBumper.label}` : '',
+    ].filter(Boolean);
+    radioPanel.statusText = parts.join(' · ') || 'No status';
+  } catch (e: any) {
+    radioPanel.error = e?.response?.data?.error ?? 'Radio status unavailable';
+    radioPanel.statusText = '';
+  } finally {
+    radioPanel.busy = false;
+  }
+}
+
+async function testRadioBumper() {
+  radioPanel.testing = true;
+  radioPanel.error = '';
+  try {
+    const res = await api.post('/api/bot/radio/test-bumper', {});
+    radioPanel.statusText = `Test bumper: ${res.data?.result ?? 'ok'}`;
+  } catch (e: any) {
+    radioPanel.error = e?.response?.data?.error ?? 'Test bumper failed';
+  } finally {
+    radioPanel.testing = false;
   }
 }
 
@@ -1635,12 +1763,23 @@ async function saveAiSettings() {
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
       },
+      radio: {
+        enabled: ai.radioEnabled,
+        everyNSongs: ai.radioEveryNSongs,
+        deadAirSeconds: ai.radioDeadAirSeconds,
+        maxBumperSeconds: ai.radioMaxBumperSeconds,
+        speechVolumePct: ai.radioSpeechVolumePct,
+        activeProfile: ai.radioActiveProfile,
+        ratingWeight: { enabled: ai.radioRatingWeight, exponent: 1, maxRatio: 3 },
+        analyzer: { enabled: ai.radioAnalyzerEnabled, tool: 'keyfinder', onIngest: ai.radioAnalyzerEnabled },
+      },
     });
     aiSuccess.value = 'Saved. Applied to running bots.';
     if (ai.llmEnabled) refreshLlmStatus();
     if (ai.ragEnabled) refreshRagStatus();
     if (ai.streamBridgeUrl.trim()) refreshBridgeStatus();
     if (ai.mempalaceEnabled && ai.mempalaceUrl.trim()) refreshMemPalaceStatus();
+    if (ai.radioEnabled) refreshRadioStatus();
   } catch (e: any) {
     aiError.value = e?.response?.data?.error ?? 'Failed to save settings.';
   } finally {

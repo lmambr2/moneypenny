@@ -20,6 +20,7 @@ import type { AudioPlayer } from "../audio/player.js";
 import type { Logger } from "../logger.js";
 import { FormatClock, isWithinQuietHours } from "./clock.js";
 import type { RadioConfig, WheelSlot } from "./types.js";
+import type { LastPlayedBumper } from "./pin.js";
 
 /** A built bumper ready to play: an absolute audio path + an optional label. */
 export interface BuiltBumper {
@@ -74,6 +75,8 @@ export class RadioDirector {
   private skipNext = false;
   /** Set when a dead-air fill bumper fires: restock music at its trackEnd. */
   private autoProgramAfterBumper = false;
+  /** Last bumper that actually started playing — used by `!radio pin` (§6.5). */
+  private lastPlayed: LastPlayedBumper | null = null;
 
   constructor(private deps: RadioDirectorDeps) {}
 
@@ -166,6 +169,11 @@ export class RadioDirector {
     };
   }
 
+  /** Last bumper that started playing (for `!radio pin`). */
+  getLastPlayedBumper(): LastPlayedBumper | null {
+    return this.lastPlayed;
+  }
+
   /** `!radio skip` (§12): drop the operator cue if present, else the next
    *  scheduled bumper slot. Returns which one was skipped. */
   skipBumper(): "cue" | "next" {
@@ -198,6 +206,7 @@ export class RadioDirector {
       this.recordBumper(); // still counts against the hourly window
       this.pendingAfterBumper = true;
       this.deps.player.resetFailures();
+      this.markPlayed(bumper);
       this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
       this.deps.logger.info({ path: bumper.path, label: bumper.label, forced: true }, "radio: forced bumper");
       return true;
@@ -262,6 +271,7 @@ export class RadioDirector {
       this.recordBumper();
       this.pendingAfterBumper = true;
       this.deps.player.resetFailures();
+      this.markPlayed(bumper);
       this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
       this.deps.logger.info({ path: bumper.path, label: bumper.label }, "radio: bumper injected");
       return true;
@@ -369,6 +379,10 @@ export class RadioDirector {
       };
     }
     return this.clockCache.clock;
+  }
+
+  private markPlayed(bumper: BuiltBumper): void {
+    this.lastPlayed = { path: bumper.path, label: bumper.label };
   }
 
   /** Stop timers (bot shutdown / disconnect). */

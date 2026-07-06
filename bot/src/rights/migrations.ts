@@ -44,6 +44,12 @@ const DELTAS: readonly RightsDelta[] = [
       analyst: ["intsum", "aar"],
     },
   },
+  {
+    version: 2,
+    groups: {
+      admin: ["radio.pin"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

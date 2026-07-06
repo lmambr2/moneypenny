@@ -225,9 +225,11 @@ export class BotInstance extends EventEmitter {
         cueBumper: (topic) => this.radio.cueBumper(topic),
         cueSay: (text) => this.radio.cueSay(text),
         skipBumper: () => this.radio.skipBumper(),
+        getLastPlayedBumper: () => this.radio.getLastPlayedBumper(),
         onTrackBoundary: () => this.radio.onTrackBoundary(),
         status: () => this.radio.status(),
       },
+      getBumperDir: () => this.resolveBumperDir(dirname(this.database.db.name)),
     });
 
     this.roast = new RoastService({
@@ -251,11 +253,7 @@ export class BotInstance extends EventEmitter {
     // Bumpers live under the data dir (dirname of the sqlite file) — NOT under
     // MUSIC_DIR, so prerecorded assets are never indexed as songs.
     const dataDir = dirname(this.database.db.name);
-    const radioBumperDir = this.config.radio.bumperDir
-      ? isAbsolute(this.config.radio.bumperDir)
-        ? this.config.radio.bumperDir
-        : join(dataDir, this.config.radio.bumperDir)
-      : join(dataDir, "bumpers");
+    const radioBumperDir = this.resolveBumperDir(dataDir);
     const radioTtsVoice = this.config.radio.ttsVoice ?? this.config.voice.ttsVoice;
     const radioTts: TtsProvider = this.config.voice.ttsUrl
       ? new KokoroTtsClient({ url: this.config.voice.ttsUrl, voice: radioTtsVoice, logger: this.logger })
@@ -582,6 +580,27 @@ export class BotInstance extends EventEmitter {
 
   testVoiceTurn(transcript: string, opts?: { speak?: boolean }) {
     return this.voice.runSyntheticTurn(transcript, opts);
+  }
+
+  /** Prerecorded bumper asset directory (§6.5 pin-to-pool). */
+  resolveBumperDir(dataDir = dirname(this.database.db.name)): string {
+    const custom = this.config.radio.bumperDir;
+    if (custom) return isAbsolute(custom) ? custom : join(dataDir, custom);
+    return join(dataDir, "bumpers");
+  }
+
+  cueRadioBumper(topic?: string) {
+    return this.radio.cueBumper(topic);
+  }
+
+  getRadioStatus() {
+    return {
+      enabled: this.config.radio.enabled,
+      activeProfile: this.config.radio.activeProfile,
+      profiles: Object.keys(this.config.radio.profiles),
+      ...this.radio.status(),
+      lastBumper: this.radio.getLastPlayedBumper(),
+    };
   }
 
   updateRoast(enabled: boolean, minPresent?: number, cooldownMinutes?: number): void {
