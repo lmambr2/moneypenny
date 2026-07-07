@@ -15,10 +15,9 @@
 **Status:** backend **implemented** (R-R1 – R-R5 mechanism-complete on `dev`,
 2026-07-03; commit refs in §13). Dashboard surfaces shipped (`e02b87f`): Settings
 **Radio / DJ** panel, Library **Track tags** editor + star ratings, `!radio pin`
-(pin-to-pool). Pi deployed at `e02b87f`. Still pending: TS live smoke (bumper
-test, `!radio ops`), OQ3 scan on a **full** music corpus (Pi `/music` today is
-mostly `youtube/` + `uploads/` — ~83 tracks, not the org library), analyzer
-calibration, and optional R-R6.
+(pin-to-pool). Pi deployed at `e02b87f`. Still pending: TS live smoke (bumper test, `!radio ops`), **analyzer sidecar**
+(OQ2 decided — keyfinder+aubio; see §15 item 3), re-run OQ3 when a full org
+library is mounted, and optional R-R6.
 **Gating:** off by default (`radio.enabled = false`); no profiles ship — author
 them in config before `!radio ops` has anything to switch to.
 **Note:** command registration now goes through the single `COMMAND_MANIFEST`
@@ -412,10 +411,13 @@ sequencing (OQ5) is a deterministic post-filter on `musicalKey`/`keyScale` in th
 executor — not the model's job.
 
 ### 9.5 Acquiring genre / subgenre / mood / key / BPM / energy
-**Measure first (OQ3).** `bot/scripts/library-tag-scan.ts` is a read-only pass over a
-library that counts existing embedded coverage of genre/BPM/key/mood/subgenre so the
-analyzer choice (OQ2) is data-driven. Run it against the **live opi5 corpus**:
-`cd bot && npx tsx scripts/library-tag-scan.ts /mnt/music`.
+**Measure first (OQ3).** `bot/src/tools/library-tag-scan.ts` counts embedded
+genre/BPM/key/mood/subgenre coverage so the analyzer choice (OQ2) is data-driven:
+
+```bash
+cd bot && npm run scan:tags /path/to/music   # dev
+./scripts/oq3-tag-scan.sh                    # Pi (bot container)
+```
 
 **Primary — local analyzer sidecar (per OQ2: keyfinder-cli + aubio first).**
 A CPU batch + on-ingest pass over `MUSIC_DIR`, results written to the overlay, cached
@@ -623,7 +625,7 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
 The eight design questions are resolved. Defaults are baked into §11.
 
 **Critical-path note:** OQ2, OQ4, and OQ5 all hang off OQ3 → the analyzer. The OQ3
-scan (`bot/scripts/library-tag-scan.ts`) is the dependency root; harmonic sequencing
+scan (`bot/src/tools/library-tag-scan.ts`) is the dependency root; harmonic sequencing
 (OQ5) and Tidal-as-moot (OQ4) ship *decided but dormant* until the analyzer populates
 keys. **R-R1 (Director MVP) is fully independent of all tag/analyzer work** and can
 proceed in parallel.
@@ -646,9 +648,9 @@ OQ3 scan ──decides──▶ OQ2 analyzer ──runs──▶ key/BPM coverag
 3. **Embedded tag coverage** → **measured (2026-07-06, opi5 `./music`, 85 tracks).**
    `bot/src/tools/library-tag-scan.ts` + `./scripts/oq3-tag-scan.sh`. Pi corpus today
    is mostly YouTube auto-saves (`~/moneypenny/music`, 2.2 GiB) — not a separate org
-   library mount. **OQ3 result:** genre **100%**, key/BPM/mood/subgenre **0%** →
-   **OQ2 = keyfinder-cli + aubio** (genre-rich path). Re-run when a full library is
-   mounted (`MUSIC_HOST_DIR` / `MUSIC_DIR` in `.env`).
+   library mount. **OQ3 result:** genre **97.6%** (83/85), BPM/key/mood/subgenre
+   **0%** → **OQ2 = keyfinder-cli + aubio** for key/BPM; mood/subgenre from YouTube
+   genre strings + manual/LLM. Re-run when a full library is mounted (`MUSIC_HOST_DIR`).
 4. **Tidal access tier** → **moot.** The local analyzer (OQ2) is the canonical key/BPM
    source. Treat Tidal as a *playback* source + optional basic-metadata enrichment via
    the **official** API only; do not build on reverse-engineered endpoints.
@@ -679,7 +681,7 @@ API change 2024-11-27 (audio-features/recommendations deprecated for new apps) �
 TIDAL Open API + track key/BPM/djReady metadata · Essentia / libKeyFinder / aubio /
 librosa / bliss-rs (local analysis) · AcousticBrainz (frozen feature dataset) ·
 `DESIGN.md` §4/§8/§9/§10/§14 · `docs/voice.md` · `docs/rank-gating.md` ·
-`docs/rag-ingestion.md` · `bot/scripts/library-tag-scan.ts` (OQ3 scan) ·
+`docs/rag-ingestion.md` · `bot/src/tools/library-tag-scan.ts` · `scripts/oq3-tag-scan.sh` ·
 `bot/src/audio/*` · `bot/src/bot/voice/session.ts` ·
 `bot/src/bot/lifecycle/{event-bindings,idle-poller}.ts` · `bot/src/rag/index.ts` ·
 `bot/src/memory/mempalace-client.ts` · `bot/src/music/local.ts` ·
