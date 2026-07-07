@@ -8,7 +8,7 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-06
 
-### R3 — Pandoc export + workflow docs — `TBD`
+### R3 — Pandoc export + workflow docs — `d327f64`
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
 - **Pandoc export:** `bot/src/docs/export.ts` — markdown → docx/pdf via `pandoc`;
