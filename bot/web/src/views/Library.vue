@@ -535,7 +535,8 @@ async function exportDoctrineDoc(source: string, format: 'docx' | 'pdf' = 'docx'
     const disposition = res.headers['content-disposition'] as string | undefined;
     const match = disposition?.match(/filename="([^"]+)"/);
     const filename = match?.[1] ?? source.replace(/\.(md|markdown)$/i, `.${format}`);
-    const blob = new Blob([res.data], { type: res.headers['content-type'] });
+    const mime = typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : undefined;
+    const blob = new Blob([res.data], { type: mime });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
