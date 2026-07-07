@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:web": "cd web && npm test",
     "test:all": "vitest run && cd web && npm test",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "scan:tags": "tsx src/tools/library-tag-scan.ts"
   },
   "license": "MIT",
   "dependencies": {

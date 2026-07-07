@@ -643,11 +643,12 @@ OQ3 scan ──decides──▶ OQ2 analyzer ──runs──▶ key/BPM coverag
    C). Essentia mood/genre is an **opt-in second pass**, added only once OQ3 shows
    embedded coverage is thin. All analysis is off-peak batch, cached by file hash,
    never blocks playback. *(Gated on OQ3.)*
-3. **Embedded tag coverage** → **measure first.** `bot/scripts/library-tag-scan.ts`
-   ships (commit `0cdb378`); run it on the **live opi5 corpus** — the dev box has no
-   library. Numbers feed OQ2. *(2026-07-06: Pi `/music` mount is sparse — re-run when
-   the full library path is wired; production container has no `scripts/`, use host
-   checkout + `npx tsx` or a one-off Node image with `node_modules`.)*
+3. **Embedded tag coverage** → **measured (2026-07-06, opi5 `./music`, 85 tracks).**
+   `bot/src/tools/library-tag-scan.ts` + `./scripts/oq3-tag-scan.sh`. Pi corpus today
+   is mostly YouTube auto-saves (`~/moneypenny/music`, 2.2 GiB) — not a separate org
+   library mount. **OQ3 result:** genre **100%**, key/BPM/mood/subgenre **0%** →
+   **OQ2 = keyfinder-cli + aubio** (genre-rich path). Re-run when a full library is
+   mounted (`MUSIC_HOST_DIR` / `MUSIC_DIR` in `.env`).
 4. **Tidal access tier** → **moot.** The local analyzer (OQ2) is the canonical key/BPM
    source. Treat Tidal as a *playback* source + optional basic-metadata enrichment via
    the **official** API only; do not build on reverse-engineered endpoints.
