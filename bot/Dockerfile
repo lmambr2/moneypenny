@@ -25,14 +25,41 @@ RUN npm run build
 # are carried into the runtime image.
 RUN npm prune --omit=dev
 
+# ── Stage 1b: radio analyzer CLIs (OQ2 — keyfinder-cli + aubio) ───────────
+# libkeyfinder is not packaged on bookworm — build from source, then keyfinder-cli.
+FROM debian:bookworm-slim AS analyzer
+ARG LIBKEYFINDER_REF=2.2.8
+ARG KEYFINDER_CLI_REF=v1.2.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates cmake g++ git make pkg-config ffmpeg libfftw3-dev \
+    libavformat-dev libavcodec-dev libswresample-dev libavutil-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "${LIBKEYFINDER_REF}" \
+      https://github.com/mixxxdj/libkeyfinder.git /src/libkeyfinder \
+    && cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF \
+        -S /src/libkeyfinder -B /src/libkeyfinder/build \
+    && cmake --build /src/libkeyfinder/build -j"$(nproc)" \
+    && cmake --install /src/libkeyfinder/build \
+    && rm -rf /src/libkeyfinder
+RUN git clone --depth 1 --branch "${KEYFINDER_CLI_REF}" \
+      https://github.com/evanpurkhiser/keyfinder-cli.git /src/keyfinder-cli \
+    && cmake -DCMAKE_INSTALL_PREFIX=/usr/local -S /src/keyfinder-cli -B /src/keyfinder-cli/build \
+    && cmake --build /src/keyfinder-cli/build -j"$(nproc)" \
+    && cmake --install /src/keyfinder-cli/build \
+    && rm -rf /src/keyfinder-cli
+
 # ── Stage 2: runtime ────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS runtime
 
 # Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
+# aubio-tools: BPM detection for the radio analyzer sidecar (docs/radio.md §9.5).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg python3 python3-pip ca-certificates pandoc \
+    ffmpeg python3 python3-pip ca-certificates pandoc aubio-tools libfftw3-double3 \
     && pip3 install --no-cache-dir --break-system-packages yt-dlp \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=analyzer /usr/local/bin/keyfinder-cli /usr/local/bin/keyfinder-cli
+COPY --from=analyzer /usr/local/lib /usr/local/lib
+RUN ldconfig
 
 ENV NODE_ENV=production \
     # Bind all interfaces *inside* the container; the published port is

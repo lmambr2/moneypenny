@@ -471,6 +471,12 @@ export class LocalProvider implements MusicProvider {
     return this.songs.map((s) => ({ absPath: s.absolutePath, trackKey: s.id }));
   }
 
+  /** Resolve a stable public id back to an on-disk path (in-process only). */
+  async pathForId(trackId: string): Promise<string | null> {
+    await this.ensureIndexed();
+    return this.idToPath.get(trackId) ?? null;
+  }
+
   /**
    * Find a track saved from YouTube (filename contains `[videoId]`).
    * Used by !test and YouTube playback to prefer a local copy over streaming.

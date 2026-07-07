@@ -122,5 +122,6 @@ export function defaultRadioConfig(): RadioConfig {
     },
     ratingWeight: { enabled: true, exponent: 1, maxRatio: 3 },
     harmonicSequencing: false,
+    analyzer: { enabled: false, tool: "keyfinder", onIngest: true },
   };
 }

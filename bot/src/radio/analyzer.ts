@@ -80,7 +80,7 @@ export class RadioAnalyzer {
     if (!(await this.available())) return null;
     if (!opts.force) {
       const cur = this.deps.tags.get(t.trackKey);
-      if (cur?.source === "analyzer" && cur.musicalKey && cur.bpm) return null; // already done
+      if (cur?.musicalKey && cur.bpm) return null; // key+BPM already present
     }
     try {
       const [keyOut, bpmOut] = await Promise.all([

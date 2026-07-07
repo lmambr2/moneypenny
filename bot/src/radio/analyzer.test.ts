@@ -47,11 +47,12 @@ describe("RadioAnalyzer", () => {
     expect(tags.get("k")).toMatchObject({ musicalKey: "Am", keyScale: "minor", bpm: 120, source: "analyzer" });
   });
 
-  it("skips a track already analyzed (unless forced)", async () => {
-    const { a, run } = analyzer();
+  it("skips a track that already has key+BPM (unless forced)", async () => {
+    const { a, tags, run } = analyzer();
     await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" });
+    tags.upsert("k", { genre: "ambient" }, "manual"); // manual edits must not force re-analysis
     const callsAfterFirst = (run as ReturnType<typeof vi.fn>).mock.calls.length;
-    expect(await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" })).toBeNull(); // cached
+    expect(await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" })).toBeNull();
     expect((run as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAfterFirst);
     expect(await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" }, { force: true })).not.toBeNull();
   });

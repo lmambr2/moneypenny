@@ -16,7 +16,7 @@ function build(role: "admin" | "member" | null) {
   const app = express();
   app.use(express.json());
   if (role) app.use((req, _res, next) => { req.user = { id: "u1", username: "u", role }; next(); });
-  app.use(createMusicRouter(stub("local"), stub("youtube"), stub("stream"), console as never, tagStore));
+  app.use(createMusicRouter(stub("local"), stub("youtube"), stub("stream"), console as never, { tagStore }));
   return { app, tagStore };
 }
 

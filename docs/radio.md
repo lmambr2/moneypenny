@@ -15,8 +15,9 @@
 **Status:** backend **implemented** (R-R1 – R-R5 mechanism-complete on `dev`,
 2026-07-03; commit refs in §13). Dashboard surfaces shipped (`e02b87f`): Settings
 **Radio / DJ** panel, Library **Track tags** editor + star ratings, `!radio pin`
-(pin-to-pool). Pi deployed at `e02b87f`. Still pending: TS live smoke (bumper test, `!radio ops`), **analyzer sidecar**
-(OQ2 decided — keyfinder+aubio; see §15 item 3), re-run OQ3 when a full org
+(pin-to-pool). Pi deployed at `e02b87f`. **Analyzer sidecar** (OQ2 keyfinder+aubio) ships in the
+bot image + `POST /api/music/analyze` + Library “Analyze library” when enabled in Settings.
+Still pending: TS live smoke (bumper test, `!radio ops`), re-run OQ3 when a full org
 library is mounted, and optional R-R6.
 **Gating:** off by default (`radio.enabled = false`); no profiles ship — author
 them in config before `!radio ops` has anything to switch to.

@@ -106,11 +106,50 @@
       <p class="upload-hint" style="margin-bottom:10px">
         Tag local tracks for <code>select_tracks</code> / radio profiles. Star ratings feed rotation weighting. Admins can edit tags and mark bumper-eligible assets.
       </p>
+      <div v-if="session.isAdmin.value" class="analyzer-row">
+        <button
+          class="refresh-btn"
+          @click="runAnalyzer(false)"
+          :disabled="analyzerBusy || !analyzerStatus?.enabled"
+          title="Run keyfinder+aubio over the full library (enable analyzer in Settings → Radio/DJ first)"
+        >
+          {{ analyzerBusy ? 'Analyzing…' : '⟳ Analyze library' }}
+        </button>
+        <button
+          v-if="analyzerStatus?.enabled"
+          class="clear-btn"
+          @click="runAnalyzer(true)"
+          :disabled="analyzerBusy"
+          title="Re-run key/BPM even when tags already exist"
+        >
+          Force re-analyze
+        </button>
+        <span class="upload-hint analyzer-hint">
+          <template v-if="analyzerStatus?.enabled && analyzerStatus.available">
+            Analyzer ready (keyfinder + aubio). Runs off-peak; does not block playback.
+          </template>
+          <template v-else-if="analyzerStatus?.enabled">
+            Analyzer enabled but CLIs missing in the bot image — rebuild with the latest Dockerfile.
+          </template>
+          <template v-else>
+            Enable <strong>Radio analyzer</strong> in Settings → Radio/DJ to populate key/BPM tags.
+          </template>
+          <span v-if="analyzerMsg"> — {{ analyzerMsg }}</span>
+        </span>
+      </div>
       <div class="track-tags-table">
         <div v-for="song in store.localRecent.slice(0, 12)" :key="`tag-${song.id}`" class="track-tags-row">
           <div class="track-tags-main">
             <span class="track-tags-name">{{ song.name }}</span>
             <span class="track-tags-artist">{{ song.artist }}</span>
+            <span
+              v-if="trackTags[song.id]?.musicalKey || trackTags[song.id]?.bpm"
+              class="track-tags-dsp"
+            >
+              <template v-if="trackTags[song.id]?.musicalKey">{{ trackTags[song.id]!.musicalKey }}</template>
+              <template v-if="trackTags[song.id]?.musicalKey && trackTags[song.id]?.bpm"> · </template>
+              <template v-if="trackTags[song.id]?.bpm">{{ trackTags[song.id]!.bpm }} bpm</template>
+            </span>
           </div>
           <StarRating
             :model-value="trackTags[song.id]?.myStars ?? null"
@@ -399,6 +438,8 @@ const session = useSession();
 interface TrackTagRow {
   genre: string;
   mood: string;
+  musicalKey: string;
+  bpm: number | null;
   bumper: boolean;
   myStars: number | null;
   ratingLabel: string;
@@ -406,6 +447,9 @@ interface TrackTagRow {
   loaded: boolean;
 }
 const trackTags = ref<Record<string, TrackTagRow>>({});
+const analyzerStatus = ref<{ enabled: boolean; available: boolean; onIngest?: boolean } | null>(null);
+const analyzerBusy = ref(false);
+const analyzerMsg = ref('');
 
 const history = ref<Song[]>([]);
 const historyLoading = ref(true);
@@ -677,6 +721,7 @@ onMounted(async () => {
 
   store.fetchHomeData();
   void loadTrackTagsForRecent();
+  if (session.isAdmin.value) void loadAnalyzerStatus();
 
   if (store.activeBotId) {
     try {
@@ -702,6 +747,8 @@ function ensureTagRow(id: string): TrackTagRow {
     trackTags.value[id] = {
       genre: '',
       mood: '',
+      musicalKey: '',
+      bpm: null,
       bumper: false,
       myStars: null,
       ratingLabel: '',
@@ -721,11 +768,38 @@ async function loadTrackTagsForRecent() {
       const t = res.data?.tags ?? {};
       row.genre = t.genre ?? '';
       row.mood = t.mood ?? '';
+      row.musicalKey = t.musicalKey ?? '';
+      row.bpm = typeof t.bpm === 'number' ? t.bpm : null;
       row.bumper = !!t.bumper;
       const r = res.data?.rating;
       if (r?.avg != null && r.count) row.ratingLabel = `${r.avg.toFixed(1)}★ (${r.count})`;
       row.loaded = true;
     } catch { /* tag overlay optional */ }
+  }
+}
+
+async function loadAnalyzerStatus() {
+  try {
+    const res = await api.get('/api/music/analyze/status');
+    analyzerStatus.value = res.data;
+  } catch {
+    analyzerStatus.value = null;
+  }
+}
+
+async function runAnalyzer(force: boolean) {
+  analyzerBusy.value = true;
+  analyzerMsg.value = '';
+  try {
+    const res = await api.post('/api/music/analyze', { force });
+    const a = res.data?.analyzed ?? 0;
+    const s = res.data?.skipped ?? 0;
+    analyzerMsg.value = `Done — analyzed ${a}, skipped ${s}.`;
+    await loadTrackTagsForRecent();
+  } catch (err: any) {
+    analyzerMsg.value = err?.response?.data?.error ?? 'Analyze failed.';
+  } finally {
+    analyzerBusy.value = false;
   }
 }
 
@@ -1209,6 +1283,11 @@ async function refreshIndex() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: min(40vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
 }
 
 .upload-file-row {
@@ -1315,17 +1394,29 @@ async function refreshIndex() {
 .doctrine-list {
   display: flex;
   flex-direction: column;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elev);
 }
 
 .doctrine-item {
   border-bottom: 1px solid var(--border);
+
+  &:last-child {
+    border-bottom: none;
+  }
 }
 
 .doctrine-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 0;
+  padding: 6px 10px;
 }
 
 .doctrine-source {
@@ -1426,7 +1517,7 @@ async function refreshIndex() {
 }
 
 .doctrine-editor {
-  margin: 4px 0 12px;
+  margin: 4px 10px 12px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1532,10 +1623,30 @@ async function refreshIndex() {
   margin-top: 10px;
 }
 
+.analyzer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.analyzer-hint {
+  flex: 1;
+  min-width: 200px;
+}
+
 .track-tags-table {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.track-tags-dsp {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-family: ui-monospace, monospace;
 }
 .track-tags-row {
   display: flex;

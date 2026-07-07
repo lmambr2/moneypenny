@@ -758,6 +758,15 @@
   .step-content h2 {
     font-size: 24px !important;
   }
+
+  /* Library — scrollable file / doctrine panels */
+  .upload-file-list {
+    max-height: min(32vh, 240px) !important;
+  }
+
+  .doctrine-list {
+    max-height: min(45vh, 400px) !important;
+  }
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {

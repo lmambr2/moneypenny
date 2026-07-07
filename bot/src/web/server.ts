@@ -20,7 +20,7 @@ import { createAuditRouter } from "./api/audit.js";
 import { createRagRouter } from "./api/rag.js";
 import type { RetrievalStore } from "../rag/index.js";
 import type { DoctrineStore } from "../data/doctrine.js";
-import type { TagStore } from "../radio/index.js";
+import type { RadioAnalyzer, TagStore } from "../radio/index.js";
 import { setupWebSocket } from "./websocket.js";
 import { createUserStore } from "../data/users.js";
 import { createSessionStore } from "../data/sessions.js";
@@ -53,6 +53,8 @@ export interface WebServerOptions {
   doctrine?: DoctrineStore;
   /** Radio tag overlay (docs/radio.md §9). Enables the tag/rating endpoints. */
   tagStore?: TagStore;
+  /** Radio analyzer sidecar (docs/radio.md §9.5). Enables analyze API + on-ingest. */
+  radioAnalyzer?: RadioAnalyzer;
 }
 
 export interface WebServer {
@@ -134,7 +136,11 @@ export function createWebServer(options: WebServerOptions): WebServer {
   );
   app.use(
     "/api/music",
-    createMusicRouter(options.localProvider, options.youtubeProvider, options.streamProvider, logger, options.tagStore)
+    createMusicRouter(options.localProvider, options.youtubeProvider, options.streamProvider, logger, {
+      tagStore: options.tagStore,
+      radioAnalyzer: options.radioAnalyzer,
+      getRadioConfig: () => options.config.radio,
+    })
   );
   app.use("/api/player", createPlayerRouter(options.botManager, logger, options.database));
   app.use(

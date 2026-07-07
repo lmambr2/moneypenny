@@ -8,7 +8,21 @@ import { createRateLimit } from "../middleware/rateLimit.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 import { errorCode, errorMessage } from "../../util/error.js";
 import { multerArray, uploadedFiles } from "./upload.js";
-import type { TagStore, TrackTags } from "../../radio/index.js";
+import type { LocalProvider } from "../../music/local.js";
+import type { RadioAnalyzer, TagStore, TrackTags } from "../../radio/index.js";
+import type { RadioConfig } from "../../radio/types.js";
+
+function asLocalProvider(provider: MusicProvider): LocalProvider | null {
+  return "listForAnalysis" in provider && typeof (provider as LocalProvider).listForAnalysis === "function"
+    ? (provider as LocalProvider)
+    : null;
+}
+
+export interface MusicRouterOptions {
+  tagStore?: TagStore;
+  radioAnalyzer?: RadioAnalyzer;
+  getRadioConfig?: () => RadioConfig;
+}
 
 const MAX_SEARCH_LIMIT = 50;
 
@@ -23,9 +37,27 @@ export function createMusicRouter(
   youtubeProvider: MusicProvider,
   streamProvider: MusicProvider,
   logger: Logger,
-  tagStore?: TagStore
+  options: MusicRouterOptions = {}
 ): Router {
+  const { tagStore, radioAnalyzer, getRadioConfig } = options;
   const router = Router();
+
+  function scheduleIngestAnalysis(trackIds: string[]): void {
+    const cfg = getRadioConfig?.();
+    if (!radioAnalyzer || !cfg?.analyzer?.enabled || !cfg.analyzer.onIngest) return;
+    const local = asLocalProvider(localProvider);
+    if (!local) return;
+    void (async () => {
+      for (const id of trackIds) {
+        try {
+          const absPath = await local.pathForId(id);
+          if (absPath) await radioAnalyzer.analyzeTrack({ absPath, trackKey: id });
+        } catch (err) {
+          logger.warn({ err, trackId: id }, "radio analyzer: on-ingest failed");
+        }
+      }
+    })();
+  }
 
   function getProvider(platform?: string): MusicProvider {
     if (platform === "local") return localProvider;
@@ -225,6 +257,10 @@ export function createMusicRouter(
           await localProvider.refresh();
         }
 
+        if (uploaded.length > 0) {
+          scheduleIngestAnalysis(uploaded.map((s) => s.id));
+        }
+
         res.json({
           success: uploaded.length > 0,
           uploaded,
@@ -283,6 +319,66 @@ export function createMusicRouter(
       res.status(500).json({ error: errorMessage(err, "Refresh failed"), code: "INTERNAL_ERROR" });
     }
   });
+
+  // ─── Radio analyzer (docs/radio.md §9.5, OQ2) ─────────────────────────────
+  if (radioAnalyzer) {
+    router.get("/analyze/status", requireAdmin, async (_req, res) => {
+      try {
+        const cfg = getRadioConfig?.();
+        res.json({
+          enabled: !!cfg?.analyzer?.enabled,
+          onIngest: !!cfg?.analyzer?.onIngest,
+          available: await radioAnalyzer.available(),
+        });
+      } catch (err) {
+        logger.error({ err }, "analyzer status failed");
+        res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
+      }
+    });
+
+    router.post("/analyze", requireAdmin, async (req, res) => {
+      const cfg = getRadioConfig?.();
+      if (!cfg?.analyzer?.enabled) {
+        res.status(400).json({
+          error: "Radio analyzer is disabled — enable it in Settings → Radio/DJ",
+          code: "DISABLED",
+        });
+        return;
+      }
+      const local = asLocalProvider(localProvider);
+      if (!local) {
+        res.status(501).json({ error: "Analyzer requires the local music provider", code: "NOT_IMPLEMENTED" });
+        return;
+      }
+      const force = !!(req.body as { force?: boolean })?.force;
+      const trackId = (req.body as { trackId?: string })?.trackId?.trim();
+      try {
+        if (trackId) {
+          const absPath = await local.pathForId(trackId);
+          if (!absPath) {
+            res.status(404).json({ error: "Track not found in library index", code: "NOT_FOUND" });
+            return;
+          }
+          const result = await radioAnalyzer.analyzeTrack({ absPath, trackKey: trackId }, { force });
+          res.json({
+            success: true,
+            trackId,
+            analyzed: result ? 1 : 0,
+            skipped: result ? 0 : 1,
+            result,
+            tags: tagStore?.get(trackId) ?? null,
+          });
+          return;
+        }
+        const tracks = await local.listForAnalysis();
+        const tally = await radioAnalyzer.analyzeAll(tracks, { force });
+        res.json({ success: true, trackCount: tracks.length, ...tally });
+      } catch (err) {
+        logger.error({ err }, "analyzer batch failed");
+        res.status(500).json({ error: errorMessage(err, "Analyze failed"), code: "INTERNAL_ERROR" });
+      }
+    });
+  }
 
   // ─── Radio tag overlay (docs/radio.md §9.3) ───────────────────────────────
   // Admin-gated like the rest of the mutating music API. ponytail: @dj web

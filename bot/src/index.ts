@@ -230,6 +230,7 @@ async function main() {
     configPath: CONFIG_PATH,
     logger,
     tagStore,
+    radioAnalyzer,
     staticDir: STATIC_DIR,
     retrieval,
     doctrine,
