@@ -30,7 +30,7 @@ FROM node:20-bookworm-slim AS runtime
 
 # Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg python3 python3-pip ca-certificates \
+    ffmpeg python3 python3-pip ca-certificates pandoc \
     && pip3 install --no-cache-dir --break-system-packages yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 

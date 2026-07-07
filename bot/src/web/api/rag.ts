@@ -11,6 +11,14 @@ import {
   type IngestedDoc,
 } from "../../rag/doctrine-ingest.js";
 import type { Logger } from "../../logger.js";
+import {
+  exportContentType,
+  exportFilename,
+  exportMarkdown,
+  ExportError,
+  isPandocAvailable,
+  parseExportFormat,
+} from "../../docs/export.js";
 import { errorMessage } from "../../util/error.js";
 import { multerArray, uploadedFiles } from "./upload.js";
 
@@ -89,6 +97,44 @@ Body markdown…
 
   router.get("/doctrine", (_req, res) => {
     res.json({ docs: doctrine.list() });
+  });
+
+  router.get("/doctrine/export/capabilities", async (_req, res) => {
+    const pandoc = await isPandocAvailable();
+    res.json({
+      pandoc,
+      formats: pandoc ? (["docx", "pdf"] as const) : [],
+    });
+  });
+
+  router.get("/doctrine/:source/export", async (req, res) => {
+    const source = decodeURIComponent(req.params.source);
+    if (!doctrine.safeName(source)) {
+      res.status(400).json({ error: "invalid doctrine source path", code: "VALIDATION_ERROR" });
+      return;
+    }
+    const format = parseExportFormat(req.query.format) ?? "docx";
+    const content = doctrine.readFile(source);
+    if (content == null) {
+      res.status(404).json({ error: "doctrine not found", code: "NOT_FOUND" });
+      return;
+    }
+    try {
+      const buffer = await exportMarkdown(content, format);
+      const filename = exportFilename(source, format);
+      res.setHeader("Content-Type", exportContentType(format));
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } catch (err: unknown) {
+      if (err instanceof ExportError) {
+        const status =
+          err.code === "PANDOC_UNAVAILABLE" ? 503 : err.code === "EMPTY" ? 400 : 502;
+        res.status(status).json({ error: err.message, code: err.code });
+        return;
+      }
+      logger.error({ err, source, format }, "Doctrine export failed");
+      res.status(502).json({ error: errorMessage(err, "export failed"), code: "EXPORT_ERROR" });
+    }
   });
 
   router.post("/doctrine/new", async (req, res) => {

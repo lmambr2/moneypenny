@@ -7,6 +7,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { createRagRouter } from "./rag.js";
 import { DoctrineStore } from "../../data/doctrine.js";
+import * as exportMod from "../../docs/export.js";
 
 describe("rag router", () => {
   let dir: string;
@@ -60,6 +61,40 @@ describe("rag router", () => {
     expect(res.body.selective).toBe(true);
     expect(res.body.reindexed).toBe(1);
     expect(retrieval.ingest).toHaveBeenCalledTimes(1);
+  });
+
+  it("GET /doctrine/export/capabilities reports pandoc availability", async () => {
+    vi.spyOn(exportMod, "isPandocAvailable").mockResolvedValue(true);
+    const { app: a } = app();
+    const res = await request(a).get("/doctrine/export/capabilities");
+    expect(res.status).toBe(200);
+    expect(res.body.pandoc).toBe(true);
+    expect(res.body.formats).toEqual(["docx", "pdf"]);
+  });
+
+  it("GET /doctrine/:source/export returns docx attachment", async () => {
+    doctrine.saveFile("reports/aar-2026-06-21.md", "---\nclassification: unclassified\n---\n\n# AAR");
+    vi.spyOn(exportMod, "exportMarkdown").mockResolvedValue(Buffer.from("PK"));
+    const { app: a } = app();
+    const res = await request(a).get("/doctrine/reports%2Faar-2026-06-21.md/export?format=docx");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("wordprocessingml");
+    expect(res.headers["content-disposition"]).toContain("aar-2026-06-21.docx");
+    expect(exportMod.exportMarkdown).toHaveBeenCalledWith(
+      expect.stringContaining("# AAR"),
+      "docx",
+    );
+  });
+
+  it("GET /doctrine/:source/export returns 503 when pandoc is missing", async () => {
+    doctrine.saveFile("note.md", "# Note");
+    vi.spyOn(exportMod, "exportMarkdown").mockRejectedValue(
+      new exportMod.ExportError("PANDOC_UNAVAILABLE", "pandoc is not installed or not on PATH"),
+    );
+    const { app: a } = app();
+    const res = await request(a).get("/doctrine/note.md/export");
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("PANDOC_UNAVAILABLE");
   });
 
   it("GET /doctrine/:source returns file content", async () => {

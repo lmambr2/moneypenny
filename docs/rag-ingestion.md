@@ -29,6 +29,14 @@ Verify: `GET /api/rag/doctrine` lists the corpus; `!ask <question>` or
 `!analyst <task>` retrieves (delegate path needs `llmDelegateUrl` in Settings —
 see [remote-llm.md](./remote-llm.md)).
 
+## Export to Word (R3)
+
+When a doc is in the corpus, admins can download a **`.docx`** from **Library → Doctrine →
+Export** (or `GET /api/rag/doctrine/:source/export?format=docx`). Requires `pandoc` on the
+bot host (included in the production Docker image). See [r3-workflows.md](./r3-workflows.md).
+
+---
+
 ## Document format (frontmatter → classification + tags)
 
 A doctrine doc is plain Markdown with an optional YAML-ish frontmatter block.

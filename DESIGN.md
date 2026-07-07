@@ -416,6 +416,11 @@ its executor makes an HTTP call to the delegate host and relays the result.
 The cleanest architectural fit — it's what the tool layer is for. **Build the tool layer as an MCP client** so HA / media / scripts are MCP servers: decoupled, swappable, auditable. Enforcement per the security principle above. `trigger_script` is the highest-risk tool imaginable here — make it an **allowlist of specific named actions, never a generic "run arbitrary command."** Heavy orchestration belongs on the separate box (R1), not stacked on the Pi.
 
 ### R3 — Org document workflows (INTSUMs / mission logs / AARs)
+> **Status (2026-07): MVP shipped.** `!intsum` / `!aar` (templated bullets → delegate LLM),
+> `!analyst -s` (arbitrary reports), async ack + doctrine save (`-s`), Pandoc **docx** export
+> via `GET /api/rag/doctrine/:source/export` + Library **Export** button (`bot/src/docs/export.ts`;
+> `pandoc` in `bot/Dockerfile`). See `docs/r3-workflows.md`.
+
 Appealing for the org, but the on-NPU small model + 2048-token context **cannot** do the ambitious version (full-transcript ingestion, long AARs, RAG over doctrine). Scope it: **short, templated docs where the human supplies the key points and the model fills a template** run on the Pi; route real doc generation (long context, RAG) to the heavy model via R1, with the bot as the voice front-end that drops the result in chat or shared storage. Export via Pandoc (light) over LibreOffice-headless. Rank-gate official doc generation.
 
 ### R4 — Voice-commanded channel moves (`clientmove`)

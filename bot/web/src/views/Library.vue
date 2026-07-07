@@ -312,6 +312,15 @@ Body markdown…</pre>
             >
               {{ editingSource === d.source ? 'Close' : 'Edit' }}
             </button>
+            <button
+              v-if="exportAvailable"
+              class="doctrine-export-btn"
+              @click="exportDoctrineDoc(d.source)"
+              :disabled="doctrineBusy"
+              title="Download Word (.docx) via Pandoc"
+            >
+              Export
+            </button>
             <button class="btn-delete" @click="deleteDoctrine(d.source)" title="Delete + purge from the knowledge base">✕</button>
           </div>
 
@@ -418,6 +427,7 @@ const editorPreviewHtml = computed(() => renderMarkdownPreview(editorContent.val
 const showNewDoc = ref(false);
 const newDocPath = ref('');
 const doctrineFilter = ref('');
+const exportAvailable = ref(false);
 
 const filteredDoctrine = computed(() => {
   const q = doctrineFilter.value.trim().toLowerCase();
@@ -503,6 +513,51 @@ async function loadDoctrine() {
     const res = await api.get('/api/rag/doctrine');
     doctrine.value = res.data.docs ?? [];
   } catch { /* RAG off or not admin — leave empty */ }
+}
+
+async function loadExportCapabilities() {
+  try {
+    const res = await api.get('/api/rag/doctrine/export/capabilities');
+    exportAvailable.value = res.data.pandoc === true;
+  } catch {
+    exportAvailable.value = false;
+  }
+}
+
+async function exportDoctrineDoc(source: string, format: 'docx' | 'pdf' = 'docx') {
+  doctrineBusy.value = true;
+  doctrineMsg.value = '';
+  try {
+    const res = await api.get(`/api/rag/doctrine/${encodeURIComponent(source)}/export`, {
+      params: { format },
+      responseType: 'blob',
+    });
+    const disposition = res.headers['content-disposition'] as string | undefined;
+    const match = disposition?.match(/filename="([^"]+)"/);
+    const filename = match?.[1] ?? source.replace(/\.(md|markdown)$/i, `.${format}`);
+    const blob = new Blob([res.data], { type: res.headers['content-type'] });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    doctrineMsg.value = `Exported ${filename}.`;
+  } catch (err: any) {
+    const data = err?.response?.data;
+    if (data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await data.text()) as { error?: string };
+        doctrineMsg.value = parsed.error ?? 'Export failed.';
+      } catch {
+        doctrineMsg.value = 'Export failed.';
+      }
+    } else {
+      doctrineMsg.value = data?.error ?? 'Export failed.';
+    }
+  } finally {
+    doctrineBusy.value = false;
+  }
 }
 async function onDoctrineUpload(e: Event) {
   const input = e.target as HTMLInputElement;
@@ -612,6 +667,7 @@ watch(userSource, (v) => saveTabSource('library.user', v));
 
 onMounted(async () => {
   loadDoctrine();
+  void loadExportCapabilities();
   window.addEventListener('keydown', onDoctrineEditorKeydown);
 
   if (!store.activeBotId) {
@@ -1332,6 +1388,24 @@ async function refreshIndex() {
   color: var(--accent);
 }
 .doctrine-edit-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.doctrine-export-btn {
+  font-size: var(--fs-xs);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.doctrine-export-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.doctrine-export-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }

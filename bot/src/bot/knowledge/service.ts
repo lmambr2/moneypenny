@@ -8,6 +8,7 @@ import { startFileDropWatcher, FILE_DROP_CHANNEL_NAME } from "../../ingest/file-
 import type { RetrievalStore } from "../../rag/index.js";
 import type { WorkflowKind } from "../../docs/workflow.js";
 import { analystSavePath } from "../../docs/analyst.js";
+import { stripSourcesFooter } from "../../docs/export.js";
 import { workflowSavePath } from "../../docs/workflow.js";
 import { ingestDoctrineDoc, reindexDoctrine, reindexDoctrineSources } from "../../rag/doctrine-ingest.js";
 
@@ -229,11 +230,4 @@ export class KnowledgeService {
       return { ok: false, error: "ingest failed — check vector DB and embeddings" };
     }
   }
-}
-
-/** Drop the deterministic citation footer before persisting generated docs. */
-function stripSourcesFooter(text: string): string {
-  const marker = "\n\n📎 Sources:";
-  const idx = text.indexOf(marker);
-  return idx >= 0 ? text.slice(0, idx) : text;
 }

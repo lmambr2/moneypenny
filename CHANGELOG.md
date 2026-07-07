@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-06
 
+### R3 — Pandoc export + workflow docs — `TBD`
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **Pandoc export:** `bot/src/docs/export.ts` — markdown → docx/pdf via `pandoc`;
+  `GET /api/rag/doctrine/:source/export`, capabilities probe, Library **Export** button.
+- **Docker:** `pandoc` added to `bot/Dockerfile` runtime image.
+- **Docs:** `docs/r3-workflows.md` (INTSUM/AAR/analyst + export); `docs/rag-ingestion.md`
+  export section; DESIGN §R3 status updated.
+
 ### Radio dashboard + `!radio pin` — `e02b87f`
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
