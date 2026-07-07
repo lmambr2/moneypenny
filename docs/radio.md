@@ -13,10 +13,12 @@
 > tags, not a third-party API**.
 
 **Status:** backend **implemented** (R-R1 – R-R5 mechanism-complete on `dev`,
-2026-07-03; commit refs in §13). Dashboard surfaces shipped: Settings **Radio /
-DJ** panel, Library **Track tags** editor + star ratings, `!radio pin`
-(pin-to-pool). Still pending: opi5 live verification (OQ3 scan, analyzer
-calibration, smoke test), and optional R-R6.
+2026-07-03; commit refs in §13). Dashboard surfaces shipped (`e02b87f`): Settings
+**Radio / DJ** panel, Library **Track tags** editor + star ratings, `!radio pin`
+(pin-to-pool). Pi deployed at `e02b87f`. Still pending: TS live smoke (bumper
+test, `!radio ops`), OQ3 scan on a **full** music corpus (Pi `/music` today is
+mostly `youtube/` + `uploads/` — ~83 tracks, not the org library), analyzer
+calibration, and optional R-R6.
 **Gating:** off by default (`radio.enabled = false`); no profiles ship — author
 them in config before `!radio ops` has anything to switch to.
 **Note:** command registration now goes through the single `COMMAND_MANIFEST`
@@ -643,7 +645,9 @@ OQ3 scan ──decides──▶ OQ2 analyzer ──runs──▶ key/BPM coverag
    never blocks playback. *(Gated on OQ3.)*
 3. **Embedded tag coverage** → **measure first.** `bot/scripts/library-tag-scan.ts`
    ships (commit `0cdb378`); run it on the **live opi5 corpus** — the dev box has no
-   library. Numbers feed OQ2. *(Pi run still pending.)*
+   library. Numbers feed OQ2. *(2026-07-06: Pi `/music` mount is sparse — re-run when
+   the full library path is wired; production container has no `scripts/`, use host
+   checkout + `npx tsx` or a one-off Node image with `node_modules`.)*
 4. **Tidal access tier** → **moot.** The local analyzer (OQ2) is the canonical key/BPM
    source. Treat Tidal as a *playback* source + optional basic-metadata enrichment via
    the **official** API only; do not build on reverse-engineered endpoints.

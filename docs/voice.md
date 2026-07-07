@@ -61,12 +61,14 @@ The bot feeds 100 ms PCM chunks while you talk. Sherpa runs **simulated streamin
 Voice commands require the configured **watchword** (default `moneypenny`) before the command:
 
 - “**Moneypenny**, pause” — watchword + command in one breath
-- “**Moneypenny**” … then “pause” within 8 seconds — two-step wake (music stays paused while listening)
+- “**Moneypenny**” … then “pause” within 15 seconds — two-step wake (music stays ducked while listening)
 - “Hey **Moneypenny**, play jazz”
 
 STT mishearings like “money penny” / “money petty” are accepted. Toggle **Require watchword** off in Settings to restore always-on listening (not recommended in busy channels).
 
-Music ducks briefly **only while STT runs** on the watchword (not on the first syllable). After a watchword-only utterance, playback **stays paused** for up to 8 seconds so a short follow-up like “pause” is not drowned out by the bot’s own music. Music resumes when the window expires, after a non-pause command, or after you say pause/stop.
+Music ducks briefly **only while STT runs** on the watchword (not on the first syllable). After a watchword-only utterance, playback **stays ducked** for up to 15 seconds (`listenWindowMs`, minimum 15s) so a short follow-up like “pause” is not drowned out by the bot’s own music. Volume restores when the armed window expires, after a routed command, or after you say pause/stop. Restore is **immediate** (no fade) when ducking ends.
+
+For a planned listen-only delegate bot (Intercom), see [`docs/intercom.md`](./intercom.md).
 
 ## Validation status (2026-06-20)
 

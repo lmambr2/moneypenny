@@ -6,6 +6,23 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-06
+
+### Radio dashboard + `!radio pin` — `e02b87f`
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **`!radio pin`:** copies the last played bumper into `data/bumpers/` for reuse;
+  `radio.pin` rights token; migration v2 (`bot/src/radio/pin.ts`).
+- **Dashboard:** Settings **Radio / DJ** panel (toggle, sliders, profile picker, test
+  bumper, status); Library **Track tags** + star ratings (`StarRating.vue`).
+- **APIs:** `GET /api/bot/radio/status`, `POST /api/bot/radio/test-bumper`,
+  `GET /api/music/tracks/:id/tags`; settings payload includes `radio` block.
+- **Starter profiles:** `lobby` and `focus` in `defaultRadioConfig()`.
+- **Docs:** `docs/intercom.md` (listen-only voice delegate design); `docs/voice.md`
+  listen window corrected to 15s; `docs/radio.md` status updated.
+
+**Open:** TS live radio smoke on opi5; OQ3 `library-tag-scan` on full music corpus.
+
 ## 2026-06-20
 
 ### Security audit + rank gating
