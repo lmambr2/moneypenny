@@ -8,6 +8,14 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Session handoff + design-doc sync — `3e352cb`
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **Design docs:** Synced 9 files to July 2026 shipped state (test counts 797+11,
+  radio UI/profiles, voice Opus/duck, Gemma split-brain, deploy scripts, tidal-bridge).
+- **Handoff:** `docs/session-handoff-2026-07-08.md` — Angelsfear investigation,
+  `974ea1d` voice work, doc audit, 12h Pi performance audit.
+
 ### Voice Opus hardening + command/voice logging — `974ea1d`
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

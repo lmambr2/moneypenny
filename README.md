@@ -489,6 +489,7 @@ See **[ROADMAP.md](./ROADMAP.md)** for the status of Phases 4–8.
 - **[docs/hardening.md](./docs/hardening.md)** — UFW + TLS reverse-proxy recipe; localhost-only defaults
 - **[docs/radio.md](./docs/radio.md)** — autonomous DJ / radio mode design + commands
 - **[docs/r3-workflows.md](./docs/r3-workflows.md)** — INTSUM/AAR generation + Pandoc export
+- **[docs/session-handoff-2026-07-08.md](./docs/session-handoff-2026-07-08.md)** — agent session log (doc sync, voice deploy, Pi performance audit)
 - **[docs/phase0.md](./docs/phase0.md)** — first-run validation against a real TS6 server
 - **[docs/FORK.md](./docs/FORK.md)** — what changed from the upstream fork
 - **[CHANGELOG.md](./CHANGELOG.md)** — notable changes + per-batch AI attribution
