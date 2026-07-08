@@ -6,7 +6,7 @@
 
 | Service | Profile | URL (Docker) | Purpose |
 |---------|---------|--------------|---------|
-| `sherpa-stt` | `voice` | `http://sherpa-stt:9000` | Moonshine v2 base-en + Silero VAD streaming (CPU) |
+| `sherpa-stt` | `voice` | `http://sherpa-stt:9000` | Moonshine **tiny-en** (quantized) + Silero VAD streaming (CPU) |
 | `kokoro` | `voice` | `http://kokoro:8880` | TTS (`ghcr.io/remsky/kokoro-fastapi-cpu`) |
 | `stt-mock` | `voice-dev` | `http://stt-mock:9000` (host `:9001`) | Fixed transcript for CI |
 
@@ -45,7 +45,7 @@ Both `sherpa-stt` and `stt-mock` implement `bot/src/voice/stt.ts`:
 - `POST /asr/stream` — streaming chunks; headers `X-Client-Id`, `X-Sample-Rate`, `X-Channels` → `{ "partial", "final", "speaking" }`
 - `DELETE /asr/stream` — reset per-speaker session (`X-Client-Id`)
 
-The bot feeds 100 ms PCM chunks while you talk. Sherpa runs **simulated streaming** (Silero VAD + periodic Moonshine v2 decode), not the HuggingFace `moonshine-streaming-tiny` Transformers checkpoint — same idea, ONNX path tuned for the Pi.
+The bot feeds 100 ms PCM chunks while you talk. Sherpa runs **simulated streaming** (Silero VAD + periodic Moonshine tiny decode), not the HuggingFace `moonshine-streaming-tiny` Transformers checkpoint — same idea, ONNX path tuned for the Pi.
 
 `sherpa-stt` resamples/downmixes (e.g. 48 kHz stereo from the bot) to 16 kHz mono internally.
 
@@ -70,16 +70,19 @@ Music ducks briefly **only while STT runs** on the watchword (not on the first s
 
 For a planned listen-only delegate bot (Intercom), see [`docs/intercom.md`](./intercom.md).
 
-## Validation status (2026-06-20)
+## Validation status (2026-07-08)
 
 - **CI / mock STT:** `./scripts/ci-validate.sh --voice-only` passes (stt-mock → `skip`).
-- **Unit tests:** `bot/src/voice/pipeline.test.ts` covers router integration + rank gating.
-- **Hardware (open):** real Opus decode on TS6, round-trip latency on RK3588, music
-  interrupt/resume around spoken replies — enable the `voice` profile on the Pi,
-  smoke with Settings → Voice → **Test** (`POST /api/bot/voice/test`).
+- **Unit tests:** `bot/src/voice/pipeline.test.ts`, `opus-packet.test.ts`, `opus-voice.test.ts`.
+- **Opus decode (shipped `974ea1d`):** `bot/src/audio/opus-voice.ts` — decode-first path
+  with multi-frame fallback; valid tiny silence frames no longer skipped as DTX; per-client
+  decode-failure rate limiting + stats in capture summary.
+- **Invoker/voice logging:** text commands log `invokerName`/`invokerUid`/`invokerClientId`;
+  per-client `"Voice: first inbound packet from client"` for TS debugging.
+- **Ducking:** `AudioPlayer.duckForStt()` / `restoreFromSttDuck()` — volume attenuation
+  during STT capture (not hard-pause). TTS replies still use save-position → speak → resume.
 
 ## Remaining / hardware
 
-- Real Opus voice-codec decode validation on TS6 (needs live TS6 + voice profile on Pi).
-- Round-trip latency on RK3588.
-- Music interrupt/resume around spoken replies.
+- Live TS6 round-trip latency on RK3588 with the `voice` profile.
+- STT/TTS sidecar tuning on the Pi (enable `voice` profile, Settings → Voice → **Test**).

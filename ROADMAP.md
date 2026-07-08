@@ -259,12 +259,10 @@ switch. Built as a thin program director over the existing single-stream
 player — the model is never between a user and the music; every failure falls
 open to `playNext()`.
 
-**Status:** phases R-R1 – R-R5 (director/clock, tag overlay + analyzer,
-ratings + tag/rating API + `@dj` tokens, content engine + `select_tracks` +
-profiles, operator controls + settings) are **mechanism-complete and tested**
-on `dev`; everything ships **off by default** (`radio.enabled=false`, no
-profiles). Remaining: the Vue surfaces (Library Tracks tag editor, star
-widget, Radio/DJ settings panel), `!radio pin`, live verification on the opi5
-(OQ3 tag-coverage scan, keyfinder/aubio calibration, smoke test), and the
-optional R-R6 extensions (Icecast tee, relay-in, Spotify/Tidal playlist
-expansion).
+**Status:** phases R-R1 – R-R5 are **mechanism-complete and tested** on `dev`;
+dashboard surfaces shipped (`e02b87f`): Settings **Radio / DJ** panel, Library
+**Track tags** editor + star ratings, `!radio pin`. Starter profiles `lobby` and
+`focus` ship in `defaultRadioConfig()`. Everything remains **off by default**
+(`radio.enabled=false`). **Remaining:** live TS smoke on opi5 (bumper test,
+`!radio ops`), re-run OQ3 when a full org library is mounted, and optional
+R-R6 (Icecast tee, relay-in, Spotify/Tidal playlist expansion).

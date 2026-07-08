@@ -22,7 +22,8 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 | **Bot runtime** | `bot/src/bot/` | `BotManager` / `BotInstance`: connect/disconnect, command execution, playback engine, voice session, idle poller, phase-0 auto-play |
 | **Control router** | `bot/src/control/` | Deterministic-first dispatch; `!ask` / fuzzy intent → LLM tools; voice routing; handler registration |
 | **Music providers** | `bot/src/music/` | `LocalProvider`, `YouTubeProvider`, `StreamProvider` — search, resolve, URLs, path guards |
-| **Audio stack** | `bot/src/audio/` | Queue, player, Opus encode/decode for TS voice out |
+| **Audio stack** | `bot/src/audio/` | Queue, player, Opus encode/decode (`opus-packet.ts`, `opus-voice.ts`) for TS voice |
+| **Radio** | `bot/src/radio/` | Program director, format clock, bumper factory, tag overlay, analyzer |
 | **LLM client** | `bot/src/llm/` | OpenAI-compatible HTTP client, tool schema, conversation history |
 | **RAG** | `bot/src/rag/` | Chunking, embeddings HTTP client, Qdrant client, `RetrievalStore` |
 | **Rights** | `bot/src/rights/` | Declarative rank gating (chat + voice scopes) |
@@ -116,7 +117,8 @@ When you hit a failure mode — especially one an LLM “fixed” wrong — add 
 - [2026-06-20] `\uXXXX` CJK in source passes `no-non-english.test.ts` but renders Chinese at runtime (e.g. profile away/now-playing). → English literals in `bot/profile.ts`; guard must decode escapes before matching.
 - [2026-06-20] `web/api/music.ts` `getProvider()` ignored `stream` — `platform=stream` silently hit YouTube. → Pass `streamProvider` into `createMusicRouter` and route all three platforms at the HTTP boundary.
 - [2026-06-20] `.env` `MUSIC_DIR=./music` passed into the bot container resolves to `/app/music` on the read-only rootfs — file-drop audio + web uploads fail with `ENOENT mkdir '/app/music'`. → `docker-compose.yml` pins container `MUSIC_DIR=/music`; host bind uses `MUSIC_HOST_DIR` or `.env` `MUSIC_DIR` for the volume source only.
-- [2026-06-20] Voice commands ("moneypenny pause/resume") fail **only while music is playing** — NOT STT/KWS/CPU/acoustic-echo. Was **`captureDuck` hard-pause** entangling pause/resume/`savedMusic`; fixed with **volume duck** (`AudioPlayer.duckVolume` / `restoreDuckVolume`, `duckMusicVolume` in voice config). Still gate STT until `DUCK_SETTLE_MS` + `clearCommandBuffer`; keep `voiceReplyClearsSavedMusic()` for TTS handoff (resume/skip yes, pause/stop no). Do not revert to `player.pause()` on wake.
+- [2026-06-20] Voice commands ("moneypenny pause/resume") fail **only while music is playing** — NOT STT/KWS/CPU/acoustic-echo. Was **`captureDuck` hard-pause** entangling pause/resume/`savedMusic`; fixed with **volume duck** (`AudioPlayer.duckForStt()` / `restoreFromSttDuck()`, `duckMusicVolume` in voice config). Still gate STT until `DUCK_SETTLE_MS` + `clearCommandBuffer`; keep `voiceReplyClearsSavedMusic()` for TTS handoff (resume/skip yes, pause/stop no). Do not revert to `player.pause()` on wake.
+- [2026-07-08] Skipping Opus packets ≤12 bytes as DTX drops valid encoded silence (~3 bytes) → STT never fires. → `decodeVoiceOpusPacket()` in `bot/src/audio/opus-voice.ts` decodes first, classifies DTX only after decode fails on tiny packets; multi-frame fallback when bundled decode fails.
 - [2026-06-20] TS6 rank gating sees empty `serverGroups` on full-client `clientlist` → everyone denied admin/`!follow`/`!vol`. → Enrich via HTTP Query (`clientlist?-groups`, `clientinfo` by `invokerClid`); see `docs/rank-gating.md`.
 - [2026-06-20] `!follow` returns "Failed to move" when bot is already in the invoker's channel — TS `clientMove` error 770. → Skip move when `channelID` matches; treat 770 as success (`joinChannelById`).
 - [2026-06-20] Pi `git fetch origin dev` updates `FETCH_HEAD` but leaves `origin/dev` stale → `git reset --hard origin/dev` deploys old code. → `git fetch origin dev:refs/remotes/origin/dev` before reset.

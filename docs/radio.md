@@ -19,8 +19,9 @@
 bot image + `POST /api/music/analyze` + Library “Analyze library” when enabled in Settings.
 Still pending: TS live smoke (bumper test, `!radio ops`), re-run OQ3 when a full org
 library is mounted, and optional R-R6.
-**Gating:** off by default (`radio.enabled = false`); no profiles ship — author
-them in config before `!radio ops` has anything to switch to.
+**Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
+and **`focus`** ship in `defaultRadioConfig()`; add custom profiles in config or
+via Settings before `!radio ops` can switch to them.
 **Note:** command registration now goes through the single `COMMAND_MANIFEST`
 (`bot/src/bot/commands.ts`); the multi-list registration described against
 older revisions no longer exists.
@@ -157,9 +158,11 @@ player.on("trackEnd", () => {
 });
 ```
 
-> ⚠️ This seam is the same shared voice wiring the parallel voice session owns
-> (`bot/src/bot/voice/session.ts` `captureDuck`/`savedMusic` state machine). R-R1
-> must coordinate before editing `event-bindings.ts`.
+> ⚠️ This seam shares the voice session's `savedMusic` state machine
+> (`bot/src/bot/voice/session.ts`). STT capture uses volume duck
+> (`duckForStt`/`restoreFromSttDuck`); forced bumpers and TTS replies use
+> save-position → speak → resume. Coordinate voice + radio edits in
+> `event-bindings.ts`.
 
 ### 5.2 "Bumper ends → advance, don't re-evaluate"
 A bumper is an audio file → it also emits `trackEnd`. One-shot guard
@@ -387,8 +390,8 @@ bumper-eligible asset, optionally filtered by kind/op profile, and plays it dire
 they never surface as songs.
 
 ### 9.3 Editing tags from the dashboard (build it)
-- New **`PATCH /api/music/tracks/:id/tags`** (admin/`@dj`-gated, CSRF, like the rest
-  of the music API), plus a bulk endpoint and a "mark bumper-eligible" action.
+- **`PATCH /api/music/tracks/:id/tags`** (admin-gated in v1; `@dj`/`radio.tags` planned
+  for web parity), plus bulk endpoints and a "mark bumper-eligible" action.
 - UI: an edit affordance on `SongCard.vue` + a Library **Tracks** tab (mirrors the
   existing doctrine Tracks/Doctrine layout) with inline fields for genre/subgenre/
   mood/key/BPM/energy and the bumper flag.

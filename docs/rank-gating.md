@@ -59,9 +59,9 @@ public (status / `ops list`), but the router additionally checks `radio.power`
 for `on`/`off`, `radio.ops` for `ops <profile>`, and `radio.bumper`/`radio.say`/
 `radio.skip` for the operator controls ([docs/radio.md](./radio.md) §12). So a
 section lead in `@dj` can run the station's *programming* without holding
-`radio.power` or any transport-admin rights. `radio.tags` gates the tag-edit
-API (admin-or-`@dj`; the web endpoint is admin-only until the rights engine is
-wired into the music router).
+`radio.power` or any transport-admin rights. `radio.tags` gates the tag-edit API for chat/voice. The web
+`PATCH /api/music/tracks/:id/tags` endpoint is **admin-only** in v1 (uses
+`requireAdmin`, not `canWebUserRunCommand('radio.tags')` yet).
 
 ---
 

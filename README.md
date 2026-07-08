@@ -27,7 +27,7 @@
 ## Status
 
 **Live on the Orange Pi 5 Max.** Music + local-AI assistant with a rank-gated
-knowledge base and per-user memory; 429+ backend unit tests and 7 frontend unit tests passing. Fast chat uses **Gemma 4
+knowledge base and per-user memory; **797** backend unit tests and **11** frontend unit tests passing (110 test files). Fast chat uses **Gemma 4
 12B QAT** on a LAN workstation (split-brain: embeddings stay on the Pi); Pi **Gemma 4
 E2B** is the offline fallback. See [docs/remote-llm.md](./docs/remote-llm.md) for the
 multi-host layout, [DESIGN.md](./DESIGN.md) for architecture + security posture, and
@@ -48,6 +48,8 @@ multi-host layout, [DESIGN.md](./DESIGN.md) for architecture + security posture,
 - **Split-brain inference** — chat/tool-calling on a LAN workstation (`llmUrl`), embeddings + Qdrant on the Pi, Pi ollama as fallback when the LAN host is down.
 - **Document RAG / knowledge base** — load `.md` doctrine four ways: the web UI (Library → Doctrine), a `git push` wiki, a manual file drop, or **dragging files into a TeamSpeak `moneypenny-drop` channel** (`.md` → knowledge base, audio → music library). `!ask` and `!analyst` answers are grounded and carry a `📎 Sources:` footer. **Rank-gated**: classified docs (frontmatter `classification:`) stay hidden from members without the matching `doctrine:<level>` right. → **[docs/rag-ingestion.md](./docs/rag-ingestion.md)**
 - **Per-user memory** — `!remember <fact>` / `!recall`; facts are woven into that member's `!ask`.
+- **Institutional knowledge graph** — `!kg` / `!diary` for temporal org facts (roster, roles, op history); injected into `!ask` when enabled.
+- **Org document workflows** — `!intsum` / `!aar` templated reports via the analyst delegate; Pandoc docx export from the Library.
 - **Persona** — Miss Moneypenny: dry British MI6-secretary wit (configurable system prompt).
 
 **Community & ops**
@@ -74,7 +76,10 @@ Chat commands (default prefix `!`):
 | `!remember <fact>` · `!recall` | Per-user memory |
 | `!roast` · `!roastout` | Show the roast reel · opt out + purge |
 | `!radio [on\|off\|status]` | Autonomous DJ — bumpers between tracks ([docs](docs/radio.md)); `on/off` admin |
-| `!radio ops <profile>` · `!radio bumper [topic]` · `!radio say <text>` · `!radio skip` | Station programming (`@dj` + admin) |
+| `!radio ops <profile>` · `!radio bumper [topic]` · `!radio say <text>` · `!radio skip` · `!radio pin` | Station programming (`@dj` + admin); `pin` promotes last bumper to prerecorded pool |
+| `!selecttracks <json>` | Tag-driven local track selection (normally via the `select_tracks` LLM tool) |
+| `!intsum [-s] [class:<level>] <points>` · `!aar [-s] …` | Templated INTSUM / AAR generation (analyst delegate; `-s` saves to doctrine) |
+| `!kg remember <fact>` · `!kg who <name> [asof:date]` · `!kg list` · `!diary intel\|logistics <fact>` | Institutional knowledge graph (analyst-gated) |
 | `!rate <1-5> [song]` · `!unrate` | Star-rate the current (or a searched) track |
 | `!reindex` *(admin)* | Re-embed the doctrine corpus |
 | `!ingeststatus` *(admin)* | Recent TeamSpeak file-drop ingests + any errors |
@@ -322,6 +327,19 @@ docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --
 
 If you also want the bundled TeamSpeak server or voice sidecars, add `--profile server` or `--profile voice`.
 
+### Pi deploy (operators)
+
+Production fork: deploy from `Projects/moneypenny` (not the slim clone). Use the guarded scripts — never bare `rsync` to the Pi:
+
+```bash
+./scripts/deploy-preflight.sh          # fingerprint + critical tests
+./scripts/deploy-to-pi.sh              # preflight → rsync → rebuild → verify
+./scripts/deploy-to-pi.sh --files bot/src/bot/voice/session.ts --services bot
+./scripts/verify-pi-deploy.sh         # post-deploy smoke on opi5
+```
+
+See `AGENTS.md` §5 for rsync pitfalls and SSH forward conflicts.
+
 ### After first-run
 Once you create the admin account, the DB will have a user, `needsSetup` becomes false, the session cookie is set, and the main app (with correct branding) will load. The WS connection and authenticated calls will start working.
 
@@ -469,6 +487,8 @@ See **[ROADMAP.md](./ROADMAP.md)** for the status of Phases 4–8.
 - **[docs/rag-ingestion.md](./docs/rag-ingestion.md)** — load the knowledge base: all four ingestion paths + the classification trust model
 - **[docs/voice.md](./docs/voice.md)** — the voice loop (sherpa-onnx STT + Kokoro TTS sidecars), probes, smoke test
 - **[docs/hardening.md](./docs/hardening.md)** — UFW + TLS reverse-proxy recipe; localhost-only defaults
+- **[docs/radio.md](./docs/radio.md)** — autonomous DJ / radio mode design + commands
+- **[docs/r3-workflows.md](./docs/r3-workflows.md)** — INTSUM/AAR generation + Pandoc export
 - **[docs/phase0.md](./docs/phase0.md)** — first-run validation against a real TS6 server
 - **[docs/FORK.md](./docs/FORK.md)** — what changed from the upstream fork
 - **[CHANGELOG.md](./CHANGELOG.md)** — notable changes + per-batch AI attribution

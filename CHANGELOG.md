@@ -6,6 +6,24 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-08
+
+### Voice Opus hardening + command/voice logging — `974ea1d`
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **Invoker logging:** `invokerFields()` in `bot/src/control/router.ts` — text
+  command routing logs `invokerName`, `invokerUid`, `invokerClientId` on match,
+  resolve, deny, and execute.
+- **Voice diagnostics:** per-client `"Voice: first inbound packet from client"`
+  log (`bot/src/bot/voice/session.ts`); rate-limited Opus decode failure warnings;
+  `decodeFailures` + `multiFrameRecoveries` in voice capture summary.
+- **Opus decode:** `bot/src/audio/opus-packet.ts` + `opus-voice.ts` — decode-first
+  path with multi-frame fallback; valid tiny silence frames (≤12 bytes) no longer
+  skipped as DTX before decode.
+- **Tests:** `opus-packet.test.ts`, `opus-voice.test.ts`, router invoker tests.
+
+**Open:** live TS6 voice round-trip smoke on opi5 with the `voice` profile.
+
 ## 2026-07-06
 
 ### R3 — Pandoc export + workflow docs — `d327f64`
@@ -85,8 +103,7 @@ assistant** authored each batch of work, since not every commit carries a
 - **Docs:** README commands/features/config, ROADMAP Phase 4 + R1b open items,
   DESIGN §R1 status, `docs/rag-ingestion.md` analyst path, `.env.example` pointer.
 
-**Open:** R1b async delegate (ack now, post result later) — documented in
-`docs/remote-llm.md` and ROADMAP Phase 4.
+**Note:** R1b async delegate shipped in the same release batch (see above).
 
 ## 2026-06-19
 

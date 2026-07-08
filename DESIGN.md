@@ -23,7 +23,7 @@ Central design idea — assign each workload to the silicon it suits, so they do
 
 | Compute unit | Job |
 |---|---|
-| **NPU** (6 TOPS, 3 cores) | LLM inference (Qwen3 via RKLLama); optionally TTS (Piper) |
+| **NPU** (6 TOPS, 3 cores) | Optional LLM inference (Gemma 4 `.rkllm` via rkllama); LAN Gemma 4 GGUF is the primary chat path |
 | **CPU** (4× Cortex-A76) | The bot (Node), TS6 server, `LocalProvider` indexing, `yt-dlp`/`ffmpeg`, STT/VAD, Kokoro TTS |
 | **GPU** (Mali-G610) | Idle by default; reserved as an alternate LLM backend (MLC-LLM) |
 
@@ -52,7 +52,7 @@ Central design idea — assign each workload to the silicon it suits, so they do
 
 - **Board:** Orange Pi 5 Max, RK3588, 16 GB.
 - **OS:** Ubuntu 24.04 arm64 / Armbian (vendor 6.1 kernel).
-- **NPU stack:** RKNPU driver **v0.9.8**, `librkllmrt` **1.2.x** (1.2.3 known-good). Versions are coupled — see §14.
+- **NPU stack:** RKNPU driver **v0.9.8**, `librkllmrt` **1.2.x–1.3.x** (1.2.3 known-good; 1.3.x for Gemma 4 `.rkllm`). Versions are coupled — see §14.
 - **Runtimes:** Docker + Compose v2; Node 20+ (the fork); FFmpeg + yt-dlp (system).
 - **Storage:** Models + music library on NVMe (cold-load time is I/O-bound).
 - **Cooling:** Active cooling **required** (Phase 2 lights up NPU + CPU together).
@@ -232,7 +232,7 @@ Replace the base's flat `PUBLIC_COMMANDS` / `ADMIN_COMMANDS` sets with a **decla
 
 - **STT + VAD:** sherpa-onnx on CPU. Circular-buffer + VAD end-pointing (KokoDOS pattern) on the bot's inbound channel audio. Transcript → the same control router (§4) — simple commands matched deterministically, fuzzy ones to the LLM.
 - **TTS:** Kokoro-FastAPI on CPU (quality) or RKLLama's Piper on NPU (one fewer service). Output → queue → played through the client.
-- **Hardest unknown — inbound capture:** pulling per-user voice out of TeamSpeak is the unsolved piece. The fork's audio stack is playback-oriented and `@honeybbq/teamspeak-client`'s inbound-PCM exposure is **unverified** — prototype `voice/capture/` first. (TS3AudioBot's TSLib decodes inbound voice and may be a reference for the protocol-level approach, even though we're not using its code.)
+- **Inbound capture:** `@honeybbq/teamspeak-client` emits per-speaker `voiceData` (wired via `TS3Client`); Opus→PCM decode runs in `bot/src/bot/voice/session.ts` with hardened packet splitting (`bot/src/audio/opus-voice.ts`). Round-trip latency and live TS6 codec edge cases still need operator validation on hardware.
 
 ---
 
@@ -328,7 +328,7 @@ moneypenny/
   - **Remaining for Phase 1b:** live validation against a real RKLLama/Qwen3 (acceptance criteria need NPU hardware).
 
 **Phase 1c — Rank gating.** Rights rules mapped to TS server-groups. *Accept:* command access follows rank; denied commands return a clear message.
-- [x] **Complete** — `bot/src/rights/` `RightsEngine`: declarative, group-aware rules (match on UID or server-group → allow/deny command tokens, `@group` expansion, `*` wildcard, ordered later-overrides-earlier, `superAdminUids` bypass), reimplemented in spirit from TS3AudioBot's Rights (no source copied). `defaultRightsConfig(adminGroups)` preserves the legacy public/admin split. Wired into the ControlRouter via `RouterContext.canRun`, enforced in `executeDeterministic` so it gates **both** typed commands and LLM-tool-derived commands (no escalation via natural language) plus `!ask`. Subject resolved from `getClientsInChannel()` (`ClientInfo.serverGroups`), with **TS6 HTTP Query enrichment** when the full client omits groups (`bot/src/bot/rights/subject.ts`); lookup failure → lowest privilege (never grants on error). Gated by `config.rightsEnabled` (default **on**); hot-reloadable via `BotInstance.updateRights()` / `RightsEngine.reload()`. Production military-rank template: `scripts/rights-rank-gating.json` (`docs/rank-gating.md`). Tests in `bot/src/rights/index.test.ts` + router gating tests. **Settings UI done** — admin-only "AI & Permissions" panel in Settings.vue toggles the LLM (enable/url/model) and rank gating (enable/admin-group IDs) via `GET`/`POST /api/bot/settings` (admin-gated, applied live to running bots). **Remaining:** file-watch hot-reload for rights JSON on disk.
+- [x] **Complete** — `bot/src/rights/` `RightsEngine`: declarative, group-aware rules (match on UID or server-group → allow/deny command tokens, `@group` expansion, `*` wildcard, ordered later-overrides-earlier, `superAdminUids` bypass), reimplemented in spirit from TS3AudioBot's Rights (no source copied). `defaultRightsConfig(adminGroups)` preserves the legacy public/admin split. Wired into the ControlRouter via `RouterContext.canRun`, enforced in `executeDeterministic` so it gates **both** typed commands and LLM-tool-derived commands (no escalation via natural language) plus `!ask`. Subject resolved from `getClientsInChannel()` (`ClientInfo.serverGroups`), with **TS6 HTTP Query enrichment** when the full client omits groups (`bot/src/bot/rights/subject.ts`); lookup failure → lowest privilege (never grants on error). Gated by `config.rightsEnabled` (default **on**); hot-reloadable via `BotInstance.updateRights()` / `RightsEngine.reload()`. Production military-rank template: `scripts/rights-rank-gating.json` (`docs/rank-gating.md`). Tests in `bot/src/rights/index.test.ts` + router gating tests. **Settings UI done** — admin "AI & Permissions" panel toggles LLM + rank gating; advanced **rights rules JSON editor** + rights debugger via `GET`/`POST /api/bot/settings`. **Remaining:** file-watch hot-reload for rights JSON on disk.
 
 **Phase 2 — Voice.** VAD/STT capture → router; TTS replies. *Accept:* spoken question → spoken answer; spoken "skip" skips; round-trip latency documented.
 - [x] **Pipeline scaffolded + wired (text-validated)** — `bot/src/voice/`:
@@ -338,47 +338,45 @@ moneypenny/
   - `ControlRouter.routeVoice()` — prefix-less: first word a known command → deterministic (spoken "skip"/"pause" never touch the model); else → LLM intent (covers fuzzy music control *and* spoken Q&A).
   - Inbound capture wired: `@honeybbq/teamspeak-client` **does** emit per-speaker `voiceData` (re-emitted by `TS3Client`); `BotInstance` decodes Opus→PCM (48 kHz stereo), end-points per speaker, resolves the speaker's server-groups (channel client list + TS6 HTTP Query fallback) for rank gating, and plays TTS replies through the `AudioPlayer`. Gated by `config.voice.enabled` (default off).
   - Tests: `bot/src/voice/vad.test.ts`, `bot/src/voice/pipeline.test.ts`, router voice-routing tests.
-  - **Remaining / needs hardware:** validate real Opus voice-codec decode (mono codec 4 vs the stereo decoder), STT/TTS sidecars, and round-trip latency on the RK3588; music ducking + resume around spoken replies (currently a reply interrupts playback); a UI toggle + runtime `updateVoice` (today voice is configured via `config.json` + restart).
+  - **Remaining / needs hardware:** live TS6 round-trip latency on the RK3588; STT/TTS sidecar tuning on the Pi. **Shipped:** Opus decode hardening (`opus-packet.ts`/`opus-voice.ts`, `974ea1d`); volume duck during STT via `AudioPlayer.duckForStt()`/`restoreFromSttDuck()` (not hard-pause); Settings voice panel + `updateVoice` hot-reload; spoken replies still use save-position → speak → resume (single stream, no mixer).
 
 **Phase 3 — Polish.** StreamProvider + librespot (Spotify); watchdog (restart on OOM/NPU stall); conversation memory within budget; LLM panel in the web UI.
-- [x] **StreamProvider (§7.3)** — `bot/src/music/stream.ts`: plays arbitrary http(s)/Icecast URLs directly, and resolves Spotify refs through an optional external bridge (`GET {bridgeUrl}/resolve?uri=…` → `{streamUrl,title,…}` — our own minimal contract, reimplemented per §5, not copied from GPL librespot/ncspot). Wired as the `stream` platform through `BotManager`→`BotInstance`; `getProvider` honors a `-s` flag and auto-routes recognizable stream/Spotify references (§7.4). Bridge URL via `config.streamBridgeUrl` / `STREAM_BRIDGE_URL`. Tests: `bot/src/music/stream.test.ts`. **Remaining:** the actual librespot/ncspot bridge sidecar (external; needs Spotify Premium + hardware).
+- [x] **StreamProvider (§7.3)** — `bot/src/music/stream.ts`: plays arbitrary http(s)/Icecast URLs directly, and resolves Spotify/Tidal refs through an optional external bridge (`GET {bridgeUrl}/resolve?uri=…` → `{streamUrl,title,…}`). Wired as the `stream` platform; bridge URL via `config.streamBridgeUrl` / `STREAM_BRIDGE_URL`. **Tidal bridge ships** (`services/tidal-bridge`, `--profile stream`); Spotify librespot sidecar remains external/operator-supplied.
 - [x] **Watchdog (§13)** — `bot/src/watchdog.ts`: polls health, reconnects dropped `autoStart` bots (per-bot reconnect cooldown), and guards process RSS against `WATCHDOG_MEMORY_MB` (→ `process.exit` so Docker's restart policy recovers). Injectable clock/memory reader; wired in `index.ts`. Tests: `bot/src/watchdog.test.ts`.
 - [x] **Conversation memory within budget** — delivered in Phase 1b (`bot/src/llm/history.ts`, token-budget eviction).
 - [x] **LLM panel in the web UI** — admin "AI & Permissions" panel shows live LLM status (configured / reachable via `GET /api/bot/llm/status`) and a test-ask box (`POST /api/bot/llm/ask`, admin-gated). `BotInstance.getLlmStatus()/askLlm()` back it.
-- **Remaining Phase 3:** Spotify bridge sidecar — a commented `stream-bridge` compose scaffold + `STREAM_BRIDGE_URL` contract is in place; the bridge image itself is user-supplied (no canonical one exists). **Music ducking around voice replies: resolved as stop-saved-position + resume** — the bot uses a single audio stream (no mixer), so true volume-ducking under a live voice reply isn't possible; it saves the music position, plays the reply, then resumes from the saved spot. Production Docker hardening (§11) done.
+- **Remaining Phase 3:** Spotify librespot bridge (external; needs Premium). **Voice ducking:** volume attenuation during STT (`duckForStt`); spoken TTS replies use save-position → speak → resume (single stream). Production Docker hardening (§11) done.
 
 ---
 
-## Current Implementation Status (updated June 2026)
+## Current Implementation Status (updated July 2026)
 
-**Shipped and tested (429+ backend unit tests, 7 frontend unit tests, `tsc` clean):**
+**Shipped and tested (797 backend unit tests, 11 frontend unit tests, 110 test files, `tsc` clean):**
 - Full de-sinicization (§6.1) — CN providers, auth UI, and dead API stubs removed.
 - **Phase 1a** — `LocalProvider` with path guard, M3U, `resolve()`; local-first web UI and command path.
 - **Phase 1b** — `bot/src/llm/` wired through `ControlRouter` (`!ask`, fuzzy intent, tool-calling).
-- **Rank gating (§8)** — `RightsEngine` + settings hot-reload + rights debug API.
-- **StreamProvider (§7.3)** — http(s)/Icecast + bridged Spotify refs.
-- **RAG + doctrine (Phase 5–6)** — vector ingest/query, rank-gated retrieval, `!reindex`, file-drop ingestion.
-- **Memory + roast (Phase 7–8)** — `!remember`/`!recall`, roast capture/grading/reel.
-- **Voice scaffold (§10)** — inbound Opus → STT → router → TTS; gated off by default.
-- **Phase 4 split-brain** — primary `llmUrl` on a LAN workstation, embeddings on Pi, Pi ollama fallback (`docs/remote-llm.md`).
-- **R1 analyst delegation** — `!analyst`/`!agent` + `delegate_to_agent` tool → `llmDelegateUrl` (`bot/src/llm/delegate.ts`). R1b async ack shipped.
-- **R4 client moves** — `!moveclient` via TS6 HTTP Query / TS3 fallback (`bot/src/ts-protocol/move-resolver.ts`).
-- **BotInstance refactor** — playback, commands, roast, memory, knowledge, LLM, idle poller, text handler, and rights extracted into submodules (~550-line orchestrator).
+- **Rank gating (§8)** — `RightsEngine` + settings hot-reload + rights JSON editor + debug API.
+- **StreamProvider (§7.3)** — http(s)/Icecast + bridged Spotify/Tidal refs; `services/tidal-bridge` ships (`--profile stream`).
+- **RAG + doctrine (Phase 5–6)** — vector ingest/query, rank-gated retrieval, `!reindex`, four ingestion paths.
+- **Memory + roast (Phase 7–8)** — `!remember`/`!recall`; institutional KG via `!kg`/`!diary`; roast capture/grading/reel.
+- **Voice (§10)** — inbound Opus → STT → router → TTS; volume duck during capture; Opus decode hardened (`974ea1d`); gated off by default.
+- **Phase 4 split-brain** — primary `llmUrl` on a LAN workstation (Gemma 4 12B), embeddings on Pi, Pi ollama/Gemma E2B fallback; optional NPU Gemma 4 `.rkllm` via rkllama (`docs/remote-llm.md`).
+- **R1 analyst delegation** — `!analyst`/`!agent` + `delegate_to_agent` → `llmDelegateUrl`; R1b async ack + `postFollowUp`.
+- **R3 org docs** — `!intsum`/`!aar` templated workflows + Pandoc docx export (`docs/r3-workflows.md`).
+- **R4 client moves** — `!moveclient`, `!moveall`, NL `move_client` tools.
+- **Radio mode (Phase 9)** — director/clock/bumpers/tags/analyzer shipped; Settings Radio/DJ panel + Library tag editor (`docs/radio.md`); off by default.
+- **BotInstance refactor** — playback, commands, roast, memory, knowledge, LLM, radio, voice, and rights in submodules.
+- **Pi deploy safeguards** — `deploy-preflight.sh`, `deploy-to-pi.sh`, `verify-pi-deploy.sh` (`AGENTS.md` §5).
 - **Security posture (§11)** — non-root Docker, CSRF, rate limits, session auth; see `docs/hardening.md`.
 
 **Remaining gaps (ordered):**
-- [x] **Control Router fully ground** — Router owns all normal command dispatch. Legacy fallback removed from main path. The old giant switch is bypassed. Realizes the deterministic-first Control Router from §4.
-- [x] **LLM text path wired (§9)** — `bot/src/llm/` (RKLLama OpenAI-compat client + minimal tool schema + system prompt + per-conversation history with a token budget) is wired through the router: `!ask` Q&A, fuzzy-intent tool-calling on unrecognized prefixed input, tool calls reusing the deterministic resolve+execute path. Gated by `config.llmEnabled`. Remaining: live RKLLama/Qwen3 validation (needs NPU hardware).
-- [x] **Rank gating done (§8)** — `bot/src/rights/` `RightsEngine` (declarative, group-aware, hot-reloadable) wired through `RouterContext.canRun`; gates typed + LLM-driven commands + `!ask`. Gated by `config.rightsEnabled`. Admin settings panel added; remaining: raw rules-JSON editor in the UI.
-- [x] **StreamProvider done (§7.3)** — `bot/src/music/stream.ts` plays direct http(s)/Icecast URLs + bridged Spotify refs; wired as the `stream` platform with `-s` flag + URL auto-routing. Remaining: external librespot/ncspot bridge sidecar.
-- [x] **Watchdog + LLM web panel done (Phase 3)** — `bot/src/watchdog.ts` (reconnect dropped autoStart bots + memory ceiling → Docker restart); admin LLM status/test-ask panel in Settings.
-- Phase 0 runtime validation on real TS6 hardware (scaffolding + `scripts/phase0-validate.sh` + auto-play banners ready; needs operator run on LAN server).
-- Vue frontend component tests (store/composable coverage started; no E2E yet).
-- `@discordjs/opus` → `tar` transitive advisory (override in place; upstream prebuild still pins old tar).
-- [x] **Voice pipeline scaffolded (§10)** — `bot/src/voice/` (VAD end-pointer + STT/TTS clients + `VoicePipeline`) wired through `ControlRouter.routeVoice`; inbound per-speaker capture decoded + rank-gated; gated by `config.voice.enabled`. Needs hardware to validate codec decode + sidecars + latency.
-- [x] **Host NPU setup done** — `host-setup/install-npu.sh` (idempotent, root-gated, `--dry-run`/`--force`/`--skip-governor`): asserts RK3588 + RKNPU driver, installs pinned `librkllmrt 1.2.3` (verifies aarch64 ELF; overridable URL), sets the NPU performance governor, installs a udev rule, then runs `check-npu.sh` (now version-asserts the 0.9.8↔1.2.3 coupling). Does not insmod kernel modules (ships with the BSP kernel) — guides a reflash if absent.
-- [x] **RKLLama gateway built** — `services/rkllama/server.py` is a real OpenAI-compatible server (`/v1/models`, `/v1/chat/completions`) with full Qwen3 prompt templating + `<tool_call>` parsing → OpenAI `tool_calls`. Pluggable backend: **mock** (default, no NPU — validates the whole bot↔LLM loop on any machine) and **native** — full ctypes binding over `librkllmrt` 1.2.x: `rkllm_init` + `rkllm_run` (synchronous, token callback), serialized with a lock, self-rendered ChatML (chat template neutralized to avoid double-wrap). Struct layouts follow the documented 1.2.x ABI and are validated in isolation, but **must be diffed against the on-board `rkllm.h`** (offset mismatch → segfault) — the only remaining hardware step. Pure translation layer covered by `--selftest` (15 checks); smoke-tested over HTTP. Kokoro/sherpa remain external/stub (Phase 2 sidecars).
-- [x] **Security hardening + Docker posture (§11)** — real non-root multi-stage Dockerfile, read-only rootfs + cap-drop + no-new-privileges compose, configurable localhost-default bind (`BIND_ADDRESS`), healthcheck, `config.json` relocated to the data volume. See `docs/hardening.md`. Remaining: operator steps (first-run binding, `npm audit`, TLS proxy) + deps advisories.
+- Phase 0 / voice live validation on opi5 TS6 (scaffolding ready; `PHASE0_AUTO_TEST=1` on Pi).
+- Live voice round-trip smoke with `voice` profile (Opus decode hardened; STT/TTS sidecar tuning).
+- Radio live smoke on opi5 (`!radio ops`, bumper test); OQ3 re-run when full org library mounted.
+- R-R6 optional: Icecast tee, relay-in, Spotify/Tidal playlist expansion.
+- Spotify librespot bridge (external; Tidal bridge ships but `STREAM_BRIDGE_URL` is opt-in).
+- Vue E2E tests (unit coverage exists; no browser E2E yet).
+- `@discordjs/opus` → `tar` transitive advisory (override in place).
 
 See updated Phase checkboxes above for per-phase status.
 
@@ -448,7 +446,7 @@ Gemma 4 (E4B/E2B QAT GGUF) is a possible A/B candidate **on CPU via Ollama** —
 | RKLLM runtime↔driver coupling | pin 1.2.x ↔ 0.9.8; `check-npu.sh` asserts |
 | Small-model tool-calling reliability | deterministic-first routing; minimal tool schema; Qwen3-4B if needed |
 | LocalProvider path traversal | strict prefix + symlink check; fix the gap TS3AudioBot flagged; test it |
-| Inbound voice capture (Phase 2) | `@honeybbq/teamspeak-client` **does** emit per-speaker `voiceData` — wired + decoded; still need to confirm voice-codec (mono codec 4) decode + latency on real hardware |
+| Inbound voice capture (Phase 2) | Per-speaker `voiceData` wired + Opus decode hardened (`opus-voice.ts`); live TS6 round-trip latency still needs operator validation |
 | NPU context 2048 | cap/summarize history |
 | Deployment exposure (root + host-net + HTTP) | §11 hardening checklist |
 | Single-maintainer upstream (both candidates) | we own the fork; that's the plan |

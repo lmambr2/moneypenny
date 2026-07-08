@@ -27,6 +27,23 @@ session tokens stored only as SHA-256; parameterized SQL; session cookie
   an RSS ceiling so the container's `restart: unless-stopped` policy recovers it.
 - **Healthcheck.** The image probes `/api/health`.
 
+## Compose profiles (optional sidecars)
+
+The bot core runs under `--profile core`. Add profiles as needed — each is a separate container the bot reaches via config/env URLs:
+
+| Profile | Services | When |
+|---------|----------|------|
+| `core` | `bot` | Always |
+| `npu` / `ollama` | `rkllama` / `ollama` | On-device LLM |
+| `rag` | `qdrant` | Document RAG / doctrine |
+| `voice` | `sherpa-stt`, `kokoro` | Voice loop |
+| `voice-dev` | `stt-mock` | CI / fast dev |
+| `stream` | `tidal-bridge` | Real Tidal playback (`STREAM_BRIDGE_URL`) |
+| `server` | `teamspeak` | Bundled TS6 server |
+| `memory` | MemPalace sidecar | Institutional KG semantic recall |
+
+See `docker-compose.yml` and `install.sh --help` for the full matrix.
+
 ## Operator steps (not automatable)
 
 1. **Data volume ownership.** The host `bot/data` dir must be writable by uid 1000:
