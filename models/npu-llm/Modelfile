@@ -1,3 +1,5 @@
-FROM="model.rkllm"
-HUGGINGFACE_PATH="org/your-instruct-model"
+FROM="gemma4-e2b-it-qat-w8a8.rkllm"
+HUGGINGFACE_PATH="/opt/rkllama/models/npu-llm/tokenizer"
 TEMPERATURE=0.7
+NUM_CTX=2048
+MAX_NEW_TOKENS=256

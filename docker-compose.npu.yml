@@ -1,8 +1,4 @@
-# Moneypenny — legacy native RK3588 overlay for services/rkllama/server.py.
-#
-# Not needed when using NotPunchnox/rkllama (ghcr.io/notpunchnox/rkllama:main) —
-# the base docker-compose.yml runs that image with privileged: true. Keep this
-# overlay only if you switch back to the hand-rolled services/rkllama gateway.
+# Moneypenny — RK3588 NPU overlay for services/rkllama/server.py (native backend).
 #
 # Use together with the base file (the installer does this for you):
 #   docker compose -f docker-compose.yml -f docker-compose.npu.yml \
@@ -15,6 +11,10 @@ services:
   rkllama:
     environment:
       - RKLLM_BACKEND=native
+      - MODEL_PATH=${MODEL_PATH:-/models/npu-llm/gemma4-e2b-it-qat-w8a8.rkllm}
+      - RKLLM_MODEL_NAME=${RKLLM_MODEL_NAME:-npu-llm}
+      - MAX_CONTEXT=${MAX_CONTEXT:-2048}
+      - RKLLM_MAX_NEW_TOKENS=${RKLLM_MAX_NEW_TOKENS:-256}
     group_add:
       # NUMERIC gid of the host 'render' group that owns /dev/dri/renderD129.
       # Must be numeric — the name "render" usually doesn't exist inside the
@@ -31,4 +31,5 @@ services:
     devices:
       - /dev/dri:/dev/dri
     volumes:
+      # Host RKLLM 1.3.0 runtime (install-npu.sh with RKLLM_VERSION=1.3.0).
       - /usr/lib/librkllmrt.so:/usr/lib/librkllmrt.so:ro

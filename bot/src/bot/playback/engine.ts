@@ -41,6 +41,8 @@ export interface PlaybackEngineOptions {
 export class PlaybackEngine {
   private opts: PlaybackEngineOptions;
   private voteSkipUsers = new Set<string>();
+  /** Serialize URL resolve + ffmpeg start so voice partials cannot spawn double YT jobs. */
+  private playResolveSerial: Promise<boolean> = Promise.resolve(true);
 
   constructor(opts: PlaybackEngineOptions) {
     this.opts = opts;
@@ -190,6 +192,15 @@ export class PlaybackEngine {
   }
 
   async resolveAndPlay(song: QueuedSong): Promise<boolean> {
+    const next = this.playResolveSerial.then(
+      () => this.resolveAndPlayOnce(song),
+      () => this.resolveAndPlayOnce(song),
+    );
+    this.playResolveSerial = next.then(() => true, () => false);
+    return next;
+  }
+
+  private async resolveAndPlayOnce(song: QueuedSong): Promise<boolean> {
     if (!this.opts.isConnected()) {
       this.opts.logger.warn({ songId: song.id, name: song.name }, "resolveAndPlay called on disconnected bot — skipping");
       return false;

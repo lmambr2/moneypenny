@@ -46,6 +46,7 @@ const VOICE_COMMAND_ALIASES: Record<string, string> = {
 const DEFAULT_WAKE_ALIASES = [
   "moneypenny",
   "money penny",
+  "money peri",
   "money petty",
   "money pretty",
   "honey penny",
@@ -86,6 +87,32 @@ export function isActionableVoiceCommand(
   if (!parsed) return false;
   const name = parsed.name.replace(/[.,!?;:]+$/u, "");
   return isKnownCommand(name);
+}
+
+/** Transport verbs safe to route from STT partials — excludes play/add (need full title + one resolve). */
+const PARTIAL_SAFE_COMMANDS = new Set([
+  "pause",
+  "resume",
+  "skip",
+  "stop",
+  "next",
+  "prev",
+  "vol",
+  "queue",
+  "now",
+  "clear",
+  "mode",
+]);
+
+export function isPartialSafeVoiceCommand(
+  command: string,
+  aliases: Record<string, string> = {},
+): boolean {
+  if (!isActionableVoiceCommand(command, aliases)) return false;
+  const parsed = parseCommand(`!${command.trim()}`, "!", aliases);
+  if (!parsed) return false;
+  const name = parsed.name.replace(/[.,!?;:]+$/u, "");
+  return PARTIAL_SAFE_COMMANDS.has(name);
 }
 
 function stripLeadingFiller(text: string): string {
@@ -178,6 +205,23 @@ function finalizeCommandSegment(raw: string): string {
   return normalizeVoiceTranscript(parts.join(" "));
 }
 
+/** Scan tokens (right-to-left) for a playback verb; `play` keeps trailing args. */
+function extractPlaybackVerb(tokens: string[]): string {
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const key = tokens[i].replace(/[.,!?;:'"]/g, "").toLowerCase();
+    const verb =
+      COMMAND_MODE_ALIASES[key] ??
+      VOICE_COMMAND_ALIASES[key] ??
+      (PLAYBACK_VERBS.has(key) ? key : undefined);
+    if (!verb || !PLAYBACK_VERBS.has(verb)) continue;
+    if (verb === "play") {
+      return finalizeCommandSegment(tokens.slice(i).join(" "));
+    }
+    return verb;
+  }
+  return "";
+}
+
 /**
  * Parse a command-mode STT segment. KWS already opened the window acoustically;
  * this only normalizes the verb Moonshine heard (e.g. "honey penny pass" → pause).
@@ -187,23 +231,29 @@ export function extractCommandSegment(transcript: string, watchword: string): st
   if (!norm) return "";
 
   const { stripped, rest } = stripWatchwordPrefix(norm, watchword);
-  if (stripped && rest) return finalizeCommandSegment(rest);
+  if (stripped && rest) {
+    const verb = extractPlaybackVerb(rest.split(/\s+/).filter(Boolean));
+    if (verb) return verb;
+    const seg = finalizeCommandSegment(rest);
+    if (seg && isActionableVoiceCommand(seg)) return seg;
+    return "";
+  }
 
   for (const alias of watchwordAliases(watchword)) {
     const match = norm.match(aliasInfixPattern(alias));
     if (!match) continue;
     const after = norm.slice((match.index ?? 0) + match[0].length).replace(/^[\s,;:]+/, "").trim();
-    if (after) return finalizeCommandSegment(after);
+    if (after) {
+      const verb = extractPlaybackVerb(after.split(/\s+/).filter(Boolean));
+      if (verb) return verb;
+      const seg = finalizeCommandSegment(after);
+      if (seg && isActionableVoiceCommand(seg)) return seg;
+    }
+    return "";
   }
 
-  const tokens = norm.split(/\s+/).filter(Boolean);
-  for (let i = tokens.length - 1; i >= 0; i--) {
-    const key = tokens[i].replace(/[.,!?;:'"]/g, "").toLowerCase();
-    // Match a known mishear (past→pause) OR a canonical verb spoken directly —
-    // so wake-bleed transcripts ("any pause", "honey penny stop") still resolve.
-    const verb = COMMAND_MODE_ALIASES[key] ?? VOICE_COMMAND_ALIASES[key] ?? (PLAYBACK_VERBS.has(key) ? key : undefined);
-    if (verb && PLAYBACK_VERBS.has(verb)) return verb;
-  }
+  const verb = extractPlaybackVerb(norm.split(/\s+/).filter(Boolean));
+  if (verb) return verb;
 
   return finalizeCommandSegment(norm);
 }

@@ -265,6 +265,12 @@ export class ControlRouter {
       command.name = command.name.replace(/[.,!?;:]+$/u, "");
     }
     if (command && isKnownCommand(command.name)) {
+      // STT often hears "play" without the title on a partial route — fall back
+      // to the LLM so "play bohemian rhapsody" isn't executed as bare !play.
+      if (command.name === "play" && !command.args?.trim()) {
+        this.logger.debug({ transcript: text }, "Voice: bare play verb — routing to LLM intent");
+        return { type: "llm", llmIntent: { mode: "intent", text } };
+      }
       this.logger.debug({ command: command.name }, "Voice: deterministic command matched");
       const resolvedMusic = await this.resolveMusicForCommand(command, context);
       return { type: "deterministic", command, resolvedMusic };
@@ -616,8 +622,21 @@ export function toolCallToCommand(tc: { name: string; arguments?: Record<string,
       return make("add", query);
     }
     case "select_tracks": {
-      // Filters travel as JSON args to the internal `selecttracks` command
-      // (§9.4) — the executor validates each field; unknown keys are dropped.
+      // Gemma on NPU often picks select_tracks for plain "play jazz" — map a lone
+      // genre to play_music so we search/resolve instead of tag-only selection.
+      const genres = a.genreAny;
+      if (
+        Array.isArray(genres) &&
+        genres.length === 1 &&
+        typeof genres[0] === "string" &&
+        !a.mood &&
+        !a.bpmMin &&
+        !a.bpmMax &&
+        !a.ratingMin
+      ) {
+        const q = genres[0].replace(/^\[|\]$/g, "").trim();
+        if (q) return make("play", q);
+      }
       return make("selecttracks", JSON.stringify(a));
     }
     case "skip":

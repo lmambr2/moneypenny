@@ -2,7 +2,7 @@
 # RKLLama gateway for RK3588 — OpenAI-compatible /v1/chat/completions over RKLLM.
 #
 # ubuntu:24.04 matches the Orange Pi userspace so the host's librkllmrt (RKLLM
-# 1.2.x, installed by host-setup/install-npu.sh) is ABI-compatible when mounted
+# 1.3.x, installed by host-setup/install-npu.sh) is ABI-compatible when mounted
 # in for the native backend. The gateway itself is pure stdlib Python — no extra
 # packages — and defaults to the mock backend so the container is useful without
 # the NPU (RKLLM_BACKEND=native enables real inference on the board).

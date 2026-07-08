@@ -12,7 +12,7 @@ Two backends, selected by RKLLM_BACKEND:
   * mock   — no NPU; deterministic canned/echo responses. Lets you validate the
              full bot↔LLM integration (router handoff, tool execution, history)
              on any machine before hardware. DEFAULT.
-  * native — ctypes over librkllmrt (RKLLM 1.2.x). See NativeRkllmBackend; the
+  * native — ctypes over librkllmrt (RKLLM 1.3.x). See NativeRkllmBackend; the
              struct layout MUST match the rkllm.h for your installed runtime.
 
 Only the OpenAI/Qwen3 translation layer (prompt build + tool-call parse +
@@ -106,6 +106,72 @@ def _maybe_json(v: Any) -> Any:
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _TOOLCALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+_GEMMA_TOOLCALL_RE = re.compile(r"<\|tool_call>call:(\w+)\{(.*?)\}<tool_call\|>", re.DOTALL)
+_GEMMA_BARE_TOOLCALL_RE = re.compile(r"^call:(\w+)\{(.*?)\}\s*$", re.DOTALL)
+_GEMMA_FUNC_TOOLCALL_RE = re.compile(r"^(\w+)\{(.*?)\}\s*$", re.DOTALL)
+_GEMMA_ARG_RE = re.compile(
+    r'(\w+):(?:<\|"\|>(.*?)<\|"\|>|"([^"]*)"|([^,}]+))'
+)
+
+
+def _extract_text_content(msg: dict) -> str:
+    c = msg.get("content", "")
+    if isinstance(c, list):
+        return " ".join(p.get("text", "") for p in c if p.get("type") == "text")
+    return c or ""
+
+
+def get_last_input(messages: list[dict], last_messages: list[dict]) -> tuple[str, str, list[dict]]:
+    """Return (role, content, updated_history) for the newest user/tool turn.
+
+    Mirrors Rockchip's rkllm_server_demo: only the delta since the prior request
+    is fed to RKLLM (keep_history=0); the bot resends full history each turn.
+    """
+    prev_len = len(last_messages)
+    new_messages = messages[prev_len:] if prev_len < len(messages) else []
+    updated = list(messages)
+
+    if not new_messages:
+        for msg in reversed(messages):
+            role = msg.get("role", "")
+            if role in ("user", "tool"):
+                return role, _extract_text_content(msg), updated
+        return "user", "", updated
+
+    new_inputs = [m for m in new_messages if m.get("role", "") in ("user", "tool")]
+    if not new_inputs:
+        for msg in reversed(messages):
+            role = msg.get("role", "")
+            if role in ("user", "tool"):
+                return role, _extract_text_content(msg), updated
+        return "user", "", updated
+
+    if all(m.get("role") == "tool" for m in new_inputs):
+        tool_contents = []
+        for m in new_inputs:
+            c = m.get("content", "")
+            try:
+                tool_contents.append(json.loads(c))
+            except (json.JSONDecodeError, TypeError):
+                tool_contents.append(c)
+        return "tool", json.dumps(tool_contents, ensure_ascii=False), updated
+
+    last = new_inputs[-1]
+    return last.get("role", "user"), _extract_text_content(last), updated
+
+
+def _parse_gemma_args(raw: str) -> dict:
+    raw = raw.strip()
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw if raw.startswith("{") else "{" + raw + "}")
+    except Exception:
+        pass
+    args: dict[str, Any] = {}
+    for m in _GEMMA_ARG_RE.finditer(raw):
+        args[m.group(1)] = (m.group(2) or m.group(3) or m.group(4) or "").strip()
+    return args
 
 
 def parse_generation(text: str) -> tuple[str, list[dict]]:
@@ -127,8 +193,21 @@ def parse_generation(text: str) -> tuple[str, list[dict]]:
         except Exception:
             continue
 
-    content = _TOOLCALL_RE.sub("", text).strip()
-    return content, tool_calls
+    for m in _GEMMA_TOOLCALL_RE.finditer(text):
+        tool_calls.append({"name": m.group(1), "arguments": _parse_gemma_args(m.group(2))})
+
+    if not tool_calls:
+        stripped = text.strip()
+        bare = _GEMMA_BARE_TOOLCALL_RE.match(stripped) or _GEMMA_FUNC_TOOLCALL_RE.match(stripped)
+        if bare:
+            tool_calls.append({"name": bare.group(1), "arguments": _parse_gemma_args(bare.group(2))})
+
+    content = _TOOLCALL_RE.sub("", text)
+    content = _GEMMA_TOOLCALL_RE.sub("", content)
+    if tool_calls and (_GEMMA_BARE_TOOLCALL_RE.match(content.strip())
+                       or _GEMMA_FUNC_TOOLCALL_RE.match(content.strip())):
+        content = ""
+    return content.strip(), tool_calls
 
 
 def chat_response(model: str, content: str, tool_calls: list[dict],
@@ -173,7 +252,8 @@ def chat_response(model: str, content: str, tool_calls: list[dict],
 class Backend:
     name = "base"
 
-    def generate(self, prompt: str, max_tokens: int, temperature: float) -> str:
+    def generate(self, messages: list[dict], tools: list[dict] | None,
+                 max_tokens: int, temperature: float) -> str:
         raise NotImplementedError
 
 
@@ -188,14 +268,16 @@ class MockBackend(Backend):
 
     _PLAY_RE = re.compile(r"\b(play|put on|queue)\b\s+(.*)", re.IGNORECASE)
 
-    def generate(self, prompt: str, max_tokens: int, temperature: float) -> str:
+    def generate(self, messages: list[dict], tools: list[dict] | None,
+                 max_tokens: int, temperature: float) -> str:
+        prompt = build_prompt(messages, tools)
         last_user = ""
         for chunk in prompt.split(f"{IM_START}user\n"):
             seg = chunk.split(IM_END)[0]
             if seg:
                 last_user = seg.strip()
         m = self._PLAY_RE.search(last_user)
-        if m and "<tools>" in prompt:
+        if m and tools:
             query = m.group(2).strip().strip(".?!") or "something"
             args = json.dumps({"query": query})
             return f'<tool_call>\n{{"name": "play_music", "arguments": {args}}}\n</tool_call>'
@@ -205,20 +287,21 @@ class MockBackend(Backend):
 
 
 class NativeRkllmBackend(Backend):
-    """ctypes wrapper over librkllmrt (RKLLM 1.2.x), loading a .rkllm model.
+    """ctypes wrapper over librkllmrt (RKLLM 1.3.x), loading a .rkllm model.
 
-    ⚠️  HARDWARE BRING-UP NOTE: the RKLLMParam / RKLLMResult / RKLLMInput struct
-    layouts below follow the documented RKLLM 1.2.x C API, but ABI details can
-    shift between point releases. VERIFY every field against the rkllm.h that
-    ships with YOUR installed librkllmrt before relying on this — a mismatch
-    will segfault the process, not raise. As an alternative, point the bot's
-    RKLLAMA_URL at airockchip's rkllm_server_demo or NotPunchnox/rkllama, which
-    speak the same OpenAI contract this gateway does.
+    Follows Rockchip's rkllm_server_demo: built-in chat template, role-based
+    turns, rkllm_set_function_tools for tool calling. Gemma4 QAT models validated
+    via native llm_demo on RK3588.
     """
     name = "native"
 
+    RKLLM_RUN_NORMAL = 0
+    RKLLM_RUN_WAITING = 1
+    RKLLM_RUN_FINISH = 2
+    RKLLM_RUN_ERROR = 3
+
     def __init__(self, model_path: str, max_context: int):
-        import ctypes  # local import; only needed for the native path
+        import ctypes
 
         self.ctypes = ctypes
         if not os.path.exists(model_path):
@@ -226,6 +309,9 @@ class NativeRkllmBackend(Backend):
         self.lib = ctypes.CDLL("librkllmrt.so")
         self.model_path = model_path
         self.max_context = max_context
+        self._last_messages: list[dict] = []
+        self._tools_json: str | None = None
+        self._enc_refs: list[Any] = []
         self._define_abi()
         self._init_model()
 
@@ -259,135 +345,277 @@ class NativeRkllmBackend(Backend):
                 ("mirostat_tau", ct.c_float),
                 ("mirostat_eta", ct.c_float),
                 ("skip_special_token", ct.c_bool),
+                ("ignore_eos_token", ct.c_bool),
                 ("is_async", ct.c_bool),
-                ("img_start", ct.c_char_p),
-                ("img_end", ct.c_char_p),
-                ("img_content", ct.c_char_p),
                 ("extend_param", RKLLMExtendParam),
             ]
 
-        # RKLLMResult: we only read `text` (UTF-8 token piece) in the callback.
-        class RKLLMResult(ct.Structure):
+        class RKLLMEmbedInput(ct.Structure):
+            _fields_ = [("embed", ct.POINTER(ct.c_float)), ("n_tokens", ct.c_size_t)]
+
+        class RKLLMTokenInput(ct.Structure):
+            _fields_ = [("input_ids", ct.POINTER(ct.c_int32)), ("n_tokens", ct.c_size_t)]
+
+        class RKLLMImageInput(ct.Structure):
             _fields_ = [
-                ("text", ct.c_char_p),
-                ("token_id", ct.c_int32),
+                ("image_embed", ct.POINTER(ct.c_float)),
+                ("n_image_tokens", ct.c_size_t),
+                ("n_image", ct.c_size_t),
+                ("image_start", ct.c_char_p),
+                ("image_end", ct.c_char_p),
+                ("image_content", ct.c_char_p),
+                ("image_width", ct.c_size_t),
+                ("image_height", ct.c_size_t),
             ]
 
-        # RKLLMInput (RKLLM_INPUT_PROMPT path): a type discriminator + a union
-        # whose first member is the prompt string. We only use the prompt path —
-        # the other union variants (embed/token/multimodal) are unused, so the
-        # union just needs prompt_input first. ⚠️ If your rkllm.h adds fields
-        # before `input_type` (some builds carry role/enable_thinking), prepend
-        # them here or offsets will be wrong (→ segfault).
-        class _RKLLMInputUnion(ct.Union):
-            _fields_ = [("prompt_input", ct.c_char_p)]
+        class RKLLMVideoInput(ct.Structure):
+            _fields_ = [
+                ("video_embed", ct.POINTER(ct.c_float)),
+                ("n_frame_tokens", ct.c_size_t),
+                ("n_frame_per_video", ct.c_size_t),
+                ("n_video", ct.c_size_t),
+                ("video_start", ct.c_char_p),
+                ("video_end", ct.c_char_p),
+                ("video_content", ct.c_char_p),
+                ("frame_width", ct.c_size_t),
+                ("frame_height", ct.c_size_t),
+            ]
+
+        class RKLLMMultiModalInput(ct.Structure):
+            _fields_ = [
+                ("prompt", ct.c_char_p),
+                ("image", RKLLMImageInput),
+                ("video", RKLLMVideoInput),
+            ]
+
+        class RKLLMInputUnion(ct.Union):
+            _fields_ = [
+                ("prompt_input", ct.c_char_p),
+                ("embed_input", RKLLMEmbedInput),
+                ("token_input", RKLLMTokenInput),
+                ("multimodal_input", RKLLMMultiModalInput),
+            ]
 
         class RKLLMInput(ct.Structure):
-            # RKLLM 1.2.x prepends `role` + `enable_thinking` before input_type.
-            # Omitting them puts input_type at the wrong offset → the runtime
-            # reports "input_type of rkllm_input is not set". role/enable_thinking
-            # zero-init to NULL/false, which is correct since we pre-render ChatML.
-            _anonymous_ = ("u",)
+            _anonymous_ = ("input_data",)
             _fields_ = [
                 ("role", ct.c_char_p),
                 ("enable_thinking", ct.c_bool),
                 ("input_type", ct.c_int),
-                ("u", _RKLLMInputUnion),
+                ("input_data", RKLLMInputUnion),
             ]
 
-        # RKLLMInferParam: generate mode, no LoRA / no prompt cache, history off
-        # (the bot owns conversation history). `keep_history` was added in 1.2.x.
+        class RKLLMLoraParam(ct.Structure):
+            _fields_ = [("lora_adapter_name", ct.c_char_p)]
+
+        class RKLLMPromptCacheParam(ct.Structure):
+            _fields_ = [("save_prompt_cache", ct.c_int), ("prompt_cache_path", ct.c_char_p)]
+
+        class RKLLMSamplingParam(ct.Structure):
+            _fields_ = [
+                ("top_k", ct.c_int32),
+                ("top_p", ct.c_float),
+                ("temperature", ct.c_float),
+                ("repeat_penalty", ct.c_float),
+                ("frequency_penalty", ct.c_float),
+                ("presence_penalty", ct.c_float),
+                ("mirostat", ct.c_int32),
+                ("mirostat_tau", ct.c_float),
+                ("mirostat_eta", ct.c_float),
+            ]
+
         class RKLLMInferParam(ct.Structure):
             _fields_ = [
                 ("mode", ct.c_int),
-                ("lora_params", ct.c_void_p),
-                ("prompt_cache_params", ct.c_void_p),
+                ("lora_params", ct.POINTER(RKLLMLoraParam)),
+                ("prompt_cache_params", ct.POINTER(RKLLMPromptCacheParam)),
+                ("sampling_params", ct.POINTER(RKLLMSamplingParam)),
                 ("keep_history", ct.c_int),
+                ("max_new_tokens", ct.c_int32),
+            ]
+
+        class RKLLMResultLastHiddenLayer(ct.Structure):
+            _fields_ = [
+                ("hidden_states", ct.POINTER(ct.c_float)),
+                ("embd_size", ct.c_int),
+                ("num_tokens", ct.c_int),
+            ]
+
+        class RKLLMResultLogits(ct.Structure):
+            _fields_ = [
+                ("logits", ct.POINTER(ct.c_float)),
+                ("vocab_size", ct.c_int),
+                ("num_tokens", ct.c_int),
+            ]
+
+        class RKLLMPerfStat(ct.Structure):
+            _fields_ = [
+                ("prefill_time_ms", ct.c_float),
+                ("prefill_tokens", ct.c_int),
+                ("generate_time_ms", ct.c_float),
+                ("generate_tokens", ct.c_int),
+                ("memory_usage_mb", ct.c_float),
+            ]
+
+        class RKLLMResult(ct.Structure):
+            _fields_ = [
+                ("text", ct.c_char_p),
+                ("token_id", ct.c_int32),
+                ("last_hidden_layer", RKLLMResultLastHiddenLayer),
+                ("logits", RKLLMResultLogits),
+                ("perf", RKLLMPerfStat),
+            ]
+
+        CALLBACK = ct.CFUNCTYPE(ct.c_int, ct.POINTER(RKLLMResult), ct.c_void_p, ct.c_int)
+
+        class RKLLMCallback(ct.Structure):
+            _fields_ = [
+                ("result_callback", CALLBACK),
+                ("result_userdata", ct.c_void_p),
+                ("tokenizer_callback", ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.c_char_p,
+                                                    ct.c_int32, ct.POINTER(ct.c_int32), ct.c_int32)),
+                ("tokenizer_userdata", ct.c_void_p),
+                ("embed_callback", ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.POINTER(ct.c_int32),
+                                                 ct.c_uint64, ct.c_void_p, ct.c_uint64)),
+                ("embed_userdata", ct.c_void_p),
             ]
 
         self.RKLLMParam = RKLLMParam
         self.RKLLMResult = RKLLMResult
         self.RKLLMInput = RKLLMInput
         self.RKLLMInferParam = RKLLMInferParam
-        # Enum values (rkllm.h): RKLLM_INPUT_PROMPT=0, RKLLM_INFER_GENERATE=0.
+        self.RKLLMSamplingParam = RKLLMSamplingParam
+        self.RKLLMCallback = RKLLMCallback
+        self.CALLBACK = CALLBACK
         self.RKLLM_INPUT_PROMPT = 0
         self.RKLLM_INFER_GENERATE = 0
-        # Callback: void(*)(RKLLMResult*, void* userdata, int state)
-        self.CALLBACK = ct.CFUNCTYPE(None, ct.POINTER(RKLLMResult), ct.c_void_p, ct.c_int)
 
-        self.lib.rkllm_createDefaultParam.restype = RKLLMParam
-        self.lib.rkllm_init.argtypes = [ct.POINTER(ct.c_void_p), ct.POINTER(RKLLMParam), self.CALLBACK]
+        self.lib.rkllm_init.argtypes = [ct.POINTER(ct.c_void_p), ct.POINTER(RKLLMParam),
+                                        ct.POINTER(RKLLMCallback)]
         self.lib.rkllm_init.restype = ct.c_int
         self.lib.rkllm_run.argtypes = [
             ct.c_void_p, ct.POINTER(RKLLMInput), ct.POINTER(RKLLMInferParam), ct.c_void_p
         ]
         self.lib.rkllm_run.restype = ct.c_int
         self.lib.rkllm_destroy.argtypes = [ct.c_void_p]
+        self.lib.rkllm_destroy.restype = ct.c_int
+        self.lib.rkllm_set_function_tools.argtypes = [
+            ct.c_void_p, ct.c_char_p, ct.c_char_p, ct.c_char_p
+        ]
+        self.lib.rkllm_set_function_tools.restype = ct.c_int
 
     def _init_model(self) -> None:
         ct = self.ctypes
-        param = self.lib.rkllm_createDefaultParam()
-        param.model_path = self.model_path.encode()
+        param = self.RKLLMParam()
+        ct.memset(ct.byref(param), 0, ct.sizeof(self.RKLLMParam))
+        param.model_path = self._cstr(self.model_path)
         param.max_context_len = self.max_context
-        # Upper bound on generated tokens (our requests are short; the OpenAI
-        # max_tokens is advisory here since RKLLM sets this at init, not per-run).
         param.max_new_tokens = int(os.environ.get("RKLLM_MAX_NEW_TOKENS", "512"))
         param.skip_special_token = True
-        param.is_async = False  # synchronous: rkllm_run blocks until the finish callback
+        param.ignore_eos_token = False
+        param.is_async = False
+        param.top_k = 1
+        param.top_p = 0.95
+        param.temperature = 0.8
+        param.repeat_penalty = 1.1
+        param.n_keep = -1
+        param.extend_param.base_domain_id = 0
+        param.extend_param.embed_flash = 1
+        param.extend_param.n_batch = 1
+        param.extend_param.use_cross_attn = 0
+        param.extend_param.enabled_cpus_num = 4
+        param.extend_param.enabled_cpus_mask = (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7)
 
         self._buf: list[str] = []
-        self._lock = threading.Lock()  # serialize inference (one NPU model, shared buffer)
+        self._lock = threading.Lock()
         self._error = False
 
         def _on_token(result_ptr, _userdata, state):
-            # state (LLMCallState): 0 = RKLLM_RUN_NORMAL (token), 1 = RKLLM_RUN_FINISH,
-            # 2 = RKLLM_RUN_WAITING, 3 = RKLLM_RUN_ERROR. Exact values per rkllm.h.
-            if state == 0 and result_ptr:
+            if state == self.RKLLM_RUN_NORMAL and result_ptr:
                 piece = result_ptr.contents.text
                 if piece:
                     self._buf.append(piece.decode("utf-8", "replace"))
-            elif state >= 3:
+            elif state == self.RKLLM_RUN_ERROR:
                 self._error = True
+            return 0
 
-        self._cb = self.CALLBACK(_on_token)  # keep a ref so it isn't GC'd
+        self._cb = self.CALLBACK(_on_token)
+        self._callback = self.RKLLMCallback()
+        self._callback.result_callback = self._cb
+
         self.handle = ct.c_void_p()
-        rc = self.lib.rkllm_init(ct.byref(self.handle), ct.byref(param), self._cb)
+        rc = self.lib.rkllm_init(ct.byref(self.handle), ct.byref(param), ct.byref(self._callback))
         if rc != 0:
             raise RuntimeError(f"rkllm_init failed (rc={rc}). Check model/runtime version match.")
 
-        # We pre-render Qwen3 ChatML ourselves, so neutralize the runtime's own
-        # chat template (empty system/prefix/postfix) to avoid double-wrapping.
-        # Best-effort: not all 1.2.x builds export this symbol.
-        try:
-            self.lib.rkllm_set_chat_template.argtypes = [ct.c_void_p, ct.c_char_p, ct.c_char_p, ct.c_char_p]
-            self.lib.rkllm_set_chat_template.restype = ct.c_int
-            self.lib.rkllm_set_chat_template(self.handle, b"", b"", b"")
-        except AttributeError:
-            pass
+        self._infer = self.RKLLMInferParam()
+        ct.memset(ct.byref(self._infer), 0, ct.sizeof(self.RKLLMInferParam))
+        self._infer.mode = self.RKLLM_INFER_GENERATE
+        self._infer.keep_history = 0
 
-    def generate(self, prompt: str, max_tokens: int, temperature: float) -> str:
-        """Run one synchronous inference and return the full decoded text.
+    def _cstr(self, s: str) -> Any:
+        b = s.encode("utf-8")
+        self._enc_refs.append(b)
+        return self.ctypes.c_char_p(b)
 
-        Serialized: a single NPU model can't infer concurrently and the token
-        buffer/callback are shared. rkllm_run blocks (is_async=False) until the
-        finish callback fires, so on return self._buf holds the complete output.
-        """
+    def _configure_tools(self, messages: list[dict], tools: list[dict] | None) -> None:
+        if not tools:
+            return
+        sys_prompt = ""
+        for msg in messages:
+            if msg.get("role") == "system":
+                sys_prompt = _extract_text_content(msg)
+        tools_json = json.dumps(tools, ensure_ascii=False)
+        if tools_json == self._tools_json:
+            return
+        self._tools_json = tools_json
+        rc = self.lib.rkllm_set_function_tools(
+            self.handle,
+            self._cstr(sys_prompt),
+            self._cstr(tools_json),
+            self._cstr("tool_response"),
+        )
+        if rc != 0:
+            raise RuntimeError(f"rkllm_set_function_tools failed (rc={rc})")
+
+    def generate(self, messages: list[dict], tools: list[dict] | None,
+                 max_tokens: int, temperature: float) -> str:
         ct = self.ctypes
         with self._lock:
+            role, prompt, self._last_messages = get_last_input(messages, self._last_messages)
+            if not prompt:
+                raise ValueError("no user/tool content in messages")
+
+            self._configure_tools(messages, tools)
             self._buf = []
             self._error = False
+            self._enc_refs = []
 
             inp = self.RKLLMInput()
+            ct.memset(ct.byref(inp), 0, ct.sizeof(self.RKLLMInput))
+            inp.role = self._cstr(role)
+            inp.enable_thinking = False
             inp.input_type = self.RKLLM_INPUT_PROMPT
-            inp.prompt_input = prompt.encode("utf-8")  # via anonymous union
+            inp.prompt_input = self._cstr(prompt)
 
-            infer = self.RKLLMInferParam()
-            infer.mode = self.RKLLM_INFER_GENERATE
-            infer.lora_params = None
-            infer.prompt_cache_params = None
-            infer.keep_history = 0  # stateless — the bot manages conversation history
+            sampling = self.RKLLMSamplingParam()
+            sampling.top_k = 1
+            sampling.top_p = 0.95
+            sampling.temperature = float(temperature)
+            sampling.repeat_penalty = 1.1
+            sampling.frequency_penalty = 0.0
+            sampling.presence_penalty = 0.0
+            sampling.mirostat = 0
+            sampling.mirostat_tau = 5.0
+            sampling.mirostat_eta = 0.1
 
-            rc = self.lib.rkllm_run(self.handle, ct.byref(inp), ct.byref(infer), None)
+            self._infer.sampling_params = ct.pointer(sampling)
+            self._infer.max_new_tokens = int(max_tokens)
+
+            rc = self.lib.rkllm_run(self.handle, ct.byref(inp), ct.byref(self._infer), None)
+            self._infer.sampling_params = None
+            self._infer.max_new_tokens = 0
+
             if rc != 0:
                 raise RuntimeError(f"rkllm_run failed (rc={rc})")
             if self._error:
@@ -460,9 +688,8 @@ class Handler(BaseHTTPRequestHandler):
         temperature = float(req.get("temperature", 0.2))
         model = req.get("model") or self.model_name
 
-        prompt = build_prompt(messages, tools)
         try:
-            raw = self.backend.generate(prompt, max_tokens, temperature)
+            raw = self.backend.generate(messages, tools, max_tokens, temperature)
         except NotImplementedError as e:
             self._send(501, {"error": {"message": str(e)}})
             return
@@ -471,9 +698,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         content, tool_calls = parse_generation(raw)
+        prompt_len = sum(approx_tokens(_extract_text_content(m)) for m in messages)
         body = chat_response(
             model, content, tool_calls,
-            prompt_tokens=approx_tokens(prompt),
+            prompt_tokens=prompt_len,
             completion_tokens=approx_tokens(raw),
             created=int(time.time()),
         )
@@ -539,13 +767,24 @@ def selftest() -> int:
     check(resp["choices"][0]["finish_reason"] == "tool_calls", "finish_reason=tool_calls")
     check(resp["usage"]["total_tokens"] == 12, "usage totals")
 
+    # parse_generation: Gemma4 tool call formats.
+    g_raw = '<|tool_call>call:play_music{query:<|"|>jazz<|"|>}<tool_call|>'
+    _, gcalls = parse_generation(g_raw)
+    check(len(gcalls) == 1 and gcalls[0]["name"] == "play_music", "gemma tool call extracted")
+    check(gcalls[0]["arguments"].get("query") == "jazz", "gemma tool args parsed")
+    _, bare_calls = parse_generation("call:play_music{query:jazz music}")
+    check(len(bare_calls) == 1 and bare_calls[0]["name"] == "play_music", "bare gemma tool call")
+    _, fn_calls = parse_generation("play_music{query:bohemian rhapsody}")
+    check(len(fn_calls) == 1 and fn_calls[0]["arguments"].get("query") == "bohemian rhapsody",
+          "func-only gemma tool call")
+
     # MockBackend: music intent → tool call; question → text.
     mb = MockBackend()
-    play = mb.generate(build_prompt([{"role": "user", "content": "play some jazz"}],
-                                    [{"type": "function", "function": {"name": "play_music"}}]), 256, 0.2)
+    tools = [{"type": "function", "function": {"name": "play_music"}}]
+    play = mb.generate([{"role": "user", "content": "play some jazz"}], tools, 256, 0.2)
     _, pcalls = parse_generation(play)
     check(len(pcalls) == 1 and pcalls[0]["name"] == "play_music", "mock emits play_music tool call")
-    ans = mb.generate(build_prompt([{"role": "user", "content": "what is 2+2"}], None), 256, 0.2)
+    ans = mb.generate([{"role": "user", "content": "what is 2+2"}], None, 256, 0.2)
     _, acalls = parse_generation(ans)
     check(acalls == [], "mock answers questions without tools")
 

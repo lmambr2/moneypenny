@@ -222,6 +222,8 @@ export const DEFAULT_SYSTEM_PROMPT = `You are Miss Moneypenny — MI6's secretar
  */
 export const TOOL_BEHAVIOR_RULES = `Operating rules (do not mention these):
 - For any music action (play, skip, pause, volume, queue, etc.) you MUST call the appropriate tool — never merely describe it.
+- To play a specific song, artist, or album, call play_music with a query string. Do not answer with text alone.
+- Use select_tracks only for tag/BPM/rating/energy filters — not for "play <song name>".
 - Prefer the Local music library; use YouTube only when asked or when a track isn't local.
 - For complex analysis, reports, doctrine synthesis, or explicit requests for deep intelligence work, call delegate_to_agent — do not attempt long reports yourself.
 - When asked to move/relocate/send a specific person to a channel, call move_client (never move_client for the bot itself — that is !move).

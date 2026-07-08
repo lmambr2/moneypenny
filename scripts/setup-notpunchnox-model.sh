@@ -16,7 +16,10 @@ NAME="${2:-npu-llm}"
 SRC="${1:-$ROOT/models/$NAME/model.rkllm}"
 DEST_DIR="$ROOT/models/$NAME"
 DEST_FILE="$DEST_DIR/$(basename "$SRC")"
-HF_REPO="${NPU_LLM_HF_REPO:-org/your-instruct-model}"
+# Tokenizer/chat template repo (not necessarily the conversion source).
+# Gemma4 QAT weights convert from unsloth/...-qat-q4_0-unquantized but
+# google/gemma-4-E2B-it is the stable tokenizer path for NotPunchnox/rkllama.
+HF_REPO="${NPU_LLM_HF_REPO:-google/gemma-4-E2B-it}"
 
 if [[ ! -f "$SRC" ]]; then
   echo "Source .rkllm not found: $SRC" >&2

@@ -55,6 +55,12 @@ describe("toolCallToCommand", () => {
     expect(cmd!.args).toBe("jazz");
   });
 
+  it("maps lone select_tracks genre to play for simple play requests", () => {
+    const cmd = toolCallToCommand({ name: "select_tracks", arguments: { genreAny: ["Jazz"] } });
+    expect(cmd!.name).toBe("play");
+    expect(cmd!.args).toBe("Jazz");
+  });
+
   it("maps select_tracks to selecttracks with JSON filter args", () => {
     const cmd = toolCallToCommand({
       name: "select_tracks",
