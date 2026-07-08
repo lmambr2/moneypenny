@@ -115,6 +115,19 @@ export interface RouterContext {
   allowedClassifications?: string[];
 }
 
+/** Structured invoker identity for router logs (text chat / web context). */
+export function invokerFields(context: RouterContext): Record<string, string | number> {
+  const fields: Record<string, string | number> = {};
+  if (context.invokerName) fields.invokerName = context.invokerName;
+  if (context.invokerUid) fields.invokerUid = context.invokerUid;
+  const clid = context.message?.invokerId;
+  if (clid) {
+    const n = Number.parseInt(clid, 10);
+    if (Number.isFinite(n)) fields.invokerClientId = n;
+  }
+  return fields;
+}
+
 export interface LlmIntent {
   mode: "ask" | "intent" | "delegate" | "workflow";
   /** The question (ask), fuzzy NL (intent), or analyst task (delegate). */
@@ -228,14 +241,20 @@ export class ControlRouter {
 
     // Known command → deterministic dispatch (the fast, reliable path).
     if (isKnownCommand(command.name)) {
-      this.logger.debug({ command: command.name }, "Deterministic command matched");
+      this.logger.debug(
+        { command: command.name, ...invokerFields(context) },
+        "Deterministic command matched",
+      );
       const resolvedMusic = await this.resolveMusicForCommand(command, context);
       return { type: "deterministic", command, resolvedMusic };
     }
 
     // Prefixed but not a recognized command → fuzzy music intent for the LLM.
     // Strip the prefix so the model sees natural language, not "!something".
-    this.logger.debug({ command: command.name }, "Unrecognized command — routing to LLM intent");
+    this.logger.debug(
+      { command: command.name, ...invokerFields(context) },
+      "Unrecognized command — routing to LLM intent",
+    );
     return {
       type: "llm",
       llmIntent: { mode: "intent", text: trimmed.slice(commandPrefix.length).trim() },
@@ -295,7 +314,10 @@ export class ControlRouter {
     try {
       const resolved = await context.bot.resolveLocalMusic(command.args);
       if (resolved) {
-        this.logger.debug({ command: command.name, resolvedType: resolved.type }, "Local resolve succeeded in router");
+        this.logger.debug(
+          { command: command.name, resolvedType: resolved.type, ...invokerFields(context) },
+          "Local resolve succeeded in router",
+        );
         return { type: resolved.type, item: resolved.item, providerPlatform: "local" };
       }
     } catch (e) {
@@ -337,7 +359,10 @@ export class ControlRouter {
     // LLM-tool-derived commands alike (both reach here), so natural language
     // cannot escalate past the invoker's rank.
     if (context.canRun && !context.canRun(cmd.name)) {
-      this.logger.debug({ command: cmd.name }, "Command denied by rights");
+      this.logger.debug(
+        { command: cmd.name, ...invokerFields(context) },
+        "Command denied by rights",
+      );
       return `You don't have permission to use '${cmd.name}'.`;
     }
 
@@ -374,7 +399,10 @@ export class ControlRouter {
     const handler = this.handlers.get(cmd.name.toLowerCase());
 
     if (handler) {
-      this.logger.debug({ command: cmd.name }, "Executing via registered handler");
+      this.logger.debug(
+        { command: cmd.name, ...invokerFields(context) },
+        "Executing via registered handler",
+      );
       return handler.execute(cmd, context, decision);
     }
 

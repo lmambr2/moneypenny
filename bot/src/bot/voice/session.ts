@@ -13,6 +13,7 @@ import type { Subject } from "../../rights/index.js";
 import { resolveSubject as resolveRightsSubject } from "../rights/subject.js";
 import type { ControlRouter, RouterContext } from "../../control/router.js";
 import { createOpusEncoder, type Encoder } from "../../audio/encoder.js";
+import { decodeVoiceOpusPacket } from "../../audio/opus-voice.js";
 import {
   VoicePipeline,
   SherpaSttClient,
@@ -81,8 +82,6 @@ export class VoiceSession {
   private readonly passiveStreamFlushMs = 200;
   /** Music bleed keeps passive peaks high — stretch passive flushes further. */
   private readonly passiveMusicFlushMs = 350;
-  /** Opus DTX comfort-noise frames are tiny; skip decode in passive mode. */
-  private static readonly PASSIVE_DTX_MAX_BYTES = 12;
   /** After inbound audio stops, pad silence so Silero VAD can end-point. */
   private readonly streamIdleMs = 1200;
   /** While armed, wait longer for beat-then-command cadence before idle finalize. */
@@ -134,6 +133,10 @@ export class VoiceSession {
   private voiceHandler: ((v: TS3VoiceData) => void) | null = null;
   private inboundPackets = 0;
   private decodedFrames = 0;
+  /** Per-client first-packet marker for voice debug (clientId is reused across sessions). */
+  private seenInboundClients = new Set<number>();
+  private decodeFailuresByClient = new Map<number, number>();
+  private multiFrameRecoveries = 0;
   private segmentedUtterances = 0;
   private lastStatsAt = 0;
   /** Per-speaker generation — stale STT finals are dropped after faster retries. */
@@ -228,6 +231,9 @@ export class VoiceSession {
     this.cleanup();
     this.inboundPackets = 0;
     this.decodedFrames = 0;
+    this.seenInboundClients.clear();
+    this.decodeFailuresByClient.clear();
+    this.multiFrameRecoveries = 0;
     this.droppedPassiveDtx = 0;
     this.skippedPassiveComfortNoise = 0;
     this.skippedPassiveSpeakerCap = 0;
@@ -467,10 +473,11 @@ export class VoiceSession {
     }
 
     this.inboundPackets++;
-    if (this.inboundPackets === 1) {
+    if (!this.seenInboundClients.has(v.clientId)) {
+      this.seenInboundClients.add(v.clientId);
       this.deps.logger.info(
         { clientId: v.clientId, codec: v.codec, opusBytes: v.data.length },
-        "Voice: first inbound packet",
+        "Voice: first inbound packet from client",
       );
     } else if (this.inboundPackets % 500 === 0) {
       this.prunePassiveKwsEligible();
@@ -483,20 +490,19 @@ export class VoiceSession {
       buf?.listening === "command" ||
       !!this.captureDuck;
 
-    if (!inCapture && v.data.length <= VoiceSession.PASSIVE_DTX_MAX_BYTES) {
-      this.droppedPassiveDtx++;
-      return;
-    }
-
     const channels = 1;
-    let pcm: Buffer;
-    try {
-      pcm = this.voiceDecoder.decode(v.data);
-      this.decodedFrames++;
-    } catch (err) {
-      this.deps.logger.warn({ err, clientId: v.clientId, codec: v.codec }, "Voice: opus decode failed");
+    const decoded = decodeVoiceOpusPacket(this.voiceDecoder, v.data);
+    if (!decoded.ok) {
+      if (decoded.reason === "dtx") {
+        this.droppedPassiveDtx++;
+      } else if (decoded.reason === "corrupt") {
+        this.logDecodeFailure(v.clientId, v.data.length);
+      }
       return;
     }
+    if (decoded.frames > 1) this.multiFrameRecoveries++;
+    const pcm = decoded.pcm;
+    this.decodedFrames += decoded.frames;
     const rawPeak = peakAmplitude16(pcm);
     if (isPcmClipped(pcm)) {
       this.attenuatedClipped++;
@@ -1194,10 +1200,22 @@ export class VoiceSession {
     this.releaseCaptureDuck(clientId);
   }
 
+  private logDecodeFailure(clientId: number, opusBytes: number): void {
+    const count = (this.decodeFailuresByClient.get(clientId) ?? 0) + 1;
+    this.decodeFailuresByClient.set(clientId, count);
+    if (count <= 3 || count % 50 === 0) {
+      this.deps.logger.warn(
+        { clientId, codec: CODEC_OPUS_VOICE, opusBytes, count },
+        "Voice: opus decode failed",
+      );
+    }
+  }
+
   private logInboundStats(): void {
     const now = Date.now();
     if (now - this.lastStatsAt < 10_000) return;
     this.lastStatsAt = now;
+    const decodeFailures = Object.fromEntries(this.decodeFailuresByClient);
     this.deps.logger.info(
       {
         inboundPackets: this.inboundPackets,
@@ -1212,6 +1230,8 @@ export class VoiceSession {
         passiveKwsMaxSpeakers: this.passiveKwsMaxSpeakers,
         passiveKwsRanked: this.rankedPassiveSpeakers().length,
         attenuatedClipped: this.attenuatedClipped,
+        multiFrameRecoveries: this.multiFrameRecoveries,
+        decodeFailures,
       },
       "Voice: inbound capture stats",
     );

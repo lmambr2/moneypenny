@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { BotInstance } from "../bot/instance.js";
 import type { Logger } from "../logger.js";
+import type { TS3TextMessage } from "../ts-protocol/client.js";
 import {
   ControlRouter,
+  invokerFields,
   toolCallToCommand,
   type LlmAssist,
   type RouterContext,
@@ -136,6 +138,41 @@ describe("ControlRouter — deterministic routing", () => {
     const d = await router.route("!play something", makeContext(bot), "!");
     expect(resolve).toHaveBeenCalledWith("something");
     expect(d.resolvedMusic).toEqual({ type: "song", item: { id: "1", name: "Song" }, providerPlatform: "local" });
+  });
+
+  it("logs invoker identity on deterministic command match", async () => {
+    const logger = fakeLogger();
+    const invokerRouter = new ControlRouter(logger);
+    const msg = {
+      invokerId: "21",
+      invokerUid: "uid-angelsfear",
+      invokerName: "Angelsfear",
+    } as TS3TextMessage;
+    const ctx: RouterContext = { bot: fakeBot(), logger, invokerUid: msg.invokerUid, invokerName: msg.invokerName, message: msg };
+    await invokerRouter.route("!play africa", ctx, "!");
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "play",
+        invokerName: "Angelsfear",
+        invokerUid: "uid-angelsfear",
+        invokerClientId: 21,
+      }),
+      "Deterministic command matched",
+    );
+  });
+});
+
+describe("invokerFields", () => {
+  it("extracts invoker client id from TS message", () => {
+    expect(
+      invokerFields({
+        bot: fakeBot(),
+        logger: fakeLogger(),
+        invokerName: "Bond",
+        invokerUid: "u1",
+        message: { invokerId: "7" } as TS3TextMessage,
+      }),
+    ).toEqual({ invokerName: "Bond", invokerUid: "u1", invokerClientId: 7 });
   });
 });
 
