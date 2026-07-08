@@ -35,17 +35,17 @@ services:
     networks:
       - moneypenny
 
-  # NotPunchnox/rkllama — NPU LLM inference (OpenAI compatible). aarch64 / RK3588.
-  # Secondary/fallback chat backend when a remote LAN ollama host is primary.
-  # Model layout: ./models/<name>/Modelfile + *.rkllm (default slot: models/npu-llm/).
-  # Legacy hand-rolled gateway: services/rkllama/ (deprecated — kept for reference).
+  # Hand-rolled RKLLama gateway — OpenAI /v1 over librkllmrt 1.3.x (aarch64 / RK3588).
+  # Model: ./models/npu-llm/*.rkllm (see docker-compose.npu.yml for NPU mounts).
   rkllama:
-    image: ghcr.io/notpunchnox/rkllama:main
+    build:
+      context: ./services/rkllama
+      dockerfile: Dockerfile
     profiles: ["npu"]
     privileged: true
     restart: unless-stopped
     volumes:
-      - ./models:/opt/rkllama/models
+      - ./models:/models
     ports:
       - "127.0.0.1:8080:8080"   # OpenAI-compatible API — localhost only
     networks:
@@ -164,6 +164,7 @@ services:
       - "127.0.0.1:9000:9000"
     environment:
       - NUM_THREADS=${SHERPA_NUM_THREADS:-4}
+      - PASSIVE_KWS_ACCUM_S=${SHERPA_PASSIVE_KWS_ACCUM_S:-0.35}
       - PARTIAL_DECODE_INTERVAL_S=${SHERPA_PARTIAL_DECODE_INTERVAL_S:-999}
       - KWS_THRESHOLD=${KWS_THRESHOLD:-0.10}
       - KWS_SCORE=${KWS_SCORE:-3.0}

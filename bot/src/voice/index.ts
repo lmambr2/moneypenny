@@ -15,10 +15,17 @@ export { KokoroTtsClient } from "./tts.js";
 export { VoicePipeline, type VoicePipelineOptions } from "./pipeline.js";
 export {
   isPlaybackControlReply,
+  isPlaybackStartReply,
   shouldSpeakVoiceReply,
+  voicePlayPendingAck,
   voiceReplyClearsSavedMusic,
   voiceSpokenAck,
 } from "./playback-reply.js";
+export {
+  isMusicSearchRouteText,
+  MUSIC_SEARCH_COMMANDS,
+  voiceRouteNeedsPendingAck,
+} from "./music-command.js";
 export {
   isPcmClipped,
   MIN_PCM_BOOST_PEAK,

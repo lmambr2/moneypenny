@@ -120,6 +120,32 @@ When you hit a failure mode — especially one an LLM “fixed” wrong — add 
 - [2026-06-20] TS6 rank gating sees empty `serverGroups` on full-client `clientlist` → everyone denied admin/`!follow`/`!vol`. → Enrich via HTTP Query (`clientlist?-groups`, `clientinfo` by `invokerClid`); see `docs/rank-gating.md`.
 - [2026-06-20] `!follow` returns "Failed to move" when bot is already in the invoker's channel — TS `clientMove` error 770. → Skip move when `channelID` matches; treat 770 as success (`joinChannelById`).
 - [2026-06-20] Pi `git fetch origin dev` updates `FETCH_HEAD` but leaves `origin/dev` stale → `git reset --hard origin/dev` deploys old code. → `git fetch origin dev:refs/remotes/origin/dev` before reset.
+- [2026-07-07] `rsync` of one or two files to `dietpi@opi5:~/moneypenny/` lands them at the **repo root** (`server.py`, `session.ts`) — Docker build cache hits and production code never updates. → Always use `./scripts/deploy-to-pi.sh --files <repo-relative-path>` or full `./scripts/deploy-to-pi.sh`; never bare `rsync … host:~/moneypenny/`.
+- [2026-07-07] Deploying from `/home/lane/moneypenny` (slim clone) over `/home/lane/Projects/moneypenny` (production fork) drops `radio`, `kg`, `rights` depth, truncated `music/local.ts` → rank-gating regressions. → **Source of truth is `Projects/moneypenny`**; `deploy-preflight.sh` refuses the slim tree when both exist.
+- [2026-07-07] `rsync --delete` from the wrong tree **wipes** Pi-only state and leaves a broken hybrid. → Default deploy has **no** `--delete`; requires `DEPLOY_ALLOW_DELETE=1` or typing `delete` to confirm.
+- [2026-07-07] `/mnt/music` permissions fixed but bot still EACCES — container bind is `~/moneypenny/music` or `MUSIC_HOST_DIR`, not `/mnt/music` unless `.env` says so. → `verify-pi-deploy.sh` writes `/music/youtube/.deploy-verify` inside the container; fix the **mounted host path**.
+
+---
+
+## 5. Pi deploy safeguards (mandatory for agents)
+
+**Never improvise rsync/ssh deploys.** Use the scripts:
+
+```bash
+./scripts/deploy-preflight.sh          # local: production-fork fingerprint + critical tests
+./scripts/deploy-to-pi.sh              # preflight → rsync → rebuild bot → verify
+./scripts/deploy-to-pi.sh --files bot/src/bot/voice/session.ts --services bot,sherpa-stt
+./scripts/verify-pi-deploy.sh          # remote smoke: dist markers, /music writable, health
+```
+
+| Rule | Why |
+|------|-----|
+| Deploy from `Projects/moneypenny` only | Slim tree lacks full `COMMAND_MANIFEST` + modules |
+| No `rsync --delete` by default | Avoids wiping Pi `bot/data`, models, `.env` |
+| Always `--files` with **repo-relative** paths | Prevents repo-root landings |
+| Always run `verify-pi-deploy.sh` after | Catches stale Docker cache / truncated `dist/` |
+| SSH: `ClearAllForwardings=yes` | Avoids LocalForward port conflicts (set in scripts) |
+| Rebuild affected compose services | `session.ts` changes need `docker compose build bot` |
 
 ---
 
@@ -156,6 +182,9 @@ cd bot && npx tsc --noEmit && npm run test:all
 cd bot/web && npm run build
 ./scripts/ci-validate.sh              # doctrine + voice mock + phase0 preflight
 ./scripts/phase0-validate.sh --check-only
+./scripts/deploy-preflight.sh         # before any Pi rsync
+./scripts/deploy-to-pi.sh             # guarded Pi deploy (preflight + verify)
+./scripts/verify-pi-deploy.sh         # post-deploy checks on opi5
 ```
 
 ---

@@ -215,6 +215,84 @@ describe("VoicePipeline", () => {
     expect(output.speak).not.toHaveBeenCalled();
   });
 
+  it("speaks an instant ack before a slow play resolve", async () => {
+    const play = vi.fn();
+    const router = new ControlRouter(fakeLogger());
+    router.registerHandler({
+      name: "play",
+      execute: async () => {
+        play();
+        await new Promise((r) => setTimeout(r, 50));
+        return "Now playing: Toto - Africa - TOTO";
+      },
+    });
+
+    const tts: TtsProvider = {
+      synthesize: vi.fn().mockResolvedValue({ audio: Buffer.from("a"), format: "wav" }),
+    };
+    const output: VoiceOutput = { speak: vi.fn().mockResolvedValue(undefined) };
+
+    const pipeline = new VoicePipeline({
+      ...pipelineOpts(),
+      router,
+      stt: sttReturning("Moneypenny play toto africa"),
+      tts,
+      output,
+      respondWithVoice: true,
+    });
+
+    const turn = await pipeline.handleUtterance(utterance());
+    expect(play).toHaveBeenCalled();
+    expect(turn.reply).toContain("Now playing");
+    expect(tts.synthesize).toHaveBeenCalledWith("On it.");
+  });
+
+  it("ignores duplicate play while resolve is in-flight", async () => {
+    const play = vi.fn();
+    const router = new ControlRouter(fakeLogger());
+    router.registerHandler({
+      name: "play",
+      execute: async () => {
+        play();
+        await new Promise((r) => setTimeout(r, 80));
+        return "Now playing: Toto - Africa - TOTO";
+      },
+    });
+
+    const inFlight = new Set<number>();
+    const pipeline = new VoicePipeline({
+      ...pipelineOpts({ isArmed: () => true }),
+      router,
+      stt: sttReturning("play toto africa"),
+      isPlayInFlight: (id) => inFlight.has(id),
+      markPlayInFlight: (id) => inFlight.add(id),
+      clearPlayInFlight: (id) => inFlight.delete(id),
+    });
+
+    inFlight.add(1);
+    const turn = await pipeline.handleUtterance(utterance());
+    expect(play).not.toHaveBeenCalled();
+    expect(turn.reply).toBeNull();
+  });
+
+  it("disarms after a successful play reply", async () => {
+    const disarm = vi.fn();
+    const router = new ControlRouter(fakeLogger());
+    router.registerHandler({
+      name: "play",
+      execute: async () => "Now playing: Toto - Africa - TOTO",
+    });
+
+    const pipeline = new VoicePipeline({
+      ...pipelineOpts({ disarm }),
+      router,
+      stt: sttReturning("Moneypenny play toto africa"),
+    });
+
+    await pipeline.handleUtterance(utterance());
+    expect(disarm).toHaveBeenCalledWith(1);
+  });
+
   it("routes without a watchword when requireWatchword is false", async () => {
     const skip = vi.fn();
     const router = new ControlRouter(fakeLogger());

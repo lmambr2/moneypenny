@@ -4,6 +4,7 @@ import {
   extractWatchwordCommand,
   partialMentionsCommand,
   isActionableVoiceCommand,
+  isPartialSafeVoiceCommand,
   normalizeVoiceCommand,
   watchwordAliases,
 } from "./watchword.js";
@@ -81,6 +82,21 @@ describe("extractWatchwordCommand", () => {
     });
   });
 
+  it("keeps song args on play commands", () => {
+    expect(extractCommandSegment("Play bohemian rap.", "moneypenny")).toBe("play bohemian rap");
+    expect(extractWatchwordCommand("Play bohemian rap.", "moneypenny", { armed: true })).toEqual({
+      matched: true,
+      command: "play bohemian rap",
+    });
+  });
+
+  it("does not treat wake-name peri as resume", () => {
+    expect(extractCommandSegment("Money peri, France, and.", "moneypenny")).toBe("");
+    expect(isActionableVoiceCommand(extractCommandSegment("Money peri, France, and.", "moneypenny"))).toBe(
+      false,
+    );
+  });
+
   it("extracts a canonical verb after wake-bleed (the 'any pause' case)", () => {
     // "moneypenny pause" → Moonshine "any pause" (…penny→any). "pause" is a
     // canonical verb, not a mishear alias, so the verb scan must still catch it.
@@ -120,6 +136,13 @@ describe("normalizeVoiceCommand", () => {
     expect(normalizeVoiceCommand("past")).toBe("pause");
     expect(normalizeVoiceCommand("paws")).toBe("pause");
     expect(normalizeVoiceCommand("ship")).toBe("skip");
+  });
+});
+
+describe("isPartialSafeVoiceCommand", () => {
+  it("allows transport verbs from silence-tail but not play/search", () => {
+    expect(isPartialSafeVoiceCommand("pause")).toBe(true);
+    expect(isPartialSafeVoiceCommand("play toto africa")).toBe(false);
   });
 });
 

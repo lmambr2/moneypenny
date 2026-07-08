@@ -81,6 +81,8 @@ export interface VoiceConfig {
   duckMusicVolume?: number;
   /** After watchword-only, accept a follow-up command without repeating the watchword (ms). */
   listenWindowMs: number;
+  /** Max simultaneous passive KWS streams (sherpa CPU scales with open mics). */
+  passiveKwsMaxSpeakers?: number;
   /** Prefix text wake matching for stt-mock / smoke tests. Off in production (KWS only). */
   textWakeFallback?: boolean;
 }
@@ -98,5 +100,6 @@ export function defaultVoiceConfig(): VoiceConfig {
     duckMusicOnSpeech: true,
     duckMusicVolume: 2,
     listenWindowMs: 15000,
+    passiveKwsMaxSpeakers: 2,
   };
 }

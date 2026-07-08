@@ -1,7 +1,14 @@
 import type { ControlRouter, RouterContext } from "../control/router.js";
 import type { Logger } from "../logger.js";
 import type { SttProvider, TtsProvider, VoiceOutput, Utterance } from "./types.js";
-import { shouldSpeakVoiceReply, voiceSpokenAck } from "./playback-reply.js";
+import { isMusicSearchRouteText, voiceRouteNeedsPendingAck } from "./music-command.js";
+import {
+  isPlaybackControlReply,
+  isPlaybackStartReply,
+  shouldSpeakVoiceReply,
+  voicePlayPendingAck,
+  voiceSpokenAck,
+} from "./playback-reply.js";
 import {
   extractWatchwordCommand,
   isActionableVoiceCommand,
@@ -39,6 +46,10 @@ export interface VoicePipelineOptions {
   isArmed?: (speakerClientId: number) => boolean;
   arm?: (speakerClientId: number) => void;
   disarm?: (speakerClientId: number) => void;
+  /** Blocks duplicate play/search while a prior resolve is in-flight or cooling down. */
+  isPlayInFlight?: (speakerClientId: number) => boolean;
+  markPlayInFlight?: (speakerClientId: number, query: string) => void;
+  clearPlayInFlight?: (speakerClientId: number) => void;
 }
 
 /**
@@ -105,6 +116,7 @@ export class VoicePipeline {
     const textWakeFallback = opts.textWakeFallback ?? this.opts.textWakeFallback ?? false;
     const postWake = opts.kwsDetected || armed;
     const aliases = this.opts.aliases ?? {};
+    const clientId = utterance.speakerClientId;
 
     if (this.opts.requireWatchword !== false) {
       const ww = extractWatchwordCommand(trimmed, watchword, {
@@ -114,7 +126,7 @@ export class VoicePipeline {
       });
       if (ww.matched && ww.command) {
         if (postWake && !isActionableVoiceCommand(ww.command, aliases)) {
-          this.opts.arm?.(utterance.speakerClientId);
+          this.opts.arm?.(clientId);
           this.logger?.info(
             { transcript: trimmed, command: ww.command },
             "Voice: post-wake noise — holding for command",
@@ -124,7 +136,7 @@ export class VoicePipeline {
         routeText = ww.command;
         this.logger?.info({ transcript: trimmed, command: routeText }, "Voice: watchword matched");
       } else if (ww.matched) {
-        this.opts.arm?.(utterance.speakerClientId);
+        this.opts.arm?.(clientId);
         this.logger?.info(
           { transcript: trimmed, windowMs: this.opts.listenWindowMs ?? 12000 },
           "Voice: watchword only — armed for follow-up command",
@@ -133,7 +145,7 @@ export class VoicePipeline {
       } else if (armed) {
         routeText = normalizeVoiceCommand(trimmed);
         if (!isActionableVoiceCommand(routeText, aliases)) {
-          this.opts.arm?.(utterance.speakerClientId);
+          this.opts.arm?.(clientId);
           this.logger?.info({ transcript: trimmed }, "Voice: armed — waiting for command");
           return { reply: null, ttsBytes: 0, watchwordOnly: true };
         }
@@ -148,20 +160,44 @@ export class VoicePipeline {
       return { reply: null, ttsBytes: 0, watchwordOnly: false };
     }
 
+    if (isMusicSearchRouteText(routeText, aliases) && this.opts.isPlayInFlight?.(clientId)) {
+      this.logger?.info({ clientId, command: routeText }, "Voice: play resolve in-flight — ignoring duplicate");
+      const ttsBytes = await this.speakInstantPhrase("Still working on that.", opts.speak);
+      return { reply: null, ttsBytes, watchwordOnly: false };
+    }
+
     const context = await this.opts.buildContext(utterance);
     let reply: string | null = null;
+    let markedInFlight = false;
+    let pendingAckBytes = 0;
+
     try {
-      const decision = await this.opts.router.routeVoice(routeText, context, this.opts.aliases ?? {});
+      const decision = await this.opts.router.routeVoice(routeText, context, aliases);
+
+      if (voiceRouteNeedsPendingAck(decision, routeText, aliases)) {
+        this.opts.markPlayInFlight?.(clientId, routeText);
+        markedInFlight = true;
+        pendingAckBytes = await this.speakInstantPhrase(voicePlayPendingAck(), opts.speak);
+      }
+
       reply = await this.opts.router.execute(decision, context);
-      // Keep the command window open for follow-up transport verbs (skip, resume, …).
-      this.opts.arm?.(utterance.speakerClientId);
+
+      if (isPlaybackStartReply(reply) || isPlaybackControlReply(reply)) {
+        this.opts.disarm?.(clientId);
+      } else if (reply) {
+        this.opts.arm?.(clientId);
+      }
     } catch (err) {
       this.logger?.warn({ err, transcript: trimmed, command: routeText }, "Voice: routing/execution failed");
+    } finally {
+      if (markedInFlight && !isPlaybackStartReply(reply)) {
+        this.opts.clearPlayInFlight?.(clientId);
+      }
     }
 
     this.opts.onTurn?.({ transcript: trimmed, reply, speakerUid: utterance.speakerUid });
 
-    let ttsBytes = 0;
+    let ttsBytes = pendingAckBytes;
     const shouldSpeak = opts.speak !== false;
     const speakReply =
       reply &&
@@ -174,7 +210,7 @@ export class VoicePipeline {
       const ttsText = voiceSpokenAck(reply) ?? reply;
       try {
         const { audio, format } = await this.opts.tts.synthesize(ttsText);
-        ttsBytes = audio.length;
+        ttsBytes += audio.length;
         if (shouldSpeak && this.opts.output) {
           await this.opts.output.speak(audio, format);
         }
@@ -189,5 +225,19 @@ export class VoicePipeline {
     }
 
     return { reply, ttsBytes, watchwordOnly };
+  }
+
+  private async speakInstantPhrase(text: string, speak?: boolean): Promise<number> {
+    if (!this.opts.respondWithVoice || !this.opts.tts || !this.opts.output || speak === false) {
+      return 0;
+    }
+    try {
+      const { audio, format } = await this.opts.tts.synthesize(text);
+      await this.opts.output.speak(audio, format);
+      return audio.length;
+    } catch (err) {
+      this.logger?.warn({ err, text }, "Voice: instant ack TTS failed");
+      return 0;
+    }
   }
 }

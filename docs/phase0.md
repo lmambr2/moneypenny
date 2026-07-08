@@ -8,7 +8,7 @@ Fork builds and runs; its TS6 client connects to a real TeamSpeak 6 server and p
 
 - Base fork integrated and modified; LocalProvider + YouTube working.
 - Auto bot creation from `TS6_*` / `TS_HOST` env vars.
-- Auto-play on connect when `PHASE0_TEST_PLAY` or phase-0 env mode is active.
+- Auto-play on connect when `PHASE0_AUTO_TEST=1` (runs `!test`) or `PHASE0_TEST_PLAY` is set (validation URL). `TS6_HOST` alone does not trigger playback.
 - Logs print loud `PHASE 0 SUCCESS` or `PHASE 0 FAILURE` banners for scripted validation.
 
 ## Quick Validation

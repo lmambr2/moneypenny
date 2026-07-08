@@ -9,6 +9,17 @@ export function voiceReplyClearsSavedMusic(reply: string | null): boolean {
   return r === "paused" || r === "paused.";
 }
 
+/** Executor started playback (voice should disarm — no follow-up capture). */
+export function isPlaybackStartReply(reply: string | null): boolean {
+  if (!reply) return false;
+  return reply.toLowerCase().includes("now playing");
+}
+
+/** Short phrase spoken immediately while music resolve runs. */
+export function voicePlayPendingAck(): string {
+  return "On it.";
+}
+
 /** Executor replies for transport commands. */
 export function isPlaybackControlReply(reply: string | null): boolean {
   if (!reply) return false;

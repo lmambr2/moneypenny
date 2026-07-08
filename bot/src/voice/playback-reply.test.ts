@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   isPlaybackControlReply,
+  isPlaybackStartReply,
   shouldSpeakVoiceReply,
+  voicePlayPendingAck,
   voiceReplyClearsSavedMusic,
   voiceSpokenAck,
 } from "./playback-reply.js";
@@ -13,6 +15,15 @@ describe("playback voice replies", () => {
     expect(voiceReplyClearsSavedMusic("Resumed")).toBe(false);
     expect(voiceReplyClearsSavedMusic("Playback resumed.")).toBe(false);
     expect(voiceReplyClearsSavedMusic("Skipped to next.")).toBe(false);
+  });
+
+  it("detects playback start replies", () => {
+    expect(isPlaybackStartReply("Now playing: Toto - Africa - TOTO")).toBe(true);
+    expect(isPlaybackStartReply("Paused")).toBe(false);
+  });
+
+  it("uses a short pending ack phrase", () => {
+    expect(voicePlayPendingAck()).toBe("On it.");
   });
 
   it("detects transport control acks", () => {

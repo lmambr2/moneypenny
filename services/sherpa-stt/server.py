@@ -53,6 +53,8 @@ COMMAND_PARTIAL_DECODE_INTERVAL_S = float(
 )
 SESSION_IDLE_S = float(os.environ.get("SESSION_IDLE_S", "30"))
 COMMAND_WINDOW_S = float(os.environ.get("COMMAND_WINDOW_S", "15"))
+# Batch passive KWS feeds — fewer decode_stream calls under open mics + music.
+PASSIVE_KWS_ACCUM_S = float(os.environ.get("PASSIVE_KWS_ACCUM_S", "0.25"))
 
 _RECOGNIZER = None
 _KWS = None
@@ -350,6 +352,7 @@ class _StreamSession:
         self.last_active = time.monotonic()
         self.kws_stream = get_kws().create_stream() if _KWS_ENABLED else None
         self.cmd_kws_accum = np.array([], dtype=np.float32)
+        self.passive_kws_accum = np.array([], dtype=np.float32)
 
     def _init_command_vad(self) -> None:
         import sherpa_onnx
@@ -399,11 +402,13 @@ class _StreamSession:
         self.command_until = time.monotonic() + COMMAND_WINDOW_S
         self._reset_command_buffer()
         self._reset_command_kws_accum()
+        self._reset_passive_kws_accum()
 
     def _exit_command_mode(self) -> None:
         self.mode = "passive"
         self.command_until = 0.0
         self._reset_command_buffer()
+        self._reset_passive_kws_accum()
 
     def _reset_command_buffer(self) -> None:
         self.buffer = np.array([], dtype=np.float32)
@@ -412,6 +417,20 @@ class _StreamSession:
         self.started_time = None
         self.last_partial = ""
         self._init_command_vad()
+
+    def _reset_passive_kws_accum(self) -> None:
+        self.passive_kws_accum = np.array([], dtype=np.float32)
+
+    def _feed_passive_kws(self, samples: np.ndarray, sample_rate: int) -> Optional[str]:
+        if samples.size == 0:
+            return None
+        self.passive_kws_accum = np.concatenate([self.passive_kws_accum, samples])
+        min_samples = max(1, int(PASSIVE_KWS_ACCUM_S * TARGET_SAMPLE_RATE))
+        if len(self.passive_kws_accum) < min_samples:
+            return None
+        chunk = self.passive_kws_accum
+        self.passive_kws_accum = np.array([], dtype=np.float32)
+        return self._feed_kws(chunk, sample_rate)
 
     def extend_command_mode(self) -> None:
         if self.mode != "command":
@@ -432,7 +451,10 @@ class _StreamSession:
         self._check_command_timeout()
 
         keyword: Optional[str] = None
-        kw = self._feed_kws(samples, TARGET_SAMPLE_RATE)
+        if self.mode == "command":
+            kw = self._feed_kws(samples, TARGET_SAMPLE_RATE)
+        else:
+            kw = self._feed_passive_kws(samples, TARGET_SAMPLE_RATE)
         if kw:
             keyword = kw
             self._enter_command_mode()

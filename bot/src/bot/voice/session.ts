@@ -19,6 +19,7 @@ import {
   KokoroTtsClient,
   defaultVoiceConfig,
   isPlaybackControlReply,
+  isPlaybackStartReply,
   voiceReplyClearsSavedMusic,
   type TtsProvider,
   type VoiceOutput,
@@ -36,6 +37,7 @@ import {
   extractCommandSegment,
   extractWatchwordCommand,
   isActionableVoiceCommand,
+  isPartialSafeVoiceCommand,
   partialMentionsCommand,
 } from "../../voice/watchword.js";
 import type { BotInstance } from "../instance.js";
@@ -75,6 +77,12 @@ export class VoiceSession {
   >();
   private streamChains = new Map<number, Promise<void>>();
   private readonly streamFlushMs = 80;
+  /** Passive KWS — fewer sherpa feeds while no wake word (music + open mics). */
+  private readonly passiveStreamFlushMs = 200;
+  /** Music bleed keeps passive peaks high — stretch passive flushes further. */
+  private readonly passiveMusicFlushMs = 350;
+  /** Opus DTX comfort-noise frames are tiny; skip decode in passive mode. */
+  private static readonly PASSIVE_DTX_MAX_BYTES = 12;
   /** After inbound audio stops, pad silence so Silero VAD can end-point. */
   private readonly streamIdleMs = 1200;
   /** While armed, wait longer for beat-then-command cadence before idle finalize. */
@@ -112,7 +120,16 @@ export class VoiceSession {
   private lastArmedInboundLog = new Map<number, number>();
   private droppedNonVoiceCodec = 0;
   private droppedSelfEcho = 0;
+  private droppedPassiveDtx = 0;
+  private skippedPassiveComfortNoise = 0;
+  private skippedPassiveSpeakerCap = 0;
   private attenuatedClipped = 0;
+  /** Recent speech energy per speaker — ranks who gets passive KWS slots. */
+  private passiveSpeakerScore = new Map<number, { score: number; updatedAt: number }>();
+  /** Speakers currently feeding sherpa passive KWS (for reset on demotion). */
+  private passiveKwsEligible = new Set<number>();
+  private passiveKwsMaxSpeakers = 2;
+  private static readonly PASSIVE_ENERGY_DECAY_MS = 3000;
   private clientInfoCache = new Map<number, { uid: string; serverGroups: string[]; nickname: string }>();
   private voiceHandler: ((v: TS3VoiceData) => void) | null = null;
   private inboundPackets = 0;
@@ -123,6 +140,9 @@ export class VoiceSession {
   private voiceTurnGen = new Map<number, number>();
   /** Avoid double-routing the same armed partial; cleared on fresh wake / disarm. */
   private partialRoutedCommand = new Map<number, string>();
+  /** Per-speaker play-resolve cooldown — blocks STT echo repeats after a slow lookup. */
+  private playInFlightUntil = new Map<number, number>();
+  private static readonly PLAY_IN_FLIGHT_MS = 12_000;
 
   constructor(private deps: VoiceSessionDeps) {}
 
@@ -174,6 +194,7 @@ export class VoiceSession {
       vc.listenWindowMs ?? VoiceSession.MIN_LISTEN_WINDOW_MS,
       VoiceSession.MIN_LISTEN_WINDOW_MS,
     );
+    this.passiveKwsMaxSpeakers = Math.max(1, Math.min(8, vc.passiveKwsMaxSpeakers ?? 2));
     this.releaseCaptureDuck();
     this.watchword = vc.watchword;
     this.clearAllArmTimers();
@@ -196,6 +217,9 @@ export class VoiceSession {
       isArmed: (id) => this.isArmed(id),
       arm: (id) => this.armSpeaker(id),
       disarm: (id) => this.disarmSpeaker(id),
+      isPlayInFlight: (id) => this.isPlayInFlight(id),
+      markPlayInFlight: (id, query) => this.markPlayInFlight(id, query),
+      clearPlayInFlight: (id) => this.clearPlayInFlight(id),
       logger: this.deps.logger,
       buildContext: (u) => this.buildContext(u),
       onTurn: ({ transcript, reply, speakerUid }) =>
@@ -204,9 +228,15 @@ export class VoiceSession {
     this.cleanup();
     this.inboundPackets = 0;
     this.decodedFrames = 0;
+    this.droppedPassiveDtx = 0;
+    this.skippedPassiveComfortNoise = 0;
+    this.skippedPassiveSpeakerCap = 0;
+    this.passiveSpeakerScore.clear();
+    this.passiveKwsEligible.clear();
     this.segmentedUtterances = 0;
     this.lastStatsAt = 0;
     this.voiceTurnGen.clear();
+    this.playInFlightUntil.clear();
     this.voiceHandler = (v: TS3VoiceData) => this.handleVoiceData(v);
     this.deps.tsClient.on("voiceData", this.voiceHandler);
     this.deps.tsClient.ensureInboundVoiceCapture();
@@ -218,6 +248,7 @@ export class VoiceSession {
         watchword: vc.requireWatchword ? vc.watchword : "(disabled)",
         duckMusicOnSpeech: this.duckMusicOnSpeech,
         duckMusicVolume: this.duckMusicVolume,
+        passiveKwsMaxSpeakers: this.passiveKwsMaxSpeakers,
       },
       "Voice pipeline enabled (streaming STT)",
     );
@@ -355,12 +386,69 @@ export class VoiceSession {
     }
     this.streamBuffers.clear();
     this.streamChains.clear();
+    this.passiveSpeakerScore.clear();
+    this.passiveKwsEligible.clear();
     if (this.tempDir) {
       try {
         rmSync(this.tempDir, { recursive: true, force: true });
       } catch { /* best effort */ }
       this.tempDir = null;
     }
+  }
+
+  private touchPassiveEnergy(clientId: number, rawPeak: number): void {
+    const now = Date.now();
+    const prev = this.passiveSpeakerScore.get(clientId);
+    const score =
+      prev && now - prev.updatedAt < VoiceSession.PASSIVE_ENERGY_DECAY_MS
+        ? Math.max(rawPeak, Math.round(prev.score * 0.85))
+        : rawPeak;
+    this.passiveSpeakerScore.set(clientId, { score, updatedAt: now });
+  }
+
+  private rankedPassiveSpeakers(): number[] {
+    const now = Date.now();
+    return [...this.passiveSpeakerScore.entries()]
+      .filter(([, v]) => now - v.updatedAt < VoiceSession.PASSIVE_ENERGY_DECAY_MS)
+      .sort((a, b) => b[1].score - a[1].score)
+      .slice(0, this.passiveKwsMaxSpeakers)
+      .map(([id]) => id);
+  }
+
+  private isPassiveKwsEligible(clientId: number): boolean {
+    return this.rankedPassiveSpeakers().includes(clientId);
+  }
+
+  private prunePassiveKwsEligible(): void {
+    const keep = new Set(this.rankedPassiveSpeakers());
+    for (const clientId of this.passiveKwsEligible) {
+      if (keep.has(clientId)) continue;
+      const buf = this.streamBuffers.get(clientId);
+      const inCapture =
+        this.isArmed(clientId) ||
+        buf?.listening === "command" ||
+        !!this.captureDuck;
+      if (!inCapture) this.syncPassiveKwsEligibility(clientId, false);
+    }
+  }
+
+  private syncPassiveKwsEligibility(clientId: number, eligible: boolean): void {
+    const was = this.passiveKwsEligible.has(clientId);
+    if (eligible) {
+      this.passiveKwsEligible.add(clientId);
+      return;
+    }
+    if (!was) return;
+    this.passiveKwsEligible.delete(clientId);
+    const buf = this.streamBuffers.get(clientId);
+    if (buf) {
+      buf.chunks = [];
+      if (buf.flushTimer) {
+        clearTimeout(buf.flushTimer);
+        buf.flushTimer = null;
+      }
+    }
+    void this.sttClient?.resetStream(clientId);
   }
 
   private handleVoiceData(v: TS3VoiceData): void {
@@ -385,7 +473,19 @@ export class VoiceSession {
         "Voice: first inbound packet",
       );
     } else if (this.inboundPackets % 500 === 0) {
+      this.prunePassiveKwsEligible();
       this.logInboundStats();
+    }
+
+    let buf = this.streamBuffers.get(v.clientId);
+    const inCapture =
+      this.isArmed(v.clientId) ||
+      buf?.listening === "command" ||
+      !!this.captureDuck;
+
+    if (!inCapture && v.data.length <= VoiceSession.PASSIVE_DTX_MAX_BYTES) {
+      this.droppedPassiveDtx++;
+      return;
     }
 
     const channels = 1;
@@ -397,8 +497,34 @@ export class VoiceSession {
       this.deps.logger.warn({ err, clientId: v.clientId, codec: v.codec }, "Voice: opus decode failed");
       return;
     }
+    const rawPeak = peakAmplitude16(pcm);
+    if (isPcmClipped(pcm)) {
+      this.attenuatedClipped++;
+      if (this.attenuatedClipped <= 5 || this.attenuatedClipped % 100 === 0) {
+        this.deps.logger.warn(
+          { clientId: v.clientId, rawPeak, count: this.attenuatedClipped },
+          "Voice: inbound PCM clipped — will attenuate for STT",
+        );
+      }
+    }
+    const isSpeech = rawPeak >= VoiceSession.MIN_SPEECH_PEAK;
 
-    let buf = this.streamBuffers.get(v.clientId);
+    if (!inCapture && isSpeech) {
+      this.touchPassiveEnergy(v.clientId, rawPeak);
+    }
+
+    if (!inCapture && !isSpeech) {
+      this.skippedPassiveComfortNoise++;
+      return;
+    }
+
+    const passiveEligible = inCapture || this.isPassiveKwsEligible(v.clientId);
+    this.syncPassiveKwsEligibility(v.clientId, passiveEligible);
+    if (!passiveEligible) {
+      this.skippedPassiveSpeakerCap++;
+      return;
+    }
+
     if (!buf) {
       buf = {
         chunks: [],
@@ -414,18 +540,6 @@ export class VoiceSession {
     buf.channels = channels;
     buf.chunks.push(pcm);
 
-    const rawPeak = peakAmplitude16(pcm);
-    if (isPcmClipped(pcm)) {
-      this.attenuatedClipped++;
-      if (this.attenuatedClipped <= 5 || this.attenuatedClipped % 100 === 0) {
-        this.deps.logger.warn(
-          { clientId: v.clientId, rawPeak, count: this.attenuatedClipped },
-          "Voice: inbound PCM clipped — will attenuate for STT",
-        );
-      }
-    }
-    const isSpeech = rawPeak >= VoiceSession.MIN_SPEECH_PEAK;
-
     if (this.isArmed(v.clientId) && isSpeech) {
       this.touchArmedWindow(v.clientId);
       const now = Date.now();
@@ -439,12 +553,18 @@ export class VoiceSession {
     if (isSpeech) this.scheduleStreamIdle(v.clientId, true);
     else this.scheduleStreamIdle(v.clientId, false);
 
+    const musicPlaying = this.deps.player.getState() === "playing";
+    const flushMs = inCapture
+      ? this.streamFlushMs
+      : musicPlaying
+        ? this.passiveMusicFlushMs
+        : this.passiveStreamFlushMs;
     if (!buf.flushTimer) {
       buf.flushTimer = setTimeout(() => {
         const active = this.streamBuffers.get(v.clientId);
         if (active) active.flushTimer = null;
         this.enqueueStreamFlush(v.clientId);
-      }, this.streamFlushMs);
+      }, flushMs);
     }
   }
 
@@ -542,7 +662,7 @@ export class VoiceSession {
     buf.chunks = [];
     const rawPeak = peakAmplitude16(pcm);
 
-    if (inCommand && rawPeak < VoiceSession.MIN_SPEECH_PEAK) {
+    if (rawPeak < VoiceSession.MIN_SPEECH_PEAK) {
       return;
     }
 
@@ -659,6 +779,13 @@ export class VoiceSession {
         );
         return;
       }
+      if (!isPartialSafeVoiceCommand(candidate, this.deps.config.commandAliases)) {
+        this.deps.logger.info(
+          { clientId, transcript: out.final, command: candidate },
+          "Voice: ignoring silence-tail play/search (needs speech energy)",
+        );
+        return;
+      }
       this.deps.logger.info(
         { clientId, transcript: out.final, command: candidate },
         "Voice: silence-tail flush carried a command — routing",
@@ -764,7 +891,7 @@ export class VoiceSession {
     const candidate = ww.matched && ww.command
       ? ww.command
       : extractCommandSegment(partial, this.watchword);
-    if (!isActionableVoiceCommand(candidate, this.deps.config.commandAliases)) return false;
+    if (!isPartialSafeVoiceCommand(candidate, this.deps.config.commandAliases)) return false;
     if (this.partialRoutedCommand.get(clientId) === candidate) return false;
     if (!partialMentionsCommand(partial, candidate)) return false;
 
@@ -875,6 +1002,25 @@ export class VoiceSession {
     this.commandCaptureReadyAt.delete(clientId);
     this.partialRoutedCommand.delete(clientId);
     this.armedUntil.delete(clientId);
+  }
+
+  private isPlayInFlight(clientId: number): boolean {
+    const until = this.playInFlightUntil.get(clientId);
+    if (!until) return false;
+    if (Date.now() >= until) {
+      this.playInFlightUntil.delete(clientId);
+      return false;
+    }
+    return true;
+  }
+
+  private markPlayInFlight(clientId: number, query: string): void {
+    this.playInFlightUntil.set(clientId, Date.now() + VoiceSession.PLAY_IN_FLIGHT_MS);
+    this.deps.logger.info({ clientId, query }, "Voice: play resolve marked in-flight");
+  }
+
+  private clearPlayInFlight(clientId: number): void {
+    this.playInFlightUntil.delete(clientId);
   }
 
   private clearArmTimer(clientId: number): void {
@@ -1008,6 +1154,14 @@ export class VoiceSession {
   /** Release duck after a routed command unless playback intentionally changed. */
   private finishCaptureDuck(reply: string | null, clientId: number): void {
     // speak() may already have moved captureDuck → savedMusic before this runs.
+    if (reply && isPlaybackStartReply(reply)) {
+      this.disarmSpeaker(clientId);
+      this.releaseCaptureDuck(clientId);
+      void this.sttClient?.resetStream(clientId);
+      this.deps.logger.info({ clientId, reply }, "Voice: playback started — disarmed for next wake");
+      return;
+    }
+
     if (reply && isPlaybackControlReply(reply)) {
       // Pause/resume/skip must end the armed window — otherwise flushStreamBuffer
       // keeps treating inbound audio as command capture and drops it while music
@@ -1052,6 +1206,11 @@ export class VoiceSession {
         speakers: this.streamBuffers.size,
         droppedNonVoiceCodec: this.droppedNonVoiceCodec,
         droppedSelfEcho: this.droppedSelfEcho,
+        droppedPassiveDtx: this.droppedPassiveDtx,
+        skippedPassiveComfortNoise: this.skippedPassiveComfortNoise,
+        skippedPassiveSpeakerCap: this.skippedPassiveSpeakerCap,
+        passiveKwsMaxSpeakers: this.passiveKwsMaxSpeakers,
+        passiveKwsRanked: this.rankedPassiveSpeakers().length,
         attenuatedClipped: this.attenuatedClipped,
       },
       "Voice: inbound capture stats",
