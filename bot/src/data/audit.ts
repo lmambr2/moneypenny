@@ -11,7 +11,9 @@ export type AuditAction =
   | "recording.upload"
   | "recording.delete"
   | "moderation.mute"
-  | "moderation.kick";
+  | "moderation.kick"
+  | "economy.workorders_clear"
+  | "economy.cache_refresh";
 
 export interface AuditEntry {
   id: number;

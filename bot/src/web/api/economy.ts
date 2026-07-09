@@ -11,7 +11,7 @@
 import { Router } from "express";
 import { boxSummary, largestCrateThatFits } from "../../economy/boxes.js";
 import { type RefreshReport, runEconomyCacheRefresh } from "../../economy/cache/refresh.js";
-import { getEconomyDiskCache } from "../../economy/cache/store.js";
+import { cacheRootLabel, getEconomyDiskCache } from "../../economy/cache/store.js";
 import {
   CATALOG_AS_OF,
   CATALOG_DISCLAIMER,
@@ -32,6 +32,7 @@ import {
   scaleBom,
   type WorkOrderStore,
 } from "../../economy/work-orders.js";
+import type { AuditStore } from "../../data/audit.js";
 import type { Logger } from "../../logger.js";
 import { createRateLimit } from "../middleware/rateLimit.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
@@ -47,6 +48,8 @@ export interface EconomyApiDeps {
   scTrade?: ScTradeClient;
   uex?: UexClient;
   logger?: Logger;
+  /** Audit trail for destructive/expensive ops (clear-all, cache refresh). */
+  audit?: AuditStore;
   /** Inject refresh for tests (avoids network). */
   refresh?: () => Promise<RefreshReport>;
 }
@@ -73,13 +76,6 @@ function parseLocFilters(raw: unknown): string[] | undefined {
   }
   const s = str(raw, 80);
   return s ? [s] : undefined;
-}
-
-/** Expose only a short label — never absolute host paths. */
-function cacheRootLabel(root: string): string {
-  if (root.startsWith("sqlite:")) return root; // sqlite:shared | sqlite:memory
-  const parts = root.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts[parts.length - 1] || "economy-cache.db";
 }
 
 function storeOrNull(deps: EconomyApiDeps): WorkOrderStore | null {
@@ -122,28 +118,37 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
   const scTrade = () => deps.scTrade ?? getScTradeClient(deps.logger);
   const uex = () => deps.uex ?? getUexClient(deps.logger);
 
+  // Key limits by session user, not IP — multiple users behind one LAN NAT
+  // must not share buckets (audit follow-up). All routes sit behind requireAuth.
+  const userKey = (req: { user?: { id: string }; ip?: string }) =>
+    req.user?.id ?? req.ip ?? "unknown";
+
   // External / paid / multi-source network proxies — tighter than local seed calculators.
   const networkLimit = createRateLimit({
     capacity: 20,
     refillPerSec: 1,
+    keyFn: userKey,
     message: (waitSec) => `Economy network lookup rate limited. Please wait ${waitSec}s.`,
   });
   // Trade tools hit paid sc-trade token quota and can run 30–45s.
   const tradeLimit = createRateLimit({
     capacity: 8,
     refillPerSec: 0.25,
+    keyFn: userKey,
     message: (waitSec) => `Trade lookup rate limited (protects API token quota). Wait ${waitSec}s.`,
   });
   // Full catalog refresh is heavy; keep rare.
   const refreshLimit = createRateLimit({
     capacity: 2,
     refillPerSec: 1 / 60,
+    keyFn: userKey,
     message: (waitSec) => `Cache refresh rate limited. Please wait ${waitSec}s.`,
   });
   // Work-order mutations (add / clear) — stop fill spam.
   const mutateLimit = createRateLimit({
     capacity: 30,
     refillPerSec: 2,
+    keyFn: userKey,
     message: (waitSec) => `Work-order actions rate limited. Please wait ${waitSec}s.`,
   });
 
@@ -598,13 +603,20 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
   });
 
   // Clear-all is destructive — admin only (web). TS uses rights token workorder.clear.
-  router.delete("/workorders", requireAdmin, mutateLimit, (_req, res) => {
+  router.delete("/workorders", requireAdmin, mutateLimit, (req, res) => {
     const store = storeOrNull(deps);
     if (!store) {
       res.status(503).json({ error: "Work orders unavailable (bot DB not ready)" });
       return;
     }
     const n = store.clear();
+    deps.audit?.record({
+      actorId: req.user?.id ?? null,
+      actorUsername: req.user?.username ?? null,
+      targetUserId: null,
+      targetUsername: `${n} orders`,
+      action: "economy.workorders_clear",
+    });
     res.json({ ok: true, cleared: n });
   });
 
@@ -865,7 +877,14 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
   });
 
   // Refresh burns multi-source network; admin-only on web (TS !econ refresh still public).
-  router.post("/cache/refresh", requireAdmin, refreshLimit, async (_req, res) => {
+  router.post("/cache/refresh", requireAdmin, refreshLimit, async (req, res) => {
+    deps.audit?.record({
+      actorId: req.user?.id ?? null,
+      actorUsername: req.user?.username ?? null,
+      targetUserId: null,
+      targetUsername: null,
+      action: "economy.cache_refresh",
+    });
     try {
       const report = deps.refresh
         ? await deps.refresh()

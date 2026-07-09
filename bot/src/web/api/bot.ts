@@ -13,6 +13,7 @@ import {
   deleteRecording,
   listRecordings,
   readRecording,
+  safeRecordingBasename,
   writeRecording,
 } from "../../data/recordings.js";
 import type { Logger } from "../../logger.js";
@@ -1135,9 +1136,11 @@ export function createBotRouter(
       res.status(409).json({ error: "Recordings disabled", code: "DISABLED" });
       return;
     }
-    const name = String(req.params.name ?? "");
-    const buf = readRecording(dataDir(), name);
-    if (!buf) {
+    // Sanitize before the header echo — the raw param may carry quotes that
+    // break the Content-Disposition quoted-string even when lookup fails.
+    const name = safeRecordingBasename(String(req.params.name ?? ""));
+    const buf = name ? readRecording(dataDir(), name) : null;
+    if (!name || !buf) {
       res.status(404).json({ error: "not found", code: "NOT_FOUND" });
       return;
     }

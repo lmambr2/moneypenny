@@ -15,7 +15,6 @@
   "dependencies": {
     "@iconify/vue": "^4.3.0",
     "axios": "^1.15.3",
-    "node-vibrant": "^4.0.3",
     "pinia": "^3.0.0",
     "vue": "^3.5.0",
     "vue-router": "^4.5.0"

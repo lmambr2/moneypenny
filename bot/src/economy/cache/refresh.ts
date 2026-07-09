@@ -8,7 +8,7 @@ import { getScCraftClient } from "../sc-craft.js";
 import { getScTradeClient } from "../sc-trade.js";
 import { getScWikiClient } from "../sc-wiki.js";
 import { getUexClient } from "../uex.js";
-import { type EconomyDiskCache, getEconomyDiskCache } from "./store.js";
+import { cacheRootLabel, type EconomyDiskCache, getEconomyDiskCache } from "./store.js";
 
 const USER_AGENT =
   "Moneypenny-OrgEconomy/1.0 (+https://github.com; economy-cache refresh; cache-friendly)";
@@ -258,6 +258,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let firstWarmTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshInflight: Promise<RefreshReport> | null = null;
 
 /**
@@ -301,7 +302,10 @@ export function startEconomyCacheScheduler(opts: {
   };
   if (opts.fireImmediately !== false) {
     // Delay first warm so bot boot isn't blocked
-    setTimeout(run, 15_000);
+    firstWarmTimer = setTimeout(run, 15_000);
+    if (typeof firstWarmTimer === "object" && "unref" in firstWarmTimer) {
+      firstWarmTimer.unref();
+    }
   }
   refreshTimer = setInterval(run, Math.max(60_000, intervalMs));
   // Don't keep process alive solely for refresh
@@ -311,6 +315,10 @@ export function startEconomyCacheScheduler(opts: {
 }
 
 export function stopEconomyCacheScheduler(): void {
+  if (firstWarmTimer) {
+    clearTimeout(firstWarmTimer);
+    firstWarmTimer = null;
+  }
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
@@ -322,7 +330,8 @@ export function formatCacheStatus(): string {
   const stats = disk.stats();
   const last = disk.get<{ at: number; results: RefreshReport["results"] }>("meta", "last-refresh");
   const lines = [
-    `Economy cache (sqlite): ${stats.root}`,
+    // Label only — chat output must not leak the absolute host path (E-M3).
+    `Economy cache (sqlite): ${cacheRootLabel(stats.root)}`,
     `Rows: ${stats.totalFiles} · ~${Math.round(stats.totalBytes / 1024)} KB`,
   ];
   for (const s of stats.sources) {

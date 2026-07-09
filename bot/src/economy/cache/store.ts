@@ -51,6 +51,16 @@ export interface EconomyCacheStats {
   totalBytes: number;
 }
 
+/**
+ * Short display label for a cache root — never an absolute host path
+ * (E-M3: path disclosure). `sqlite:*` pseudo-roots pass through unchanged.
+ */
+export function cacheRootLabel(root: string): string {
+  if (root.startsWith("sqlite:")) return root; // sqlite:shared | sqlite:memory
+  const parts = root.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] || "economy-cache.db";
+}
+
 /** Soft cap — oldest rows pruned after set. Override via ECONOMY_CACHE_MAX_ROWS. */
 const DEFAULT_MAX_ROWS = 2_000;
 

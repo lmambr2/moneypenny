@@ -166,5 +166,5 @@ User input becomes **query/body strings** (length-capped) or **integers**
 - [x] Work-order open cap
 - [x] Single-flight refresh
 - [x] Tests green for auth, WO CRUD, admin clear, cache label
-- [ ] Optional follow-up: audit log rows for clear-all / refresh
-- [ ] Optional follow-up: per-user (not only IP) rate-limit keys for multi-user LAN NAT
+- [x] Optional follow-up: audit log rows for clear-all / refresh — **done** (`economy.workorders_clear` / `economy.cache_refresh` actions; wired in `server.ts`)
+- [x] Optional follow-up: per-user (not only IP) rate-limit keys for multi-user LAN NAT — **done** (session user id keyFn on all four economy limiters)

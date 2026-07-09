@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import express from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createAuditStore } from "../../data/audit.js";
 import { type BotDatabase, createDatabase } from "../../data/database.js";
 import { createSessionStore } from "../../data/sessions.js";
 import { createUserStore } from "../../data/users.js";
@@ -79,11 +80,13 @@ describe("economy router", () => {
   let cookie: string;
   let store: WorkOrderStore;
   let sqlite: Database.Database;
+  let audit: ReturnType<typeof createAuditStore>;
 
   beforeEach(async () => {
     botDb = createDatabase(":memory:");
     sqlite = new Database(":memory:");
     store = initWorkOrderStore(sqlite);
+    audit = createAuditStore(botDb.db);
     const users = createUserStore(botDb.db);
     const sessions = createSessionStore(botDb.db);
     const alice = await users.createUser("alice", "pw-alice", "admin");
@@ -112,6 +115,7 @@ describe("economy router", () => {
         store,
         scCraft: mockCraft(bp),
         uex: mockUex(),
+        audit,
         refresh: async () => ({
           at: Date.now(),
           ok: true,
@@ -238,5 +242,21 @@ describe("economy router", () => {
     const ok = await request(app).delete("/api/economy/workorders").set("Cookie", cookie);
     expect(ok.status).toBe(200);
     expect(ok.body.cleared).toBeGreaterThanOrEqual(1);
+  });
+
+  it("records audit entries for clear-all and cache refresh", async () => {
+    await request(app)
+      .post("/api/economy/workorders")
+      .set("Cookie", cookie)
+      .send({ item: "P4-AR", qty: 1 });
+    await request(app).delete("/api/economy/workorders").set("Cookie", cookie);
+    await request(app).post("/api/economy/cache/refresh").set("Cookie", cookie);
+
+    const entries = audit.list(20, 0);
+    const clear = entries.find((e) => e.action === "economy.workorders_clear");
+    expect(clear).toBeDefined();
+    expect(clear?.actorUsername).toBe("alice");
+    expect(clear?.targetUsername).toBe("1 orders");
+    expect(entries.some((e) => e.action === "economy.cache_refresh")).toBe(true);
   });
 });

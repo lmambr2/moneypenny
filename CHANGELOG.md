@@ -8,6 +8,27 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Security/bug sweep addendum: web deps, recordings, yt-dlp scheme guard
+**Author: Claude Fable 5 (Anthropic), driven by Lane Ambrose.**
+
+- **Web deps:** `bot/web` npm audit had 7 vulns (1 high) — `npm audit fix` bumped
+  `form-data` (high, CRLF injection) + `postcss`; removed **unused** `node-vibrant`
+  dependency (never imported; carried the remaining 5 moderates). Now **0 vulns**.
+- **Recordings upload cap fix:** base64 recording bodies hit the global 2 MB JSON
+  limit → uploads over ~1.5 MB failed 413. Scoped `70mb` parser for
+  `/api/bot/recordings` (matches `writeRecording`'s 50 MiB cap; admin-gated route).
+- **Recordings download header:** `Content-Disposition` echoed the raw
+  `:name` param; now sanitized via `safeRecordingBasename` before lookup + header.
+- **yt-dlp URL guard:** `safeYtDlpMediaUrl` treated non-http(s) URLs
+  (`ftp://youtube.com/…`) as bare ids, bypassing the public-URL check; now rejects
+  any non-http(s) scheme. Tests added for all three fixes.
+- **Economy audit follow-ups closed:** audit log rows for work-order clear-all and
+  cache refresh (`economy.workorders_clear` / `economy.cache_refresh`); per-user
+  (session id) rate-limit keys on all economy limiters; `!econ cache` chat output
+  redacts the absolute cache path (shared `cacheRootLabel` in the store); scheduler
+  first-warm timeout tracked/unref'd and cancelled on stop.
+- Audit notes appended to [docs/security-audit-2026-07-09.md](./docs/security-audit-2026-07-09.md).
+
 ### Economy: community code lifts (E-BOX / E-FUZZY / E-UEX-SUP / E-FOOT)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

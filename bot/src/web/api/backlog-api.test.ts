@@ -171,6 +171,25 @@ describe("backlog API: hardening + live + recordings", () => {
     expect(del.body.ok).toBe(true);
   });
 
+  it("recordings download sanitizes the Content-Disposition filename", async () => {
+    const b64 = Buffer.from("RIFF....WEBM").toString("base64");
+    await request(app)
+      .post("/api/bot/recordings")
+      .set("Cookie", adminCookie)
+      .send({ filename: "take-2.webm", dataBase64: b64 });
+
+    const dl = await request(app).get("/api/bot/recordings/take-2.webm").set("Cookie", adminCookie);
+    expect(dl.status).toBe(200);
+    expect(dl.headers["content-disposition"]).toBe('attachment; filename="take-2.webm"');
+
+    // A quote-bearing name must 404 (sanitized lookup), never echo raw into the header.
+    const quoted = await request(app)
+      .get(`/api/bot/recordings/${encodeURIComponent('take-2".webm')}`)
+      .set("Cookie", adminCookie);
+    expect(quoted.status).toBe(404);
+    expect(quoted.headers["content-disposition"]).toBeUndefined();
+  });
+
   it("recordings disabled returns empty list / 409 on upload", async () => {
     config.recordingsEnabled = false;
     const list = await request(app).get("/api/bot/recordings").set("Cookie", adminCookie);

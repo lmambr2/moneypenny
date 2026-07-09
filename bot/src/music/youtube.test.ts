@@ -5,10 +5,27 @@ import {
   DEFAULT_DEMO_VIDEO_URL,
   isYoutubeFullAlbumTitle,
   isYoutubeTooLong,
+  safeYtDlpMediaUrl,
   shouldBlockYoutubeSong,
   YOUTUBE_MAX_DURATION_SEC,
   YouTubeProvider,
 } from "./youtube.js";
+
+describe("safeYtDlpMediaUrl", () => {
+  it("rejects non-http(s) schemes even with allowlisted hostnames", async () => {
+    expect(await safeYtDlpMediaUrl("ftp://youtube.com/watch?v=abc")).toBeNull();
+    expect(await safeYtDlpMediaUrl("file:///etc/passwd")).toBeNull();
+    expect(await safeYtDlpMediaUrl("data:text/plain,youtu.be")).toBeNull();
+  });
+
+  it("passes bare video ids through for the caller to rebuild", async () => {
+    expect(await safeYtDlpMediaUrl(DEFAULT_DEMO_VIDEO_ID)).toBe(DEFAULT_DEMO_VIDEO_ID);
+  });
+
+  it("rejects http(s) URLs on non-media hosts", async () => {
+    expect(await safeYtDlpMediaUrl("https://example.com/watch?v=abc")).toBeNull();
+  });
+});
 
 describe("isYoutubeFullAlbumTitle", () => {
   it("blocks full album dumps (case / punctuation variants)", () => {

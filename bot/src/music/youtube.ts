@@ -20,10 +20,14 @@ import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
  * Only allow yt-dlp to fetch known media hosts (or a bare video/playlist id we
  * rewrite to youtube.com). Blocks SSRF via arbitrary http(s) songId/playlistId.
  */
-async function safeYtDlpMediaUrl(input: string): Promise<string | null> {
+export async function safeYtDlpMediaUrl(input: string): Promise<string | null> {
   const trimmed = input.trim();
   if (!trimmed) return null;
   if (!/^https?:\/\//i.test(trimmed)) {
+    // Non-http(s) schemes (ftp:, file:, data:, …) parse as URLs with an
+    // allowlisted hostname but would skip the public-URL guard — reject them
+    // so only true bare ids fall through.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
     // Bare id — caller rebuilds a youtube.com URL.
     return trimmed;
   }

@@ -71,10 +71,12 @@ describe("economy cache refresh", () => {
     expect(ra.at).toBe(rb.at);
   });
 
-  it("formatCacheStatus mentions disk root and refresh guidance", () => {
+  it("formatCacheStatus mentions refresh guidance without leaking absolute paths", () => {
     disk.set("meta", "last-refresh", { at: Date.now(), results: [] }, 60_000);
     const s = formatCacheStatus();
     expect(s).toMatch(/Economy cache \(sqlite\)/i);
     expect(s).toMatch(/refresh/i);
+    // E-M3 parity for chat output: label only, never an absolute host path.
+    expect(s).not.toMatch(/Economy cache \(sqlite\): \//);
   });
 });

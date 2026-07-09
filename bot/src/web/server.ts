@@ -128,9 +128,13 @@ export function createWebServer(options: WebServerOptions): WebServer {
   // Authed-only body parsing. Only the (admin-gated) doctrine editor
   // legitimately sends huge JSON (up to MAX_DOCTRINE_FILE_BYTES = 15 MiB);
   // everything else caps at 2mb — the biggest remaining body is the avatar
-  // dataUrl (1MB image ≈ 1.4MB base64). The /api/rag parser is mounted first,
-  // so the global 2mb parser skips bodies it already parsed.
+  // dataUrl (1MB image ≈ 1.4MB base64). The /api/rag and /api/bot/recordings
+  // parsers are mounted first, so the global 2mb parser skips bodies they
+  // already parsed. Recordings carry base64 audio (writeRecording caps the
+  // decoded payload at 50 MiB → ~68 MB base64 + JSON envelope); the route
+  // itself is requireAdmin-gated.
   app.use("/api/rag", express.json({ limit: "16mb" }));
+  app.use("/api/bot/recordings", express.json({ limit: "70mb" }));
   app.use("/api", express.json({ limit: "2mb" }));
 
   // ─── Protected routes ───────────────────────────────────────────────────
@@ -175,7 +179,7 @@ export function createWebServer(options: WebServerOptions): WebServer {
   app.use("/api/player", createPlayerRouter(options.botManager, logger, options.database));
   app.use("/api/auth", createAuthRouter(options.youtubeProvider, logger));
   // Economy dashboard (mine/refine/craft/trade/workorders/cache) — any signed-in user
-  app.use("/api/economy", createEconomyRouter({ logger }));
+  app.use("/api/economy", createEconomyRouter({ logger, audit }));
   // admin-only routes
   app.use("/api/users", requireAdmin, createUsersRouter(users, sessions, audit, logger));
   app.use("/api/audit", requireAdmin, createAuditRouter(audit));

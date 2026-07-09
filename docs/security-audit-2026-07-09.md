@@ -279,3 +279,35 @@ cd bot && npx vitest run src/rights/rank-gating-template.test.ts \
 
 *Analysis goal: document first. Trivial P0 template + URL normalize shipped in
 the same batch. Residual risk remains for live network ops not exercised here.*
+
+---
+
+## Addendum — same-day follow-up sweep (Claude Fable 5)
+
+Independent pass over the post-audit commits (`6ac7fbf..8a30089`: recordings,
+economy dashboard/L2 cache, UEX dropdown) plus scope gaps in the passes above.
+Corroborated the earlier findings; the following were new and are **fixed**:
+
+| ID | Severity | Finding | Fix |
+|----|----------|---------|-----|
+| A-2026-07-09-1 | **High (dep)** | `bot/web` npm audit was **not** covered above (bot-only): 7 vulns — `form-data` CRLF injection (high), `postcss` (mod), and 5 moderates via **unused** `node-vibrant` (declared since initial release, never imported) | `npm audit fix` + `npm uninstall node-vibrant` → **0 vulns** |
+| A-2026-07-09-2 | Low | `GET /api/bot/recordings/:name` echoed the raw route param into `Content-Disposition` — a quote-bearing name breaks the quoted-string (admin-only; Node blocks CRLF) | Sanitize via `safeRecordingBasename` before lookup and header; test added |
+| A-2026-07-09-3 | Bug (functional) | Recordings upload sends base64 JSON through the **global 2 MB parser** while `writeRecording` allows 50 MiB — captures over ~1.5 MB always failed 413 | Scoped `express.json({ limit: "70mb" })` for `/api/bot/recordings` (S2 pattern, admin-gated route) |
+| A-2026-07-09-4 | Low | `safeYtDlpMediaUrl` passed non-http(s) scheme URLs (`ftp://youtube.com/…` parses with an allowlisted hostname) through the bare-id branch straight to yt-dlp, skipping `assertPublicPlaybackUrl` | Reject any scheme-bearing non-http(s) input; tests added |
+
+**Verified OK in this sweep (no findings):** recordings path containment
+(`safeRecordingBasename` + resolve-prefix), economy router validation/limits as
+documented in the economy audit, `/commodities` endpoint (post-audit commit),
+economy L2 SQLite cache (parameterized), refresh scheduler (single-flight,
+unref, stoppable), sessions/CSRF/client-ip middleware, uploads
+(multer memory + ext allowlist + basename sanitize), websocket (broadcast-only),
+tidal-bridge compose posture (network-only). Suite after fixes: **1166 backend
++ 13 web passed**, tsc + Biome clean, web build OK.
+
+**Follow-up batch (same day, all fixed):** `formatCacheStatus()` now redacts
+the cache root in TS chat via a shared `cacheRootLabel` in the store (E-M3
+parity); the economy scheduler's 15 s first-warm `setTimeout` is now tracked,
+unref'd, and cancelled by `stopEconomyCacheScheduler()`; the two open economy
+checklist items shipped — audit rows for clear-all/refresh
+(`economy.workorders_clear` / `economy.cache_refresh`) and per-user rate-limit
+keys on all four economy limiters.
