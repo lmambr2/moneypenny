@@ -767,6 +767,10 @@
           <label>Output subdir</label>
           <input v-model="ai.aceStepOutputDir" class="input" placeholder="generated/ace-step" />
         </div>
+        <div class="form-group" style="flex:1">
+          <label>Max files keep</label>
+          <input v-model.number="ai.aceStepMaxFiles" type="number" min="0" max="500" class="input" title="0 = never prune" />
+        </div>
       </div>
       <label v-if="ai.aceStepEnabled" class="profile-toggle" style="margin: 4px 0">
         <div class="profile-toggle-text">
@@ -875,7 +879,7 @@
         <div class="form-group">
           <label>Duck volume (0–100)</label>
           <input v-model.number="ai.voiceDuckMusicVolume" type="number" min="0" max="100" class="input" />
-          <div class="profile-toggle-hint">Music level while listening (default 2). Only while music is playing.</div>
+          <div class="profile-toggle-hint">Music level while listening (default 25 — soft duck). Only while music is playing.</div>
         </div>
         <div class="form-group">
           <label>Listen window (seconds)</label>
@@ -1367,6 +1371,7 @@ const ai = reactive({
   aceStepAutoFill: false,
   aceStepTimeoutMs: 300000,
   aceStepOutputDir: 'generated/ace-step',
+  aceStepMaxFiles: 40,
   fileDropEnabled: false,
   fileDropPollSec: 30,
   pokeCommandsEnabled: true,
@@ -1383,7 +1388,7 @@ const ai = reactive({
   voiceWatchword: 'moneypenny',
   voiceRequireWatchword: true,
   voiceDuckMusicOnSpeech: true,
-  voiceDuckMusicVolume: 2,
+  voiceDuckMusicVolume: 25,
   voiceListenWindowSec: 15,
   voiceRespondWithVoice: true,
   radioEnabled: false,
@@ -1516,6 +1521,7 @@ async function loadAiSettings() {
     ai.aceStepAutoFill = !!res.data.aceStepAutoFill;
     ai.aceStepTimeoutMs = res.data.aceStepTimeoutMs ?? 300000;
     ai.aceStepOutputDir = res.data.aceStepOutputDir ?? 'generated/ace-step';
+    ai.aceStepMaxFiles = res.data.aceStepMaxFiles ?? 40;
     ai.fileDropEnabled = !!res.data.fileDropEnabled;
     ai.fileDropPollSec = res.data.fileDropPollSec ?? 30;
     ai.pokeCommandsEnabled = res.data.pokeCommandsEnabled !== false;
@@ -1538,7 +1544,7 @@ async function loadAiSettings() {
     ai.voiceWatchword = voice.watchword ?? 'moneypenny';
     ai.voiceRequireWatchword = voice.requireWatchword !== false;
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
-    ai.voiceDuckMusicVolume = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 2;
+    ai.voiceDuckMusicVolume = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 25;
     ai.voiceListenWindowSec = Math.max(
       5,
       Math.round((typeof voice.listenWindowMs === 'number' ? voice.listenWindowMs : 15000) / 1000),
@@ -1996,6 +2002,7 @@ async function saveAiSettings() {
       aceStepAutoFill: ai.aceStepAutoFill,
       aceStepTimeoutMs: Math.max(10000, Number(ai.aceStepTimeoutMs) || 300000),
       aceStepOutputDir: (ai.aceStepOutputDir || 'generated/ace-step').trim() || 'generated/ace-step',
+      aceStepMaxFiles: Math.max(0, Math.min(500, Number(ai.aceStepMaxFiles) || 40)),
       fileDropEnabled: ai.fileDropEnabled,
       fileDropPollSec: ai.fileDropPollSec,
       pokeCommandsEnabled: ai.pokeCommandsEnabled,
@@ -2013,7 +2020,7 @@ async function saveAiSettings() {
         watchword: ai.voiceWatchword.trim() || 'moneypenny',
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
-        duckMusicVolume: Math.max(0, Math.min(100, Number(ai.voiceDuckMusicVolume) || 2)),
+        duckMusicVolume: Math.max(0, Math.min(100, Number(ai.voiceDuckMusicVolume) || 25)),
         listenWindowMs: Math.max(5000, Math.min(60_000, (Number(ai.voiceListenWindowSec) || 15) * 1000)),
       },
       radio: {

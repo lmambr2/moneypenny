@@ -638,12 +638,14 @@ export class BotInstance extends EventEmitter {
     autoFill?: boolean;
     timeoutMs?: number;
     outputDir?: string;
+    maxFiles?: number;
   }): void {
     if (partial.enabled !== undefined) this.config.aceStepEnabled = partial.enabled;
     if (partial.url !== undefined) this.config.aceStepUrl = partial.url;
     if (partial.autoFill !== undefined) this.config.aceStepAutoFill = partial.autoFill;
     if (partial.timeoutMs !== undefined) this.config.aceStepTimeoutMs = partial.timeoutMs;
     if (partial.outputDir !== undefined) this.config.aceStepOutputDir = partial.outputDir;
+    if (partial.maxFiles !== undefined) this.config.aceStepMaxFiles = partial.maxFiles;
     this.aceStep = this.createAceStepClient();
   }
 

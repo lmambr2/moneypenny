@@ -51,10 +51,27 @@ export class GenerateProvider {
   async handleGenerate(args: string, invokerKey = "anon"): Promise<string> {
     const prompt = args?.trim();
     if (!prompt) {
-      return "Usage: !generate <prompt> — e.g. !generate late night focus, 110 bpm, no vocals";
+      return "Usage: !generate <prompt> · !generate prune — e.g. !generate late night focus, 110 bpm";
     }
+
+    // A5: !generate prune — drop oldest gens beyond aceStepMaxFiles
+    const head = prompt.split(/\s+/)[0]?.toLowerCase();
+    if (head === "prune") {
+      if (!this.isConfigured() && !(this.deps.getConfig().aceStepOutputDir)) {
+        // Allow prune even if gen is "off" as long as we have a music dir path
+      }
+      try {
+        const r = await this.pruneNow();
+        return r.removed > 0
+          ? `Pruned ${r.removed} old generated file(s) (keeping ≤${r.maxKeep} in ${r.dir}).`
+          : `Nothing to prune — at or under ${r.maxKeep} files in ${r.dir}.`;
+      } catch (err) {
+        return `Prune failed: ${err instanceof Error ? err.message : "error"}`;
+      }
+    }
+
     if (!this.isConfigured()) {
-      return "Music generation is off. An admin can enable ACE-Step in config (aceStepEnabled + aceStepUrl).";
+      return "Music generation is off. An admin can enable ACE-Step in Settings.";
     }
     const client = this.deps.getClient();
     if (!client) {
@@ -193,12 +210,85 @@ export class GenerateProvider {
     }
 
     try {
-      this.deps.tagStore?.upsert(song.id, { genre: "generated", mood: "ace-step" }, "manual");
+      const tags = tagsFromPrompt(prompt);
+      this.deps.tagStore?.upsert(song.id, tags, "manual");
     } catch {
       /* tags optional */
     }
 
+    // A5: prune oldest generated files beyond aceStepMaxFiles (best-effort).
+    const pruned = await this.pruneOutputDir(outDir, cfg.aceStepMaxFiles ?? 40, realFile);
+    if (pruned > 0) {
+      this.deps.logger.info({ pruned, outDir }, "ACE-Step pruned old generated files");
+      await this.deps.localProvider.refresh();
+    }
+
     return { ok: true, song, relPath: rel, jobId: job.id };
+  }
+
+  /**
+   * Remove oldest audio files in the gen output dir until ≤ maxKeep remain.
+   * Never deletes `keepPath` (the file just written). Returns count removed.
+   */
+  async pruneOutputDir(outDir: string, maxKeep: number, keepPath?: string): Promise<number> {
+    if (!maxKeep || maxKeep < 1) return 0;
+    let realOut: string;
+    let realKeep: string | null = null;
+    try {
+      realOut = await fs.realpath(outDir);
+      if (keepPath) realKeep = await fs.realpath(keepPath);
+    } catch {
+      return 0;
+    }
+
+    let entries: { name: string; full: string; mtime: number }[] = [];
+    try {
+      const names = await fs.readdir(realOut);
+      for (const name of names) {
+        if (!/\.(mp3|wav|flac|ogg|m4a|opus)$/i.test(name)) continue;
+        const full = path.join(realOut, name);
+        try {
+          const st = await fs.stat(full);
+          if (!st.isFile()) continue;
+          entries.push({ name, full, mtime: st.mtimeMs });
+        } catch {
+          /* skip */
+        }
+      }
+    } catch {
+      return 0;
+    }
+
+    if (entries.length <= maxKeep) return 0;
+    entries.sort((a, b) => a.mtime - b.mtime); // oldest first
+    let removed = 0;
+    while (entries.length > maxKeep) {
+      const victim = entries.shift()!;
+      if (realKeep && victim.full === realKeep) {
+        entries.push(victim); // re-queue keep as newest-ish and stop if only keep left over
+        if (entries.every((e) => e.full === realKeep)) break;
+        continue;
+      }
+      try {
+        await fs.unlink(victim.full);
+        removed++;
+      } catch {
+        /* ignore */
+      }
+    }
+    return removed;
+  }
+
+  /** Admin/DJ: prune now without generating. */
+  async pruneNow(): Promise<{ removed: number; maxKeep: number; dir: string }> {
+    const cfg = this.deps.getConfig();
+    const musicDir = path.resolve(this.deps.localProvider.getMusicDir());
+    const outSub = (cfg.aceStepOutputDir || "generated/ace-step").replace(/^\/+/, "");
+    const outDir = path.resolve(musicDir, outSub);
+    const maxKeep = cfg.aceStepMaxFiles ?? 40;
+    const removed = await this.pruneOutputDir(outDir, maxKeep);
+    if (removed > 0) await this.deps.localProvider.refresh();
+    return { removed, maxKeep, dir: outSub };
   }
 
   private async resolveSharedPath(
@@ -260,4 +350,40 @@ function sniffExt(buf: Buffer): string {
   if (buf.length >= 3 && buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return ".mp3";
   if (buf.length >= 3 && buf.toString("ascii", 0, 3) === "ID3") return ".mp3";
   return ".mp3";
+}
+
+/** Heuristic tags from the free-text prompt for TagStore / radio select. */
+export function tagsFromPrompt(prompt: string): {
+  genre: string;
+  mood?: string;
+  bpm?: number;
+  energy?: number;
+} {
+  const p = prompt.toLowerCase();
+  const bpmM = p.match(/\b(\d{2,3})\s*bpm\b/);
+  const bpm = bpmM ? Math.min(200, Math.max(40, Number(bpmM[1]))) : undefined;
+
+  let genre = "generated";
+  if (/\b(lo-?fi|lofi)\b/.test(p)) genre = "lofi";
+  else if (/\bambient\b/.test(p)) genre = "ambient";
+  else if (/\bsynthwave|retrowave\b/.test(p)) genre = "synthwave";
+  else if (/\bjazz\b/.test(p)) genre = "jazz";
+  else if (/\bmetal|rock\b/.test(p)) genre = "rock";
+  else if (/\bhouse|techno|edm|dance\b/.test(p)) genre = "electronic";
+  else if (/\bhip-?hop|trap\b/.test(p)) genre = "hip-hop";
+  else if (/\bfocus|study|work\b/.test(p)) genre = "focus";
+
+  let mood: string | undefined;
+  if (/\b(calm|chill|soft|mellow|relax)\b/.test(p)) mood = "calm";
+  else if (/\b(dark|moody|melanchol)\b/.test(p)) mood = "dark";
+  else if (/\b(upbeat|energetic|hype|driving)\b/.test(p)) mood = "energetic";
+  else if (/\b(happy|bright|uplifting)\b/.test(p)) mood = "bright";
+  else mood = "ace-step";
+
+  let energy: number | undefined;
+  if (mood === "energetic") energy = 0.8;
+  else if (mood === "calm") energy = 0.3;
+  else if (bpm != null) energy = Math.min(1, Math.max(0.2, (bpm - 60) / 120));
+
+  return { genre, mood, bpm, energy };
 }

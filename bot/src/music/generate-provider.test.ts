@@ -2,10 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { GenerateProvider } from "./generate-provider.js";
+import { GenerateProvider, tagsFromPrompt } from "./generate-provider.js";
 import type { AceStepClient } from "./ace-step-client.js";
 import type { LocalProvider } from "./local.js";
 import type { Song } from "./provider.js";
+
+describe("tagsFromPrompt", () => {
+  it("extracts bpm and mood/genre keywords", () => {
+    expect(tagsFromPrompt("calm ambient pad 90 bpm")).toMatchObject({
+      genre: "ambient",
+      mood: "calm",
+      bpm: 90,
+    });
+  });
+});
 
 describe("GenerateProvider", () => {
   let tmp: string;
@@ -117,6 +127,29 @@ describe("GenerateProvider", () => {
     const result = await provider.generateAndIngest("x");
     expect(result.ok).toBe(true);
     expect(client.downloadAudio).not.toHaveBeenCalled();
+  });
+
+  it("prunes oldest files beyond maxKeep", async () => {
+    const out = path.join(musicDir, "generated/ace-step");
+    await fs.mkdir(out, { recursive: true });
+    for (let i = 0; i < 5; i++) {
+      const f = path.join(out, `old-${i}.mp3`);
+      await fs.writeFile(f, "x");
+      await fs.utimes(f, new Date(1_000_000 + i * 1000), new Date(1_000_000 + i * 1000));
+    }
+    const { provider } = harness();
+    (provider as any).deps.getConfig = () =>
+      ({
+        aceStepEnabled: true,
+        aceStepUrl: "http://x",
+        aceStepTimeoutMs: 60_000,
+        aceStepOutputDir: "generated/ace-step",
+        aceStepMaxFiles: 2,
+      }) as any;
+    const r = await provider.pruneNow();
+    expect(r.removed).toBe(3);
+    const left = await fs.readdir(out);
+    expect(left.filter((n) => n.endsWith(".mp3")).length).toBe(2);
   });
 
   it("rate limits per invoker", async () => {

@@ -8,6 +8,19 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Voice: softer music duck default
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Default duck volume **25** (was 2 / near-mute); migrate saved `2` → `25`
+- Settings / docs updated
+
+### ACE-Step A5–A6 — prune, tags, host docs
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Auto-prune oldest gens beyond `aceStepMaxFiles` (default 40); `!generate prune`
+- Prompt heuristics for genre/mood/bpm tags
+- [docs/ace-step-host.md](./docs/ace-step-host.md) LAN GPU setup
+
 ### ACE-Step A4 — radio auto-fill
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

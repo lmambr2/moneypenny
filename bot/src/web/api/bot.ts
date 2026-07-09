@@ -56,6 +56,7 @@ export function createBotRouter(
       aceStepAutoFill: config.aceStepAutoFill ?? false,
       aceStepTimeoutMs: config.aceStepTimeoutMs ?? 300_000,
       aceStepOutputDir: config.aceStepOutputDir ?? "generated/ace-step",
+      aceStepMaxFiles: config.aceStepMaxFiles ?? 40,
       fileDropEnabled: config.fileDropEnabled ?? false,
       fileDropPollSec: config.fileDropPollSec ?? 30,
       rightsEnabled: config.rightsEnabled ?? true,
@@ -135,6 +136,7 @@ export function createBotRouter(
       { key: "aceStepAutoFill", type: "boolean", touch: "aceStep" },
       { key: "aceStepTimeoutMs", type: "int", min: 10_000, max: 900_000, touch: "aceStep" },
       { key: "aceStepOutputDir", type: "string", touch: "aceStep" },
+      { key: "aceStepMaxFiles", type: "int", min: 0, max: 500, touch: "aceStep" },
       { key: "fileDropEnabled", type: "boolean", touch: "fileDrop" },
       { key: "fileDropPollSec", type: "int", min: 5, touch: "fileDrop" },
       { key: "rightsEnabled", type: "boolean", touch: "rights" },
@@ -382,6 +384,7 @@ export function createBotRouter(
           autoFill: config.aceStepAutoFill,
           timeoutMs: config.aceStepTimeoutMs,
           outputDir: config.aceStepOutputDir,
+          maxFiles: config.aceStepMaxFiles,
         });
       }
       if (touched.stream) bot.updateStreamBridge(config.streamBridgeUrl ?? "");

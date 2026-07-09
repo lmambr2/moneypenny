@@ -15,6 +15,8 @@ ordered **do list**, not full specs.
 | **A2** | `!generate` → job → library → play | `GenerateProvider` + rights `generate` | **Shipped** |
 | **A3** | Settings panel for ACE-Step | Enable, URL, Check status | **Shipped** |
 | **A4** | Radio auto-fill | Dead air empty pool → gen; `!radio gen` | **Shipped** |
+| **A5** | Prune + tags | Max files, `!generate prune`, prompt tags | **Shipped** |
+| **A6** | Host docs | [ace-step-host.md](./ace-step-host.md) | **Shipped** |
 | **R-live** | Radio live smoke on opi5 | Bumpers, `!radio ops` | Queued (ops) |
 | **V-live** | Voice round-trip under music on Pi | Base NPU already default | Queued (ops) |
 

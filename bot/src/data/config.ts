@@ -143,6 +143,8 @@ export interface BotConfig {
   aceStepTimeoutMs: number;
   /** Subdir under MUSIC_DIR for generated files. */
   aceStepOutputDir: string;
+  /** Keep at most this many files in the output dir (oldest pruned after gen). 0 = no prune. */
+  aceStepMaxFiles: number;
 }
 
 export function getDefaultConfig(): BotConfig {
@@ -200,6 +202,7 @@ export function getDefaultConfig(): BotConfig {
     aceStepAutoFill: false,
     aceStepTimeoutMs: 300_000,
     aceStepOutputDir: "generated/ace-step",
+    aceStepMaxFiles: 40,
   };
 }
 

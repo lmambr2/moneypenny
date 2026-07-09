@@ -1,7 +1,7 @@
 # ACE-Step music generation — design sketch
 
-> **Status:** **A1–A4 shipped** (client + `!generate` + Settings + radio auto-fill).
-> Prune / host install docs still optional (A5–A6). Optional DJ / library fill via
+> **Status:** **A1–A6 shipped** (client, `!generate`, Settings, radio auto-fill,
+> prune/tags, [host setup](./ace-step-host.md)). Optional DJ / library fill via
 > [ACE-Step](https://ace-step.com/) / [ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5)
 > on a GPU host (e.g. AMD Server / LAN workstation).  
 > Related: [radio.md](./radio.md), [editions.md](./editions.md), [remote-llm.md](./remote-llm.md).
@@ -228,8 +228,8 @@ Document next to [gpu-amd.md](./gpu-amd.md): “music-gen vs analyst concurrency
 | **A2** | `!generate` → job → save under `generated/ace-step/` → play | Unit tests + manual on host with API — **done** |
 | **A3** | Settings panel (URL, enable, autoFill) | UI + `/api/bot/ace-step/status` — **done** |
 | **A4** | Radio auto-fill on empty pool / dead air | `autoProgram` → ACE-Step; `!radio gen` — **done** |
-| **A5** | Prune + tags + `!radio gen` alias | Ops-ready |
-| **A6** | Optional compose profile / docs for LAN ACE-Step host | Install notes |
+| **A5** | Prune + tags + `!radio gen` | Max-files prune, prompt tags, `!generate prune` — **done** |
+| **A6** | Host install docs | [ace-step-host.md](./ace-step-host.md) — **done** |
 
 ---
 

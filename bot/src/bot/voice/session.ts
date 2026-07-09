@@ -106,7 +106,7 @@ export class VoiceSession {
   /** Client whose wake word triggered captureDuck. */
   private captureDuckClientId: number | null = null;
   private duckMusicOnSpeech = true;
-  private duckMusicVolume = 2;
+  private duckMusicVolume = 25;
   /** Whisper has no KWS — duck on speech energy so text wake can hear over music. */
   private textWakeFallback = false;
   /** Min post-wake window — must cover beat-then-command cadence (≥ sherpa command window). */
@@ -231,7 +231,10 @@ export class VoiceSession {
 
     this.voiceDecoder = createOpusEncoder(1);
     this.duckMusicOnSpeech = vc.duckMusicOnSpeech !== false;
-    this.duckMusicVolume = Math.max(0, Math.min(100, vc.duckMusicVolume ?? 2));
+    // Legacy product default was 2 (near-mute) — treat as unset and use soft 25.
+    const rawDuck = vc.duckMusicVolume;
+    const duck = rawDuck === undefined || rawDuck === 2 ? 25 : rawDuck;
+    this.duckMusicVolume = Math.max(0, Math.min(100, duck));
     this.textWakeFallback = vc.textWakeFallback ?? false;
     this.listenWindowMs = Math.max(
       vc.listenWindowMs ?? VoiceSession.MIN_LISTEN_WINDOW_MS,
@@ -380,7 +383,7 @@ export class VoiceSession {
     this.segmenterOpts = null;
     this.releaseCaptureDuck();
     this.duckMusicOnSpeech = true;
-    this.duckMusicVolume = 2;
+    this.duckMusicVolume = 25;
     this.textWakeFallback = false;
     this.clearAllArmTimers();
     this.cleanup();
