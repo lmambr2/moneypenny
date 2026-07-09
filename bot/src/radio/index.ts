@@ -17,9 +17,11 @@ export { BumperCache, type BumperCacheEntry, type BumperCacheOptions } from "./b
 export {
   buildTimeCheckSpeech,
   formatClockInZone,
+  joinSpokenLines,
   type NowPlayingInfo,
   orderBumperSources,
   parseTimeCheckTimezones,
+  parseTimeCheckTimezonesDetailed,
   partitionSourcesForCycle,
   RadioBumperFactory,
   type RadioBumperFactoryDeps,

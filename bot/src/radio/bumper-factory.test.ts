@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildTimeCheckSpeech,
+  joinSpokenLines,
   type NowPlayingInfo,
   orderBumperSources,
   parseTimeCheckTimezones,
+  parseTimeCheckTimezonesDetailed,
   partitionSourcesForCycle,
   RadioBumperFactory,
   resolveStationIdLines,
@@ -85,6 +87,18 @@ describe("resolveStationIdLines / time zones", () => {
     ]);
   });
 
+  it("joins all station ID lines into one spoken package", () => {
+    expect(
+      joinSpokenLines([
+        "This is Colonel Moneypenny",
+        "You are listening to the voice of the Talon Group",
+        "Stay tuned for announcements from the Chairman",
+      ]),
+    ).toBe(
+      "This is Colonel Moneypenny. You are listening to the voice of the Talon Group. Stay tuned for announcements from the Chairman.",
+    );
+  });
+
   it("builds multi-zone time checks with labels", () => {
     const ms = new Date(2026, 5, 30, 14, 5).getTime(); // local 2:05 PM
     const zones = parseTimeCheckTimezones(["UTC|UTC", "local|here"]);
@@ -95,9 +109,55 @@ describe("resolveStationIdLines / time zones", () => {
     expect(speech).toMatch(/here/);
   });
 
+  it("aliases America/Seattle → Los_Angeles so third Pacific line is kept", () => {
+    const { zones, skipped } = parseTimeCheckTimezonesDetailed([
+      "America/New_York|The Capitol Wasteland",
+      "America/Denver|Stargate Command",
+      "America/Seattle|CHAZ",
+    ]);
+    expect(skipped).toEqual([]);
+    expect(zones).toHaveLength(3);
+    expect(zones[2]).toMatchObject({ zone: "America/Los_Angeles", label: "CHAZ" });
+    const speech = buildTimeCheckSpeech(Date.UTC(2026, 5, 30, 18, 5), zones);
+    expect(speech).toMatch(/Capitol Wasteland/);
+    expect(speech).toMatch(/Stargate Command/);
+    expect(speech).toMatch(/CHAZ/);
+  });
+
   it("single local zone keeps classic phrasing", () => {
     const ms = new Date(2026, 5, 30, 14, 5).getTime();
     expect(buildTimeCheckSpeech(ms, parseTimeCheckTimezones([]))).toBe("The time is 2:05 PM.");
+  });
+
+  it("plays all custom station ID lines in one build", async () => {
+    const cfg: RadioConfig = {
+      ...defaultRadioConfig(),
+      enabled: true,
+      sources: ["stationId"],
+      stationIdLines: [
+        "This is Colonel Moneypenny",
+        "You are listening to the voice of the Talon Group",
+        "Stay tuned for announcements from the Chairman",
+      ],
+    };
+    const renderFn = vi.fn(async (t: string) => `/cache/${t.length}.wav`);
+    const factory = new RadioBumperFactory({
+      getConfig: () => cfg,
+      prerecorded: { pick: () => null } as never,
+      speech: { render: renderFn } as never,
+      getNowPlaying: () => ({}),
+      stationName: "Moneypenny",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never,
+      random: () => 0,
+    });
+    const b = await factory.build({ slot: "bumper", sources: ["stationId"] });
+    expect(b?.label).toBe("stationId");
+    expect(renderFn).toHaveBeenCalledWith(
+      expect.stringContaining("Colonel Moneypenny"),
+      "stationId",
+    );
+    expect(renderFn.mock.calls[0]![0]).toContain("Talon Group");
+    expect(renderFn.mock.calls[0]![0]).toContain("Chairman");
   });
 });
 
@@ -253,7 +313,10 @@ describe("RadioBumperFactory", () => {
     const { factory, renderFn } = harness({ prerecordedPick: null });
     const b = await factory.build({ slot: "bumper", sources: ["prerecorded", "stationId"] });
     expect(b?.label).toBe("stationId");
-    expect(renderFn).toHaveBeenCalledWith("This is Moneypenny Radio.", "stationId");
+    expect(renderFn).toHaveBeenCalledWith(
+      "This is Moneypenny Radio. You're listening to Moneypenny Radio. Stay tuned on Moneypenny Radio.",
+      "stationId",
+    );
   });
 
   it("honors a single-source slot", async () => {

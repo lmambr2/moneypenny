@@ -75,11 +75,14 @@ does not advance the diversity cycle). Prewarm with doctrine uses up to **8** pr
 ### Station ID liners & time zones (Settings)
 
 - **`stationIdLines`** — spoken text for the **Station ID** bumper. One phrase per
-  line; `{name}` / `{station}` → bot nickname. Empty → built-in  
+  line; `{name}` / `{station}` → bot nickname. **All lines play in order as one
+  break** (not one random line). Empty → built-in  
   “This is {name}.” / “You're listening to {name}.” / “Stay tuned on {name}.”
 - **`timeCheckTimezones`** — IANA zones for the **Time check** bumper (max 8).
   Form: `America/New_York` or `Europe/London|London`. Empty → host local only.
   Several zones → one sentence (“… in New York, and … in London”).
+  Must be real IANA ids (`America/Los_Angeles` for Pacific, **not**
+  `America/Seattle`). Aliases: `seattle`, `us/pacific`, `eastern`, etc.
 
 After editing either: **Save** → **Clear TTS bumper cache** → **Pre-generate bumpers**
 (or wait for live re-synth).

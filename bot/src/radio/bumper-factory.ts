@@ -100,11 +100,56 @@ export function resolveStationIdLines(stationName: string, configured?: string[]
   return DEFAULT_STATION_ID_TEMPLATES.map(expand);
 }
 
+/** Join station-ID phrases into one spoken package (ensure terminal punctuation). */
+export function joinSpokenLines(lines: string[]): string {
+  return lines
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => (/[.!?…]"?$/.test(l) ? l : `${l}.`))
+    .join(" ");
+}
+
 export interface TimeZoneSpec {
   /** IANA zone id, or null for host local. */
   zone: string | null;
   /** Spoken place name (e.g. "New York"). Empty for single local check. */
   label: string;
+}
+
+/**
+ * Common non-IANA city / US shortcuts → real zones.
+ * (e.g. America/Seattle is invalid — Pacific is America/Los_Angeles.)
+ */
+const ZONE_ALIASES: Record<string, string> = {
+  "america/seattle": "America/Los_Angeles",
+  "america/portland": "America/Los_Angeles",
+  "us/pacific": "America/Los_Angeles",
+  "us/eastern": "America/New_York",
+  "us/mountain": "America/Denver",
+  "us/central": "America/Chicago",
+  pacific: "America/Los_Angeles",
+  eastern: "America/New_York",
+  mountain: "America/Denver",
+  central: "America/Chicago",
+  seattle: "America/Los_Angeles",
+  denver: "America/Denver",
+  "new york": "America/New_York",
+  new_york: "America/New_York",
+  london: "Europe/London",
+  utc: "UTC",
+};
+
+function tryResolveZone(raw: string): { ok: true; zone: string | null } | { ok: false } {
+  const z = raw.trim();
+  if (!z) return { ok: false };
+  if (z.toLowerCase() === "local" || z === "host") return { ok: true, zone: null };
+  const aliased = ZONE_ALIASES[z.toLowerCase()] ?? z;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: aliased });
+    return { ok: true, zone: aliased };
+  } catch {
+    return { ok: false };
+  }
 }
 
 /** Parse config lines: `America/New_York` or `Europe/London|London`. Empty → local only. */
@@ -114,26 +159,64 @@ export function parseTimeCheckTimezones(configured?: string[] | null): TimeZoneS
   const out: TimeZoneSpec[] = [];
   for (const line of raw.slice(0, 8)) {
     const pipe = line.indexOf("|");
-    const zone = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+    const zoneRaw = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
     let label = (pipe >= 0 ? line.slice(pipe + 1) : "").trim();
-    if (!zone) continue;
-    // Validate zone if possible; invalid IANA falls back to skipping.
-    if (zone.toLowerCase() !== "local" && zone !== "host") {
-      try {
-        Intl.DateTimeFormat(undefined, { timeZone: zone });
-      } catch {
-        continue;
-      }
+    if (!zoneRaw) continue;
+    const resolved = tryResolveZone(zoneRaw);
+    if (!resolved.ok) {
+      // Keep going — invalid zones used to be silently dropped (e.g. America/Seattle).
+      continue;
     }
-    const isLocal = zone.toLowerCase() === "local" || zone === "host";
-    if (!label && !isLocal) {
-      // America/New_York → "New York"
-      const tail = zone.includes("/") ? zone.slice(zone.lastIndexOf("/") + 1) : zone;
+    const isLocal = resolved.zone == null;
+    if (!label && !isLocal && resolved.zone) {
+      const tail = resolved.zone.includes("/")
+        ? resolved.zone.slice(resolved.zone.lastIndexOf("/") + 1)
+        : resolved.zone;
       label = tail.replace(/_/g, " ");
     }
-    out.push({ zone: isLocal ? null : zone, label });
+    out.push({ zone: resolved.zone, label });
   }
   return out.length > 0 ? out : [{ zone: null, label: "" }];
+}
+
+/**
+ * Like parseTimeCheckTimezones but reports which raw lines were dropped so Settings/logs
+ * can surface typos (America/Seattle, etc.).
+ */
+export function parseTimeCheckTimezonesDetailed(configured?: string[] | null): {
+  zones: TimeZoneSpec[];
+  skipped: string[];
+} {
+  const raw = (configured ?? []).map((s) => s.trim()).filter(Boolean);
+  if (raw.length === 0) return { zones: [{ zone: null, label: "" }], skipped: [] };
+  const zones: TimeZoneSpec[] = [];
+  const skipped: string[] = [];
+  for (const line of raw.slice(0, 8)) {
+    const pipe = line.indexOf("|");
+    const zoneRaw = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+    let label = (pipe >= 0 ? line.slice(pipe + 1) : "").trim();
+    if (!zoneRaw) {
+      skipped.push(line);
+      continue;
+    }
+    const resolved = tryResolveZone(zoneRaw);
+    if (!resolved.ok) {
+      skipped.push(line);
+      continue;
+    }
+    const isLocal = resolved.zone == null;
+    if (!label && !isLocal && resolved.zone) {
+      const tail = resolved.zone.includes("/")
+        ? resolved.zone.slice(resolved.zone.lastIndexOf("/") + 1)
+        : resolved.zone;
+      label = tail.replace(/_/g, " ");
+    }
+    zones.push({ zone: resolved.zone, label });
+  }
+  return {
+    zones: zones.length > 0 ? zones : [{ zone: null, label: "" }],
+    skipped,
+  };
 }
 
 /** 12-hour spoken clock for a zone (or host local when zone is null). */
@@ -364,7 +447,15 @@ export class RadioBumperFactory implements BumperFactory {
     }
 
     // Time checks for the next hoursAhead hours (default 12) at :00 and :30.
-    const zones = parseTimeCheckTimezones(cfg.timeCheckTimezones);
+    const { zones, skipped: skippedZones } = parseTimeCheckTimezonesDetailed(
+      cfg.timeCheckTimezones,
+    );
+    if (skippedZones.length > 0) {
+      this.deps.logger.warn(
+        { skipped: skippedZones },
+        "radio: invalid timeCheckTimezones entries skipped during prewarm",
+      );
+    }
     const hours = Math.max(1, Math.min(opts.hoursAhead ?? 12, 24));
     const base = (this.deps.now ?? Date.now)();
     const seen = new Set<string>();
@@ -428,17 +519,26 @@ export class RadioBumperFactory implements BumperFactory {
           return path ? { path, label: "prerecorded" } : null;
         }
         case "stationId": {
+          // All configured liners play as one package (order preserved). Previously
+          // only a single random line fired, so 2nd/3rd liners appeared "skipped".
           const lines = resolveStationIdLines(
             this.deps.stationName,
             this.deps.getConfig().stationIdLines,
           );
           if (lines.length === 0) return null;
-          const rng = this.deps.random ?? Math.random;
-          const text = lines[Math.floor(rng() * lines.length)]!;
+          const text = joinSpokenLines(lines);
           return this.speak(text, "stationId");
         }
         case "timeCheck": {
-          const zones = parseTimeCheckTimezones(this.deps.getConfig().timeCheckTimezones);
+          const { zones, skipped } = parseTimeCheckTimezonesDetailed(
+            this.deps.getConfig().timeCheckTimezones,
+          );
+          if (skipped.length > 0) {
+            this.deps.logger.warn(
+              { skipped },
+              "radio: invalid timeCheckTimezones entries skipped (use IANA ids, e.g. America/Los_Angeles not America/Seattle)",
+            );
+          }
           const speech = buildTimeCheckSpeech((this.deps.now ?? Date.now)(), zones);
           return this.speak(speech, "timeCheck");
         }

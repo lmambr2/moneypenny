@@ -787,10 +787,10 @@
           placeholder="This is {name}.&#10;You're listening to {name}.&#10;Stay tuned on {name}."
         />
         <p class="profile-toggle-hint" style="margin:4px 0 0">
-          What the <strong>Station ID</strong> bumper says (TTS). One phrase per line.
-          <code>{name}</code> becomes the bot nickname (e.g. Moneypenny). Leave blank for the
-          built-in three defaults. After editing: <strong>Save</strong>, clear TTS bumper cache,
-          then pre-generate or test a bumper.
+          What the <strong>Station ID</strong> bumper says (TTS). <strong>All lines play in order
+          as one break</strong> (not one random line). <code>{name}</code> → bot nickname.
+          Leave blank for the built-in three defaults. After editing: <strong>Save</strong>, clear
+          TTS bumper cache, then pre-generate or test a bumper.
         </p>
       </div>
 
@@ -803,14 +803,15 @@
           v-model="ai.radioTimeCheckTimezonesText"
           class="input radio-profile-textarea"
           rows="3"
-          placeholder="America/New_York|Eastern&#10;Europe/London|London&#10;UTC|UTC"
+          placeholder="America/New_York|The Capitol Wasteland&#10;America/Denver|Stargate Command&#10;America/Los_Angeles|CHAZ"
         />
         <p class="profile-toggle-hint" style="margin:4px 0 0">
-          One IANA zone per line for the <strong>Time check</strong> bumper (e.g.
-          <code>America/New_York</code>). Optional spoken label:
-          <code>Europe/London|London</code>. Leave blank for the host’s local clock only.
-          Multiple zones are spoken in one liner (“… in New York, and … in London”).
-          Max 8. After edit: Save → clear TTS cache → pre-generate.
+          One <strong>IANA</strong> zone per line (max 8), optional spoken label after
+          <code>|</code>. Must be real zone ids — e.g. Pacific is
+          <code>America/Los_Angeles</code> (not <code>America/Seattle</code>). Aliases like
+          <code>seattle</code> / <code>us/pacific</code> work. Multiple zones → one sentence.
+          Invalid ids are skipped (check bot logs). Leave blank for host local only.
+          After edit: Save → clear TTS cache → pre-generate.
         </p>
       </div>
 
