@@ -167,13 +167,48 @@ export class RadioCommands {
       pool.push(...(await this.tagKeysToSongs(keys)));
     }
     for (const ref of music.playlistRefs ?? []) {
-      if (ref.platform !== "local" && ref.platform !== "youtube") continue; // §8.1: spotify/tidal skipped with a log
-      const flag = ref.platform === "youtube" ? "y" : "l";
+      // R-R6: local/youtube + spotify/tidal via stream bridge (getPlaylistSongs).
+      if (
+        ref.platform !== "local" &&
+        ref.platform !== "youtube" &&
+        ref.platform !== "spotify" &&
+        ref.platform !== "tidal"
+      ) {
+        continue;
+      }
       try {
+        if (ref.platform === "spotify" || ref.platform === "tidal") {
+          const provider = this.deps.getProvider(new Set(["s"]));
+          const songs = await provider.getPlaylistSongs(ref.ref);
+          if (songs.length === 0) {
+            this.deps.logger?.info?.(
+              { platform: ref.platform, ref: ref.ref.slice(0, 80) },
+              "radio: playlist ref empty (bridge off or unavailable)",
+            );
+          }
+          pool.push(...songs.map((s) => ({ ...s, platform: provider.platform })));
+          continue;
+        }
+        const flag = ref.platform === "youtube" ? "y" : "l";
         const provider = this.deps.getProvider(new Set([flag]));
         const songs = await this.resolvePlaylistSongs(provider, ref.ref);
         pool.push(...songs.map((s) => ({ ...s, platform: provider.platform })));
       } catch { /* a dead ref never blocks the profile */ }
+    }
+    // R-R6 relay-in: last-resort live stream when no library/playlist pool.
+    if (pool.length === 0 && music.relayUrl) {
+      try {
+        const { resolveRelayFromProfile, relaySongFromUrl } = await import("../../radio/relay.js");
+        const relay = resolveRelayFromProfile(music);
+        if (relay) {
+          const song = relaySongFromUrl(relay.relayUrl);
+          pool.push({ ...song, platform: "stream" });
+          // Notify host to start timer bumpers when available
+          this.deps.onRelayStarted?.(relay);
+        }
+      } catch {
+        /* fail-open */
+      }
     }
     if (pool.length === 0) {
       for (const seed of music.seedQueries ?? []) {

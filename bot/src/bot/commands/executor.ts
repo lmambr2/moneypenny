@@ -56,6 +56,8 @@ export interface CommandExecutorDeps {
     >;
   };
   logger?: import("../../logger.js").Logger;
+  /** R-R6: profile started a live relay — host starts timer bumpers. */
+  onRelayStarted?: (cfg: { relayUrl: string; bumperIntervalSec: number }) => void;
 }
 
 /**

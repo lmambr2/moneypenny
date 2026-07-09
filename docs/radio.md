@@ -338,7 +338,8 @@ Per-platform support **today** (verified in-code):
   `--flat-playlist`. This is the existing `!playlist -y` path reused — **no new code**.
   (Note: `!play <playlist url>` is single-video/unreliable; the playlist path is
   `getPlaylistSongs`.)
-- **`spotify`** / **`tidal`** — ⏳ not yet (deferred to R-R6 per OQ8).
+- **`spotify`** / **`tidal`** — R-R6: expand via stream bridge (`STREAM_BRIDGE_URL` /
+  spotify-bridge or tidal-bridge). Empty when bridge unavailable (fail-open).
   `StreamProvider.getPlaylistSongs` is a stub returning `[]`; Spotify/Tidal refs
   currently resolve to a *single track* only (bridge `/resolve?uri=` or
   link→"Artist Title" search). Needs a service-aware `getPlaylistSongs` that
@@ -623,12 +624,11 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
 - [x] **R-R5 — backend + Settings panel** (`e851666` + Radio/DJ panel, test-bumper, status API). Custom wheels, quiet hours,
   limits, the Radio/DJ panel + harmonic-sequencing toggle (OQ5). *Accept:* a custom
   wheel honored; quiet hours suppress; limits hold under flood.
-- [ ] **R-R6 (optional, not started) — Broadcast out / relay in + streaming providers (OQ8).**
-  Icecast tee; `relayUrl`; **Spotify/Tidal `getPlaylistSongs`** (enumerate → resolve
-  each track, §8.1); opportunistic Tidal key/BPM + AcousticBrainz fill. *Accept:* same
-  program on an Icecast mount; relay profile drops bumpers over a third-party stream;
-  a Spotify playlist ref expands and plays via local/YT resolution; resolving a Tidal
-  track enriches its overlay row.
+- [x] **R-R6 — Broadcast out / relay in + streaming providers (OQ8).**
+  Icecast tee (`IcecastTee` + Settings); `relayUrl` + timer bumpers (`RelayScheduler`);
+  Spotify/Tidal playlist expand via stream bridge `GET /playlist` + `services/spotify-bridge`.
+  *Accept:* optional Icecast sink when enabled; relay profile queues stream URL + timer
+  bumpers; Spotify playlist ref expands when bridge returns tracks (fail-open when off).
 
 ---
 

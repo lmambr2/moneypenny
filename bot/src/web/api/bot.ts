@@ -340,6 +340,14 @@ export function createBotRouter(
       // The director reads config.radio live at every boundary, so replacing
       // the block hot-applies with no per-bot re-init (unlike voice/llm).
       config.radio = { ...defaultRadioConfig(), ...config.radio, ...patch };
+      // R-R6: Icecast tee process follows settings.
+      for (const bot of botManager.getAllBots()) {
+        try {
+          bot.applyIcecastTee?.(config.radio.icecast ?? null);
+        } catch {
+          /* optional method on fakes */
+        }
+      }
     }
 
     saveConfig(configPath, config);

@@ -141,4 +141,49 @@ describe("StreamProvider — Spotify bridge", () => {
     expect((await new StreamProvider().getAuthStatus()).loggedIn).toBe(false);
     expect((await new StreamProvider({ bridgeUrl: "http://b" }).getAuthStatus()).loggedIn).toBe(true);
   });
+
+  it("expands a Spotify playlist via GET /playlist on the real provider", async () => {
+    mockedGet.mockResolvedValue({
+      data: {
+        tracks: [
+          {
+            uri: "spotify:track:aaa",
+            title: "Track A",
+            artist: "Artist A",
+            durationSec: 180,
+          },
+          { uri: "spotify:track:bbb", title: "Track B", artist: "Artist B" },
+        ],
+      },
+    } as any);
+    const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
+    const songs = await provider.getPlaylistSongs(
+      "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M",
+    );
+    expect(songs).toHaveLength(2);
+    expect(songs[0]).toMatchObject({
+      id: "spotify:track:aaa",
+      name: "Track A",
+      artist: "Artist A",
+      platform: "stream",
+      duration: 180,
+    });
+    expect(mockedGet).toHaveBeenCalledWith(
+      "http://bridge.local/playlist",
+      expect.objectContaining({
+        params: { uri: "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M" },
+      }),
+    );
+  });
+
+  it("returns [] when playlist bridge is unavailable", async () => {
+    mockedGet.mockRejectedValue(new Error("bridge down"));
+    const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
+    expect(await provider.getPlaylistSongs("spotify:playlist:x")).toEqual([]);
+  });
+
+  it("returns [] without a bridge (clear unavailable)", async () => {
+    const provider = new StreamProvider();
+    expect(await provider.getPlaylistSongs("spotify:playlist:x")).toEqual([]);
+  });
 });

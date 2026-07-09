@@ -1,0 +1,48 @@
+# ACE-Step music-gen adapter (host GPU) — optional overlay.
+#
+# Run on the LAN GPU workstation (not the Pi). GPU drivers vary:
+#   - NVIDIA: install nvidia-container-toolkit; set ACE_STEP_IMAGE
+#   - AMD ROCm: use a ROCm-enabled image and device mounts
+#
+# Usage (GPU host):
+#   export ACE_STEP_IMAGE=your-org/ace-step-api:latest
+#   export MUSIC_DIR=/srv/moneypenny-music
+#   docker compose -f docker-compose.ace-step.yml up -d
+#
+# Bot (Pi/server): Settings → ACE-Step URL = http://<gpu-host>:7865
+# Docs: docs/ace-step-host.md
+
+services:
+  ace-step:
+    build:
+      context: ./services/ace-step-adapter
+    image: ${ACE_STEP_IMAGE:-moneypenny-ace-step-adapter:local}
+    container_name: moneypenny-ace-step
+    ports:
+      - "${ACE_STEP_PORT:-7865}:7865"
+    volumes:
+      # Shared library root the bot also mounts as MUSIC_DIR
+      - ${MUSIC_DIR:-./music}:/music
+    environment:
+      - OUTPUT_DIR=/music/generated/ace-step
+      - HOST=0.0.0.0
+      - PORT=7865
+      - ACE_STEP_MOCK=${ACE_STEP_MOCK:-1}
+    # Uncomment for NVIDIA:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    # Uncomment for AMD ROCm:
+    # devices:
+    #   - /dev/kfd
+    #   - /dev/dri
+    # group_add:
+    #   - video
+    #   - render
+    restart: unless-stopped
+    profiles:
+      - ace-step

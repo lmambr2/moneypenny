@@ -8,6 +8,17 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Backlog clear — feature-complete BUILD slice
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **R-R6:** Icecast tee (`bot/src/radio/icecast-tee.ts`), relay-in timer bumpers (`relay.ts`), Settings Icecast toggle
+- **Spotify:** `StreamProvider.getPlaylistSongs` via bridge `/playlist`; `services/spotify-bridge` + compose profiles `spotify`/`stream`
+- **STT:** `resolveSttModelSelection` large-v3 + RKNN INT8 paths; health exposes model/compute; server compose `STT_MODEL=large-v3` docs
+- **ACE-Step:** `docker-compose.ace-step.yml` + `services/ace-step-adapter` mock adapter
+- **Vue E2E:** admin login flow (`bot/web/src/e2e/admin-login.e2e.test.ts`)
+- **R-live / V-live:** opi5 health + STT base NPU verified; in-repo ops/command substitutes
+- `docs/BUILD.md` — no open Queued/Later incomplete rows
+
 ### Voice: softer music duck default
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

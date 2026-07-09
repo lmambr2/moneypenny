@@ -49,6 +49,8 @@ export interface RadioProfile {
     shuffle?: boolean;
     seedQueries?: string[];
     relayUrl?: string | null;
+    /** Seconds between timer bumpers while relaying (R-R6; default 300). */
+    relayBumperIntervalSec?: number;
     ratingMin?: number;
     harmonicSequencing?: boolean;
   };
@@ -87,7 +89,8 @@ export interface RadioConfig {
   ratingWeight?: { enabled: boolean; exponent: number; maxRatio: number };
   // OQ5: harmonic ordering of the upcoming queue window (per profile).
   harmonicSequencing?: boolean;
-  icecast?: { enabled: boolean; mountUrl: string };
+  /** Optional Icecast tee (R-R6) — second PCM sink; default off. */
+  icecast?: { enabled: boolean; mountUrl: string; format?: "mp3" | "ogg" | "opus" };
 }
 
 export function defaultRadioConfig(): RadioConfig {

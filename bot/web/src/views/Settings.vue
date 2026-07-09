@@ -543,6 +543,26 @@
         </div>
       </div>
 
+      <div v-if="ai.radioEnabled" class="form-row" style="margin: 0 0 8px">
+        <div class="form-group" style="flex:1">
+          <label class="profile-toggle" style="margin:0">
+            <span>Icecast tee (broadcast out)</span>
+            <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioIcecastEnabled" />
+          </label>
+          <p class="profile-toggle-hint" style="margin:4px 0 0">
+            Optional second sink → Icecast mount (R-R6). Off by default. Needs ffmpeg + a reachable source URL.
+          </p>
+        </div>
+        <div v-if="ai.radioIcecastEnabled" class="form-group" style="flex:2">
+          <label>Icecast mount URL</label>
+          <input
+            v-model="ai.radioIcecastMountUrl"
+            class="input"
+            placeholder="icecast://source:hackme@127.0.0.1:8000/live"
+          />
+        </div>
+      </div>
+
       <div v-if="ai.radioEnabled" class="form-group" style="margin: 0 0 10px">
         <label>Bumper sources</label>
         <div class="form-row" style="flex-wrap:wrap;gap:10px 16px">
@@ -1401,6 +1421,8 @@ const ai = reactive({
   radioRatingWeight: true,
   radioAnalyzerEnabled: false,
   radioMemoryBroadcastOptIn: false,
+  radioIcecastEnabled: false,
+  radioIcecastMountUrl: '',
   radioSources: {
     prerecorded: true,
     stationId: true,
@@ -1567,6 +1589,8 @@ async function loadAiSettings() {
     ai.radioRatingWeight = radio.ratingWeight?.enabled !== false;
     ai.radioAnalyzerEnabled = !!radio.analyzer?.enabled;
     ai.radioMemoryBroadcastOptIn = !!radio.memoryBroadcastOptIn;
+    ai.radioIcecastEnabled = !!radio.icecast?.enabled;
+    ai.radioIcecastMountUrl = radio.icecast?.mountUrl ?? '';
     const srcSet = new Set(Array.isArray(radio.sources) ? radio.sources : []);
     for (const opt of RADIO_SOURCE_OPTIONS) {
       ai.radioSources[opt.id] =
@@ -2038,6 +2062,10 @@ async function saveAiSettings() {
         analyzer: { enabled: ai.radioAnalyzerEnabled, tool: 'keyfinder', onIngest: ai.radioAnalyzerEnabled },
         memoryBroadcastOptIn: ai.radioMemoryBroadcastOptIn,
         sources: RADIO_SOURCE_OPTIONS.filter((s) => ai.radioSources[s.id]).map((s) => s.id),
+        icecast: {
+          enabled: ai.radioIcecastEnabled,
+          mountUrl: ai.radioIcecastMountUrl.trim(),
+        },
       },
     });
     aiSuccess.value = 'Saved. Applied to running bots.';

@@ -69,7 +69,7 @@ describe("cmdRadio ops (§8/§12)", () => {
           select: { genreAny: ["ambient"] },
           playlistRefs: [
             { platform: "local", ref: "ops-mining" },
-            { platform: "spotify", ref: "https://open.spotify.com/playlist/x" }, // skipped (§8.1)
+            { platform: "spotify", ref: "https://open.spotify.com/playlist/x" }, // R-R6 via stream bridge
           ],
           seedQueries: ["ambient focus"],
         },
@@ -96,6 +96,12 @@ describe("cmdRadio ops (§8/§12)", () => {
         { id: "m3u-1", name: "m3u-1", artist: "", album: "", duration: 1, coverUrl: "", platform: "local" },
       ]),
     };
+    const streamProvider = {
+      platform: "stream",
+      getPlaylistSongs: vi.fn(async () => [
+        { id: "spotify:track:sp1", name: "Spot Track", artist: "S", album: "Spotify", duration: 1, coverUrl: "", platform: "stream" },
+      ]),
+    };
     const ex = new CommandExecutor({
       playback: {
         resolveAndPlay: vi.fn(async () => true),
@@ -112,10 +118,12 @@ describe("cmdRadio ops (§8/§12)", () => {
       tsClient: {} as never,
       isConnected: () => true,
       playNext: vi.fn(),
-      getProvider: vi.fn(() => localProvider as never),
+      getProvider: vi.fn((flags: Set<string>) =>
+        flags.has("s") ? (streamProvider as never) : (localProvider as never),
+      ),
       tagStore,
     });
-    return { ex, radio, queue, queued };
+    return { ex, radio, queue, queued, streamProvider };
   }
 
   it("ops list names profiles and the active one", async () => {
@@ -132,7 +140,8 @@ describe("cmdRadio ops (§8/§12)", () => {
     expect(out).toContain("Op context: mining");
     const ids = queued.map((s) => s.id);
     expect(ids).toContain("t1"); // tag select
-    expect(ids).toContain("m3u-1"); // local playlist ref (spotify ref skipped)
+    expect(ids).toContain("m3u-1"); // local playlist ref
+    expect(ids).toContain("spotify:track:sp1"); // R-R6 spotify playlist via stream bridge
   });
 
   it("a profile with no matching sources retunes bumpers without touching music", async () => {

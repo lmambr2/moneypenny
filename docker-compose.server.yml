@@ -41,9 +41,11 @@ services:
       args:
         WHISPER_VULKAN: ${WHISPER_VULKAN:-1}
     environment:
+      # Model ladder: medium default; set STT_MODEL=large-v3 when VRAM free
       - STT_MODEL=${STT_MODEL:-medium}
       - STT_DEVICE=${STT_DEVICE:-auto}
       - STT_BACKEND=whisper-cpp
+      - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-float16}
       - STT_EAGER_LOAD=${STT_EAGER_LOAD:-1}
       - STT_MODELS_DIR=/models
       - STT_MODEL_PATH=${STT_MODEL_PATH:-}

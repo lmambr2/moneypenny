@@ -33,3 +33,19 @@ export {
   type NowPlayingInfo,
 } from "./bumper-factory.js";
 export { pinBumperToPool, isUnderBumperDir, type LastPlayedBumper } from "./pin.js";
+export {
+  IcecastTee,
+  buildIcecastFfmpegArgs,
+  defaultIcecastTeeConfig,
+  isIcecastTeeReady,
+  resolveIcecastTee,
+  type IcecastTeeConfig,
+  type IcecastTeeDeps,
+} from "./icecast-tee.js";
+export {
+  RelayScheduler,
+  resolveRelayFromProfile,
+  relaySongFromUrl,
+  type RelayConfig,
+  type RelaySchedulerDeps,
+} from "./relay.js";

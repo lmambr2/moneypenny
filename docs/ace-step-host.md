@@ -39,27 +39,26 @@ Pin versions in your own repo; Moneypenny only talks HTTP.
 
 ---
 
-## 3. Docker (optional host-side)
+## 3. Docker (host-side adapter — shipped)
 
-Not shipped as a Moneypenny compose profile (GPU drivers vary). On the **GPU host**:
+Repo files:
 
-```yaml
-# example only — replace image with your ACE-Step runtime
-services:
-  ace-step:
-    image: your-org/ace-step-api:latest
-    ports:
-      - "7865:7865"
-    volumes:
-      # shared library root the bot also mounts as MUSIC_DIR
-      - /srv/moneypenny-music:/music
-    environment:
-      - OUTPUT_DIR=/music/generated/ace-step
-      - HOST=0.0.0.0
-      - PORT=7865
-    # devices: /dev/kfd /dev/dri for ROCm, or NVIDIA_VISIBLE_DEVICES, etc.
-    restart: unless-stopped
+| Artifact | Role |
+|----------|------|
+| [`docker-compose.ace-step.yml`](../docker-compose.ace-step.yml) | Profile `ace-step` on the GPU host |
+| [`services/ace-step-adapter/`](../services/ace-step-adapter/) | HTTP adapter (`/health`, `/v1/generate`, jobs + audio) |
+
+```bash
+# On the GPU host (shared MUSIC_DIR with the bot mount recommended)
+export MUSIC_DIR=/srv/moneypenny-music
+export ACE_STEP_MOCK=1   # stub audio without a full ACE-Step GPU stack
+docker compose -f docker-compose.ace-step.yml --profile ace-step up -d --build
+# → http://<gpu-host>:7865/health
 ```
+
+GPU drivers vary — edit the compose file for NVIDIA (`deploy.resources`) or AMD
+ROCm (`/dev/kfd`, `/dev/dri`). Pin `ACE_STEP_IMAGE` when you have a real worker
+image; the default adapter builds from `services/ace-step-adapter`.
 
 Firewall: allow the bot host (Pi/server) to reach `gpu:7865`; do not expose
 publicly without auth.

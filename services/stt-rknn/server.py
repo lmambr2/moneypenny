@@ -316,6 +316,8 @@ class Handler(BaseHTTPRequestHandler):
                     "track": "sbc",
                     "model": STT_MODEL,
                     "device": STT_DEVICE,
+                    "compute": STT_COMPUTE or "int8",
+                    "quant": STT_COMPUTE or "int8",
                     "streaming": True,
                     "modelLoaded": ready,
                     "rknnWeightsPresent": rknn_pair,

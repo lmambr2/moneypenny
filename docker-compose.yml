@@ -241,6 +241,24 @@ services:
     networks:
       - moneypenny
 
+  # R-R6: Spotify librespot bridge (playlist expand + resolve). Needs Premium +
+  # optional LIBRESPOT_HTTP_BASE for real audio. See services/spotify-bridge/README.md
+  # STREAM_BRIDGE_URL=http://spotify-bridge:8082  (or tidal-bridge for Tidal).
+  spotify-bridge:
+    build: ./services/spotify-bridge
+    profiles: ["spotify", "stream"]
+    restart: unless-stopped
+    environment:
+      - LIBRESPOT_HTTP_BASE=${LIBRESPOT_HTTP_BASE:-}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+      - SPOTIFY_REFRESH_TOKEN=${SPOTIFY_REFRESH_TOKEN:-}
+      - SPOTIFY_ACCESS_TOKEN=${SPOTIFY_ACCESS_TOKEN:-}
+    ports:
+      - "127.0.0.1:8082:8082"
+    networks:
+      - moneypenny
+
   # ROADMAP Phase 7: MemPalace semantic memory bridge. Per-user facts sync here
   # for semantic recall in !ask. First start downloads the embedding model
   # (healthcheck start-period is long). Set MEMPALACE_URL=http://mempalace-bridge:8090

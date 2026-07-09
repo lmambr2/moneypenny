@@ -223,10 +223,12 @@ class Handler(BaseHTTPRequestHandler):
                     "family": "whisper",
                     "model": STT_MODEL,
                     "device": _pick_device(),
+                    "compute": _compute_type(_pick_device()),
                     "streaming": True,
                     "modelLoaded": ready,
                     "kws": False,
                     "textWakeRequired": True,
+                    "largeV3Ready": STT_MODEL in ("large-v3", "large-v3-turbo", "distil-large-v3"),
                 },
             )
             return

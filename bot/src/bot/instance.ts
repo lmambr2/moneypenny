@@ -43,8 +43,11 @@ import {
   BumperCache,
   TagStore,
   floorFromMembers,
+  IcecastTee,
+  RelayScheduler,
   type PresentMember,
 } from "../radio/index.js";
+import { spawn as nodeSpawn } from "node:child_process";
 import { dirname, isAbsolute, join } from "node:path";
 import { LlmRuntime } from "./llm/runtime.js";
 import type { WorkflowKind } from "../docs/workflow.js";
@@ -118,6 +121,8 @@ export class BotInstance extends EventEmitter {
   private mempalace: MemPalaceClient | null = null;
   private aceStep: AceStepClient | null = null;
   private generateProvider: GenerateProvider;
+  private icecastTee: IcecastTee;
+  private relayScheduler: RelayScheduler;
   private voice: VoiceSession;
   private connected = false;
   private disconnectEmitted = false;
@@ -235,6 +240,28 @@ export class BotInstance extends EventEmitter {
       setAdvancing: (v) => { this.isAdvancing = v; },
     });
 
+    this.icecastTee = new IcecastTee({
+      logger: this.logger,
+      spawn: (cmd, args, opts) =>
+        nodeSpawn(cmd, args, {
+          stdio: (opts?.stdio as ("pipe" | "ignore")[] | undefined) ?? ["pipe", "ignore", "pipe"],
+        }) as ReturnType<typeof nodeSpawn> & {
+          stdin: { write: (b: Buffer) => boolean; end: () => void };
+        },
+    });
+    this.relayScheduler = new RelayScheduler({
+      onBumper: async () => {
+        try {
+          await this.radio.cueBumper("relay");
+        } catch (err) {
+          this.logger.warn({ err }, "relay timer bumper failed");
+        }
+      },
+      logger: this.logger,
+    });
+    // Apply optional Icecast tee from config (default off).
+    this.icecastTee.apply(this.config.radio?.icecast ?? null);
+
     this.commands = new CommandExecutor({
       playback: this.playback,
       player: this.player,
@@ -258,6 +285,9 @@ export class BotInstance extends EventEmitter {
       getBumperDir: () => this.resolveBumperDir(dirname(this.database.db.name)),
       generateProvider: this.generateProvider,
       logger: this.logger,
+      onRelayStarted: (cfg) => {
+        this.relayScheduler.start(cfg);
+      },
     });
 
     this.roast = new RoastService({
@@ -482,6 +512,8 @@ export class BotInstance extends EventEmitter {
     this.player.stop();
     this.voice.cleanup();
     this.radio.dispose();
+    this.relayScheduler.stop();
+    this.icecastTee.stop();
     this.connected = false;
     if (!this.disconnectEmitted) {
       this.disconnectEmitted = true;
@@ -759,7 +791,19 @@ export class BotInstance extends EventEmitter {
       profiles: Object.keys(this.config.radio.profiles),
       ...this.radio.status(),
       lastBumper: this.radio.getLastPlayedBumper(),
+      icecast: this.icecastTee.status(),
+      relay: this.relayScheduler.status(),
     };
+  }
+
+  /** Hot-apply radio.icecast tee settings (Settings save). */
+  applyIcecastTee(partial?: { enabled?: boolean; mountUrl?: string; format?: "mp3" | "ogg" | "opus" } | null) {
+    return this.icecastTee.apply(partial ?? this.config.radio?.icecast ?? null);
+  }
+
+  /** Tee PCM to Icecast when running (fail-open). */
+  teeIcecastPcm(pcm: Buffer): void {
+    this.icecastTee.writePcm(pcm);
   }
 
   updateRoast(

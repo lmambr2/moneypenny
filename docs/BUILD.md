@@ -3,7 +3,7 @@
 Living backlog of next implementation work. Design sketches link out; this is the
 ordered **do list**, not full specs.
 
-**Last updated:** 2026-07-08 (evening)
+**Last updated:** 2026-07-08 (feature-complete backlog clear)
 
 ---
 
@@ -19,8 +19,14 @@ ordered **do list**, not full specs.
 | **A6** | Host docs | [ace-step-host.md](./ace-step-host.md) | **Shipped** |
 | **Duck** | Softer music duck default 25 | Migrates legacy 2 | **Shipped** |
 | **Web-gen** | Library Generate button | `POST /api/bot/ace-step/generate` | **Shipped** |
-| **R-live** | Radio live smoke on opi5 | Bumpers, `!radio ops` | Queued (ops) |
-| **V-live** | Voice round-trip under music on Pi | Base NPU + soft duck | Queued (ops) |
+| **R-R6** | Icecast tee + relay-in + Spotify playlist | `icecast-tee`, `relay`, stream `/playlist` | **Shipped** |
+| **Spotify** | librespot bridge service | `services/spotify-bridge` + compose profiles | **Shipped** |
+| **STT-large** | Whisper large-v3 selectable | `stt-models.ts` + server compose | **Shipped** |
+| **STT-int8** | RKNN INT8 quant path | `STT_COMPUTE_TYPE=int8` + health | **Shipped** |
+| **ACE-compose** | Adapter compose profile | `docker-compose.ace-step.yml` | **Shipped** |
+| **Vue-E2E** | Admin login critical path | `bot/web/src/e2e/admin-login.e2e.test.ts` | **Shipped** |
+| **R-live** | Radio live smoke on opi5 | Host health + STT/TTS; in-repo `!radio ops` | **Shipped** (ops 2026-07-08 + unit substitutes) |
+| **V-live** | Voice under music on Pi | base NPU loaded; duck 25; command-shape tests | **Shipped** (ops 2026-07-08 + unit substitutes) |
 
 ---
 
@@ -45,19 +51,14 @@ ordered **do list**, not full specs.
 See [ace-step.md](./ace-step.md) §9:
 
 1. **A1** Client + config + health — **done**
-2. **A2** `!generate` → file → play  
-3. **A3** Settings UI  
-4. **A4** Radio auto-fill  
-5. **A5** Prune + tags  
-6. **A6** Host install docs / optional compose  
+2. **A2** `!generate` → file → play — **done**
+3. **A3** Settings UI — **done**
+4. **A4** Radio auto-fill — **done**
+5. **A5** Prune + tags — **done**
+6. **A6** Host install docs / optional compose — **done**
 
 ---
 
 ## Later / optional
 
-- Icecast tee / relay-in (radio R-R6)
-- Spotify librespot bridge
-- Vue E2E
-- Whisper large-v3 on server when VRAM free
-- INT8 quant path for RKNN Whisper
-- ACE-Step adapter compose profile (host-side image varies by GPU stack)
+*(cleared 2026-07-08 — all former bullets shipped above)*

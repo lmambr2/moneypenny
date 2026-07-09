@@ -264,9 +264,63 @@ export class StreamProvider implements MusicProvider {
     return this.quality;
   }
 
-  // Streams have no library/playlist/lyrics/auth concepts — return empties.
-  async getPlaylistSongs(_playlistId: string): Promise<Song[]> {
-    return [];
+  /**
+   * Expand a Spotify/Tidal playlist via the bridge (R-R6).
+   * Contract: `GET {bridge}/playlist?uri=<ref>` →
+   * `{ tracks: [{ uri|id, title?, artist?, durationSec?, coverUrl?, streamUrl? }] }`
+   * Each track is returned as a stream Song (id = uri for re-resolve at play).
+   */
+  async getPlaylistSongs(playlistId: string): Promise<Song[]> {
+    const ref = playlistId.trim();
+    if (!this.bridgeUrl) return [];
+    if (!isSpotifyRef(ref) && !isTidalUrl(ref) && !/^spotify:playlist:/i.test(ref)) {
+      // Also accept bare open.spotify.com/playlist URLs already covered by isSpotifyRef
+      if (!/playlist/i.test(ref)) return [];
+    }
+    try {
+      const { data } = await axios.get<{
+        tracks?: Array<{
+          uri?: string;
+          id?: string;
+          title?: string;
+          name?: string;
+          artist?: string;
+          durationSec?: number;
+          coverUrl?: string;
+          streamUrl?: string;
+        }>;
+        error?: string;
+      }>(`${this.bridgeUrl}/playlist`, {
+        params: { uri: ref },
+        timeout: this.timeoutMs,
+      });
+      const tracks = data?.tracks;
+      if (!Array.isArray(tracks) || tracks.length === 0) {
+        if (data?.error) {
+          this.logger?.warn({ err: data.error, ref }, "Stream bridge playlist empty/unavailable");
+        }
+        return [];
+      }
+      const svc = isTidalUrl(ref) ? "Tidal" : "Spotify";
+      return tracks
+        .map((t): Song | null => {
+          const id = (t.uri || t.id || "").trim();
+          if (!id) return null;
+          return {
+            id,
+            name: t.title || t.name || `${svc} track`,
+            artist: t.artist || svc,
+            album: svc,
+            duration: t.durationSec ?? 0,
+            coverUrl: t.coverUrl ?? "",
+            platform: "stream",
+          };
+        })
+        .filter((s): s is Song => !!s);
+    } catch (err: unknown) {
+      this.logger?.warn({ err: errorMessage(err), ref }, "Stream bridge playlist failed");
+      return [];
+    }
   }
   async getRecommendPlaylists(): Promise<Playlist[]> {
     return [];

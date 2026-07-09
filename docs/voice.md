@@ -18,11 +18,21 @@
 ./scripts/voice-profile.sh
 # Pi: RKNN Whisper base + Piper (export .rknn first — models/rknn/README.md)
 export STT_MODEL=base STT_BACKEND=rknn STT_DEVICE=npu
+# INT8 quant path (default for RKNN / faster-whisper CPU fallback)
+export STT_COMPUTE_TYPE=int8
+# Optional explicit pair (defaults: /models/rknn/whisper-${STT_MODEL}-{encoder,decoder}.rknn)
+# export RKNN_ENCODER=/models/rknn/whisper-base-encoder.rknn
+# export RKNN_DECODER=/models/rknn/whisper-base-decoder.rknn
 docker compose -f docker-compose.yml -f docker-compose.sbc.yml --profile voice-edge up -d --build
-# x86 AMD: whisper.cpp Vulkan
+# x86 AMD: whisper.cpp Vulkan (medium default)
 export STT_MODEL=medium STT_DEVICE=vulkan WHISPER_VULKAN=1
 docker compose -f docker-compose.yml -f docker-compose.server.yml --profile voice-server up -d --build
+# Server large-v3 when VRAM free (faster-whisper CUDA or whisper.cpp):
+# export STT_MODEL=large-v3 STT_DEVICE=cuda STT_COMPUTE_TYPE=float16
 ```
+
+**Model selection** is also codified for tests/docs in `bot/src/voice/stt-models.ts`
+(`resolveSttModelSelection` — edition defaults, `preferLargeV3`, RKNN INT8 paths).
 
 ## Smoke tests
 

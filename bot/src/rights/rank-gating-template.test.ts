@@ -9,7 +9,13 @@ import { PUBLIC_COMMANDS } from "../bot/commands.js";
  * through a command group instead. Anything else missing is drift (the class
  * of bug that broke !chevron7 and !playnext).
  */
-const GROUP_GRANTED = new Set(["analyst", "agent", "intsum", "aar"]); // @analyst
+const GROUP_GRANTED = new Set([
+  "analyst",
+  "agent",
+  "intsum",
+  "aar", // @analyst
+  "generate", // @dj (ACE-Step)
+]);
 
 /** Starter template must stay aligned with PUBLIC_COMMANDS the bot documents as public. */
 describe("scripts/rights-rank-gating.json", () => {
