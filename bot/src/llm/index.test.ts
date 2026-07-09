@@ -111,4 +111,27 @@ describe("LlmModule history", () => {
     // Post-reset request has no carried history.
     expect(requests[1].messages.map((m) => m.role)).toEqual(["system", "user"]);
   });
+
+  it("ask salvages Gemma reasoning when content is empty", async () => {
+    const { client } = fakeClient(() => ({
+      id: "x",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: "",
+            reasoning:
+              "* thinking about ops\n* drafting answer\nThe fleet holds at the jump point until FC calls go.",
+          },
+          finish_reason: "stop",
+        },
+      ],
+    }));
+    const mod = new LlmModule({ client: client as any });
+    const answer = await mod.ask("where is the fleet?");
+    expect(answer).toMatch(/fleet holds at the jump point/i);
+    expect(answer).not.toMatch(/^\(no response\)/);
+  });
 });
+

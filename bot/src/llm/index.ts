@@ -212,7 +212,20 @@ export class LlmModule {
         tool_choice: "none",
         temperature: this.temperature,
       });
-      const content = resp.choices?.[0]?.message?.content?.trim() || "(no response)";
+      const msg = resp.choices?.[0]?.message;
+      // Gemma/Ollama often leave content empty and put the answer in reasoning —
+      // same salvage used by complete() / doctrine bumpers.
+      let content = msg ? extractAssistantText(msg) : "";
+      if (!content) {
+        this.logger?.warn(
+          {
+            hasContent: !!(msg?.content && String(msg.content).trim()),
+            hasReasoning: !!(msg as { reasoning?: string } | undefined)?.reasoning,
+          },
+          "LLM ask returned empty text (content/reasoning)",
+        );
+        content = "(no response)";
+      }
       this.record(conversationId, question, content);
       // Deterministic citation footer (Phase 6) — reliable, not model-dependent.
       return sources.length > 0 ? `${content}\n\n📎 Sources: ${sources.join(", ")}` : content;

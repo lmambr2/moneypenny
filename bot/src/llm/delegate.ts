@@ -1,6 +1,6 @@
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
-import { type ChatMessage, LlmClient } from "./client.js";
+import { type ChatMessage, extractAssistantText, LlmClient } from "./client.js";
 import { probeLlmEndpoint } from "./probe.js";
 
 export const DELEGATE_TOOL_NAME = "delegate_to_agent" as const;
@@ -60,7 +60,10 @@ export class DelegateClient {
       temperature,
       max_tokens: 4096,
     });
-    return resp.choices?.[0]?.message?.content?.trim() || "";
+    const msg = resp.choices?.[0]?.message;
+    if (!msg) return "";
+    // Gemma may fill reasoning when content is empty — same salvage as LlmModule.ask.
+    return extractAssistantText(msg);
   }
 
   offlineMessage(): string {
