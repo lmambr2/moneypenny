@@ -247,6 +247,8 @@ export class BotInstance extends EventEmitter {
         status: () => this.radio.status(),
       },
       getBumperDir: () => this.resolveBumperDir(dirname(this.database.db.name)),
+      generateProvider: this.generateProvider,
+      logger: this.logger,
     });
 
     this.roast = new RoastService({

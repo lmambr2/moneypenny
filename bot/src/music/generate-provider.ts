@@ -43,6 +43,11 @@ export class GenerateProvider {
     return !!c.aceStepEnabled && !!c.aceStepUrl?.trim();
   }
 
+  /** True while a user !generate or radio auto-fill job is running. */
+  isBusy(): boolean {
+    return this.inFlight > 0;
+  }
+
   async handleGenerate(args: string, invokerKey = "anon"): Promise<string> {
     const prompt = args?.trim();
     if (!prompt) {
@@ -64,9 +69,9 @@ export class GenerateProvider {
       return "A generation job is already running — try again when it finishes.";
     }
 
-    this.inFlight += 1;
     this.recordRate(invokerKey);
     try {
+      // trackInFlight default true inside generateAndIngest
       const result = await this.generateAndIngest(prompt, client);
       if (!result.ok) return `Generation failed: ${result.error}`;
       if (this.deps.playSong) {
@@ -82,8 +87,6 @@ export class GenerateProvider {
     } catch (err) {
       this.deps.logger.warn({ err, prompt: prompt.slice(0, 80) }, "ACE-Step generate failed");
       return `Generation failed: ${err instanceof Error ? err.message : "unknown error"}`;
-    } finally {
-      this.inFlight = Math.max(0, this.inFlight - 1);
     }
   }
 
@@ -91,7 +94,30 @@ export class GenerateProvider {
    * Core path for !generate and (later) radio auto-fill.
    * Does not enqueue playback — caller decides.
    */
+  /**
+   * Core path for !generate and radio auto-fill.
+   * @param opts.trackInFlight — count against concurrent slot (default true for auto-fill).
+   */
   async generateAndIngest(
+    prompt: string,
+    client?: AceStepClient | null,
+    opts?: { trackInFlight?: boolean },
+  ): Promise<GenerateResult> {
+    const trackInFlight = opts?.trackInFlight !== false;
+    if (trackInFlight) {
+      if (this.inFlight >= MAX_CONCURRENT) {
+        return { ok: false, error: "generation already in progress" };
+      }
+      this.inFlight += 1;
+    }
+    try {
+      return await this.generateAndIngestInner(prompt, client);
+    } finally {
+      if (trackInFlight) this.inFlight = Math.max(0, this.inFlight - 1);
+    }
+  }
+
+  private async generateAndIngestInner(
     prompt: string,
     client?: AceStepClient | null,
   ): Promise<GenerateResult> {

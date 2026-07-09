@@ -8,6 +8,12 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### ACE-Step A4 — radio auto-fill
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Dead air / empty profile pool → ACE-Step when `aceStepAutoFill` (fail-open)
+- `!radio gen <prompt>` alias; prompt from profile tone/topics/seeds
+
 ### ACE-Step A3 — Settings UI
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

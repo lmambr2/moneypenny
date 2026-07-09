@@ -85,12 +85,38 @@ export class RadioCommands {
         if (!r.ok) return `Could not pin bumper: ${r.error}`;
         return `📌 Pinned to prerecorded pool: ${r.dest}`;
       }
+      case "gen":
+      case "generate": {
+        // Alias of !generate — same rights token "generate" checked by router for
+        // the top-level command; radio subcommand is checked as radio.* only if
+        // canRun is consulted for "generate" by the special path. Here we gate
+        // via generateProvider being configured; DJ rights still apply when the
+        // operator uses !generate. For !radio gen, require radio.ops-level by
+        // reusing generate token if the executor exposes canRun later.
+        if (!this.deps.generateProvider?.isConfigured()) {
+          return "ACE-Step is not enabled (Settings → ACE-Step music gen).";
+        }
+        const prompt = cmd.rawArgs.slice(1).join(" ").trim();
+        if (!prompt) return `Usage: ${p}radio gen <prompt>`;
+        // Play path: generateAndIngest + queue/play like auto-fill
+        if (this.deps.generateProvider.isBusy()) {
+          return "A generation job is already running.";
+        }
+        const result = await this.deps.generateProvider.generateAndIngest(prompt);
+        if (!result.ok) return `Generation failed: ${result.error}`;
+        this.deps.queue.clear();
+        this.deps.queue.add({ ...result.song, platform: "local" });
+        const first = this.deps.queue.play();
+        this.deps.player.resetFailures();
+        if (first) await this.deps.playback.resolveAndPlay(first);
+        return `Generated and playing: ${result.song.name}`;
+      }
       case "status": {
         if (!radio.enabled) return `📻 Radio mode OFF. Use ${p}radio on to start.`;
         return `📻 Radio mode ON. ${this.summary(radio)}${this.countdown()}`;
       }
       default:
-        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip|pin]`;
+        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip|pin|gen <prompt>]`;
     }
   }
 
@@ -116,12 +142,16 @@ export class RadioCommands {
   }
 
   /** Dead-air self-heal (§7 `thenAutoProgram`): restock + start music from the
-   *  active profile. False when there is no profile or nothing matched. */
+   *  active profile; ACE-Step auto-fill when pool empty (docs/ace-step.md A4).
+   *  False when nothing matched and gen failed/off. */
   async autoProgram(): Promise<boolean> {
     const radio = this.deps.config.radio;
     const profile = radio.profiles[radio.activeProfile];
-    if (!profile?.music) return false;
-    return (await this.programFromProfile(profile)) > 0;
+    if (profile?.music) {
+      const n = await this.programFromProfile(profile);
+      if (n > 0) return true;
+    }
+    return this.tryAceStepAutoFill(profile);
   }
 
   /** Build the profile's music pool (§8 selection precedence: tag select +
@@ -161,6 +191,42 @@ export class RadioCommands {
     this.deps.player.resetFailures();
     if (first) await this.deps.playback.resolveAndPlay(first);
     return pool.length;
+  }
+
+  /**
+   * ACE-Step radio auto-fill (A4). Only when aceStepAutoFill is on and library
+   * selection produced nothing. Fail-open: never throws into the director.
+   */
+  private async tryAceStepAutoFill(profile?: RadioProfile): Promise<boolean> {
+    const cfg = this.deps.config;
+    if (!cfg.aceStepAutoFill) return false;
+    const gen = this.deps.generateProvider;
+    if (!gen?.isConfigured() || gen.isBusy()) return false;
+
+    const prompt = buildRadioGenPrompt(profile, cfg.radio.activeProfile);
+    try {
+      const result = await gen.generateAndIngest(prompt);
+      if (!result.ok) {
+        this.deps.logger?.warn?.(
+          { error: result.error, prompt: prompt.slice(0, 80) },
+          "radio: ACE-Step auto-fill failed",
+        );
+        return false;
+      }
+      this.deps.queue.clear();
+      this.deps.queue.add({ ...result.song, platform: "local" });
+      const first = this.deps.queue.play();
+      this.deps.player.resetFailures();
+      if (first) await this.deps.playback.resolveAndPlay(first);
+      this.deps.logger?.info?.(
+        { song: result.song.name, relPath: result.relPath },
+        "radio: ACE-Step auto-fill playing generated track",
+      );
+      return true;
+    } catch (err) {
+      this.deps.logger?.warn?.({ err }, "radio: ACE-Step auto-fill threw");
+      return false;
+    }
   }
 
   /** Live rotation position (§12: "songs-until-next-bumper"). */
@@ -254,4 +320,21 @@ export class RadioCommands {
     }
     return songs;
   }
+}
+
+/** Prompt for radio auto-fill / !radio gen when operator text is absent. */
+export function buildRadioGenPrompt(profile: RadioProfile | undefined, profileName: string): string {
+  const tone = profile?.bumper?.tone?.trim();
+  const topics = profile?.bumper?.topics?.filter(Boolean) ?? [];
+  const seeds = profile?.music?.seedQueries?.filter(Boolean) ?? [];
+  const mood = profile?.music?.select?.mood;
+  const moodBits = Array.isArray(mood) ? mood.join(", ") : "";
+  const bits = [
+    tone || `Radio profile ${profileName}`,
+    topics.length ? `themes: ${topics.slice(0, 4).join(", ")}` : "",
+    moodBits ? `mood: ${moodBits}` : "",
+    seeds.length ? `style: ${seeds.slice(0, 3).join(", ")}` : "instrumental bed suitable for TeamSpeak",
+    "no vocals preferred, clean for voice channel, steady energy",
+  ].filter(Boolean);
+  return bits.join(". ");
 }

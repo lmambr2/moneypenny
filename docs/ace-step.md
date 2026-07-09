@@ -1,7 +1,7 @@
 # ACE-Step music generation — design sketch
 
-> **Status:** **A1–A3 shipped** (client + `!generate` + Settings UI). Radio
-> auto-fill still queued (A4–A6). Optional DJ / library fill via
+> **Status:** **A1–A4 shipped** (client + `!generate` + Settings + radio auto-fill).
+> Prune / host install docs still optional (A5–A6). Optional DJ / library fill via
 > [ACE-Step](https://ace-step.com/) / [ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5)
 > on a GPU host (e.g. AMD Server / LAN workstation).  
 > Related: [radio.md](./radio.md), [editions.md](./editions.md), [remote-llm.md](./remote-llm.md).

@@ -46,6 +46,16 @@ export interface CommandExecutorDeps {
   };
   /** Absolute path to prerecorded bumper assets (`!radio pin`, §6.5). */
   getBumperDir?: () => string;
+  /** ACE-Step generate → library (docs/ace-step.md A4 radio auto-fill). */
+  generateProvider?: {
+    isConfigured(): boolean;
+    isBusy(): boolean;
+    generateAndIngest(prompt: string): Promise<
+      | { ok: true; song: import("../../music/provider.js").Song; relPath: string; jobId: string }
+      | { ok: false; error: string }
+    >;
+  };
+  logger?: import("../../logger.js").Logger;
 }
 
 /**

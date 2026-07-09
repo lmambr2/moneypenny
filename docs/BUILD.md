@@ -14,6 +14,7 @@ ordered **do list**, not full specs.
 | **A1** | ACE-Step client + health + config keys | `bot/src/music/ace-step-client.ts` | **Shipped** |
 | **A2** | `!generate` → job → library → play | `GenerateProvider` + rights `generate` | **Shipped** |
 | **A3** | Settings panel for ACE-Step | Enable, URL, Check status | **Shipped** |
+| **A4** | Radio auto-fill | Dead air empty pool → gen; `!radio gen` | **Shipped** |
 | **R-live** | Radio live smoke on opi5 | Bumpers, `!radio ops` | Queued (ops) |
 | **V-live** | Voice round-trip under music on Pi | Base NPU already default | Queued (ops) |
 
