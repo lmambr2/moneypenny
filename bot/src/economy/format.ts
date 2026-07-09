@@ -12,6 +12,12 @@ import {
   REFINE_METHODS,
 } from "./catalog.js";
 import type { CraftOrder, MineOrder, RefineOrder } from "./orders.js";
+import {
+  blueprintToCraftOrder,
+  type ScCraftBlueprint,
+  type ScCraftSearchResult,
+  SC_CRAFT_ATTRIBUTION,
+} from "./sc-craft.js";
 import type { UexPriceSnapshot } from "./uex.js";
 
 export function formatMineOrder(o: MineOrder): string {
@@ -76,15 +82,56 @@ export function formatCraftOrder(o: CraftOrder): string {
 
 export function formatEconHelp(prefix = "!"): string {
   return [
-    "Org economy orders (seed catalog + optional UEX prices):",
+    "Org economy orders (seed + optional UEX prices + sc-craft blueprints):",
     `${prefix}mine <ore> [scu:N] [method:name] — mining pull order + stability clock`,
     `${prefix}refine <ore> [scu:N] [method:name] — refine yield / time / cost estimate`,
-    `${prefix}craft <recipe> [qty:N] — bill of materials + implied raw`,
-    `${prefix}econ [ores|methods|recipes|prices <ore>|search <q>] — browse catalog / UEX`,
+    `${prefix}craft <recipe|blueprint> [qty:N] — seed BOM or live sc-craft blueprint`,
+    `${prefix}econ ores|methods|recipes — seed catalog`,
+    `${prefix}econ blueprints <q> — live blueprints (sc-craft.tools)`,
+    `${prefix}econ prices <ore> — UEX averages`,
+    `${prefix}econ search <q> — seed search`,
     "",
     CATALOG_DISCLAIMER,
-    "Community location/loadout tools are bookmarks only — we do not scrape them.",
+    "Live blueprints: public sc-craft.tools JSON API (cached). No HTML scrapers.",
   ].join("\n");
+}
+
+export function formatScCraftBlueprint(bp: ScCraftBlueprint, query: string): string {
+  const order = blueprintToCraftOrder(bp, 1);
+  const head = [
+    `🔧 sc-craft blueprint — ${bp.name}`,
+    query ? `Query: ${query}` : "",
+    bp.category ? `Category: ${bp.category}` : "",
+    bp.version ? `Game data: ${bp.version}` : "",
+    bp.blueprint_id ? `Id: ${bp.blueprint_id}` : "",
+  ].filter(Boolean);
+  const body = formatCraftOrder(order);
+  // Drop duplicate title line from formatCraftOrder
+  const rest = body.split("\n").slice(1).join("\n");
+  return [...head, "", rest].join("\n");
+}
+
+export function formatScCraftSearch(
+  res: ScCraftSearchResult,
+  query: string,
+  prefix = "!",
+): string {
+  const lines = res.items.slice(0, 8).map((bp, i) => {
+    const ings = bp.ingredients?.length ?? 0;
+    const cat = bp.category ? ` · ${bp.category.split(" / ").slice(-2).join(" / ")}` : "";
+    return `  ${i + 1}. ${bp.name}${cat}${ings ? ` (${ings} mats)` : ""}`;
+  });
+  return [
+    `sc-craft blueprints matching "${query}" (${res.total} total):`,
+    ...lines,
+    "",
+    `Detail: ${prefix}craft <name>  or  ${prefix}econ blueprints <more-specific-name>`,
+    res.attribution,
+  ].join("\n");
+}
+
+export function formatScCraftAttribution(): string {
+  return SC_CRAFT_ATTRIBUTION;
 }
 
 export function formatOreList(): string {

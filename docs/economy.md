@@ -29,8 +29,9 @@ the question matches mining/refining/crafting keywords.
 | **In-repo seed catalog** (`bot/src/economy/catalog.ts`) | Ore roster, rock stats snapshot, refine methods, illustrative craft BOMs |
 | **Seed import JSON** (`bot/src/economy/data/`) | Frozen one-shot import artifact (not read at runtime) |
 | **UEX Corp public API** (`api.uexcorp.space`) | Optional **live** sell/buy averages + commodity flags |
-| **Org doctrine** (Library → Doctrine / RAG) | Real SOPs, locations, live craft recipes |
-| Community UIs (scminer, SC DataHub, SCMDB, Golem, …) | Human bookmarks; **no runtime scrape** |
+| **SC Craft Tools API** (`sc-craft.tools`) | Optional **live** craft blueprints / BOMs (`!craft` fallback, `!econ blueprints`) |
+| **Org doctrine** (Library → Doctrine / RAG) | Real SOPs, locations, org-specific craft notes |
+| Community UIs (scminer, star-crafting.com, SCMDB, …) | Human bookmarks; **no runtime scrape** |
 
 ### One-shot seed import (allowed)
 
@@ -62,6 +63,17 @@ See `bot/src/economy/data/README.md`.
 | `UEX_CACHE_TTL_MS` | `21600000` (6h) | Commodity list cache |
 | `UEX_TIMEOUT_MS` | `8000` | Request timeout |
 | `UEX_API_KEY` | _(empty)_ | Optional if UEX requires a key later |
+| `ECONOMY_SCCRAFT` | `1` | Set `0` / `false` / `off` to disable sc-craft blueprints |
+| `SCCRAFT_API_BASE` | `https://sc-craft.tools` | API host |
+| `SCCRAFT_CACHE_TTL_MS` | `21600000` (6h) | Search/detail cache |
+| `SCCRAFT_TIMEOUT_MS` | `8000` | Request timeout |
+
+### SC Craft Tools etiquette
+
+Same posture as UEX: public JSON only (`/api/blueprints`, `/api/blueprints/:id`),
+long cache, short timeout, `User-Agent: Moneypenny-OrgEconomy/…`, fail soft,
+attribution on every blueprint reply. Fan project (Norkaan / HTTPS org) — not CIG.
+**Not** star-crafting.com (no public API; do not scrape).
 
 ---
 
@@ -73,9 +85,11 @@ Public by default (rights migration v3 + rank template).
 !mine quantainium scu:32
 !refine bexalite scu:32 method:dinyx
 !craft quantum-core qty:2
+!craft greatsword qty:1
 !econ ores
 !econ methods
 !econ recipes
+!econ blueprints greatsword
 !econ prices bexalite
 !econ search stileron
 ```
@@ -84,8 +98,9 @@ Flags: `scu:N`, `qty:N`, `method:name` (or `m:name`).
 
 **Spelling:** catalog canonical is **Quantainium**; `quantanium` / `qt` are aliases.
 
-Seed refine/craft numbers are **planning placeholders**, not cockpit-accurate game
-exports. Prefer doctrine notes when precision matters.
+`!craft` tries the **seed catalog** first, then **sc-craft.tools** when enabled.
+Seed refine numbers remain planning placeholders; sc-craft BOMs are community
+game-data exports (verify in-game for rare stock).
 
 ---
 
@@ -98,7 +113,8 @@ exports. Prefer doctrine notes when precision matters.
 bot/src/economy/service.ts   (handlers)
         │
         ├─▶ catalog.ts + orders.ts   (pure, offline)
-        └─▶ uex.ts                   (optional, cached)
+        ├─▶ uex.ts                   (optional prices, cached)
+        └─▶ sc-craft.ts              (optional blueprints, cached)
 
 !ask "how do I refine quantainium?"
         │

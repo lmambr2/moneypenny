@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { ScCraftClient } from "./sc-craft.js";
 import { handleEconomyCommand } from "./service.js";
 import { UexClient } from "./uex.js";
+
+const sampleBp = {
+  id: 3532,
+  blueprint_id: "bp_craft_kbar_ballisticcannon_s2",
+  name: "10-Series Greatsword Cannon",
+  category: "Vehiclegear / Weapons / Ballistic / Cannon",
+  craft_time_seconds: 960,
+  version: "LIVE-4.8.0",
+  ingredients: [
+    { name: "Iron", quantity_scu: 0.64 },
+    { name: "Riccite", quantity_scu: 0.09 },
+    { name: "Titanium", quantity_scu: 0.32 },
+  ],
+};
 
 describe("handleEconomyCommand", () => {
   it("mine / refine / craft return formatted orders", async () => {
@@ -12,9 +27,35 @@ describe("handleEconomyCommand", () => {
     expect(refine).toContain("Refine order");
     expect(refine).toContain("Cormack");
 
-    const craft = await handleEconomyCommand("craft", "frame qty:1");
+    const craft = await handleEconomyCommand("craft", "frame qty:1", "!", {
+      scCraft: new ScCraftClient({ enabled: false }),
+    });
     expect(craft).toContain("Craft order");
     expect(craft).toContain("Bill of materials");
+  });
+
+  it("craft falls back to sc-craft when seed misses", async () => {
+    const scCraft = new ScCraftClient({
+      enabled: true,
+      fetchSearch: async () => [sampleBp],
+    });
+    const out = await handleEconomyCommand("craft", "greatsword qty:2", "!", { scCraft });
+    expect(out).toContain("Greatsword");
+    expect(out).toContain("Iron");
+    expect(out).toMatch(/1\.28|1.28/); // 0.64 * 2
+    expect(out).toMatch(/sc-craft\.tools/i);
+  });
+
+  it("econ blueprints lists injectable hits", async () => {
+    const scCraft = new ScCraftClient({
+      enabled: true,
+      fetchSearch: async () => [
+        sampleBp,
+        { id: 99, name: "Other Cannon", ingredients: [{ name: "Iron", quantity_scu: 1 }] },
+      ],
+    });
+    const out = await handleEconomyCommand("econ", "blueprints cannon", "!", { scCraft });
+    expect(out).toMatch(/Greatsword|sc-craft/i);
   });
 
   it("econ lists ores and methods", async () => {
@@ -38,14 +79,14 @@ describe("handleEconomyCommand", () => {
         },
       ],
     });
-    const out = await handleEconomyCommand("econ", "prices bexalite", "!", uex);
+    const out = await handleEconomyCommand("econ", "prices bexalite", "!", { uex });
     expect(out).toContain("28,000");
     expect(out).toMatch(/UEX/i);
   });
 
   it("econ prices soft-fails when disabled", async () => {
     const uex = new UexClient({ enabled: false });
-    const out = await handleEconomyCommand("econ", "prices bex", "!", uex);
+    const out = await handleEconomyCommand("econ", "prices bex", "!", { uex });
     expect(out).toMatch(/disabled/i);
   });
 });

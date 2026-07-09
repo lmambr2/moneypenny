@@ -8,6 +8,16 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Economy: sc-craft.tools live blueprints
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Optional **SC Craft Tools** client (`bot/src/economy/sc-craft.ts`) — public JSON API,
+  6h cache, fail-open, attribution (same etiquette as UEX)
+- `!craft` tries seed recipes first, then sc-craft name search
+- `!econ blueprints <query>` lists / details BOMs
+- Env: `ECONOMY_SCCRAFT`, `SCCRAFT_API_BASE`, `SCCRAFT_CACHE_TTL_MS`, `SCCRAFT_TIMEOUT_MS`
+- Docs: [docs/economy.md](./docs/economy.md)
+
 ### Backlog ship: H6/G3–G4/R5/V2–V3 + audit hardening + recordings
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

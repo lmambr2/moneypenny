@@ -1,11 +1,12 @@
 /**
- * Optional UEX Corp API client — the only third-party *machine* feed for economy.
+ * Optional UEX Corp API client — live commodity prices for economy.
  *
  * Policy:
  *  - Public JSON API (not HTML scrape of community UIs).
  *  - Polite defaults: long cache TTL, short timeout, identifiable User-Agent.
  *  - Fail soft: offline → null, never throw into command path.
  *  - Attribution required in user-facing replies.
+ *  - Craft blueprints: see sc-craft.ts (sc-craft.tools).
  *
  * Docs: https://uexcorp.space/ — API host api.uexcorp.space
  */
