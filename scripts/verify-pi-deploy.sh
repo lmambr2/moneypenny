@@ -14,7 +14,8 @@ source "$ROOT/scripts/lib/deploy-common.sh"
 
 LOCAL=0
 BOT_CONTAINER="${BOT_CONTAINER:-moneypenny-bot-1}"
-SHERPA_CONTAINER="${SHERPA_CONTAINER:-moneypenny-sherpa-stt-1}"
+STT_CONTAINER="${STT_CONTAINER:-moneypenny-stt-whisper-1}"
+PIPER_CONTAINER="${PIPER_CONTAINER:-moneypenny-piper-tts-1}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
