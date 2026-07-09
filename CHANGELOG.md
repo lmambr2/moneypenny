@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Meta: Grok listed as a repo contributor
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- [CONTRIBUTORS.md](./CONTRIBUTORS.md) — humans + AI agents (Grok, Claude, …)
+- README credits link; commit trailers `Co-Authored-By: Grok <noreply@x.ai>`
+  (same pattern Claude used with `noreply@anthropic.com`)
+
 ### Backlog clear — feature-complete BUILD slice
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

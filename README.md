@@ -535,6 +535,8 @@ Moneypenny is released under the [MIT License](./LICENSE).
 
 It is derived from [ZHANGTIANYAO1/teamspeak-music-bot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot) (MIT) — reworked and extended. Some subsystems reimplement patterns from OSL-3.0 / GPL-3.0 projects in spirit, without copying their source (see DESIGN.md §5).
 
+**People & agents:** see **[CONTRIBUTORS.md](./CONTRIBUTORS.md)** — Lane Ambrose (owner), **Grok (xAI)**, Claude (Anthropic), and others. AI batches are also attributed in [CHANGELOG.md](./CHANGELOG.md).
+
 ## Hardware targets
 
 **SBC edition**
