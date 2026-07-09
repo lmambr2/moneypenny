@@ -252,12 +252,13 @@ def feed_stream(
         (st["last_voice"] and silence >= SILENCE_TAIL_S and duration >= 0.25)
         or duration >= MAX_UTTERANCE_S
     )
+    # Stay passive until final — no KWS command mode (see stt-rknn comment).
     if not should_final:
         return {
             "partial": "",
             "final": None,
             "speaking": st["speaking"],
-            "listening": "command",
+            "listening": "passive",
             "keyword": None,
             "commandFinal": False,
         }

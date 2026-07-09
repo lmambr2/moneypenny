@@ -107,6 +107,8 @@ export class VoiceSession {
   private captureDuckClientId: number | null = null;
   private duckMusicOnSpeech = true;
   private duckMusicVolume = 2;
+  /** Whisper has no KWS — duck on speech energy so text wake can hear over music. */
+  private textWakeFallback = false;
   /** Min post-wake window — must cover beat-then-command cadence (≥ sherpa command window). */
   private static readonly MIN_LISTEN_WINDOW_MS = 15_000;
   /** Real speech on the wire — ignore Opus DTX comfort noise below this. */
@@ -230,6 +232,7 @@ export class VoiceSession {
     this.voiceDecoder = createOpusEncoder(1);
     this.duckMusicOnSpeech = vc.duckMusicOnSpeech !== false;
     this.duckMusicVolume = Math.max(0, Math.min(100, vc.duckMusicVolume ?? 2));
+    this.textWakeFallback = vc.textWakeFallback ?? false;
     this.listenWindowMs = Math.max(
       vc.listenWindowMs ?? VoiceSession.MIN_LISTEN_WINDOW_MS,
       VoiceSession.MIN_LISTEN_WINDOW_MS,
@@ -255,7 +258,11 @@ export class VoiceSession {
       listenWindowMs: this.listenWindowMs,
       textWakeFallback: vc.textWakeFallback ?? false,
       isArmed: (id) => this.isArmed(id),
-      arm: (id) => this.armSpeaker(id),
+      // Text-wake (Whisper): arming must also duck music so the follow-up is audible to STT.
+      arm: (id) => {
+        this.armSpeaker(id);
+        this.ensureMusicDuckedOnWake(id);
+      },
       disarm: (id) => this.disarmSpeaker(id),
       isPlayInFlight: (id) => this.isPlayInFlight(id),
       markPlayInFlight: (id, query) => this.markPlayInFlight(id, query),
@@ -374,6 +381,7 @@ export class VoiceSession {
     this.releaseCaptureDuck();
     this.duckMusicOnSpeech = true;
     this.duckMusicVolume = 2;
+    this.textWakeFallback = false;
     this.clearAllArmTimers();
     this.cleanup();
     this.deps.logger.info("Voice pipeline disabled");
@@ -568,6 +576,11 @@ export class VoiceSession {
 
     if (!inCapture && isSpeech) {
       this.touchPassiveEnergy(v.clientId, rawPeak);
+      // Text-wake over music: duck early so Whisper can hear "Moneypenny …".
+      // (KWS path ducks only on keyword; Whisper has no KWS.)
+      if (this.textWakeFallback && this.duckMusicOnSpeech) {
+        this.ensureMusicDuckedOnWake(v.clientId);
+      }
     }
 
     if (!inCapture && !isSpeech) {
@@ -729,6 +742,10 @@ export class VoiceSession {
       this.deps.player.getState() === "playing" &&
       !this.deps.player.isSttDucked()
     ) {
+      this.deps.logger.debug(
+        { clientId },
+        "Voice: STT flush held — music not ducked yet",
+      );
       return;
     }
 
@@ -780,9 +797,10 @@ export class VoiceSession {
       if (!out.commandFinal || !out.final) {
         this.deps.logger.info({ clientId, windowMs: this.listenWindowMs }, "Voice: wake only — waiting for command");
       }
-    } else if (listening === "command" && !this.isArmed(clientId)) {
-      this.armSpeaker(clientId);
     }
+    // Do NOT arm on listening==="command" alone. Whisper sidecars used to report
+    // command mode while still speaking; that armed without ducking, then blocked
+    // further STT flushes while music played (segmentedUtterances stayed 0).
 
     if (prevListening === "command" && listening === "passive" && !this.isArmed(clientId)) {
       this.deps.logger.info({ clientId }, "Voice: command window closed — restoring music volume");
@@ -868,6 +886,16 @@ export class VoiceSession {
     buf.streamSpeaking = false;
     buf.utterancePeak = 0;
     const durationMs = (meta.pcmBytes / 2 / meta.channels / 48_000) * 1000;
+    if (!out.final?.trim()) {
+      this.deps.logger.info(
+        { clientId, peak: meta.peak, durationMs: Math.round(durationMs) },
+        "Voice: STT final empty — no route",
+      );
+      if (this.captureDuck && !this.isArmed(clientId) && !this.anySpeakerArmed()) {
+        this.abandonCaptureDuck(clientId);
+      }
+      return;
+    }
     this.deps.logger.info(
       {
         clientId,

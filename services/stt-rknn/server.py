@@ -258,12 +258,15 @@ def feed_stream(
         (st["last_voice"] and silence >= SILENCE_TAIL_S and duration >= 0.25)
         or duration >= MAX_UTTERANCE_S
     )
+    # Whisper has no KWS: stay "passive" until a final transcript. Returning
+    # "command" while speaking falsely armed the bot without ducking music, which
+    # then blocked further STT flushes (music still playing → no final).
     if not should_final:
         return {
             "partial": "",
             "final": None,
             "speaking": st["speaking"],
-            "listening": "command",
+            "listening": "passive",
             "keyword": None,
             "commandFinal": False,
         }
