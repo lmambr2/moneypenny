@@ -8,6 +8,16 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Security audit + SSRF hardening
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Audit: [docs/security-audit-2026-07-08.md](./docs/security-audit-2026-07-08.md)
+- **High:** DNS rebinding defense on stream play + yt-dlp CDN hop + engine final gate
+  (`assertPublicPlaybackUrl` / `assertSafePlaybackTarget`)
+- **Medium:** extra compose host denylist; CSRF host compare case-insensitive
+- Refactor: session cookie parse via shared `extractSessionToken`
+- Tests: url-guard, stream, csrf, playback engine SSRF refusal
+
 ### Meta: Grok listed as a repo contributor
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { isPublicPlaybackUrl } from "./url-guard.js";
+import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
 import type {
   MusicProvider,
   Song,
@@ -199,8 +199,8 @@ export class StreamProvider implements MusicProvider {
         timeout: this.timeoutMs,
       });
       if (!data?.streamUrl) return null;
-      // Never feed ffmpeg a private/literal SSRF target from a poisoned bridge.
-      if (!isPublicPlaybackUrl(data.streamUrl)) {
+      // Never feed ffmpeg a private/literal or DNS-rebinding SSRF target.
+      if (!(await assertPublicPlaybackUrl(data.streamUrl))) {
         this.logger?.warn({ streamUrl: data.streamUrl.slice(0, 80) }, "Stream bridge returned non-public streamUrl — dropped");
         return null;
       }
@@ -243,8 +243,17 @@ export class StreamProvider implements MusicProvider {
   }
 
   async getSongUrl(songId: string): Promise<string | null> {
-    // isStreamableUrl already applies isPublicPlaybackUrl (literal/hostname denylist).
-    if (isStreamableUrl(songId)) return songId;
+    // DNS rebinding defense: re-resolve hostname at play time (not only at search).
+    if (isStreamableUrl(songId)) {
+      if (!(await assertPublicPlaybackUrl(songId))) {
+        this.logger?.warn(
+          { url: songId.slice(0, 80) },
+          "Stream URL failed public DNS check — refusing play",
+        );
+        return null;
+      }
+      return songId;
+    }
     if (this.bridgeUrl && (isSpotifyRef(songId) || isTidalUrl(songId))) {
       const meta = await this.resolveBridge(songId);
       return meta?.streamUrl ?? null;

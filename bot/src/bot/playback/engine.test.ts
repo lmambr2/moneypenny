@@ -46,7 +46,8 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
     const youtube = {
       platform: "youtube" as const,
       search: youtubeSearch,
-      getSongUrl: vi.fn().mockResolvedValue("http://stream.example/audio"),
+      // Public host so assertSafePlaybackTarget (DNS rebinding gate) can pass online.
+      getSongUrl: vi.fn().mockResolvedValue("https://example.com/audio.ogg"),
     };
 
     engine = new PlaybackEngine({
@@ -93,5 +94,29 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
     expect(msg).toContain("Now playing");
     expect(youtubeSearch).toHaveBeenCalledWith(DEFAULT_DEMO_VIDEO_URL, 1);
     expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolveAndPlay refuses private SSRF targets at the final safety gate", async () => {
+    const streamGetUrl = vi.fn().mockResolvedValue("http://127.0.0.1:6333/collections");
+    (engine as any).opts.streamProvider = {
+      platform: "stream",
+      getSongUrl: streamGetUrl,
+    };
+    const queue = (engine as any).opts.queue as PlayQueue;
+    queue.clear();
+    queue.add({
+      id: "http://127.0.0.1:6333/collections",
+      name: "evil",
+      artist: "x",
+      album: "",
+      duration: 0,
+      coverUrl: "",
+      platform: "stream",
+    });
+    queue.play();
+    const ok = await engine.resolveAndPlay(queue.current()!);
+    expect(ok).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+    expect(streamGetUrl).toHaveBeenCalled();
   });
 });

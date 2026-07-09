@@ -87,3 +87,17 @@ Additional hardening merged after the AGENTS audit baseline:
 - [x] Custom military-rank ruleset (`scripts/rights-rank-gating.json`, `docs/rank-gating.md`)
 
 Operator docs scrubbed for stale 5 MiB doctrine limits and outdated rights examples.
+
+---
+
+## Follow-up security audit (2026-07-08)
+
+Full write-up: **[security-audit-2026-07-08.md](./security-audit-2026-07-08.md)**.
+
+| ID | Severity | Status |
+|----|----------|--------|
+| H-2026-07-08-1 DNS rebinding on stream/CDN play path | High | **Fixed** (`assertPublicPlaybackUrl` / `assertSafePlaybackTarget`) |
+| M-2026-07-08-1 Sidecar hostname denylist gaps | Medium | **Fixed** |
+| M-2026-07-08-2 CSRF host case sensitivity | Medium | **Fixed** |
+| M-2026-07-08-3 Rate limit under trustProxy | Medium | Deferred (proxy config) |
+| Critical | — | None open |

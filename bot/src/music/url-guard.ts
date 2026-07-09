@@ -15,8 +15,12 @@ const BLOCKED_HOSTNAMES = new Set([
   "sherpa-stt",
   "kokoro",
   "stt-mock",
+  "stt-whisper",
+  "piper-tts",
   "mempalace-bridge",
   "tidal-bridge",
+  "spotify-bridge",
+  "ace-step",
   "teamspeak",
   "host.docker.internal",
   "metadata.google.internal",
@@ -108,7 +112,8 @@ export function isPublicPlaybackUrl(input: string): boolean {
 
 /**
  * Like isPublicPlaybackUrl, but also resolves the hostname and rejects if any
- * address is private/reserved. Use before ffmpeg/yt-dlp on user-supplied URLs.
+ * address is private/reserved. Use before ffmpeg/yt-dlp on user-supplied URLs
+ * and on final stream/CDN hops (DNS rebinding defense).
  */
 export async function assertPublicPlaybackUrl(input: string): Promise<boolean> {
   if (!isPublicPlaybackUrl(input)) return false;
@@ -119,7 +124,7 @@ export async function assertPublicPlaybackUrl(input: string): Promise<boolean> {
     return false;
   }
   const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  // Literal IPs already checked.
+  // Literal IPs already checked by isPublicPlaybackUrl.
   if (parseIpv4(host) || host.includes(":")) return true;
 
   try {
@@ -142,4 +147,17 @@ export async function assertPublicPlaybackUrl(input: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Final gate before handing a URL to ffmpeg / axios playback.
+ * Fail-closed on DNS error or private resolution (DNS rebinding defense).
+ * Local filesystem paths (non-http) are allowed for library playback.
+ */
+export async function assertSafePlaybackTarget(input: string): Promise<boolean> {
+  const s = input.trim();
+  if (!s) return false;
+  // Local absolute/relative paths for MUSIC_DIR files — not network SSRF.
+  if (!/^https?:\/\//i.test(s)) return true;
+  return assertPublicPlaybackUrl(s);
 }

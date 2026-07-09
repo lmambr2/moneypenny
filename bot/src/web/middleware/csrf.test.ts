@@ -32,6 +32,14 @@ describe("csrfOriginCheck middleware", () => {
     expect(res.status).toBe(200);
   });
 
+  it("accepts POST when Origin/Host differ only by case", async () => {
+    const res = await request(app)
+      .post("/")
+      .set("Host", "Example.COM")
+      .set("Origin", "https://example.com");
+    expect(res.status).toBe(200);
+  });
+
   it("rejects POST when Origin host does not match request host", async () => {
     const res = await request(app)
       .post("/")

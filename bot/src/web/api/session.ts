@@ -35,16 +35,6 @@ function isValidPassword(v: unknown): v is string {
   return typeof v === "string" && v.length >= 8 && v.length <= 200;
 }
 
-function parseTokenFromCookie(cookieHeader: string | undefined): string | null {
-  if (!cookieHeader) return null;
-  const match = cookieHeader
-    .split(";")
-    .map((p) => p.trim())
-    .find((p) => p.startsWith(`${SESSION_COOKIE_NAME}=`));
-  if (!match) return null;
-  return decodeURIComponent(match.slice(SESSION_COOKIE_NAME.length + 1));
-}
-
 export function createSessionRouter(
   users: UserStore,
   sessions: SessionStore,
@@ -124,7 +114,7 @@ export function createSessionRouter(
   });
 
   router.post("/logout", (req, res) => {
-    const token = parseTokenFromCookie(req.headers.cookie);
+    const token = extractSessionToken(req.headers.cookie);
     if (token) {
       sessions.deleteSession(token);
     }
@@ -153,7 +143,7 @@ export function createSessionRouter(
       return;
     }
     await users.changePassword(u.id, newPassword);
-    const currentToken = parseTokenFromCookie(req.headers.cookie);
+    const currentToken = extractSessionToken(req.headers.cookie);
     sessions.deleteAllForUser(u.id, currentToken ?? undefined);
     try {
       audit.record({

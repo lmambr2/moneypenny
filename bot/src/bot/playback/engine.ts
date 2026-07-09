@@ -15,6 +15,7 @@ import { isSpotifyRef, isTidalUrl, resolveExternalTrackQuery } from "../../music
 import { searchFirstWithFallback } from "../../music/search-fallback.js";
 import type { YtLibrary } from "../../music/ytlibrary.js";
 import { extractMediaId, pickProvider, providerForPlatform } from "./providers.js";
+import { assertSafePlaybackTarget } from "../../music/url-guard.js";
 
 export interface PlaybackEngineOptions {
   botId: string;
@@ -230,6 +231,14 @@ export class PlaybackEngine {
       }
       if (!url) {
         this.opts.logger.warn({ songId: song.id, name: song.name }, "No URL available, skipping");
+        return false;
+      }
+      // Final SSRF gate for every platform (stream/YT CDN hops; local paths pass).
+      if (!(await assertSafePlaybackTarget(url))) {
+        this.opts.logger.warn(
+          { songId: song.id, name: song.name, url: url.slice(0, 80) },
+          "Playback URL failed public safety check — skipping",
+        );
         return false;
       }
       if (!this.opts.isConnected()) {

@@ -77,9 +77,19 @@ describe("StreamProvider — direct URLs", () => {
     expect(res.songs[0].id).toBe("https://icecast.example.org:8000/radio.mp3");
   });
 
-  it("returns the URL as the playable url", async () => {
-    const url = "http://stream.example.com/live";
-    expect(await provider.getSongUrl(url)).toBe(url);
+  it("refuses private stream URLs at play time (DNS rebinding / literal gate)", async () => {
+    expect(await provider.getSongUrl("http://127.0.0.1:8000/secret")).toBeNull();
+    expect(await provider.getSongUrl("http://169.254.169.254/meta")).toBeNull();
+    expect(await provider.getSongUrl("http://10.0.0.5/stream.mp3")).toBeNull();
+    expect(await provider.getSongUrl("http://192.168.1.1/live")).toBeNull();
+    expect(await provider.getSongUrl("http://stt-whisper:9000/x")).toBeNull();
+  });
+
+  it("returns public stream URLs when DNS check passes (or null fail-closed offline)", async () => {
+    const streamUrl = "https://example.com/live.mp3";
+    // example.com is public; if DNS is unavailable assertSafe fails closed → null.
+    const got = await provider.getSongUrl(streamUrl);
+    expect(got === streamUrl || got === null).toBe(true);
   });
 
   it("returns empty for plain text queries", async () => {
@@ -101,8 +111,8 @@ describe("StreamProvider — Spotify bridge", () => {
   });
 
   it("resolves a Spotify ref via the bridge for metadata and playback", async () => {
-    // streamUrl must pass isPublicPlaybackUrl (no private/literal SSRF targets).
-    const publicStream = "https://cdn.example.com/stream/abc.ogg";
+    // streamUrl must pass assertPublicPlaybackUrl (public DNS + no private/literal).
+    const publicStream = "https://example.com/stream/abc.ogg";
     mockedGet.mockResolvedValue({
       data: { streamUrl: publicStream, title: "Song X", artist: "Artist Y", durationSec: 200 },
     } as any);

@@ -14,7 +14,8 @@ export function csrfOriginCheck(req: Request, res: Response, next: NextFunction)
     next();
     return;
   }
-  const expectedHost = req.get("host");
+  // Host comparison is case-insensitive (RFC 4343 / browser Origin host).
+  const expectedHost = (req.get("host") ?? "").toLowerCase();
   const originHeader = req.get("origin");
   const refererHeader = req.get("referer");
   const headerHost = hostOf(originHeader) ?? hostOf(refererHeader);
@@ -28,7 +29,7 @@ export function csrfOriginCheck(req: Request, res: Response, next: NextFunction)
 function hostOf(url: string | undefined): string | null {
   if (!url) return null;
   try {
-    return new URL(url).host;
+    return new URL(url).host.toLowerCase();
   } catch {
     return null;
   }

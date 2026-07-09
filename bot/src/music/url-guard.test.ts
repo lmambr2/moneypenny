@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
+import {
+  assertPublicPlaybackUrl,
+  assertSafePlaybackTarget,
+  isPublicPlaybackUrl,
+} from "./url-guard.js";
 
 describe("isPublicPlaybackUrl", () => {
   it("allows public http(s) stream URLs", () => {
@@ -30,6 +34,10 @@ describe("isPublicPlaybackUrl", () => {
   it("blocks docker-compose sidecar hostnames", () => {
     expect(isPublicPlaybackUrl("http://qdrant:6333/collections")).toBe(false);
     expect(isPublicPlaybackUrl("http://ollama:11434/api/tags")).toBe(false);
+    expect(isPublicPlaybackUrl("http://stt-whisper:9000/health")).toBe(false);
+    expect(isPublicPlaybackUrl("http://piper-tts:8880/health")).toBe(false);
+    expect(isPublicPlaybackUrl("http://spotify-bridge:8082/resolve")).toBe(false);
+    expect(isPublicPlaybackUrl("http://ace-step:7865/health")).toBe(false);
   });
 
   it("rejects non-http schemes and garbage", () => {
@@ -48,5 +56,23 @@ describe("assertPublicPlaybackUrl", () => {
     // example.com is reserved and resolves publicly; skip if offline.
     const ok = await assertPublicPlaybackUrl("https://example.com/");
     expect(typeof ok).toBe("boolean");
+  });
+});
+
+describe("assertSafePlaybackTarget", () => {
+  it("allows local filesystem paths (library playback)", async () => {
+    expect(await assertSafePlaybackTarget("/music/uploads/track.mp3")).toBe(true);
+    expect(await assertSafePlaybackTarget("generated/ace-step/x.mp3")).toBe(true);
+  });
+
+  it("rejects private network URLs (real entry point used at play time)", async () => {
+    expect(await assertSafePlaybackTarget("http://127.0.0.1:6333/collections")).toBe(false);
+    expect(await assertSafePlaybackTarget("http://169.254.169.254/latest/meta-data/")).toBe(false);
+    expect(await assertSafePlaybackTarget("http://stt-whisper:9000/asr")).toBe(false);
+  });
+
+  it("rejects empty", async () => {
+    expect(await assertSafePlaybackTarget("")).toBe(false);
+    expect(await assertSafePlaybackTarget("   ")).toBe(false);
   });
 });

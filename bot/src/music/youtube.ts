@@ -265,8 +265,8 @@ export class YouTubeProvider implements MusicProvider {
         "--quiet",
       ], 45_000);
       const audioUrl = raw.trim().split("\n")[0];
-      // CDN hop from yt-dlp — still reject private/literal targets if any slip through.
-      if (audioUrl && !isPublicPlaybackUrl(audioUrl)) return null;
+      // CDN hop from yt-dlp — reject private literals AND private DNS resolution.
+      if (audioUrl && !(await assertPublicPlaybackUrl(audioUrl))) return null;
       return audioUrl || null;
     } catch {
       return null;
