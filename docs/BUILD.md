@@ -24,7 +24,10 @@ bugs still interrupt from live feedback.
 | **R1–R2** | Topic packs + ingest hygiene | mining profile topics; `GET …/doctrine/hygiene` | **Shipped** 2026-07-09 |
 | **G1–G2** | Org commands + SC/external status tools | `!ops` + fail-open plugins | **Shipped** 2026-07-09 |
 | **Brain** | Python brain boundary sketch | [brain-boundary.md](./brain-boundary.md) only | **Shipped** (doc) |
-| **V1** | Voice under music smoke | Feedback-driven; text fallback always works | Partial / deferred |
+| **H3** | Memory scopes UI | Harness dual wall + `/api/bot/memory/scopes` | **Shipped** 2026-07-09 |
+| **V1/H4** | Voice under music | `under-music.ts` + API + script | **Shipped** 2026-07-09 |
+| **G2 depth** | SC org client | Settings URL + `docs/sc-org-status.md` | **Shipped** 2026-07-09 |
+| **R3** | RAG eval loop | `eval-loop.ts` + API + `scripts/rag-eval.mjs` | **Shipped** 2026-07-09 |
 | **S\*** | Station polish | Continuous via user feedback (not a gate) | Ongoing |
 
 ### Recently closed build items (2026-07)

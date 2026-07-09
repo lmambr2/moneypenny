@@ -80,6 +80,26 @@ STT mishearings like “money penny” / “money petty” are accepted. Toggle 
 
 Music ducks briefly **only while STT runs** on the watchword (not on the first syllable). After a watchword-only utterance, playback **stays ducked** for up to 15 seconds (`listenWindowMs`, minimum 15s) so a short follow-up like “pause” is not drowned out by the bot’s own music. Volume restores when the armed window expires, after a routed command, or after you say pause/stop. Restore is **immediate** (no fade) when ducking ends.
 
+### Under-music reliability (V1 / H4)
+
+| Path | When | Notes |
+|------|------|--------|
+| **Text wake** | `textWakeFallback: true` (default for Whisper) | “Moneypenny pause” in one utterance — no KWS required |
+| **Armed follow-up** | After wake, within `listenWindowMs` | Bare “pause” / “skip” while music stays ducked |
+| **KWS** | sherpa/edge when present | Audio wake then command window |
+| **Chat/text** | Always | `!pause` / dashboard still work if voice fails |
+
+**Smoke (no live TS):**
+
+```bash
+./scripts/voice-under-music-check.sh
+# or admin API
+curl -s -b cookie http://127.0.0.1:3000/api/bot/voice/under-music-check | jq .
+# Harness panel → “Under-music check”
+```
+
+Unit source: `bot/src/voice/under-music.ts` (drives real `extractWatchwordCommand`).
+
 For a planned listen-only delegate bot (Intercom), see [`docs/intercom.md`](./intercom.md).
 
 ## Validation status (2026-07-08)

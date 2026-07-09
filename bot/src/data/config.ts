@@ -127,6 +127,10 @@ export interface BotConfig {
   mempalaceUrl: string;
   // Institutional knowledge graph (Phase 7). Injects org facts into !ask when on.
   kgEnabled: boolean;
+  /** Optional Star Citizen / org status bridge base URL (G2). Empty = fail-open. */
+  scOrgStatusUrl: string;
+  /** Display name for SC org status lines. */
+  scOrgName: string;
   // === TeamSpeak file-browser ingestion (ROADMAP Phase 6, TS-native path) ===
   // When true, the bot polls a hardcoded drop channel's file repository and
   // ingests new files by type: .md/.markdown → doctrine RAG, audio → the music
@@ -195,6 +199,8 @@ export function getDefaultConfig(): BotConfig {
     mempalaceEnabled: false,
     mempalaceUrl: "",
     kgEnabled: false,
+    scOrgStatusUrl: process.env.SC_ORG_STATUS_URL ?? "",
+    scOrgName: process.env.SC_ORG_NAME ?? "",
     fileDropEnabled: false,
     fileDropPollSec: 30,
     aceStepEnabled: false,

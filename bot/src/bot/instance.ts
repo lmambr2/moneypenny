@@ -51,6 +51,17 @@ import {
   createStarCitizenOrgStatusPlugin,
   ExternalStatusRegistry,
 } from "../tools/external-status.js";
+import { buildScopesSnapshot } from "../memory/scopes.js";
+import {
+  defaultUnderMusicConfig,
+  runUnderMusicSmoke,
+  type UnderMusicConfig,
+} from "../voice/under-music.js";
+import {
+  DEFAULT_EVAL_CASES,
+  runEvalLoop,
+  type EvalCase,
+} from "../rag/eval-loop.js";
 import { PokeHandler } from "./control/poke-handler.js";
 import { RoutedCommandExecutor } from "./control/routed-executor.js";
 import { TextMessageHandler } from "./control/text-handler.js";
@@ -221,7 +232,7 @@ export class BotInstance extends EventEmitter {
 
     this.statusRegistry = new ExternalStatusRegistry();
     this.statusRegistry.register(createHostHealthPlugin());
-    this.statusRegistry.register(createStarCitizenOrgStatusPlugin({}));
+    this.refreshScOrgPlugin();
     this.ops = new OpsService({
       statusRegistry: this.statusRegistry,
       getNowPlaying: () => {
@@ -884,11 +895,67 @@ export class BotInstance extends EventEmitter {
   }
 
   handleOps(args: string, canRun?: (c: string) => boolean) {
+    this.refreshScOrgPlugin();
     return this.ops.handle(args, canRun ?? (() => true));
   }
 
   getStatusRegistry() {
     return this.statusRegistry;
+  }
+
+  /** Rebind SC org plugin from live config / env (G2). */
+  refreshScOrgPlugin(): void {
+    const base =
+      (this.config.scOrgStatusUrl || process.env.SC_ORG_STATUS_URL || "").trim() || undefined;
+    const orgName = (this.config.scOrgName || process.env.SC_ORG_NAME || "").trim() || undefined;
+    this.statusRegistry.register(
+      createStarCitizenOrgStatusPlugin({ baseUrl: base ?? "", orgName }),
+    );
+  }
+
+  getMemoryScopesSnapshot(privateUid?: string) {
+    const privateCount = privateUid ? this.memory.countFacts(privateUid) : undefined;
+    return buildScopesSnapshot({
+      memoryEnabled: this.config.memoryEnabled,
+      kgEnabled: this.config.kgEnabled,
+      memoryBroadcastOptIn: this.config.radio?.memoryBroadcastOptIn,
+      privateCount,
+      orgCount: this.kg.listFacts(500).length,
+    });
+  }
+
+  listPrivateMemory(uid: string, limit = 20) {
+    return this.memory.listFacts(uid, limit);
+  }
+
+  runUnderMusicSmoke(partial?: Partial<UnderMusicConfig>) {
+    const vc = this.config.voice ?? {};
+    return runUnderMusicSmoke(
+      defaultUnderMusicConfig({
+        duckMusicOnSpeech: vc.duckMusicOnSpeech !== false,
+        duckMusicVolume: vc.duckMusicVolume,
+        listenWindowMs: vc.listenWindowMs,
+        textWakeFallback: vc.textWakeFallback !== false,
+        watchword: vc.watchword,
+        ...partial,
+      }),
+    );
+  }
+
+  async runRagEval(cases?: EvalCase[]) {
+    return runEvalLoop(cases ?? DEFAULT_EVAL_CASES, {
+      queryDoctrine: async (q) => {
+        if (!this.config.ragEnabled) return [];
+        const chunks = await this.queryRag(q);
+        return (chunks ?? []).map((c) => ({
+          text: c.text,
+          source: c.source,
+          score: c.score,
+          classification: c.classification,
+        }));
+      },
+      queryOrgMemory: async (q) => this.kg.searchOrg(q, 8),
+    });
   }
 
   updateRights(enabled: boolean, rights?: RightsConfig): void {

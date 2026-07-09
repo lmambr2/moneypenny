@@ -123,39 +123,32 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Built-in Star Citizen org status stub — fail-open when no live API configured. */
+/** Star Citizen org status via ScOrgClient contract — fail-open when unconfigured/offline. */
 export function createStarCitizenOrgStatusPlugin(opts: {
-  /** Optional HTTP base for a future SC/org bridge. Empty = always fail-open. */
+  /** HTTP base for SC/org bridge (`SC_ORG_STATUS_URL`). Empty = always fail-open. */
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   orgName?: string;
 }): ExternalStatusPlugin {
   const base = (opts.baseUrl ?? process.env.SC_ORG_STATUS_URL ?? "").replace(/\/$/, "");
-  const fetchImpl = opts.fetchImpl ?? globalThis.fetch?.bind(globalThis);
   const org = opts.orgName ?? process.env.SC_ORG_NAME ?? "org";
+  const fetchImpl = opts.fetchImpl ?? globalThis.fetch?.bind(globalThis);
 
   return {
     id: "sc-org",
     label: "Star Citizen org status",
     async fetch() {
-      if (!base || !fetchImpl) {
-        throw new Error("SC org status URL not configured (set SC_ORG_STATUS_URL)");
+      if (!base) {
+        throw new Error("SC org status URL not configured (set SC_ORG_STATUS_URL or Settings)");
       }
-      const res = await fetchImpl(`${base}/status`, {
-        signal: AbortSignal.timeout(3_500),
-      } as RequestInit);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as {
-        summary?: string;
-        membersOnline?: number;
-        status?: string;
-      };
-      const parts = [
-        `${org}: ${data.status ?? "ok"}`,
-        data.membersOnline != null ? `${data.membersOnline} online` : null,
-        data.summary ?? null,
-      ].filter(Boolean);
-      return parts.join(" · ");
+      // Lazy import avoids circular deps with tests that mock fetch only.
+      const { ScOrgClient } = await import("./sc-org-client.js");
+      const client = new ScOrgClient({
+        baseUrl: base,
+        orgName: org,
+        fetchImpl: fetchImpl as typeof fetch | undefined,
+      });
+      return client.formatBrief();
     },
   };
 }

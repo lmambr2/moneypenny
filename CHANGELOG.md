@@ -8,6 +8,14 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Feature roadmap follow-up: H3, V1/H4, G2 depth, R3
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **H3:** Memory scopes on Harness (private vs org) + `GET /api/bot/memory/scopes` / `private`
+- **V1/H4:** Under-music progressive wake (`voice/under-music.ts`, API, `scripts/voice-under-music-check.sh`)
+- **G2 depth:** `ScOrgClient` + Settings URL + [docs/sc-org-status.md](./docs/sc-org-status.md)
+- **R3:** Eval loop + `POST /api/bot/rag/eval` + `scripts/rag-eval.mjs`
+
 ### Feature roadmap sprint: harness cockpit + org depth
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

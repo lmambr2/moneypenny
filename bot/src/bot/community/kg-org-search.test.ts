@@ -64,6 +64,19 @@ describe("KgService org search + seed (R4)", () => {
     expect(listed.some((f) => f.fact.includes("Carol"))).toBe(true);
   });
 
+  it("private MemoryStore facts never appear in searchOrg (H3 isolation)", async () => {
+    const Database = (await import("better-sqlite3")).default;
+    const { MemoryStore } = await import("../../data/memory.js");
+    const db = new Database(":memory:");
+    const privateStore = new MemoryStore(db);
+    privateStore.add("uid-private", "I fly a secret Prospector");
+    const { svc } = makeService({ kgEnabled: true, mempalaceEnabled: false });
+    // Only org store is wired to svc — private store is a separate wall
+    const hits = await svc.searchOrg("Prospector", 10);
+    expect(hits.every((h) => !h.fact.includes("secret Prospector"))).toBe(true);
+    expect(privateStore.recall("uid-private")[0].fact).toMatch(/Prospector/);
+  });
+
   it("after seed, searchOrg returns hits via injectable MemPalace", async () => {
     const facts: string[] = [];
     const kgRemember = vi.fn(async (line: string) => {

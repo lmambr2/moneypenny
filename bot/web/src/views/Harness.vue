@@ -35,22 +35,61 @@
         <button type="button" class="ghost-btn" :disabled="busy" @click="loadOps">
           Ops status
         </button>
+        <button type="button" class="ghost-btn" :disabled="busy" @click="runUnderMusic">
+          Under-music check
+        </button>
+        <button type="button" class="ghost-btn" :disabled="busy" @click="runEval">
+          RAG eval
+        </button>
       </div>
     </form>
 
     <p v-if="formError" class="form-error">{{ formError }}</p>
     <pre v-if="opsText" class="ops-box">{{ opsText }}</pre>
+    <pre v-if="voiceCheckText" class="ops-box">{{ voiceCheckText }}</pre>
+    <pre v-if="evalText" class="ops-box">{{ evalText }}</pre>
 
-    <section class="org-seed">
-      <h2 class="section-title">Org KG seed</h2>
-      <p class="hint">Writes org-scoped facts for memory bumpers — never private !remember.</p>
-      <div class="seed-row">
-        <input v-model="orgFact" class="seed-input" placeholder="FC is Alice until 2026-12-31" />
-        <button type="button" class="ask-btn" :disabled="busy || !orgFact.trim()" @click="seedOrg">
-          Seed
-        </button>
+    <section class="scopes">
+      <h2 class="section-title">Memory scopes</h2>
+      <p class="hint isolation">{{ isolationRule }}</p>
+      <div class="scope-grid">
+        <div class="scope-card private">
+          <h3>Private (per-user)</h3>
+          <p class="badge never">Never broadcast</p>
+          <p class="hint">
+            <code>!remember</code> / <code>!recall</code> / <code>!forget</code> — only that member’s
+            <code>!ask</code>. Not used for radio memory bumpers.
+          </p>
+          <div class="seed-row">
+            <input v-model="privateUid" class="seed-input" placeholder="TS uid to inspect" />
+            <button type="button" class="ghost-btn" :disabled="busy || !privateUid.trim()" @click="loadPrivate">
+              List
+            </button>
+          </div>
+          <ul v-if="privateFacts.length" class="fact-list">
+            <li v-for="f in privateFacts" :key="f.id">{{ f.fact }}</li>
+          </ul>
+          <p v-else-if="privateMsg" class="seed-msg">{{ privateMsg }}</p>
+        </div>
+        <div class="scope-card org">
+          <h3>Org knowledge graph</h3>
+          <p class="badge ok">Broadcast only if “Org memory on air”</p>
+          <p class="hint">
+            <code>!kg remember</code> / <code>!diary</code> / seed below — org-wide. Radio memory bumper
+            uses this path only.
+          </p>
+          <div class="seed-row">
+            <input v-model="orgFact" class="seed-input" placeholder="FC is Alice until 2026-12-31" />
+            <button type="button" class="ask-btn" :disabled="busy || !orgFact.trim()" @click="seedOrg">
+              Seed org
+            </button>
+          </div>
+          <p v-if="seedMsg" class="seed-msg">{{ seedMsg }}</p>
+          <ul v-if="orgFacts.length" class="fact-list">
+            <li v-for="f in orgFacts" :key="f.id">{{ f.fact }}</li>
+          </ul>
+        </div>
       </div>
-      <p v-if="seedMsg" class="seed-msg">{{ seedMsg }}</p>
     </section>
 
     <section class="turns">
@@ -131,6 +170,15 @@ const turns = ref<HarnessTurn[]>([]);
 const orgFact = ref('');
 const seedMsg = ref('');
 const opsText = ref('');
+const voiceCheckText = ref('');
+const evalText = ref('');
+const isolationRule = ref(
+  'Private !remember rooms never feed radio memory bumpers. Org KG only (opt-in).',
+);
+const privateUid = ref('');
+const privateFacts = ref<Array<{ id: number; fact: string }>>([]);
+const privateMsg = ref('');
+const orgFacts = ref<Array<{ id: number; fact: string }>>([]);
 
 function formatTime(at: number): string {
   try {
@@ -200,8 +248,91 @@ async function loadOps() {
   }
 }
 
+async function loadScopes() {
+  try {
+    const res = await api.get('/api/bot/memory/scopes');
+    if (res.data.isolationRule) isolationRule.value = res.data.isolationRule;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const res = await api.get('/api/bot/org-kg');
+    orgFacts.value = (res.data.facts ?? []).slice(0, 12);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function loadPrivate() {
+  privateMsg.value = '';
+  privateFacts.value = [];
+  busy.value = true;
+  try {
+    const res = await api.get('/api/bot/memory/private', {
+      params: { uid: privateUid.value.trim() },
+    });
+    privateFacts.value = res.data.facts ?? [];
+    privateMsg.value =
+      privateFacts.value.length === 0
+        ? 'No private facts for that uid.'
+        : (res.data.warning ?? '');
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { error?: string } }; message?: string };
+    privateMsg.value = e.response?.data?.error ?? e.message ?? 'Load failed';
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function runUnderMusic() {
+  voiceCheckText.value = '';
+  try {
+    const res = await api.get('/api/bot/voice/under-music-check');
+    const r = res.data;
+    const lines = [
+      `Under-music check: ${r.ok ? 'PASS' : 'FAIL'}`,
+      ...(r.plan?.notes ?? []),
+      ...((r.results ?? []) as Array<{ id: string; pass: boolean; reason?: string }>).map(
+        (x) => `${x.pass ? '✓' : '✗'} ${x.id}${x.reason ? ` — ${x.reason}` : ''}`,
+      ),
+    ];
+    voiceCheckText.value = lines.join('\n');
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { error?: string } }; message?: string };
+    voiceCheckText.value = e.response?.data?.error ?? e.message ?? 'Check failed';
+  }
+}
+
+async function runEval() {
+  evalText.value = '';
+  try {
+    const res = await api.post('/api/bot/rag/eval', {});
+    const r = res.data;
+    const lines = [
+      `RAG eval: ${r.ok ? 'PASS' : 'FAIL'} (${r.passed}/${r.passed + r.failed})`,
+      ...((r.results ?? []) as Array<{
+        id: string;
+        pass: boolean;
+        reason?: string;
+        doctrineHits: number;
+        orgHits: number;
+      }>).map(
+        (x) =>
+          `${x.pass ? '✓' : '✗'} ${x.id} doc=${x.doctrineHits} org=${x.orgHits}${
+            x.reason ? ` — ${x.reason}` : ''
+          }`,
+      ),
+    ];
+    evalText.value = lines.join('\n');
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { error?: string } }; message?: string };
+    evalText.value = e.response?.data?.error ?? e.message ?? 'Eval failed';
+  }
+}
+
 onMounted(() => {
   refreshTurns();
+  loadScopes();
 });
 </script>
 
@@ -306,11 +437,60 @@ onMounted(() => {
   display: flex;
   gap: 8px;
 }
-.org-seed {
+.scopes {
   margin: 20px 0;
+}
+.isolation {
+  font-weight: 500;
+  color: #c9a227;
+}
+.scope-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .scope-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.scope-card {
   padding: 12px;
   border-radius: 10px;
   border: 1px solid var(--border, #333);
+  background: var(--surface, #141418);
+}
+.scope-card.private {
+  border-color: #664;
+}
+.scope-card.org {
+  border-color: #364;
+}
+.scope-card h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-bottom: 8px;
+}
+.badge.never {
+  background: #522;
+  color: #fcc;
+}
+.badge.ok {
+  background: #243;
+  color: #cfc;
+}
+.fact-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
 }
 .seed-msg {
   font-size: 0.85rem;

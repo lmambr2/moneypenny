@@ -51,6 +51,8 @@ export function createBotRouter(
       kgEnabled: config.kgEnabled ?? false,
       mempalaceEnabled: config.mempalaceEnabled ?? false,
       mempalaceUrl: config.mempalaceUrl ?? "",
+      scOrgStatusUrl: config.scOrgStatusUrl ?? "",
+      scOrgName: config.scOrgName ?? "",
       aceStepEnabled: config.aceStepEnabled ?? false,
       aceStepUrl: config.aceStepUrl ?? "",
       aceStepAutoFill: config.aceStepAutoFill ?? false,
@@ -145,6 +147,8 @@ export function createBotRouter(
       { key: "kgEnabled", type: "boolean", touch: "kg" },
       { key: "mempalaceEnabled", type: "boolean", touch: "mempalace" },
       { key: "mempalaceUrl", type: "string", touch: "mempalace" },
+      { key: "scOrgStatusUrl", type: "string" },
+      { key: "scOrgName", type: "string" },
       { key: "aceStepEnabled", type: "boolean", touch: "aceStep" },
       { key: "aceStepUrl", type: "string", touch: "aceStep" },
       { key: "aceStepAutoFill", type: "boolean", touch: "aceStep" },
@@ -561,6 +565,8 @@ export function createBotRouter(
       }
       if (touched.stream) bot.updateStreamBridge(config.streamBridgeUrl ?? "");
       if (touched.voice && config.voice) bot.updateVoice(config.voice);
+      // SC org URL/name are read live; rebind plugin so !ops picks up Settings.
+      bot.refreshScOrgPlugin?.();
     }
 
     res.json({ ok: true });
@@ -1001,6 +1007,76 @@ export function createBotRouter(
       res.json({ text });
     } catch (err: unknown) {
       res.status(502).json({ error: errorMessage(err, "ops failed"), code: "OPS_ERROR" });
+    }
+  });
+
+  // ─── Memory scopes (H3) ───────────────────────────────────────────────────
+  router.get("/memory/scopes", requireAdmin, (req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    const uid = typeof req.query.uid === "string" ? req.query.uid.trim() : undefined;
+    const snapshot = bot.getMemoryScopesSnapshot(uid || undefined);
+    res.json(snapshot);
+  });
+
+  // GET /api/bot/memory/private?uid= — list private facts (never broadcast).
+  router.get("/memory/private", requireAdmin, (req, res) => {
+    const uid = typeof req.query.uid === "string" ? req.query.uid.trim() : "";
+    if (!uid) {
+      res.status(400).json({ error: "uid is required", code: "VALIDATION_ERROR" });
+      return;
+    }
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    res.json({
+      scope: "private",
+      uid,
+      broadcastOk: false,
+      facts: bot.listPrivateMemory(uid, 50),
+      warning: "Private facts never feed radio memory bumpers or org broadcast.",
+    });
+  });
+
+  // ─── Voice under music smoke (V1/H4) ──────────────────────────────────────
+  router.get("/voice/under-music-check", requireAdmin, (_req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    try {
+      const report = bot.runUnderMusicSmoke();
+      res.json(report);
+    } catch (err: unknown) {
+      res.status(502).json({
+        error: errorMessage(err, "under-music check failed"),
+        code: "VOICE_CHECK_ERROR",
+      });
+    }
+  });
+
+  // ─── RAG eval (R3) ────────────────────────────────────────────────────────
+  router.post("/rag/eval", requireAdmin, async (req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    try {
+      const cases = Array.isArray(req.body?.cases) ? req.body.cases : undefined;
+      const report = await bot.runRagEval(cases);
+      res.json(report);
+    } catch (err: unknown) {
+      res.status(502).json({
+        error: errorMessage(err, "eval failed"),
+        code: "EVAL_ERROR",
+      });
     }
   });
 

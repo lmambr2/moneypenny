@@ -115,8 +115,8 @@ path; ACE-Step non-mock worker; doctrine prewarm UX more obvious.
 |----|---------|-----|--------|
 | **H1** | Chat-first dashboard panel | See the harness | Stream of turns: user, tools, sources, errors (admin) — **shipped** `/harness` + `POST /api/bot/harness/ask` |
 | **H2** | Cited answers in UI | Trust RAG | Turn sources include classification when present — **shipped** with H1 |
-| **H3** | Memory scopes | Multi-user org | Clear UI for per-user vs org KG; never mix private into broadcast — **deferred** (org seed UI on Harness; private still !remember) |
-| **H4** | Voice-first progressive enhancement | Hands-free ops | Wake → command → spoken ack reliable under music; text fallback always works — **deferred** (feedback / Pi smoke) |
+| **H3** | Memory scopes | Multi-user org | Dual-scope Harness UI + APIs; isolation helpers — **shipped** |
+| **H4** | Voice-first progressive enhancement | Hands-free ops | Under-music plan + smoke (`under-music.ts`, API, script) — **shipped** (unit; live Pi still feedback) |
 | **H5** | Tool transparency | Debug agentic loop | Log/tool panel: which tools fired, args, success/fail — **shipped** intent mode on harness panel |
 | **H6** | Multi-channel / multi-server (later) | Scale beyond one channel | Config for channel scope; no single global queue assumption — **deferred** |
 
@@ -131,7 +131,7 @@ feedback in parallel; don’t block H1–H2 on S1–S5 completeness.
 |----|---------|-----|--------|
 | **R1** | Topic packs | Doctrine bumpers hit | Starter topics on lobby/focus/combat/**mining** defaults — **shipped** |
 | **R2** | Ingest hygiene | Better retrieval | `GET /api/rag/doctrine/hygiene` + Library **Hygiene** — **shipped** |
-| **R3** | Eval loop (light) | Catch empty rewrites | Scripted queries: expected non-empty doctrine/memory; CI optional — **deferred** |
+| **R3** | Eval loop (light) | Catch empty rewrites | `eval-loop.ts` + `POST /api/bot/rag/eval` + `scripts/rag-eval.mjs` — **shipped** |
 | **R4** | Org KG fill | Memory bumper useful | `POST /api/bot/org-kg` + `!kg remember`; MemPalace/SQLite `searchOrg` — **shipped** |
 | **R5** | Game-state hooks (optional) | SC org awareness | Tools that pull org roster/status into RAG or tools — **plugin**, not core rewrite (see G2) |
 
@@ -148,7 +148,7 @@ Never broadcast private `!remember` rooms (already load-bearing).
 
 | ID | Feature | Why | Accept |
 |----|---------|-----|--------|
-| **V1** | Reliability under music | Real channels | Duck/wake/command under DJ load documented + smoke script |
+| **V1** | Reliability under music | Real channels | Duck/wake/command under DJ load documented + smoke script — **shipped** (unit path; live channel feedback) |
 | **V2** | STT ladder docs ops | SBC vs server | One-page “which model on which box” stays accurate |
 | **V3** | Spoken radio/status | Voice ops | Optional spoken radio status / “next bumper in N” |
 | **V4** | Orchestration extract (maybe) | If TS turn code chokes | FastAPI voice-turn service; bot stays transport |
@@ -163,7 +163,7 @@ and never between a user and the music.
 | ID | Feature | Notes |
 |----|---------|--------|
 | **G1** | Org command surface | `!ops` status/brief/sc/host/list — **shipped** |
-| **G2** | SC API / external status tools | Fail-open registry + `sc-org` + `host` plugins — **shipped** (live SC URL optional) |
+| **G2** | SC API / external status tools | ScOrgClient contract + Settings URL + fail-open — **shipped** (live bridge optional) |
 | **G3** | Shared dashboard for non-admins | Read-only now-playing, next bumper, simple queue — **deferred** |
 | **G4** | Audio / abuse moderation hooks | Rate limits, mute integration — rights-first — **deferred** |
 
@@ -248,13 +248,16 @@ docs.
 | 2026-07-09 | **Org memory now**; **SC/org hooks wanted** as fail-open tools |
 | 2026-07-09 | **Vue polish** (no framework swap); **brain: plan boundary, don’t build yet** |
 | 2026-07-09 | **Sprint:** H1/H2/H5, R1/R2/R4, G1/G2 + brain-boundary.md on `dev` (no Pi deploy) |
-| 2026-07-09 | **Deferred this sprint:** H3 full scopes UI, H4/V1 live voice, H6, G3–G4, R3 eval, real SC auth |
+| 2026-07-09 | **Deferred earlier:** H3, H4/V1, R3, G2 depth |
+| 2026-07-09 | **Shipped follow-up:** H3 scopes UI, V1/H4 under-music smoke, G2 ScOrgClient + Settings, R3 eval loop |
+| 2026-07-09 | Still later: H6, G3–G4, live Pi voice under music, real SC credentials beyond bridge URL |
 
 ### Sprint notes (2026-07-09)
 
-- **SC org plugin** uses `SC_ORG_STATUS_URL` when set; otherwise fail-open message (no live credentials required).
+- **SC org plugin** uses Settings/`SC_ORG_STATUS_URL` + [sc-org-status.md](./sc-org-status.md) contract; fail-open if unset.
 - **Memory bumper** org search: MemPalace `kgSearch` then SQLite KG; never per-user `!remember` rooms.
 - **Vue** kept; Harness panel is admin cockpit (not a framework migration).
+- **R3** eval is injectable/CI fixtures; live corpus results depend on RAG being enabled + seeded.
 
 ---
 
@@ -265,6 +268,7 @@ docs.
 | [ROADMAP.md](../ROADMAP.md) | Phase history 0–9 |
 | [DESIGN.md](../DESIGN.md) | Architecture principles |
 | [docs/brain-boundary.md](./brain-boundary.md) | Future `POST /v1/turn` contract (plan only) |
+| [docs/sc-org-status.md](./sc-org-status.md) | SC/org status bridge contract (G2) |
 | [docs/radio.md](./radio.md) | Radio / bumpers / profiles |
 | [docs/voice.md](./voice.md) · [voice-backends.md](./voice-backends.md) | Voice loop |
 | [docs/memory.md](./memory.md) | Memory / MemPalace |

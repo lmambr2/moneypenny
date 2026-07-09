@@ -1077,6 +1077,25 @@
         <p v-if="memPalace.syncMsg" class="profile-toggle-hint">{{ memPalace.syncMsg }}</p>
       </div>
 
+      <div class="form-group" style="margin: 12px 0 4px">
+        <label title="HTTP bridge for !ops sc / Star Citizen org status (G2). Leave empty for fail-open."
+          >Star Citizen org status URL</label
+        >
+        <input
+          v-model="ai.scOrgStatusUrl"
+          class="input"
+          placeholder="http://192.168.1.89:9100"
+        />
+        <p class="profile-toggle-hint">
+          Optional bridge: <code>GET /status</code>, <code>/members</code>, <code>/fleet</code>.
+          Unset → <code>!ops sc</code> fail-open (music unaffected). See docs/sc-org-status.md.
+        </p>
+      </div>
+      <div class="form-group" style="margin: 0 0 8px">
+        <label>Org display name</label>
+        <input v-model="ai.scOrgName" class="input" placeholder="My Org" />
+      </div>
+
       <label class="profile-toggle">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">
@@ -1739,6 +1758,8 @@ const ai = reactive({
   ragCollection: 'moneypenny_docs',
   memoryEnabled: false,
   kgEnabled: false,
+  scOrgStatusUrl: '',
+  scOrgName: '',
   mempalaceEnabled: false,
   mempalaceUrl: '',
   aceStepEnabled: false,
@@ -2184,6 +2205,8 @@ async function loadAiSettings() {
     ai.kgEnabled = !!res.data.kgEnabled;
     ai.mempalaceEnabled = !!res.data.mempalaceEnabled;
     ai.mempalaceUrl = res.data.mempalaceUrl ?? '';
+    ai.scOrgStatusUrl = res.data.scOrgStatusUrl ?? '';
+    ai.scOrgName = res.data.scOrgName ?? '';
     ai.aceStepEnabled = !!res.data.aceStepEnabled;
     ai.aceStepUrl = res.data.aceStepUrl ?? '';
     ai.aceStepAutoFill = !!res.data.aceStepAutoFill;
@@ -2735,6 +2758,8 @@ async function saveAiSettings() {
       kgEnabled: ai.kgEnabled,
       mempalaceEnabled: ai.mempalaceEnabled,
       mempalaceUrl: ai.mempalaceUrl.trim(),
+      scOrgStatusUrl: ai.scOrgStatusUrl.trim(),
+      scOrgName: ai.scOrgName.trim(),
       aceStepEnabled: ai.aceStepEnabled,
       aceStepUrl: ai.aceStepUrl.trim(),
       aceStepAutoFill: ai.aceStepAutoFill,

@@ -152,6 +152,19 @@ export class MemoryService {
     return result;
   }
 
+  /** Admin/dashboard: list private facts for a TS uid (never for broadcast). */
+  listFacts(userUid: string, limit = 20): Array<{ id: number; fact: string; createdAt: number }> {
+    return this.deps.store.recall(userUid, limit).map((f) => ({
+      id: f.id,
+      fact: f.fact,
+      createdAt: f.createdAt,
+    }));
+  }
+
+  countFacts(userUid: string): number {
+    return this.deps.store.count(userUid);
+  }
+
   private formatRecall(facts: string[]): string {
     return `What I remember about you:\n${facts.map((f, i) => `${i + 1}. ${f}`).join("\n")}`;
   }

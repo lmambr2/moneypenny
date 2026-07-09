@@ -20,6 +20,18 @@ vs doctrine), [radio.md](./radio.md) § memory bumper (org-only, opt-in).
 **Never** mix private `!remember` into radio bumpers. Radio `memory` source uses
 **org KG only** and requires `radio.memoryBroadcastOptIn`.
 
+### Dashboard scopes (H3)
+
+Admin **Harness** panel shows two walls side-by-side:
+
+| Scope | Commands / API | Broadcast? |
+|-------|----------------|------------|
+| **Private** | `!remember` · `GET /api/bot/memory/private?uid=` | **Never** |
+| **Org KG** | `!kg` · `POST /api/bot/org-kg` | Only with “Org memory on air” |
+
+`GET /api/bot/memory/scopes` returns the same catalog + isolation rule.
+Helpers: `bot/src/memory/scopes.ts` (`isBroadcastSafeSource`, `filterOrgBroadcastFacts`).
+
 ---
 
 ## Install / deploy
