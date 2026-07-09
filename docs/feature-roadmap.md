@@ -6,25 +6,34 @@
 > grow from “DJ + ops assistant for friends” toward a full **local AI harness**
 > with TeamSpeak attached — without throwing away the stack that already ships.
 
-**Status:** drafted 2026-07-09 · target: `dev` / `master`  
+**Status:** decisions locked 2026-07-09 · target: `dev` / `master`  
 **Spine decision:** keep **TypeScript bot + Python/native sidecars**. No full
 language rewrite. No framework swap for its own sake.
 
+### Operator decisions (2026-07-09)
+
+| # | Topic | Decision |
+|---|--------|----------|
+| 1 | Product identity | **B — Harness first** (AI cockpit / tools priority) |
+| 2 | Station completeness | **Not a gate** — Station stays in progress; polish from **user feedback** in parallel |
+| 3 | Org memory bumper | **Invest now** — seed/use MemPalace org KG so memory bumpers can fire |
+| 4 | Star Citizen / org hooks | **Want them** — tools/plugins (fail-open), not a second core |
+| 5 | Dashboard UI | **Keep Vue**; polish in place (lessons transfer if we rebuild later) |
+| 6 | Python “brain” service | **Plan the boundary now**; implement only when pain criteria hit |
+
 ---
 
-## 1. Product identity (pick a default; the other is a mode)
-
-Moneypenny already sits between two product shapes. Choose a **default persona**
-so prioritization is honest; keep the other as a profile / install flavor.
+## 1. Product identity
 
 | Shape | Who it’s for | Success looks like |
 |-------|----------------|--------------------|
 | **A — Station** | Org VOIP / Star Citizen friends; music + briefings | Radio on, bumpers right, library/tags, doctrine tips, low ops burden |
 | **B — Harness** | Same people + power users; AI-first ops | Chat/voice tools, cited RAG, shared memory, dashboard as cockpit |
 
-**Recommendation:** default **A (Station)** with harness features opt-in (as
-today: radio/RAG/voice off-by-default). Build **B** as progressive enhancement
-of the same process — not a second bot.
+**Locked default: B (Harness first).** Station (A) remains a first-class mode
+and keeps shipping via feedback; it does **not** block harness work. Features
+stay opt-in at runtime where that already matches product safety (radio/voice
+off-by-default, etc.).
 
 ---
 
