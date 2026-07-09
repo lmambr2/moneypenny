@@ -4,7 +4,7 @@
     "playlist", "album", "prev", "next", "skip", "pause", "resume",
     "artist", "ask", "test", "roast", "roastout", "roastin", "remember", "recall", "forget", "kg", "diary",
     "rate", "unrate", "selecttracks", "radio", "playnext", "pn", "chevron7",
-    "mine", "refine", "craft", "econ",
+    "mine", "refine", "craft", "econ", "trade",
     "ops"
   ],
   "commandGroups": {

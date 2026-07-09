@@ -30,6 +30,7 @@ the question matches mining/refining/crafting keywords.
 | **Seed import JSON** (`bot/src/economy/data/`) | Frozen one-shot import artifact (not read at runtime) |
 | **UEX Corp public API** (`api.uexcorp.space`) | Optional **live** sell/buy averages + commodity flags |
 | **SC Craft Tools API** (`sc-craft.tools`) | Optional **live** craft blueprints / BOMs (`!craft` fallback, `!econ blueprints`) |
+| **SC Trade Tools API** (`sc-trade.tools`) | Optional **trade routes / buyers / itinerary** (`!trade`) — **requires API token** |
 | **Org doctrine** (Library → Doctrine / RAG) | Real SOPs, locations, org-specific craft notes |
 | Community UIs (scminer, star-crafting.com, SCMDB, …) | Human bookmarks; **no runtime scrape** |
 
@@ -67,6 +68,11 @@ See `bot/src/economy/data/README.md`.
 | `SCCRAFT_API_BASE` | `https://sc-craft.tools` | API host |
 | `SCCRAFT_CACHE_TTL_MS` | `21600000` (6h) | Search/detail cache |
 | `SCCRAFT_TIMEOUT_MS` | `8000` | Request timeout |
+| `ECONOMY_SCTRADE` | `1` | Set `0` to disable `!trade` |
+| `SC_TRADE_API_TOKEN` | _(empty)_ | **Required** for route tools (header `token`) — Patreon API licence |
+| `SCTRADE_API_BASE` | `https://sc-trade.tools` | API host |
+| `SCTRADE_CACHE_TTL_MS` | `1800000` (30m) | Route result cache |
+| `SCTRADE_TIMEOUT_MS` | `45000` | Route search timeout |
 
 ### SC Craft Tools etiquette
 
@@ -74,6 +80,22 @@ Same posture as UEX: public JSON only (`/api/blueprints`, `/api/blueprints/:id`)
 long cache, short timeout, `User-Agent: Moneypenny-OrgEconomy/…`, fail soft,
 attribution on every blueprint reply. Fan project (Norkaan / HTTPS org) — not CIG.
 **Not** star-crafting.com (no public API; do not scrape).
+
+### SC Trade Tools etiquette
+
+Official OpenAPI ([Swagger UI](https://sc-trade.tools/swagger-ui/index.html)).
+Ship/location **catalog** GETs are open; **`/api/tools/*`** (routes, buyers,
+itinerary, circuits) require header **`token`** (Patreon API licence).
+
+| Rule | |
+|------|--|
+| Auth | `SC_TRADE_API_TOKEN` → request header `token` |
+| Cache | Routes ~30 min; ship list ~6 h |
+| Fail soft | Missing token / 403 / 429 → clear message, music unaffected |
+| Attribution | Every `!trade` reply |
+| Data quality | Community-reported prices — verify in-game |
+
+Licence: [Patreon sc_trade_tools](https://www.patreon.com/cw/sc_trade_tools/membership).
 
 ---
 
@@ -86,6 +108,9 @@ Public by default (rights migration v3 + rank template).
 !refine bexalite scu:32 method:dinyx
 !craft quantum-core qty:2
 !craft greatsword qty:1
+!trade routes ship:Freelancer+MAX invest:200000 stops:2 loc:Stanton
+!trade buyers Agricium scu:32
+!trade ships hercules
 !econ ores
 !econ methods
 !econ recipes
@@ -94,13 +119,15 @@ Public by default (rights migration v3 + rank template).
 !econ search stileron
 ```
 
-Flags: `scu:N`, `qty:N`, `method:name` (or `m:name`).
+Flags: `scu:N`, `qty:N`, `method:name` (or `m:name`).  
+Trade flags: `ship:`, `invest:`, `stops:`, `profit:time|pure`, `loc:`, `box:`, `from:`, `to:`, `id:`.
 
 **Spelling:** catalog canonical is **Quantainium**; `quantanium` / `qt` are aliases.
 
 `!craft` tries the **seed catalog** first, then **sc-craft.tools** when enabled.
-Seed refine numbers remain planning placeholders; sc-craft BOMs are community
-game-data exports (verify in-game for rare stock).
+`!trade` uses **sc-trade.tools** (token required for routes).
+Seed refine numbers remain planning placeholders; live feeds are community data
+(verify in-game for rare stock / hauling).
 
 ---
 
@@ -114,7 +141,8 @@ bot/src/economy/service.ts   (handlers)
         │
         ├─▶ catalog.ts + orders.ts   (pure, offline)
         ├─▶ uex.ts                   (optional prices, cached)
-        └─▶ sc-craft.ts              (optional blueprints, cached)
+        ├─▶ sc-craft.ts              (optional blueprints, cached)
+        └─▶ sc-trade.ts              (optional routes; token for /tools)
 
 !ask "how do I refine quantainium?"
         │

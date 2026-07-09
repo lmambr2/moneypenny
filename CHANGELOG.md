@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Economy: sc-trade.tools full trade routes
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Optional **SC Trade Tools** client (`bot/src/economy/sc-trade.ts`) — OpenAPI routes,
+  buyers, itinerary, circuit; ship/location catalog
+- `!trade routes|itinerary|buyers|circuit|ships` (rights public; needs `SC_TRADE_API_TOKEN`)
+- Env: `ECONOMY_SCTRADE`, `SC_TRADE_API_TOKEN`, `SCTRADE_*`
+- Docs: [docs/economy.md](./docs/economy.md)
+
 ### Economy: sc-craft.tools live blueprints
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

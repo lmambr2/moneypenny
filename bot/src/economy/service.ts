@@ -24,11 +24,12 @@ import {
 } from "./sc-craft.js";
 import { getUexClient, type UexClient } from "./uex.js";
 
-export type EconomyCommand = "mine" | "refine" | "craft" | "econ";
+export type EconomyCommand = "mine" | "refine" | "craft" | "econ" | "trade";
 
 export interface EconomyDeps {
   uex?: UexClient;
   scCraft?: ScCraftClient;
+  scTrade?: import("./sc-trade.js").ScTradeClient;
 }
 
 export async function handleEconomyCommand(
@@ -54,6 +55,11 @@ export async function handleEconomyCommand(
       return handleCraft(args, prefix, scCraft);
     case "econ":
       return handleEcon(args, prefix, uex, scCraft);
+    case "trade": {
+      const { handleTradeCommand } = await import("./trade-service.js");
+      const { getScTradeClient } = await import("./sc-trade.js");
+      return handleTradeCommand(args, prefix, deps.scTrade ?? getScTradeClient());
+    }
     default:
       return formatEconHelp(prefix);
   }

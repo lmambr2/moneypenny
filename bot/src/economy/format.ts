@@ -18,6 +18,15 @@ import {
   type ScCraftSearchResult,
   SC_CRAFT_ATTRIBUTION,
 } from "./sc-craft.js";
+import {
+  formatDuration,
+  formatMoney,
+  shortPlace,
+  type ScTradeRoute,
+  type ScTradeShip,
+  type ScTradeTransaction,
+  SC_TRADE_ATTRIBUTION,
+} from "./sc-trade.js";
 import type { UexPriceSnapshot } from "./uex.js";
 
 export function formatMineOrder(o: MineOrder): string {
@@ -86,13 +95,107 @@ export function formatEconHelp(prefix = "!"): string {
     `${prefix}mine <ore> [scu:N] [method:name] — mining pull order + stability clock`,
     `${prefix}refine <ore> [scu:N] [method:name] — refine yield / time / cost estimate`,
     `${prefix}craft <recipe|blueprint> [qty:N] — seed BOM or live sc-craft blueprint`,
+    `${prefix}trade … — SC Trade Tools routes (needs SC_TRADE_API_TOKEN)`,
     `${prefix}econ ores|methods|recipes — seed catalog`,
     `${prefix}econ blueprints <q> — live blueprints (sc-craft.tools)`,
     `${prefix}econ prices <ore> — UEX averages`,
     `${prefix}econ search <q> — seed search`,
     "",
     CATALOG_DISCLAIMER,
-    "Live blueprints: public sc-craft.tools JSON API (cached). No HTML scrapers.",
+    "Live blueprints: sc-craft.tools. Trade routes: sc-trade.tools (token). No HTML scrapers.",
+  ].join("\n");
+}
+
+export function formatTradeHelp(prefix = "!"): string {
+  return [
+    "Trade routes via SC Trade Tools (community prices):",
+    `${prefix}trade routes ship:Freelancer invest:100000 [stops:1] [profit:time|pure] [loc:Stanton] [box:32]`,
+    `${prefix}trade itinerary from:ShopA to:ShopB ship:Freelancer invest:50000`,
+    `${prefix}trade buyers Agricium scu:32 [loc:Stanton]`,
+    `${prefix}trade circuit id:12345 ship:Freelancer invest:100000`,
+    `${prefix}trade ships [query]`,
+    "",
+    "Ship multi-word: ship:Freelancer+MAX or ship:C2+Hercules+Starlifter",
+    "Requires SC_TRADE_API_TOKEN (Patreon API licence).",
+    SC_TRADE_ATTRIBUTION,
+  ].join("\n");
+}
+
+export function formatTradeRoutes(
+  routes: ScTradeRoute[],
+  meta: { ship: string; invest: number; profitType: string },
+): string {
+  if (routes.length === 0) {
+    return [
+      `No trade routes for ${meta.ship} / ${formatMoney(meta.invest)} aUEC (${meta.profitType}).`,
+      "Try higher invest, different ship, or broader loc filters.",
+      SC_TRADE_ATTRIBUTION,
+    ].join("\n");
+  }
+  const lines = routes.map((r, i) => {
+    const buy = r.origin;
+    const sell = r.destination;
+    const item = buy?.itemName || sell?.itemName || "?";
+    const qty = buy?.itemQuantityInScu ?? buy?.quantityInScu ?? "?";
+    const buyP = formatMoney(buy?.price);
+    const sellP = formatMoney(sell?.price);
+    const profit = formatMoney(r.profit);
+    const ppm = r.profitPerMinute != null ? `${formatMoney(r.profitPerMinute)}/min` : "—";
+    const time = formatDuration(r.timeInSeconds);
+    const id = r.id != null ? ` #${r.id}` : "";
+    return [
+      `${i + 1}.${id} ${item} ×${qty} SCU`,
+      `   Buy  ${shortPlace(buy)} @ ${buyP}`,
+      `   Sell ${shortPlace(sell)} @ ${sellP}`,
+      `   Profit ${profit} aUEC · ${ppm} · ${time}`,
+    ].join("\n");
+  });
+  return [
+    `📦 Trade routes — ${meta.ship} · invest ${formatMoney(meta.invest)} · sort ${meta.profitType}`,
+    ...lines,
+    "",
+    `Loop a result: !trade circuit id:<n> ship:${meta.ship.replace(/\s+/g, "+")} invest:${meta.invest}`,
+    SC_TRADE_ATTRIBUTION,
+  ].join("\n");
+}
+
+export function formatTradeBuyers(
+  buyers: ScTradeTransaction[],
+  commodity: string,
+  scu: number,
+): string {
+  if (buyers.length === 0) {
+    return [`No buyers for ${scu} SCU ${commodity}.`, SC_TRADE_ATTRIBUTION].join("\n");
+  }
+  const lines = buyers.map((b, i) => {
+    const price = formatMoney(b.price);
+    const max = b.maxQuantityInScu != null ? ` max ${b.maxQuantityInScu} SCU` : "";
+    return `  ${i + 1}. ${shortPlace(b)} — ${price} aUEC/SCU${max}`;
+  });
+  return [
+    `💰 Best buyers — ${scu} SCU ${commodity}`,
+    ...lines,
+    "",
+    SC_TRADE_ATTRIBUTION,
+  ].join("\n");
+}
+
+export function formatTradeShips(ships: ScTradeShip[], query?: string): string {
+  let list = ships;
+  if (query?.trim()) {
+    const q = query.trim().toLowerCase();
+    list = ships.filter((s) => s.name.toLowerCase().includes(q));
+  }
+  const rows = list.slice(0, 40).map((s) => {
+    const box = s.maxBoxSizeInScu != null ? ` box≤${s.maxBoxSizeInScu}` : "";
+    return `  ${s.name}${box}`;
+  });
+  if (rows.length === 0) return `No ships match "${query}".`;
+  return [
+    query ? `Ships matching "${query}" (${list.length}):` : `Ships (${ships.length}, showing ${rows.length}):`,
+    ...rows,
+    "",
+    "Use exact name: !trade routes ship:Freelancer+MAX invest:100000",
   ].join("\n");
 }
 

@@ -88,6 +88,11 @@ const DELTAS: readonly RightsDelta[] = [
       mod: ["mute", "kick"],
     },
   },
+  {
+    // !trade SC Trade Tools routes (docs/economy.md).
+    version: 7,
+    defaultAllow: ["trade"],
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

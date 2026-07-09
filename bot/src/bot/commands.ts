@@ -81,11 +81,12 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   // G4 moderation (rights-gated; fail-open on transport).
   { name: "mute", kind: "special", admin: true },
   { name: "kick", kind: "special", admin: true },
-  // Org economy orders (docs/economy.md) — seed catalog + optional UEX prices.
+  // Org economy orders (docs/economy.md) — seed + UEX + sc-craft + sc-trade.
   { name: "mine", kind: "special" },
   { name: "refine", kind: "special" },
   { name: "craft", kind: "special" },
   { name: "econ", kind: "special" },
+  { name: "trade", kind: "special" },
   { name: "reindex", kind: "special", admin: true },
   { name: "ingeststatus", kind: "special", admin: true },
   // ACE-Step music gen (docs/ace-step.md) — @dj / admin via rights, not public.

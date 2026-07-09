@@ -4,5 +4,8 @@ export * from "./format.js";
 export * from "./orders.js";
 export * from "./parse.js";
 export * from "./sc-craft.js";
+export * from "./sc-trade.js";
 export * from "./service.js";
+export * from "./trade-parse.js";
+export * from "./trade-service.js";
 export * from "./uex.js";

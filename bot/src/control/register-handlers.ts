@@ -106,6 +106,7 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     refine: async (cmd) => handleEconomyCommand("refine" as EconomyCommand, cmd.args),
     craft: async (cmd) => handleEconomyCommand("craft" as EconomyCommand, cmd.args),
     econ: async (cmd) => handleEconomyCommand("econ" as EconomyCommand, cmd.args),
+    trade: async (cmd) => handleEconomyCommand("trade" as EconomyCommand, cmd.args),
     reindex: async (cmd) =>
       host.knowledge.handleReindex(cmd.rawArgs.length ? cmd.rawArgs : undefined),
     ingeststatus: async () => host.knowledge.handleIngestStatus(),
