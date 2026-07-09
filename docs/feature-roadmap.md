@@ -166,6 +166,7 @@ and never between a user and the music.
 | **G2** | SC API / external status tools | ScOrgClient contract + Settings URL + fail-open — **shipped** (live bridge optional) |
 | **G3** | Shared dashboard for non-admins | Read-only now-playing, next bumper, simple queue — **shipped** (`/live` + `GET /api/bot/live`) |
 | **G4** | Audio / abuse moderation hooks | Rate limits, mute integration — rights-first — **shipped** (`!mute`/`!kick`, fail-open) |
+| **G-E** | Economy shopping-list polish | Community **code lifts** — **shipped** 2026-07-09: **E-BOX** / **E-FUZZY** / **E-UEX-SUP** / **E-FOOT** — [BUILD.md](./BUILD.md) / [economy.md §6a](./economy.md) |
 
 ---
 

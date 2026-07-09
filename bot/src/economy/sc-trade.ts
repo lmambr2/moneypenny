@@ -14,6 +14,7 @@
 import axios, { type AxiosError } from "axios";
 import type { Logger } from "../logger.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
+import { fuzzyBestMatch } from "./fuzzy.js";
 
 const DEFAULT_BASE = "https://sc-trade.tools";
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 min for route results
@@ -241,6 +242,11 @@ export class ScTradeClient {
   private fetchLocations?: ScTradeClientOptions["fetchLocations"];
 
   private routeCache = new Map<string, { at: number; data: ScTradeRoute[] }>();
+  private buyerCache = new Map<string, { at: number; data: ScTradeTransaction[] }>();
+  private inflightRoutes = new Map<string, Promise<ScTradeRoute[]>>();
+  private inflightBuyers = new Map<string, Promise<ScTradeTransaction[]>>();
+  private inflightShips: Promise<ScTradeShip[] | null> | null = null;
+  private inflightLocations: Promise<Array<{ name: string; type?: string }> | null> | null = null;
   private shipsCache: { at: number; data: ScTradeShip[] } | null = null;
   private locationsCache: { at: number; data: Array<{ name: string; type?: string }> } | null =
     null;
@@ -279,6 +285,11 @@ export class ScTradeClient {
 
   clearCache(): void {
     this.routeCache.clear();
+    this.buyerCache.clear();
+    this.inflightRoutes.clear();
+    this.inflightBuyers.clear();
+    this.inflightShips = null;
+    this.inflightLocations = null;
     this.shipsCache = null;
     this.locationsCache = null;
   }
@@ -312,24 +323,41 @@ export class ScTradeClient {
       this.shipsCache = { at: diskHit.fetchedAt, data: diskHit.data };
       return diskHit.data;
     }
-    try {
-      let data: ScTradeShip[];
-      if (this.fetchShips) {
-        data = await this.fetchShips();
-      } else {
-        const res = await axios.get(`${this.baseUrl}/api/ships`, {
-          timeout: this.timeoutMs,
-          headers: this.headers(false),
-        });
-        data = Array.isArray(res.data) ? res.data : [];
-      }
-      this.shipsCache = { at: now, data };
-      this.disk.set("sc-trade", "ships", data, this.catalogTtlMs);
-      return data;
-    } catch (err) {
-      this.logger?.warn({ err }, "sc-trade ships fetch failed");
-      return this.shipsCache?.data ?? diskHit?.data ?? null;
+    if (diskHit?.stale && diskHit.data) {
+      this.shipsCache = { at: diskHit.fetchedAt, data: diskHit.data };
+      void this.loadShipsNetwork(); // SWR
+      return diskHit.data;
     }
+    if (this.inflightShips) return this.inflightShips;
+    return this.loadShipsNetwork();
+  }
+
+  private async loadShipsNetwork(): Promise<ScTradeShip[] | null> {
+    if (this.inflightShips) return this.inflightShips;
+    this.inflightShips = (async () => {
+      try {
+        let data: ScTradeShip[];
+        if (this.fetchShips) {
+          data = await this.fetchShips();
+        } else {
+          const res = await axios.get(`${this.baseUrl}/api/ships`, {
+            timeout: this.timeoutMs,
+            headers: this.headers(false),
+          });
+          data = Array.isArray(res.data) ? res.data : [];
+        }
+        const at = Date.now();
+        this.shipsCache = { at, data };
+        this.disk.set("sc-trade", "ships", data, this.catalogTtlMs, at);
+        return data;
+      } catch (err) {
+        this.logger?.warn({ err }, "sc-trade ships fetch failed");
+        return this.shipsCache?.data ?? null;
+      } finally {
+        this.inflightShips = null;
+      }
+    })();
+    return this.inflightShips;
   }
 
   async getLocations(): Promise<Array<{ name: string; type?: string }> | null> {
@@ -347,24 +375,41 @@ export class ScTradeClient {
       this.locationsCache = { at: diskHit.fetchedAt, data: diskHit.data };
       return diskHit.data;
     }
-    try {
-      let data: Array<{ name: string; type?: string }>;
-      if (this.fetchLocations) {
-        data = await this.fetchLocations();
-      } else {
-        const res = await axios.get(`${this.baseUrl}/api/locations`, {
-          timeout: this.timeoutMs,
-          headers: this.headers(false),
-        });
-        data = Array.isArray(res.data) ? res.data : [];
-      }
-      this.locationsCache = { at: now, data };
-      this.disk.set("sc-trade", "locations", data, this.catalogTtlMs);
-      return data;
-    } catch (err) {
-      this.logger?.warn({ err }, "sc-trade locations fetch failed");
-      return this.locationsCache?.data ?? diskHit?.data ?? null;
+    if (diskHit?.stale && diskHit.data) {
+      this.locationsCache = { at: diskHit.fetchedAt, data: diskHit.data };
+      void this.loadLocationsNetwork();
+      return diskHit.data;
     }
+    if (this.inflightLocations) return this.inflightLocations;
+    return this.loadLocationsNetwork();
+  }
+
+  private async loadLocationsNetwork(): Promise<Array<{ name: string; type?: string }> | null> {
+    if (this.inflightLocations) return this.inflightLocations;
+    this.inflightLocations = (async () => {
+      try {
+        let data: Array<{ name: string; type?: string }>;
+        if (this.fetchLocations) {
+          data = await this.fetchLocations();
+        } else {
+          const res = await axios.get(`${this.baseUrl}/api/locations`, {
+            timeout: this.timeoutMs,
+            headers: this.headers(false),
+          });
+          data = Array.isArray(res.data) ? res.data : [];
+        }
+        const at = Date.now();
+        this.locationsCache = { at, data };
+        this.disk.set("sc-trade", "locations", data, this.catalogTtlMs, at);
+        return data;
+      } catch (err) {
+        this.logger?.warn({ err }, "sc-trade locations fetch failed");
+        return this.locationsCache?.data ?? null;
+      } finally {
+        this.inflightLocations = null;
+      }
+    })();
+    return this.inflightLocations;
   }
 
   /** Resolve ship name case-insensitively; prefer exact then includes. */
@@ -384,7 +429,8 @@ export class ScTradeClient {
       const max = inc.find((s) => /max|hercules|caterpillar|hull/i.test(s.name));
       return max ?? inc[0]!;
     }
-    return null;
+    // E-FUZZY fallback for typos ("freelancr max")
+    return fuzzyBestMatch(query, ships, (s) => s.name, { minScore: 50, minQueryLen: 3 }) ?? null;
   }
 
   /** Expand system/region prefixes into full location names for whitelist. */
@@ -435,16 +481,34 @@ export class ScTradeClient {
       if (hit && now - hit.at < this.ttlMs) {
         return { ok: true, routes: hit.data, attribution: SC_TRADE_ATTRIBUTION };
       }
-      let routes: ScTradeRoute[];
-      if (this.postTrades) {
-        routes = await this.postTrades(body);
-      } else {
-        routes = await this.postJson<ScTradeRoute[]>("/api/tools/trades", body);
+      const diskHit = this.disk.get<ScTradeRoute[]>("sc-trade", cacheKey, now);
+      if (diskHit && !diskHit.stale) {
+        this.routeCache.set(cacheKey, { at: diskHit.fetchedAt, data: diskHit.data });
+        return { ok: true, routes: diskHit.data, attribution: SC_TRADE_ATTRIBUTION };
       }
       const max = Math.max(1, Math.min(15, opts.maxResults ?? 5));
-      const sliced = (Array.isArray(routes) ? routes : []).slice(0, max);
-      this.routeCache.set(cacheKey, { at: now, data: sliced });
-      return { ok: true, routes: sliced, attribution: SC_TRADE_ATTRIBUTION };
+      let inflight = this.inflightRoutes.get(cacheKey);
+      if (!inflight) {
+        inflight = (async () => {
+          const routes = this.postTrades
+            ? await this.postTrades(body)
+            : await this.postJson<ScTradeRoute[]>("/api/tools/trades", body);
+          return (Array.isArray(routes) ? routes : []).slice(0, max);
+        })().finally(() => this.inflightRoutes.delete(cacheKey));
+        this.inflightRoutes.set(cacheKey, inflight);
+      }
+      try {
+        const sliced = await inflight;
+        const at = Date.now();
+        this.routeCache.set(cacheKey, { at, data: sliced });
+        this.disk.set("sc-trade", cacheKey, sliced, this.ttlMs, at);
+        return { ok: true, routes: sliced, attribution: SC_TRADE_ATTRIBUTION };
+      } catch (err) {
+        if (diskHit?.data) {
+          return { ok: true, routes: diskHit.data, attribution: SC_TRADE_ATTRIBUTION };
+        }
+        throw err;
+      }
     } catch (err) {
       return { ok: false, error: this.describeError(err) };
     }
@@ -531,18 +595,40 @@ export class ScTradeClient {
         locationInclude = await this.expandLocationPrefixes(locationInclude);
       }
       const body = buildBuyersBody({ ...opts, locationInclude });
-      let buyers: ScTradeTransaction[];
-      if (this.postBuyers) {
-        buyers = await this.postBuyers(body);
-      } else {
-        buyers = await this.postJson<ScTradeTransaction[]>("/api/tools/buyers", body);
+      const cacheKey = `buyers:${JSON.stringify(body)}`;
+      const now = Date.now();
+      const mem = this.buyerCache.get(cacheKey);
+      if (mem && now - mem.at < this.ttlMs) {
+        return { ok: true, buyers: mem.data, attribution: SC_TRADE_ATTRIBUTION };
+      }
+      const diskHit = this.disk.get<ScTradeTransaction[]>("sc-trade", cacheKey, now);
+      if (diskHit && !diskHit.stale) {
+        this.buyerCache.set(cacheKey, { at: diskHit.fetchedAt, data: diskHit.data });
+        return { ok: true, buyers: diskHit.data, attribution: SC_TRADE_ATTRIBUTION };
       }
       const max = Math.max(1, Math.min(15, opts.maxResults ?? 8));
-      return {
-        ok: true,
-        buyers: (Array.isArray(buyers) ? buyers : []).slice(0, max),
-        attribution: SC_TRADE_ATTRIBUTION,
-      };
+      let inflight = this.inflightBuyers.get(cacheKey);
+      if (!inflight) {
+        inflight = (async () => {
+          const buyers = this.postBuyers
+            ? await this.postBuyers(body)
+            : await this.postJson<ScTradeTransaction[]>("/api/tools/buyers", body);
+          return (Array.isArray(buyers) ? buyers : []).slice(0, max);
+        })().finally(() => this.inflightBuyers.delete(cacheKey));
+        this.inflightBuyers.set(cacheKey, inflight);
+      }
+      try {
+        const sliced = await inflight;
+        const at = Date.now();
+        this.buyerCache.set(cacheKey, { at, data: sliced });
+        this.disk.set("sc-trade", cacheKey, sliced, this.ttlMs, at);
+        return { ok: true, buyers: sliced, attribution: SC_TRADE_ATTRIBUTION };
+      } catch (err) {
+        if (diskHit?.data) {
+          return { ok: true, buyers: diskHit.data, attribution: SC_TRADE_ATTRIBUTION };
+        }
+        throw err;
+      }
     } catch (err) {
       return { ok: false, error: this.describeError(err) };
     }

@@ -37,9 +37,12 @@ describe("work order pure helpers", () => {
       },
     ];
     const needs = aggregateWorkOrders(orders);
-    expect(formatMaterialList(needs)).toMatch(/192 SCU of Ti/);
-    expect(formatMaterialList(needs)).toMatch(/78 SCU of Cu/);
-    expect(formatMaterialList(needs)).toMatch(/39 SCU of Lindinium/);
+    // E-BOX: include crate breakdown in shopping list
+    expect(formatMaterialList(needs)).toMatch(/192 SCU \(6×32\) of Ti/);
+    expect(formatMaterialList(needs)).toMatch(/78 SCU/);
+    expect(formatMaterialList(needs)).toMatch(/of Cu/);
+    expect(formatMaterialList(needs)).toMatch(/39 SCU/);
+    expect(formatMaterialList(needs)).toMatch(/Lindinium/);
   });
 
   it("parses workorder args", () => {
@@ -50,12 +53,16 @@ describe("work order pure helpers", () => {
     });
     expect(parseWorkOrderArgs("P4-AR qty:2").qty).toBe(2);
     expect(parseWorkOrderArgs("list").sub).toBe("list");
+    expect(parseWorkOrderArgs("clear").sub).toBe("clear");
+    expect(parseWorkOrderArgs("reset").sub).toBe("clear");
     expect(parseWorkOrderArgs("done 4")).toEqual({
       sub: "done",
       item: "",
       qty: 1,
       id: 4,
     });
+    expect(parseWorkOrderArgs("rm 2").sub).toBe("done");
+    expect(parseWorkOrderArgs("").sub).toBe("help");
   });
 });
 

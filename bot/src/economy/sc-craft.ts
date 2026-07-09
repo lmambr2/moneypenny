@@ -11,6 +11,7 @@
 import axios from "axios";
 import type { Logger } from "../logger.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
+import { fuzzyScore } from "./fuzzy.js";
 import type { CraftBomLine, CraftOrder } from "./orders.js";
 
 const DEFAULT_BASE = "https://sc-craft.tools";
@@ -97,7 +98,11 @@ export function scoreBlueprintMatch(
   const tokens = q.split(" ").filter(Boolean);
   if (tokens.length > 1 && tokens.every((t) => name.includes(t) || id.includes(t))) return 50;
   if (cat.includes(q)) return 20;
-  return 0;
+  // E-FUZZY: typo-tolerant score (0–100); take max with structural scores
+  const fz = fuzzyScore(query, bp.name || "", [bp.blueprint_id || "", bp.category || ""], {
+    minQueryLen: 3,
+  });
+  return Math.max(fz > 40 ? fz : 0, 0);
 }
 
 /** Map sc-craft ingredients → BOM lines (qty multiplier applied). */
@@ -311,6 +316,12 @@ export class ScCraftClient {
     const now = Date.now();
     const hit = this.detailCache.get(key);
     if (hit && now - hit.at < this.ttlMs) return hit.data;
+    const diskKey = `detail:${key}`;
+    const diskHit = this.disk.get<ScCraftBlueprint>("sc-craft", diskKey, now);
+    if (diskHit && !diskHit.stale) {
+      this.detailCache.set(key, { at: diskHit.fetchedAt, data: diskHit.data });
+      return diskHit.data;
+    }
     try {
       let data: ScCraftBlueprint | null;
       if (this.fetchDetail) {
@@ -323,12 +334,16 @@ export class ScCraftClient {
         });
         data = res.data as ScCraftBlueprint;
       }
-      if (!data || typeof data !== "object" || !data.name) return null;
-      this.detailCache.set(key, { at: Date.now(), data });
+      if (!data || typeof data !== "object" || !data.name) {
+        return diskHit?.data ?? hit?.data ?? null;
+      }
+      const at = Date.now();
+      this.detailCache.set(key, { at, data });
+      this.disk.set("sc-craft", diskKey, data, this.ttlMs, at);
       return data;
     } catch (err) {
       this.logger?.warn({ err, id }, "sc-craft detail failed");
-      return hit?.data ?? null;
+      return hit?.data ?? diskHit?.data ?? null;
     }
   }
 

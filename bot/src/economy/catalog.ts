@@ -12,6 +12,8 @@
  * when you care.
  */
 
+import { fuzzyBestMatch } from "./fuzzy.js";
+
 export type Stability = "stable" | "volatile" | "critical";
 export type ValueTier = "low" | "mid" | "high" | "premium";
 export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
@@ -920,7 +922,7 @@ function norm(s: string): string {
 export function findOre(query: string): OreSpec | undefined {
   const q = norm(query);
   if (!q) return undefined;
-  return ORES.find(
+  const exact = ORES.find(
     (o) =>
       o.id === q ||
       norm(o.name) === q ||
@@ -928,12 +930,18 @@ export function findOre(query: string): OreSpec | undefined {
       o.name.toLowerCase().startsWith(q) ||
       o.id.startsWith(q),
   );
+  if (exact) return exact;
+  // E-FUZZY fallback (typos / quantanium spelling)
+  return fuzzyBestMatch(query, ORES, (o) => [o.name, o.id, ...o.aliases], {
+    minScore: 45,
+    minQueryLen: 3,
+  });
 }
 
 export function findRefineMethod(query: string): RefineMethod | undefined {
   const q = norm(query);
   if (!q) return undefined;
-  return REFINE_METHODS.find(
+  const exact = REFINE_METHODS.find(
     (m) =>
       m.id === q ||
       norm(m.name) === q ||
@@ -941,12 +949,17 @@ export function findRefineMethod(query: string): RefineMethod | undefined {
       m.name.toLowerCase().includes(q.replace(/-/g, " ")) ||
       m.id.startsWith(q),
   );
+  if (exact) return exact;
+  return fuzzyBestMatch(query, REFINE_METHODS, (m) => [m.name, m.id, ...m.aliases], {
+    minScore: 45,
+    minQueryLen: 3,
+  });
 }
 
 export function findRecipe(query: string): CraftRecipe | undefined {
   const q = norm(query);
   if (!q) return undefined;
-  return CRAFT_RECIPES.find(
+  const exact = CRAFT_RECIPES.find(
     (r) =>
       r.id === q ||
       norm(r.name) === q ||
@@ -954,6 +967,12 @@ export function findRecipe(query: string): CraftRecipe | undefined {
       r.name.toLowerCase().includes(q.replace(/-/g, " ")) ||
       r.id.includes(q),
   );
+  if (exact) return exact;
+  if (CRAFT_RECIPES.length === 0) return undefined;
+  return fuzzyBestMatch(query, CRAFT_RECIPES, (r) => [r.name, r.id, ...r.aliases], {
+    minScore: 45,
+    minQueryLen: 3,
+  });
 }
 
 export function materialLabel(materialId: string): string {

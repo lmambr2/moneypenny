@@ -98,6 +98,13 @@ const DELTAS: readonly RightsDelta[] = [
     version: 8,
     defaultAllow: ["workorder", "work-items", "workitems"],
   },
+  {
+    // Clear-all work orders is destructive — admin only (aligns web dashboard).
+    version: 9,
+    groups: {
+      admin: ["workorder.clear"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

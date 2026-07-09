@@ -2,6 +2,7 @@
  * TeamSpeak-friendly formatting for economy orders (compact, no markdown tables).
  */
 
+import { formatScuWithBoxes, largestCrateThatFits } from "./boxes.js";
 import {
   CATALOG_DISCLAIMER,
   CRAFT_RECIPES,
@@ -11,6 +12,7 @@ import {
   ORES,
   REFINE_METHODS,
 } from "./catalog.js";
+import { fuzzyRank } from "./fuzzy.js";
 import { formatMaterialName, UNSTABLE_EMOJI } from "./material-flags.js";
 import type { CraftOrder, MineOrder, RefineOrder } from "./orders.js";
 import {
@@ -53,7 +55,13 @@ export function formatRefineOrder(o: RefineOrder): string {
 }
 
 export function formatCraftOrder(o: CraftOrder): string {
-  const bom = o.bom.map((b) => `  • ${b.amount} ${b.unit} ${formatMaterialName(b.label)}`);
+  const bom = o.bom.map((b) => {
+    const unit = (b.unit || "scu").toLowerCase();
+    if (unit === "scu") {
+      return `  • ${formatScuWithBoxes(b.amount)} ${formatMaterialName(b.label)}`;
+    }
+    return `  • ${b.amount} ${b.unit} ${formatMaterialName(b.label)}`;
+  });
   const raw =
     o.impliedRawHint.length > 0
       ? ["Raw if refining first:", ...o.impliedRawHint.map((h) => `  • ${h}`)]
@@ -154,11 +162,15 @@ export function formatTradeBuyers(
 export function formatTradeShips(ships: ScTradeShip[], query?: string): string {
   let list = ships;
   if (query?.trim()) {
-    const q = query.trim().toLowerCase();
-    list = ships.filter((s) => s.name.toLowerCase().includes(q));
+    const ranked = fuzzyRank(query, ships, (s) => s.name, { minQueryLen: 2, limit: 40 });
+    list = ranked.length
+      ? ranked.map((r) => r.item)
+      : ships.filter((s) => s.name.toLowerCase().includes(query.trim().toLowerCase()));
   }
   const rows = list.slice(0, 40).map((s) => {
-    const box = s.maxBoxSizeInScu != null ? ` box≤${s.maxBoxSizeInScu}` : "";
+    const max = s.maxBoxSizeInScu;
+    const box =
+      max != null ? ` box≤${max} (largest crate ${largestCrateThatFits(max) || "—"})` : "";
     return `  ${s.name}${box}`;
   });
   if (rows.length === 0) return `No ships match "${query}".`;
@@ -259,13 +271,21 @@ export function formatSearch(query: string): string {
   const q = query.trim().toLowerCase();
   if (!q) return "Usage: !econ search <ore|method|recipe>";
   const hits: string[] = [];
+  const seen = new Set<string>();
+  const push = (key: string, line: string) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    hits.push(line);
+  };
+
+  // Exact/substring first, then fuzzy rank (E-FUZZY)
   for (const o of ORES) {
     if (
       o.id.includes(q) ||
       o.name.toLowerCase().includes(q) ||
       o.aliases.some((a) => a.toLowerCase().includes(q))
     ) {
-      hits.push(`ore: ${o.id} — ${o.name} (${o.rarity}, ${o.stability})`);
+      push(`ore:${o.id}`, `ore: ${o.id} — ${o.name} (${o.rarity}, ${o.stability})`);
     }
   }
   for (const m of REFINE_METHODS) {
@@ -274,7 +294,7 @@ export function formatSearch(query: string): string {
       m.name.toLowerCase().includes(q) ||
       m.aliases.some((a) => a.toLowerCase().includes(q))
     ) {
-      hits.push(`method: ${m.id} — ${m.name} (≈${Math.round(m.yieldRate * 100)}%)`);
+      push(`method:${m.id}`, `method: ${m.id} — ${m.name} (≈${Math.round(m.yieldRate * 100)}%)`);
     }
   }
   for (const r of CRAFT_RECIPES) {
@@ -283,21 +303,29 @@ export function formatSearch(query: string): string {
       r.name.toLowerCase().includes(q) ||
       r.aliases.some((a) => a.toLowerCase().includes(q))
     ) {
-      hits.push(`recipe: ${r.id} — ${r.name}`);
+      push(`recipe:${r.id}`, `recipe: ${r.id} — ${r.name}`);
     }
   }
-  const ore = findOre(q);
-  const method = findRefineMethod(q);
-  const recipe = findRecipe(q);
-  if (ore && !hits.some((h) => h.startsWith(`ore: ${ore.id}`))) {
-    hits.unshift(`ore: ${ore.id} — ${ore.name} (${ore.rarity}, ${ore.stability})`);
+  for (const { item: o } of fuzzyRank(query, ORES, (o) => [o.name, o.id, ...o.aliases], {
+    limit: 8,
+    minQueryLen: 3,
+  })) {
+    push(`ore:${o.id}`, `ore: ${o.id} — ${o.name} (${o.rarity}, ${o.stability})`);
   }
-  if (method && !hits.some((h) => h.startsWith(`method: ${method.id}`))) {
-    hits.unshift(`method: ${method.id} — ${method.name}`);
+  for (const { item: m } of fuzzyRank(query, REFINE_METHODS, (m) => [m.name, m.id, ...m.aliases], {
+    limit: 4,
+    minQueryLen: 3,
+  })) {
+    push(`method:${m.id}`, `method: ${m.id} — ${m.name} (≈${Math.round(m.yieldRate * 100)}%)`);
   }
-  if (recipe && !hits.some((h) => h.startsWith(`recipe: ${recipe.id}`))) {
-    hits.unshift(`recipe: ${recipe.id} — ${recipe.name}`);
-  }
+
+  const ore = findOre(query);
+  const method = findRefineMethod(query);
+  const recipe = findRecipe(query);
+  if (ore) push(`ore:${ore.id}`, `ore: ${ore.id} — ${ore.name} (${ore.rarity}, ${ore.stability})`);
+  if (method) push(`method:${method.id}`, `method: ${method.id} — ${method.name}`);
+  if (recipe) push(`recipe:${recipe.id}`, `recipe: ${recipe.id} — ${recipe.name}`);
+
   if (hits.length === 0) return `No catalog hits for "${query}". Try !econ ores|methods|recipes.`;
   return [`Catalog search "${query}":`, ...hits.map((h) => `  ${h}`)].join("\n");
 }
@@ -318,15 +346,31 @@ export function formatPriceSnapshot(snap: UexPriceSnapshot, query: string): stri
           .slice(0, 6)
           .join("; ")}`
       : "";
+  const supply = snap.supply;
+  let supplyLine = "";
+  if (supply) {
+    const pct =
+      supply.supplyPct != null ? ` ~${Math.round(supply.supplyPct)}% of avg stock` : " stock n/a";
+    const tops = supply.sellTerminals
+      .slice(0, 3)
+      .map((t) => `${t.name} @ ${t.price.toLocaleString()}`)
+      .join("; ");
+    supplyLine = tops
+      ? `Supply${pct} · top sell: ${tops}`
+      : `Supply${pct} (${supply.sampleSize} terminals sampled)`;
+  }
   return [
     `💰 UEX price — ${snap.commodity.name} (query: ${query})`,
     `${sell} · ${buy}`,
+    supplyLine,
     flagLine,
     alts,
     `Cache age: ~${ageMin} min`,
     "",
     snap.attribution,
-    "Terminal-level routes: use UEX in a browser — we only surface commodity averages.",
+    supply
+      ? "Terminal rows via UEX commodities_prices (cached, long TTL)."
+      : "Terminal-level detail optional when UEX prices endpoint is reachable.",
   ]
     .filter(Boolean)
     .join("\n");

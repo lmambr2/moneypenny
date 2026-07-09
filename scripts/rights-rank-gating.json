@@ -11,7 +11,7 @@
     "admin": [
       "stop", "clear", "move", "moveclient", "moveall", "vol", "mode",
       "follow", "remove", "reindex", "ingeststatus", "generate", "ops",
-      "mute", "kick", "recording",
+      "mute", "kick", "recording", "workorder.clear",
       "radio.power", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags"
     ],
     "analyst": ["analyst", "agent", "intsum", "aar", "ops"],

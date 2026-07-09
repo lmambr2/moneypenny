@@ -24,8 +24,9 @@ describe("material unstable flags (TS6 emoji)", () => {
       { material: "Titanium", amount: 64, unit: "SCU" },
       { material: "Quantainium", amount: 13, unit: "SCU" },
     ]);
-    expect(s).toContain("64 SCU of Titanium");
-    expect(s).toContain(`13 SCU of Quantainium ${UNSTABLE_EMOJI}`);
+    expect(s).toContain("64 SCU (2×32) of Titanium");
+    expect(s).toContain(`13 SCU`);
+    expect(s).toContain(`Quantainium ${UNSTABLE_EMOJI}`);
     expect(formatMaterialName("Quantainium")).toBe(`Quantainium ${UNSTABLE_EMOJI}`);
     expect(unstableFlag("Iron")).toBe("");
   });

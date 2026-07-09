@@ -66,6 +66,10 @@
         <Icon icon="mdi:music-box-multiple" class="tab-icon" />
         <span class="tab-label">Library</span>
       </RouterLink>
+      <RouterLink to="/economy" class="m-tab" :class="{ active: route.path.startsWith('/economy') }">
+        <Icon icon="mdi:pickaxe" class="tab-icon" />
+        <span class="tab-label">Economy</span>
+      </RouterLink>
       <RouterLink to="/settings" class="m-tab" :class="{ active: route.path.startsWith('/settings') }">
         <Icon icon="mdi:cog" class="tab-icon" />
         <span class="tab-label">Settings</span>

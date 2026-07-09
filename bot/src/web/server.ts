@@ -18,6 +18,7 @@ import type { RetrievalStore } from "../rag/index.js";
 import { createAuditRouter } from "./api/audit.js";
 import { createAuthRouter } from "./api/auth.js";
 import { createBotRouter } from "./api/bot.js";
+import { createEconomyRouter } from "./api/economy.js";
 import { createMusicRouter } from "./api/music.js";
 import { createPlayerRouter } from "./api/player.js";
 import { createRagRouter } from "./api/rag.js";
@@ -173,6 +174,8 @@ export function createWebServer(options: WebServerOptions): WebServer {
   );
   app.use("/api/player", createPlayerRouter(options.botManager, logger, options.database));
   app.use("/api/auth", createAuthRouter(options.youtubeProvider, logger));
+  // Economy dashboard (mine/refine/craft/trade/workorders/cache) — any signed-in user
+  app.use("/api/economy", createEconomyRouter({ logger }));
   // admin-only routes
   app.use("/api/users", requireAdmin, createUsersRouter(users, sessions, audit, logger));
   app.use("/api/audit", requireAdmin, createAuditRouter(audit));

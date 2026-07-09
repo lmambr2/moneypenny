@@ -415,9 +415,10 @@ export class BotInstance extends EventEmitter {
     // Bumpers live under the data dir (dirname of the sqlite file) — NOT under
     // MUSIC_DIR, so prerecorded assets are never indexed as songs.
     const dataDir = dirname(this.database.db.name);
-    // Economy API disk cache (UEX / sc-craft / sc-trade / sc-wiki) + scheduled refresh.
+    // Economy API SQLite cache (UEX / sc-craft / sc-trade / sc-wiki) + scheduled refresh.
+    // Prefer shared init from index.ts; re-bind if this process path skipped boot init.
     try {
-      initEconomyDiskCache(dataDir);
+      initEconomyDiskCache({ db: this.database.db, dataDir });
       startEconomyCacheScheduler({ logger: this.logger });
       initWorkOrderStore(this.database.db);
     } catch (err) {

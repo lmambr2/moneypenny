@@ -104,7 +104,7 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
 ];
 
 /** Rights tokens that are gated but not typed commands themselves. */
-const ADMIN_TOKENS = ["radio.power"] as const;
+const ADMIN_TOKENS = ["radio.power", "workorder.clear"] as const;
 
 export const PUBLIC_COMMANDS = new Set(COMMAND_MANIFEST.filter((c) => !c.admin).map((c) => c.name));
 

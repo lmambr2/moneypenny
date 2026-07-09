@@ -18,6 +18,12 @@ export async function handleWorkOrderCommand(
     store?: WorkOrderStore | null;
     scCraft?: ScCraftClient;
     invokerUid?: string | null;
+    /**
+     * When set, clear-all requires this to return true (rights token
+     * `workorder.clear` / admin). Matches dashboard admin-only clear.
+     * Omit or always-true when rights are off (fail-open).
+     */
+    canClear?: () => boolean;
   } = {},
 ): Promise<string> {
   const store = deps.store ?? getWorkOrderStore();
@@ -31,7 +37,8 @@ export async function handleWorkOrderCommand(
     return [
       `${prefix}workorder <item> xN — save a craft shopping list (e.g. ${prefix}workorder P4-AR x3)`,
       `${prefix}work-items — org totals from open work orders`,
-      `${prefix}workorder list · ${prefix}workorder done <id> · ${prefix}workorder clear`,
+      `${prefix}workorder list · ${prefix}workorder done <id>`,
+      `${prefix}workorder clear — wipe board (admin / workorder.clear)`,
     ].join("\n");
   }
 
@@ -45,6 +52,9 @@ export async function handleWorkOrderCommand(
   }
 
   if (parsed.sub === "clear") {
+    if (deps.canClear && !deps.canClear()) {
+      return "Clear all work orders requires admin (rights: workorder.clear). Use done <id> for one.";
+    }
     const n = store.clear();
     return n === 0 ? "No work orders to clear." : `Cleared ${n} work order(s).`;
   }

@@ -6,21 +6,40 @@ ordered **do list**, not full specs.
 Product sequence and locked decisions: **[feature-roadmap.md](./feature-roadmap.md)**
 (harness-first, Station via feedback, Vue polish, brain boundary plan-only).
 
-**Last updated:** 2026-07-09 (economy shopping list + parked mine/refine depth)
+**Last updated:** 2026-07-09 (economy community code lifts **shipped**: E-BOX / E-FUZZY / E-UEX-SUP / E-FOOT)
 
 ---
 
 ## Now / next (priority)
 
-Harness-first queue from [feature-roadmap.md](./feature-roadmap.md) §6 — Station
+Harness-first sequence from [feature-roadmap.md](./feature-roadmap.md) §6 — Station
 bugs still interrupt from live feedback.
+
+### Economy — community code lifts (implement next)
+
+Ideas distilled from SuperCargo / HAULER OPS (MIT fan tools). **Reimplement pure
+TS** in `bot/src/economy/` — no vendored Electron/OCR, no scrapers. Accept
+criteria: [economy.md §6a](./economy.md).
+
+| Order | ID | Item | Notes | Status |
+|------:|----|------|--------|--------|
+| 1 | **E-BOX** | SCU → fewest crates | Pure `calculateBoxes` / `splitIntoContainers` style: e.g. `64` → `2×32`. Surface on `!work-items` / craft totals + dashboard shopping list. Standard crate sizes only (1–32 SCU). | **Shipped** 2026-07-09 |
+| 2 | **E-FUZZY** | Fuzzy name match | Typo/confusable match for seed ores, trade ships/shops, craft search — SuperCargo `fuzzy.ts` idea, small pure function. | **Shipped** 2026-07-09 |
+| 3 | **E-UEX-SUP** | UEX supply / richer prices | Per-commodity `commodities_prices` + supply % + top terminals; 12h L2 TTL (`UEX_PRICES_CACHE_TTL_MS`). | **Shipped** 2026-07-09 |
+| 4 | **E-FOOT** | Box footprints + "fits ship?" | Crate grid cells + ship max-box helpers; trade ships list shows largest crate; `GET /api/economy/boxes`. | **Shipped** 2026-07-09 |
+| — | **E-SNAP** | Ships/locations offline seed | SuperCargo snapshot pattern — largely covered by **E-CACHE** SWR; only if cold-start still hurts. | **Optional / park** |
+
+**PR sketch:** `E-BOX` (+ tests) → `E-FUZZY` → `E-UEX-SUP` (or key env only) → `E-FOOT`.
 
 ### Economy backlog (ops feedback — park until wanted)
 
-Full notes: [economy.md §6](./economy.md). Shopping list shipped (`!workorder` / `!work-items`); do not re-guidebook.
+Full notes: [economy.md §6](./economy.md). Shopping list + **dashboard `/economy`** shipped; do not re-guidebook.
 
 | ID | Item | Notes | Status |
 |----|------|--------|--------|
+| **E-UI** | Economy dashboard | `/economy` + `/api/economy/*` (work orders, craft, trade routes/buyers/itinerary/circuit, prices, catalog, cache); residual tests + clear rights | **Shipped** 2026-07-09 |
+| **E-UEX-KEY** | UEX API key | Optional `UEX_API_KEY` — commodities works without key today; get free app token for prod/etiquette. **Parked for Lane decision.** → [economy.md § Decision: UEX key](./economy.md) | **Decision later** |
+| **E-CACHE** | SQLite L2 cache | `economy_cache` table in main DB; SWR; craft detail + trade routes on L2; JSON migrate | **Shipped** 2026-07-09 |
 | **E-RAW** | Reverse refine → raw ore | From work-item totals × method yield → raw SCU; opt-in only. Miners over-mine for quality anyway. | **Backlog** |
 | **E-SIG** | Node sensor signatures | Possible rock/node sigs + rocks/node for a given ore (offline planning). Ops have a Python script — port/seed later. | **Backlog** |
 | **E-STN** | Station refine modifiers | HUR-L1 vs Seraphim-style yield deltas after method rates trusted. | **Backlog** |

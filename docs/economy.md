@@ -26,6 +26,22 @@ All are **deterministic** (no LLM). `!ask` can inject seed ore/method context wh
 
 Public by default (rights: mine/refine/craft/econ v3, trade v7).
 
+### Dashboard (WebUI)
+
+Signed-in members can open **`/economy`** (nav: **Economy**) for the same surface as chat:
+
+| Tab | Actions |
+|-----|---------|
+| Work orders | Add / done / clear; org material shopping totals |
+| Mine / refine | Seed calculators (SCU, method) |
+| Craft | Blueprint search + BOM; save as work order |
+| Trade | Routes + buyers (needs `SC_TRADE_API_TOKEN`) |
+| Prices | UEX commodity averages |
+| Catalog | Full ore table + refine methods |
+| Cache | Disk cache stats + manual refresh |
+
+REST (auth cookie, same origin): `/api/economy/*` — see § API below.
+
 ### Example commands (in-game names only)
 
 ```
@@ -76,23 +92,32 @@ Public by default (rights: mine/refine/craft/econ v3, trade v7).
 | **SC Craft Tools** `sc-craft.tools` | Optional live **in-game** craft blueprints (`!craft`, `!econ blueprints`) |
 | **SC Trade Tools** `sc-trade.tools` | Optional trade routes / buyers (`!trade`) — tools need **API token** |
 | **SC Wiki API** `api.star-citizen.wiki` | Item/ship/location enrichment + **doctrine grounding** for `!ask` (from disk cache) |
-| **Disk cache** `data/economy-cache/` | Shared local store for all of the above; auto-refresh |
+| **SQLite L2 cache** table `economy_cache` (main bot DB) | Shared durable store for all of the above; auto-refresh; one-shot migrate from legacy JSON dir |
 | **Org doctrine** | Real SOPs, pads, org craft notes (Library / private store) |
 | scminer, star-crafting.com, SCMDB, … | Human bookmarks only — **not** wired at runtime |
 
-### Local cache + refresh
+### Local cache + refresh (SQLite L2)
 
-All live economy clients write through a **disk cache** under the bot data dir
-(`{dataDir}/economy-cache/` or `ECONOMY_CACHE_DIR`):
+All live economy clients write through a **SQLite** table `economy_cache`
+(default: **main bot DB**; override with `ECONOMY_CACHE_DB`):
+
+| Layer | Role |
+|-------|------|
+| **L1** | In-process Maps / client fields (hot, inflight coalesce) |
+| **L2** | SQLite `economy_cache` — exact key, TTL, size-capped (~2000 rows) |
 
 | Source | What gets cached |
 |--------|------------------|
-| UEX | Full commodities list |
-| sc-craft | Search results + optional blueprint pages on warm |
-| sc-trade | Ships + locations (+ route responses while TTL live) |
-| sc-wiki | Game version, commodity pages, search + item detail for warm names |
+| UEX | Full commodities list (SWR on stale) |
+| sc-craft | Search results + **blueprint detail** by id |
+| sc-trade | Ships + locations + **route/buyer** bodies (TTL 30m) |
+| sc-wiki | Game version, search + item detail for warm names |
 
-**Stale-while-revalidate:** if the network fails, last good disk payload is still served.
+**Stale-while-revalidate:** serve expired L2 immediately where implemented (UEX,
+ships/locations); always fail-open to last good payload if network fails.
+
+**Legacy:** one-shot import from `{dataDir}/economy-cache/**/*.json` if present
+(old file cache). Safe to delete JSON after migrate.
 
 **Refresh**
 
@@ -100,9 +125,9 @@ All live economy clients write through a **disk cache** under the bot data dir
 |---------|------|
 | Bot boot | Warm starts ~15s after start (non-blocking) |
 | Interval | `ECONOMY_CACHE_REFRESH_MS` (default **6 hours**) |
-| Manual | `!econ refresh` · status: `!econ cache` |
+| Manual | `!econ refresh` · status: `!econ cache` · dashboard Cache tab |
 
-`!ask` economy grounding reads **disk only** (no network on the ask path).
+`!ask` economy grounding reads **L2 only** (no network on the ask path).
 
 ### Offline craft seed
 
@@ -120,9 +145,10 @@ Rare maintainer HTML parse of public DataHub mining pages → `seed-import-*.jso
 |-----|---------|---------|
 | `ECONOMY_UEX` | `1` | `0` disables UEX prices |
 | `UEX_API_BASE` | `https://api.uexcorp.space` | |
-| `UEX_CACHE_TTL_MS` | `21600000` (6h) | |
+| `UEX_CACHE_TTL_MS` | `21600000` (6h) | Commodities list L2 TTL |
+| `UEX_PRICES_CACHE_TTL_MS` | `43200000` (12h) | Per-commodity terminal prices (supply) L2 TTL |
 | `UEX_TIMEOUT_MS` | `8000` | |
-| `UEX_API_KEY` | _(empty)_ | Optional |
+| `UEX_API_KEY` | _(empty)_ | Optional Bearer — see **Decision: UEX key** below |
 | `ECONOMY_SCCRAFT` | `1` | `0` disables sc-craft |
 | `SCCRAFT_API_BASE` | `https://sc-craft.tools` | |
 | `SCCRAFT_CACHE_TTL_MS` | `21600000` (6h) | |
@@ -135,7 +161,9 @@ Rare maintainer HTML parse of public DataHub mining pages → `seed-import-*.jso
 | `ECONOMY_SCWIKI` | `1` | `0` disables SC Wiki enrichment |
 | `SCWIKI_API_BASE` | `https://api.star-citizen.wiki` | |
 | `SCWIKI_CACHE_TTL_MS` | `43200000` (12h) | Wiki game-data TTL |
-| `ECONOMY_CACHE_DIR` | `{dataDir}/economy-cache` | Disk cache root |
+| `ECONOMY_CACHE_DIR` | `{dataDir}/economy-cache` | Legacy JSON dir (migrate only) |
+| `ECONOMY_CACHE_DB` | _(empty → main bot DB)_ | Optional dedicated sqlite path for cache table |
+| `ECONOMY_CACHE_MAX_ROWS` | `2000` | Soft cap; oldest `fetched_at` pruned |
 | `ECONOMY_CACHE_REFRESH_MS` | `21600000` (6h) | Background re-warm interval |
 
 Shared rules for every remote client:
@@ -147,6 +175,29 @@ Shared rules for every remote client:
 - Public JSON only — never scrape SPAs (including star-crafting.com)
 
 SC Trade tools licence: [Patreon sc_trade_tools](https://www.patreon.com/cw/sc_trade_tools/membership) · [Swagger](https://sc-trade.tools/swagger-ui/index.html)
+
+### Decision: UEX API key (parked — operator, ~2026-07-09 evening)
+
+**Status:** open — Lane to decide later (not blocking deploy).  
+**Docs:** [UEX API 2.0](https://uexcorp.space/api/documentation/) · [My Apps](https://uexcorp.space/api/apps/) (Bearer token).
+
+| Fact | Detail |
+|------|--------|
+| What we call | `GET /2.0/commodities` + per-id `commodities_prices` for supply (long TTL) |
+| Without key | Works today (200 + data, probed 2026-07-09) |
+| Official stance | Create an app → access token; Bearer auth; high rate budget |
+| Client support | Already: `UEX_API_KEY` → `Authorization: Bearer` + `Authorization-Api` |
+| User/wallet endpoints | Need a key — **we do not use them** |
+
+**Options when deciding**
+
+1. **Leave empty** — fine for casual Pi use while GETs stay open.  
+2. **Set free app token** — recommended for production / good-citizen traffic; no code change.  
+3. **`ECONOMY_UEX=0`** — seed-only; no live prices.
+
+**Not the same as** `SC_TRADE_API_TOKEN` (required for trade routes/buyers).
+
+**Action when decided:** set env on host/compose → restart bot. No PR required unless UEX starts requiring auth on `commodities` (client already ready).
 
 ---
 
@@ -180,7 +231,23 @@ Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights
 
 ---
 
-## 6. Backlog (ops feedback — not v1)
+## 6. Backlog
+
+### 6a. Community code lifts — **shipped** 2026-07-09
+
+Pure TS reimpl of SuperCargo / HAULER OPS ideas (MIT ideas only — no Electron/OCR).
+
+| ID | Status | Where |
+|----|--------|--------|
+| **E-BOX** | Shipped | `boxes.ts` `calculateBoxes` → `!work-items` / craft lines / dashboard chips (`2×32`) |
+| **E-FUZZY** | Shipped | `fuzzy.ts` → `findOre` / methods / craft score / trade ships / UEX names / `!econ search` |
+| **E-UEX-SUP** | Shipped | `uex.ts` `getTerminalPrices` + `supplyPct` / top terminals on `!econ prices` + `/api/economy/prices` |
+| **E-FOOT** | Shipped | crate footprints + `largestCrateThatFits`; trade ships list; `GET /api/economy/boxes?scu=&maxBox=` |
+| **E-SNAP** | Park | Still covered by **E-CACHE** SWR for ships/locations |
+
+**Out of scope (never core):** OCR, game-log watchers, RSI scrapers, Hyperswarm, SPA backends, 3D packing.
+
+### 6b. Ops feedback (park until wanted)
 
 Parked after org feedback: **shopping list first**, not a guidebook. Build when
 someone actually wants them on the board.
@@ -199,7 +266,42 @@ critical·volatile seed entries) are marked with **⚠️** emoji on shopping li
 
 ---
 
-## 7. Non-goals
+## 7. Dashboard API (`/api/economy`)
+
+All routes require a signed-in session (global `/api` auth + CSRF on mutations).
+Network-proxy routes are rate-limited; see [security-audit-economy-2026-07-09.md](./security-audit-economy-2026-07-09.md).
+
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/overview` | Catalog meta, client flags, cache summary, open WO count |
+| GET | `/ores?q=` | Seed ores |
+| GET | `/methods` | Refine methods |
+| GET | `/mine?ore=&scu=&method=` | Structured mine order |
+| GET | `/refine?ore=&scu=&method=` | Structured refine yield |
+| GET | `/blueprints?q=` | sc-craft search (rate-limited) |
+| GET | `/craft?q=&qty=` | Resolved BOM (rate-limited) |
+| GET | `/prices?q=` | UEX snapshot + optional `supply` (rate-limited) |
+| GET | `/boxes?scu=&maxBox=` | E-BOX/E-FOOT crate breakdown (+ optional ship max box) |
+| GET | `/workorders` | Open orders + aggregated materials (includes `boxes` per line) |
+| POST | `/workorders` | `{ item, qty }` — resolve BOM + save (cap 100 open) |
+| DELETE | `/workorders/:id` | Mark done (any member) |
+| DELETE | `/workorders` | Clear all — **admin only** |
+| GET | `/trade/ships?q=` | Ship catalog |
+| POST | `/trade/routes` | `{ ship, invest, stops, profit, loc }` (stricter rate limit) |
+| POST | `/trade/buyers` | `{ commodity, scu, loc }` |
+| POST | `/trade/itinerary` | `{ from, to, ship, invest, … }` shop→shop |
+| POST | `/trade/circuit` | `{ id, ship, invest, … }` loop from a route id |
+| GET | `/cache` | Disk cache stats (`rootLabel` only — no absolute path) |
+| POST | `/cache/refresh` | Warm catalogs — **admin only** + single-flight |
+
+**Clear policy:** web `DELETE /workorders` and TS `!workorder clear` both require **admin**
+(`workorder.clear` rights token on TS; session admin on web).
+
+Vue: `bot/web/src/views/Economy.vue` · router `/economy`.
+
+---
+
+## 8. Non-goals
 
 - Live location heatmaps / in-world signature **scanners** (E-SIG is offline planning only)
 - Loadout optimizers (lasers/modules)
@@ -209,7 +311,7 @@ critical·volatile seed entries) are marked with **⚠️** emoji on shopping li
 
 ---
 
-## 8. Acceptance checklist (shipped)
+## 9. Acceptance checklist (shipped)
 
 - [x] `!mine` / `!refine` / `!craft` / `!workorder` / `!work-items` / `!econ` / `!trade` registered + public
 - [x] Shopping-list replies (no step guidebooks)
@@ -219,12 +321,13 @@ critical·volatile seed entries) are marked with **⚠️** emoji on shopping li
 - [x] Optional sc-trade routes with token gate + attribution
 - [x] SC Wiki enrichment + disk cache refresh
 - [x] `!ask` economy keyword injection (seed + wiki cache)
+- [x] Dashboard `/economy` + `/api/economy/*` (view + change work orders, lookups, cache refresh)
 - [x] No scrapers
 - [ ] E-RAW / E-SIG / E-STN — see §6 backlog
 
 ---
 
-## 9. Org doctrine (private)
+## 10. Org doctrine (private)
 
 Real logistics doctrine (routes, pads, preferred BPs) belongs in your **private** knowledge base.
 
@@ -232,7 +335,7 @@ Templates: [`docs/examples/doctrine/`](./examples/doctrine/) — copy privately,
 
 ---
 
-## 10. References
+## 11. References
 
 - UEX: [uexcorp.space](https://uexcorp.space/)
 - SC Craft: [sc-craft.tools](https://sc-craft.tools/)

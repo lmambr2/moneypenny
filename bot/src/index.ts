@@ -7,6 +7,9 @@ import { loadConfig, saveConfig } from "./data/config.js";
 import { createDatabase } from "./data/database.js";
 import { DoctrineStore } from "./data/doctrine.js";
 import { FileDropStore } from "./data/file-drop.js";
+import { startEconomyCacheScheduler } from "./economy/cache/refresh.js";
+import { initEconomyDiskCache } from "./economy/cache/store.js";
+import { initWorkOrderStore } from "./economy/work-orders.js";
 import { warmLlmModels } from "./llm/warmup.js";
 import { createLogger } from "./logger.js";
 import { LocalProvider } from "./music/local.js";
@@ -89,6 +92,18 @@ async function main() {
   });
   const db = createDatabase(DB_PATH);
   logger.info({ dbPath: DB_PATH }, "using SQLite database");
+
+  // Economy (work orders + SQLite L2 cache) is process-global — init once at boot so
+  // the dashboard `/api/economy` works even before any bot instance is loaded.
+  try {
+    const dataDir = path.dirname(DB_PATH);
+    // Prefer main bot DB for cache table; one-shot migrate legacy JSON dir if present.
+    initEconomyDiskCache({ db: db.db, dataDir });
+    startEconomyCacheScheduler({ logger });
+    initWorkOrderStore(db.db);
+  } catch (err) {
+    logger.warn({ err }, "economy init at boot skipped");
+  }
 
   const avatarStore = createAvatarStore(AVATAR_DIR);
 

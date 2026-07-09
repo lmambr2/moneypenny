@@ -58,7 +58,7 @@ Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
 - **Per-user memory** — `!remember <fact>` / `!recall`; facts are woven into that member's `!ask`.
 - **Institutional knowledge graph** — `!kg` / `!diary` for temporal org facts (roster, roles, op history); injected into `!ask` when enabled.
 - **Org document workflows** — `!intsum` / `!aar` templated reports via the analyst delegate; Pandoc docx export from the Library.
-- **Org economy** — shopping lists: `!mine` / `!refine` (seed), `!craft` / `!workorder` / `!work-items` (sc-craft), `!trade` (sc-trade, token), `!econ prices` (UEX), wiki cache for `!ask`. Unstable ores marked ⚠️. No scrapers. → **[docs/economy.md](./docs/economy.md)**
+- **Org economy** — shopping lists: `!mine` / `!refine` (seed), `!craft` / `!workorder` / `!work-items` (sc-craft), `!trade` (sc-trade, token), `!econ prices` (UEX), wiki cache for `!ask`. Dashboard **`/economy`** (+ `/api/economy/*`) for the same surface. Unstable ores marked ⚠️. No scrapers. → **[docs/economy.md](./docs/economy.md)**
 - **Persona** — Miss Moneypenny: dry British MI6-secretary wit (configurable system prompt).
 
 **Community & ops**

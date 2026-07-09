@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EconomyDiskCache } from "./cache/store.js";
 import {
   buildBuyersBody,
   buildTradesBody,
@@ -100,10 +101,12 @@ describe("parseTradeArgs", () => {
 describe("ScTradeClient + handleTradeCommand", () => {
   it("findTrades uses injectable and caches", async () => {
     let calls = 0;
+    const disk = new EconomyDiskCache(":memory:");
     const client = new ScTradeClient({
       enabled: true,
       apiToken: "test-token",
       ttlMs: 60_000,
+      disk,
       postTrades: async () => {
         calls += 1;
         return sampleRoutes;
@@ -115,6 +118,7 @@ describe("ScTradeClient + handleTradeCommand", () => {
     expect(a.ok && a.routes[0]?.id).toBe(42);
     expect(b.ok).toBe(true);
     expect(calls).toBe(1);
+    disk.close();
   });
 
   it("fails soft without token", async () => {

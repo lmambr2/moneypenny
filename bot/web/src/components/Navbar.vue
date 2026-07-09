@@ -10,6 +10,7 @@
       <RouterLink to="/harness" class="nav-link" active-class="active">Harness</RouterLink>
       <RouterLink to="/live" class="nav-link" active-class="active">Live</RouterLink>
       <RouterLink to="/recordings" class="nav-link" active-class="active">Recordings</RouterLink>
+      <RouterLink to="/economy" class="nav-link" active-class="active">Economy</RouterLink>
     </div>
 
     <div class="nav-right">

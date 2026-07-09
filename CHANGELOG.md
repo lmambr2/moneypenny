@@ -8,6 +8,39 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Economy: community code lifts (E-BOX / E-FUZZY / E-UEX-SUP / E-FOOT)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **E-BOX** — `boxes.ts` greedy SCU→crates (`64` → `2×32`); wired into `!work-items`, craft BOM lines, dashboard
+- **E-FOOT** — crate footprints + `largestCrateThatFits`; trade ships show max crate; `GET /api/economy/boxes`
+- **E-FUZZY** — `fuzzy.ts` typos/confusables for ores, methods, craft, trade ships, UEX, `!econ search`
+- **E-UEX-SUP** — per-commodity `commodities_prices` (12h TTL) → supply % + top terminals on prices
+- Docs: [docs/BUILD.md](./docs/BUILD.md) · [docs/economy.md §6a](./docs/economy.md)
+
+### Economy: community code lifts roadmapped
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- High-value pure-TS lifts from open haul tools ordered; research bookmarks retired
+
+### Economy: SQLite L2 cache
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Replace file JSON cache with SQLite table `economy_cache` (default: main bot DB)
+- One-shot migrate from legacy `data/economy-cache/**/*.json`
+- SWR for UEX commodities + trade ships/locations; craft **detail** + trade **routes/buyers** on L2
+- Inflight coalesce for trade ships/routes/buyers; row cap (`ECONOMY_CACHE_MAX_ROWS`)
+- Docs: [docs/economy.md](./docs/economy.md) § Local cache
+
+### Economy: full dashboard panel + residual close-out
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Vue **`/economy`** panel (nav + mobile): work orders, mine/refine, craft, trade, prices, catalog, cache
+- REST **`/api/economy/*`** — craft/prices/trade routes·buyers·**itinerary·circuit**, work orders, cache
+- **Security:** rate limits; admin clear-all (web) + TS `workorder.clear` rights token; path redaction;
+  max 100 open WOs; single-flight refresh; boot-time WO/cache init
+- Dedicated tests: catalog, format, uex, cache/refresh, work-order-service, API
+- Docs: [docs/economy.md](./docs/economy.md) · [security-audit-economy-2026-07-09.md](./docs/security-audit-economy-2026-07-09.md)
+
 ### Economy: TS6 ⚠️ flags + shopping-list tighten
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

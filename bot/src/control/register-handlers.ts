@@ -111,6 +111,8 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
       const { handleWorkOrderCommand } = await import("../economy/work-order-service.js");
       return handleWorkOrderCommand(cmd.args, "!", {
         invokerUid: ctx.invokerUid ?? null,
+        // Align with dashboard: clear-all needs rights token workorder.clear (admin).
+        canClear: ctx.canRun ? () => !!ctx.canRun!("workorder.clear") : undefined,
       });
     },
     "work-items": async () => {

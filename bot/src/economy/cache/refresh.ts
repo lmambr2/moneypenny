@@ -61,9 +61,9 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
     if (!uex.isEnabled()) {
       results.push({ source: "uex", key: "commodities", ok: false, detail: "disabled" });
     } else {
+      // Client writes L2 itself — avoid double set.
       const list = await uex.getCommodities();
       if (list) {
-        disk.set("uex", "commodities", list, parseTtl("UEX_CACHE_TTL_MS", 6 * 3600_000));
         results.push({
           source: "uex",
           key: "commodities",
@@ -91,7 +91,6 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
     } else {
       const ships = await trade.getShips();
       if (ships) {
-        disk.set("sc-trade", "ships", ships, parseTtl("SCTRADE_CATALOG_TTL_MS", 6 * 3600_000));
         results.push({
           source: "sc-trade",
           key: "ships",
@@ -103,7 +102,6 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
       }
       const locs = await trade.getLocations();
       if (locs) {
-        disk.set("sc-trade", "locations", locs, parseTtl("SCTRADE_CATALOG_TTL_MS", 6 * 3600_000));
         results.push({
           source: "sc-trade",
           key: "locations",
@@ -262,6 +260,34 @@ function sleep(ms: number): Promise<void> {
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshInflight: Promise<RefreshReport> | null = null;
 
+/**
+ * Run a catalog refresh with process-wide single-flight.
+ * Concurrent callers share the same promise (scheduler + HTTP + !econ refresh).
+ */
+export function runEconomyCacheRefresh(opts: RefreshOptions = {}): Promise<RefreshReport> {
+  if (refreshInflight) return refreshInflight;
+  refreshInflight = refreshEconomyCatalogs(opts)
+    .catch((err) => {
+      opts.logger?.warn({ err }, "economy cache refresh failed");
+      return {
+        at: Date.now(),
+        ok: false,
+        results: [
+          {
+            source: "refresh",
+            key: "error",
+            ok: false,
+            detail: err instanceof Error ? err.message : String(err),
+          },
+        ],
+      } satisfies RefreshReport;
+    })
+    .finally(() => {
+      refreshInflight = null;
+    });
+  return refreshInflight;
+}
+
 export function startEconomyCacheScheduler(opts: {
   intervalMs?: number;
   logger?: Logger;
@@ -271,19 +297,7 @@ export function startEconomyCacheScheduler(opts: {
   const intervalMs =
     opts.intervalMs ?? (parseInt(process.env.ECONOMY_CACHE_REFRESH_MS || "", 10) || 6 * 3600_000);
   const run = () => {
-    if (refreshInflight) return;
-    refreshInflight = refreshEconomyCatalogs({ logger: opts.logger })
-      .catch((err) => {
-        opts.logger?.warn({ err }, "economy cache scheduled refresh failed");
-        return {
-          at: Date.now(),
-          ok: false,
-          results: [{ source: "scheduler", key: "error", ok: false, detail: String(err) }],
-        } satisfies RefreshReport;
-      })
-      .finally(() => {
-        refreshInflight = null;
-      });
+    void runEconomyCacheRefresh({ logger: opts.logger });
   };
   if (opts.fireImmediately !== false) {
     // Delay first warm so bot boot isn't blocked
@@ -308,12 +322,12 @@ export function formatCacheStatus(): string {
   const stats = disk.stats();
   const last = disk.get<{ at: number; results: RefreshReport["results"] }>("meta", "last-refresh");
   const lines = [
-    `Economy disk cache: ${stats.root}`,
-    `Files: ${stats.totalFiles} · ~${Math.round(stats.totalBytes / 1024)} KB`,
+    `Economy cache (sqlite): ${stats.root}`,
+    `Rows: ${stats.totalFiles} · ~${Math.round(stats.totalBytes / 1024)} KB`,
   ];
   for (const s of stats.sources) {
     if (s.files === 0) continue;
-    lines.push(`  ${s.source}: ${s.files} files (${s.fresh} fresh / ${s.stale} stale)`);
+    lines.push(`  ${s.source}: ${s.files} rows (${s.fresh} fresh / ${s.stale} stale)`);
   }
   if (last?.data?.at) {
     const ageMin = Math.round((Date.now() - last.data.at) / 60_000);

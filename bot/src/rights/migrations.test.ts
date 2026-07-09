@@ -68,6 +68,7 @@ describe("migrateRightsConfig", () => {
     expect(m.rights!.commandGroups!.admin).toContain("mute");
     expect(m.rights!.commandGroups!.admin).toContain("kick");
     expect(m.rights!.commandGroups!.admin).toContain("recording");
+    expect(m.rights!.commandGroups!.admin).toContain("workorder.clear");
     expect(m.rights!.commandGroups!.mod).toContain("mute");
     expect(m.rights!.commandGroups!.mod).toContain("kick");
   });

@@ -5,6 +5,7 @@
  * !work-items           → sum open orders into org material totals
  */
 import type Database from "better-sqlite3";
+import { boxSummary, formatScuWithBoxes } from "./boxes.js";
 import { formatMaterialName } from "./material-flags.js";
 
 export interface WorkOrderLine {
@@ -59,16 +60,60 @@ export function aggregateWorkOrders(orders: WorkOrder[]): MaterialNeed[] {
   return [...map.values()].sort((a, b) => a.material.localeCompare(b.material));
 }
 
-/** Format "64 SCU of Ti, 26 SCU of Cu, and 13 SCU of Quantainium ⚠️" */
+/** True when line unit is SCU (default). */
+function isScuUnit(unit: string | undefined): boolean {
+  const u = (unit || "SCU").trim().toLowerCase();
+  return u === "scu" || u === "";
+}
+
+/**
+ * Format "64 SCU (2×32) of Ti, 26 SCU (1×24 + 1×2) of Cu, and 13 SCU (1×8 + 1×4 + 1×1) of Quantainium ⚠️"
+ * Box breakdown from E-BOX when unit is SCU.
+ */
 export function formatMaterialList(lines: WorkOrderLine[] | MaterialNeed[]): string {
   if (lines.length === 0) return "nothing";
   const parts = lines.map((l) => {
+    const name = formatMaterialName(l.material);
+    if (isScuUnit(l.unit)) {
+      return `${formatScuWithBoxes(l.amount)} of ${name}`;
+    }
     const amt = Number.isInteger(l.amount) ? String(l.amount) : String(l.amount);
-    return `${amt} SCU of ${formatMaterialName(l.material)}`;
+    return `${amt} ${l.unit || "ea"} of ${name}`;
   });
   if (parts.length === 1) return parts[0]!;
   if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
   return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+}
+
+/** Attach box summary for API/dashboard material lines. */
+export function materialWithBoxes(line: WorkOrderLine | MaterialNeed): {
+  material: string;
+  amount: number;
+  unit: string;
+  boxes: string;
+  totalBoxes: number;
+  largestCrate: number;
+} {
+  const unit = line.unit || "SCU";
+  if (!isScuUnit(unit)) {
+    return {
+      material: line.material,
+      amount: line.amount,
+      unit,
+      boxes: "",
+      totalBoxes: 0,
+      largestCrate: 0,
+    };
+  }
+  const b = boxSummary(line.amount);
+  return {
+    material: line.material,
+    amount: line.amount,
+    unit: "SCU",
+    boxes: b.label,
+    totalBoxes: b.totalBoxes,
+    largestCrate: b.largestCrate,
+  };
 }
 
 export class WorkOrderStore {

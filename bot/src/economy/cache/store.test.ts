@@ -1,18 +1,22 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { EconomyDiskCache } from "./store.js";
+import { EconomyDiskCache, setEconomyDiskCacheForTests } from "./store.js";
 
-describe("EconomyDiskCache", () => {
+describe("EconomyDiskCache (SQLite)", () => {
   let dir: string;
   let cache: EconomyDiskCache;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "econ-cache-"));
-    cache = new EconomyDiskCache(dir);
+    dir = mkdtempSync(join(tmpdir(), "econ-sql-"));
+    cache = new EconomyDiskCache(dir); // → dir/economy-cache.db
+    setEconomyDiskCacheForTests(cache);
   });
   afterEach(() => {
+    setEconomyDiskCacheForTests(null);
+    cache.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -32,10 +36,54 @@ describe("EconomyDiskCache", () => {
     expect(cache.getFresh("sc-wiki", "item:quantainium", past)).toBeNull();
   });
 
-  it("stats counts files", () => {
+  it("stats counts rows", () => {
     cache.set("sc-trade", "ships", [{ name: "Freelancer" }], 60_000);
     const s = cache.stats();
+    expect(s.backend).toBe("sqlite");
     expect(s.totalFiles).toBeGreaterThanOrEqual(1);
     expect(s.sources.some((x) => x.source === "sc-trade" && x.files >= 1)).toBe(true);
+  });
+
+  it("shares table when constructed with open Database", () => {
+    const db = new Database(":memory:");
+    const a = new EconomyDiskCache(db);
+    a.set("meta", "k", { v: 1 }, 60_000);
+    const b = new EconomyDiskCache(db);
+    expect(b.getFresh<{ v: number }>("meta", "k")?.v).toBe(1);
+    a.close(); // does not close shared db
+    b.close();
+    db.close();
+  });
+
+  it("migrates legacy JSON files from directory", () => {
+    const legacy = mkdtempSync(join(tmpdir(), "econ-json-"));
+    try {
+      const sdir = join(legacy, "uex");
+      mkdirSync(sdir, { recursive: true });
+      const now = Date.now();
+      writeFileSync(
+        join(sdir, "commodities.json"),
+        JSON.stringify({
+          source: "uex",
+          key: "commodities",
+          fetchedAt: now,
+          expiresAt: now + 3600_000,
+          data: [{ name: "Agricium", code: "AGRI" }],
+        }),
+      );
+      const n = cache.migrateLegacyJsonDir(legacy);
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(cache.getFresh<{ name: string }[]>("uex", "commodities")?.[0]?.name).toBe("Agricium");
+    } finally {
+      rmSync(legacy, { recursive: true, force: true });
+    }
+  });
+
+  it("delete and clear", () => {
+    cache.set("meta", "a", 1, 60_000);
+    cache.set("meta", "b", 2, 60_000);
+    expect(cache.delete("meta", "a")).toBe(true);
+    expect(cache.get("meta", "a")).toBeNull();
+    expect(cache.clear("meta")).toBe(1);
   });
 });
