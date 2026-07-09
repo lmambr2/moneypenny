@@ -713,8 +713,12 @@
                 v-model="editedRadioProfile.bumperTone"
                 class="input radio-profile-textarea"
                 rows="3"
-                placeholder="warm late-night host"
+                placeholder="Miss Moneypenny: dry poised British secretary wit, mock-formal teasing, brief"
               />
+              <p class="profile-toggle-hint" style="margin:4px 0 0">
+                Hint for doctrine/memory rewrites. Defaults match the chat persona (dry British MI6
+                secretary). Leave blank for a plain announcer voice.
+              </p>
             </div>
           </div>
 

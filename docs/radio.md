@@ -49,7 +49,7 @@ at random when that source wins a break.
 | Field | Role |
 |---|---|
 | **topics** | RAG / org-KG query strings (e.g. `refinery yields`, `combat doctrine`) |
-| **tone** | Optional style hint for the LLM rewrite (e.g. `warm late-night host`) |
+| **tone** | Optional style hint for the LLM rewrite. Defaults match **Miss Moneypenny** (dry British MI6-secretary wit). e.g. lobby: poised teasing; combat: clipped composure under pressure |
 | **sourceWeights** | Optional bias within the diversity cycle (§ above) |
 
 **Pipeline (doctrine / memory):** pick topic → retrieve (floored RAG or org KG) →
@@ -399,10 +399,13 @@ theming.
     // Free-text RAG/KG queries (not an enum). Blank → doctrine skips; memory uses a default.
     "topics": ["refinery yields","ore types","quantanium handling","Aaron Halo"],
     "sourceWeights": { "prerecorded": 3, "doctrine": 5, "nowPlaying": 2, "stationId": 1 },
-    "tone": "calm logistics dispatcher"
+    "tone": "Miss Moneypenny: dry British composure, calm mock-formal briefing manner, brief and sharp"
   }
 }
 ```
+
+Starter **tones** mirror the chat persona (`DEFAULT_SYSTEM_PROMPT` in `bot/src/llm/tools.ts`):
+dry, poised British secretary wit — mock-formal, teasing, brief, never crude.
 
 | Profile field | Purpose |
 |---|---|

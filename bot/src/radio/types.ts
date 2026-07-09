@@ -123,7 +123,11 @@ export function defaultRadioConfig(): RadioConfig {
       lobby: {
         name: "lobby",
         music: { seedQueries: ["chill", "ambient"], shuffle: true },
-        bumper: { topics: ["station", "welcome"] },
+        bumper: {
+          topics: ["station", "welcome"],
+          // Align with DEFAULT_SYSTEM_PROMPT (Miss Moneypenny persona).
+          tone: "Miss Moneypenny: dry poised British secretary wit, mock-formal teasing, brief and elegant, never crude",
+        },
       },
       focus: {
         name: "focus",
@@ -132,7 +136,21 @@ export function defaultRadioConfig(): RadioConfig {
           seedQueries: ["focus", "ambient"],
           shuffle: true,
         },
-        bumper: { topics: ["ops", "briefing"] },
+        bumper: {
+          topics: ["ops", "briefing"],
+          tone: "Miss Moneypenny: dry British composure, calm mock-formal briefing manner, brief and sharp",
+        },
+      },
+      combat: {
+        name: "combat",
+        music: {
+          seedQueries: ["combat music", "epic battle", "drum and bass"],
+          shuffle: true,
+        },
+        bumper: {
+          topics: ["combat doctrine"],
+          tone: "Miss Moneypenny under pressure: dry British composure, clipped mock-formal urgency, still arch, never shouty",
+        },
       },
     },
     ratingWeight: { enabled: true, exponent: 1, maxRatio: 3 },
