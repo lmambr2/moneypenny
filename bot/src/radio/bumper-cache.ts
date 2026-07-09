@@ -144,9 +144,10 @@ export class BumperCache {
    * change so station IDs and time checks re-synthesize in the new voice.
    */
   clearAll(): { removed: number } {
-    const rows = this.db
-      .prepare(`SELECT hash, path FROM bumper_cache`)
-      .all() as { hash: string; path: string }[];
+    const rows = this.db.prepare(`SELECT hash, path FROM bumper_cache`).all() as {
+      hash: string;
+      path: string;
+    }[];
     for (const e of rows) this.remove(e.hash, e.path);
     this.logger?.info({ removed: rows.length }, "bumper cache: cleared all entries");
     return { removed: rows.length };
