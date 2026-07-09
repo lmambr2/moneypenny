@@ -30,6 +30,8 @@ switch live with the active-profile dropdown or `!radio ops <name>`.
 
 - Enable radio, **every N songs** (N=3 → bumper on the **4th** track boundary),
   dead-air, bumper length, speech volume floor, profile picker
+- **Op-context profiles** editor: seed queries, playlist refs, bumper topics/tone,
+  shuffle, **ACE-Step if empty** (per profile)
 - **Rating-weighted rotation** / **harmonic sequencing** / **analyzer on ingest**
 - **Music color / quality** (clean · AM · FM · telephone · vinyl · lofi)
 - **Bumper sources:** prerecorded · stationId · timeCheck · nowPlaying · doctrine · memory
@@ -37,6 +39,38 @@ switch live with the active-profile dropdown or `!radio ops <name>`.
 - **Refresh status** · **Test bumper now** (forced — idle now, else next skip/end/dead air) ·
   **Pre-generate bumpers** (+ doctrine) — TTS cache warm
 - Hover labels for native browser tooltips
+
+### Bumper topics (per profile)
+
+`profiles.<name>.bumper.topics` are **free-text search phrases**, not an enum.
+They only affect **generated** sources (`doctrine`, `memory`). One topic is picked
+at random when that source wins a break.
+
+| Field | Role |
+|---|---|
+| **topics** | RAG / org-KG query strings (e.g. `refinery yields`, `combat doctrine`) |
+| **tone** | Optional style hint for the LLM rewrite (e.g. `warm late-night host`) |
+| **sourceWeights** | Optional bias within the diversity cycle (§ above) |
+
+**Pipeline (doctrine / memory):** pick topic → retrieve (floored RAG or org KG) →
+LLM rewrite (tone applied, invent nothing) → length cap → TTS.
+
+**If topics are left blank:**
+
+| Source | Blank topics |
+|---|---|
+| `doctrine` | **Skips** — returns null (`nothing curated`). Cycle falls through to other sources. |
+| `memory` | Uses default query `"organization roles operations"` (still needs opt-in + hits). |
+| `prerecorded` / `stationId` / `timeCheck` / `nowPlaying` | **Ignore topics** entirely. |
+
+**Good topic examples** (must match content you actually ingested / store in org KG):
+
+- Station / org: `org announcements`, `station welcome`, `recruiting`, `events this week`
+- Ops / doctrine: `mining`, `refinery yields`, `quantanium handling`, `combat doctrine`, `Aaron Halo`, `hauling SOP`
+- Soft flavor: `safety brief`, `comms etiquette`, `lobby rules`
+
+**Force one topic without changing the profile:** `!radio bumper <topic>` (doctrine only;
+does not advance the diversity cycle). Prewarm with doctrine uses up to **8** profile topics.
 
 ### Bumper source selection (diversity cycle)
 
@@ -246,15 +280,18 @@ Reuse `SpeechSink.playSpeech` (TTS → temp file → `player.play`) and
 | `prerecorded` | a **bumper-tagged** local asset (§9.2), optionally filtered by `bumperKind`/op scope | upload only | **Highest** — already audio, zero gen latency, zero injection risk. Default + fallback. |
 | `stationId` / `timeCheck` | canned text → TTS | TTS | High. Always available. |
 | `nowPlaying` | queue/history → short script | TTS | High. "That was X, up next Y." |
-| `doctrine` | `RetrievalStore.query(topic)` → LLM rewrite | RAG + LLM | Floored (§6.3). |
-| `memory` | org-scoped MemPalace → LLM rewrite | MemPalace + `memoryBroadcastOptIn` | Off by default; org facts only, never private `!remember` (§6.3). |
+| `doctrine` | `RetrievalStore.query(topic)` → LLM rewrite | RAG + LLM + **≥1 profile topic** (or `!radio bumper <topic>`) | Floored (§6.3). **Blank topics → skip.** |
+| `memory` | org-scoped MemPalace → LLM rewrite | MemPalace + `memoryBroadcastOptIn` | Off by default; org facts only, never private `!remember` (§6.3). Blank topics → default query `organization roles operations`. |
+
+Topics and tone live on the **active profile** (`bumper.topics` / `bumper.tone`); see
+**Bumper topics** above and §8. They are free-text retrieval queries, not fixed modes.
 
 ### 6.2 Script generation + cap
 Generated sources: retrieved text → model with *"rewrite as a spoken bumper, under
-N words, one breath, no markdown, invent nothing"* persona prompt, **`tool_choice:
-"none"`** (a bumper can never emit an action), length-capped to
-`radio.maxBumperSeconds` (~150 wpm; default 30 s ≈ 75 words; 15 s floor). `stationId`/
-`timeCheck` skip the model.
+N words, one breath, no markdown, invent nothing"* persona prompt (optional
+`bumper.tone` appended), **`tool_choice: "none"`** (a bumper can never emit an
+action), length-capped to `radio.maxBumperSeconds` (~150 wpm; default 30 s ≈ 75
+words; 15 s floor). `stationId` / `timeCheck` / `prerecorded` skip the model.
 
 ### 6.3 Security — a bumper is a *broadcast* (load-bearing)
 Per `DESIGN` §8/§14.1 and **"the LLM proposes, the executor disposes"**, enforced in
@@ -359,13 +396,26 @@ theming.
     "relayUrl": null                              // or a live SC-radio stream URL (last resort)
   },
   "bumper": {
+    // Free-text RAG/KG queries (not an enum). Blank → doctrine skips; memory uses a default.
     "topics": ["refinery yields","ore types","quantanium handling","Aaron Halo"],
     "sourceWeights": { "prerecorded": 3, "doctrine": 5, "nowPlaying": 2, "stationId": 1 },
     "tone": "calm logistics dispatcher"
   }
 }
 ```
-Starter profiles: `combat`, `mining`, `salvage`, `hauling`, `lobby`/`idle`.
+
+| Profile field | Purpose |
+|---|---|
+| `music.seedQueries` | Local multi-hit search for auto-program (§ above); no YouTube fallback |
+| `music.playlistRefs` / `select` / `relayUrl` | Primary music pool |
+| `music.shuffle` | Shuffle programmed pool |
+| `music.aceStepAutoFill` | If true, ACE-Step when pool empty (service must be on); `false` never; omit → global `aceStepAutoFill` |
+| `bumper.topics` | Doctrine / memory retrieval phrases (see **Bumper topics**) |
+| `bumper.tone` | LLM rewrite style for doctrine / memory |
+| `bumper.sourceWeights` | Optional weights inside the diversity cycle |
+
+Starter profiles: `combat`, `mining`, `salvage`, `hauling`, `lobby`/`idle` (code
+defaults ship `lobby` + `focus`; live config is editable in Settings).
 
 **Selection precedence:** `music.select` (tag query, §9.4) + `playlistRefs`
 (expanded, §8.1) form the primary pool; `seedQueries` (local multi-hit search,

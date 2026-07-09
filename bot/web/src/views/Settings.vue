@@ -688,18 +688,25 @@
 
           <div class="form-row" style="margin:0 0 8px">
             <div class="form-group" style="flex:1">
-              <label title="Topics for doctrine / memory bumpers (RAG + LLM rewrite). One per line."
+              <label
+                title="Free-text RAG/org-KG search phrases for doctrine and memory bumpers — not a fixed list. One per line. Blank: doctrine skips; memory uses a default org query. Prerecorded/station/time/now-playing ignore topics."
                 >Bumper topics</label
               >
               <textarea
                 v-model="editedRadioProfile.bumperTopicsText"
                 class="input radio-profile-textarea"
                 rows="3"
-                placeholder="org announcements&#10;station welcome"
+                placeholder="org announcements&#10;refinery yields&#10;combat doctrine"
               />
+              <p class="profile-toggle-hint" style="margin:4px 0 0">
+                Free-text queries into your knowledge base / org KG (e.g. SOP names, locations).
+                <strong>Blank</strong> → doctrine does nothing; memory falls back to a generic org
+                query. Other bumper sources ignore this. Force one-off:
+                <code>!radio bumper &lt;topic&gt;</code>.
+              </p>
             </div>
             <div class="form-group" style="flex:1">
-              <label title="Voice/style hint for the LLM when rewriting doctrine/memory into spoken liners."
+              <label title="Voice/style hint for the LLM when rewriting doctrine/memory into spoken liners. Unused if those sources never fire."
                 >Bumper tone</label
               >
               <textarea
@@ -713,7 +720,8 @@
 
           <p class="profile-toggle-hint" style="margin:0">
             Advanced tag filters (<code>music.select</code>) and source weights stay in config if set —
-            this panel won’t wipe them. Editing seeds/topics merges on Save.
+            this panel won’t wipe them. Editing seeds/topics merges on Save. Full topic rules:
+            <code>docs/radio.md</code> → Bumper topics.
           </p>
         </template>
       </div>

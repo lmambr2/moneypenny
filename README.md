@@ -64,7 +64,7 @@ Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
 **Community & ops**
 - **Roast** — captures chat lines, AI-grades them for cringe, auto-posts a "greatest hits" reel when enough people are present; opt out + purge with `!roastout`.
 - **Rank gating** — declarative rights mapped to TS server-groups; gates typed + voice + LLM-driven commands (no escalation via natural language); rules can be **scoped to voice or chat**. Verify with `GET /api/bot/rights/debug`.
-- **Radio mode (autonomous DJ)** — off by default; every *N* songs (or dead air) she drops a short bumper: prerecorded jingle, station ID/time check, or doctrine/org tip (LLM + TTS). Scheduled bumpers need a human in-channel; **Test bumper** / `!radio bumper` force a break. Optional **music color** (AM/FM/…) and **pre-generate** TTS cache. → **[docs/radio.md](./docs/radio.md)**
+- **Radio mode (autonomous DJ)** — off by default; every *N* songs (or dead air) she drops a short bumper: prerecorded jingle, station ID/time check, or doctrine/org tip (LLM + TTS). **Profile topics** are free-text RAG/KG queries (blank → doctrine skips). Scheduled bumpers need a human in-channel; **Test bumper** / `!radio bumper [topic]` force a break. Settings edits profiles (seeds, topics, ACE-if-empty). Optional **music color** (AM/FM/…) and **pre-generate** TTS cache. → **[docs/radio.md](./docs/radio.md)** (§ Bumper topics)
 - Optional **voice loop** — **Whisper** STT (`tiny` on SBC → `large-v3` on Server) + **Piper** British TTS ([docs/voice-backends.md](./docs/voice-backends.md)); watchdog; localhost-bound web UI.
 
 All AI/community features are **off by default** — toggle them in **Settings → AI & Permissions**.
