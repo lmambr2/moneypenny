@@ -36,6 +36,21 @@ and **`focus`** in `defaultRadioConfig()`; add custom profiles before `!radio op
   **Pre-generate bumpers** (+ doctrine) — TTS cache warm
 - Hover labels for native browser tooltips
 
+### Bumper source selection (diversity cycle)
+
+Enabled sources are **not** fixed priority. Each scheduled break **and** forced
+`!radio bumper` (no topic):
+
+1. **Cycle diversity** — a source that already won (or was tried and failed) this
+   cycle is deferred until every other enabled source has been tried. Then the
+   cycle resets, re-blocking only the last winner so it cannot immediately monopolize.
+2. **Weighted order** within the fresh set (equal by default; optional
+   `profiles.<name>.bumper.sourceWeights`, e.g. `{ "prerecorded": 2, "timeCheck": 1 }`).
+3. First source that produces audio wins; failed sources still count as tried.
+
+`!radio bumper <topic>` still forces **doctrine** for that topic only (does not
+advance the diversity cycle).
+
 ### Presence gate (scheduled bumpers)
 
 Scheduled bumpers require **≥ `minPresentToBroadcast` humans** in the channel
@@ -223,7 +238,7 @@ Reuse `SpeechSink.playSpeech` (TTS → temp file → `player.play`) and
 
 ## 6. Bumper pipeline (`BumperFactory`)
 
-### 6.1 Sources (configurable, weighted per profile)
+### 6.1 Sources (configurable; diversity cycle + weighted order)
 | Source | Pull | Needs | Reliability |
 |---|---|---|---|
 | `prerecorded` | a **bumper-tagged** local asset (§9.2), optionally filtered by `bumperKind`/op scope | upload only | **Highest** — already audio, zero gen latency, zero injection risk. Default + fallback. |

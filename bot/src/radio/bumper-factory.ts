@@ -1,17 +1,22 @@
 /**
- * RadioBumperFactory — the concrete R-R1 bumper source (docs/radio.md §6.1).
- * Implements the `BumperFactory` interface the RadioDirector consumes: given a
- * slot, try its sources in priority order and return the first that yields a
- * playable file. R-R1 covers the non-LLM sources:
- *   - prerecorded : a random asset from the bumper pool (§9.2)
- *   - stationId   : a canned station identifier, TTS'd + cached
- *   - timeCheck   : a spoken time check
- *   - nowPlaying  : "that was X, up next Y" from the queue
- * `doctrine` uses floored RAG; `memory` uses **org-scoped** MemPalace KG only
- * when `radio.memoryBroadcastOptIn` is true (OQ1 — never private `!remember`).
+ * RadioBumperFactory — bumper sources for the RadioDirector (docs/radio.md §6.1).
  *
- * Never throws into the boundary path: any failure returns null and the
- * director advances the music (§14).
+ * Source selection (scheduled *and* forced `!radio bumper`):
+ *   - **Round-robin diversity:** a source that already won/tried this cycle is
+ *     deferred until every other enabled source has been tried, then the cycle resets.
+ *   - Within the "fresh" set, order is **weighted random** (equal by default;
+ *     optional `profile.bumper.sourceWeights`).
+ *   - `!radio bumper <topic>` still targets doctrine only.
+ *
+ * Sources:
+ *   - prerecorded : random asset from bumper-flagged library or `data/bumpers/`
+ *   - stationId   : canned station ID (TTS + cache)
+ *   - timeCheck   : spoken clock
+ *   - nowPlaying  : previous / next from the queue
+ *   - doctrine    : floored RAG + LLM rewrite
+ *   - memory      : org MemPalace KG when opt-in
+ *
+ * Never throws into the boundary path: any failure returns null and music advances.
  */
 import type { Logger } from "../logger.js";
 import type { BuiltBumper, BumperFactory } from "./director.js";
@@ -66,22 +71,135 @@ export interface RadioBumperFactoryDeps {
   getOrgMemory?: () => BumperOrgMemory | null;
   logger: Logger;
   now?: () => number;
+  /** Injectable RNG for tests (default Math.random). */
+  random?: () => number;
 }
 
 /** ~150 spoken wpm (§6.2): seconds → word budget. */
 const wordCap = (seconds: number): number => Math.max(20, Math.round(seconds * 2.5));
 
+/**
+ * Weighted random order of bumper sources (without replacement).
+ * Missing weights default to 1; weight ≤ 0 drops the source from the draw.
+ * With a constant rng near 0 and equal weights, order matches `candidates` input order.
+ */
+export function orderBumperSources(
+  candidates: BumperSource[],
+  weights: Partial<Record<BumperSource, number>> | undefined,
+  rng: () => number = Math.random,
+): BumperSource[] {
+  const bag = candidates
+    .map((src) => {
+      const raw = weights?.[src];
+      const w = raw == null ? 1 : Number(raw);
+      return { src, w: Number.isFinite(w) && w > 0 ? w : 0 };
+    })
+    .filter((x) => x.w > 0);
+  if (bag.length === 0) return [];
+
+  const remaining = bag.slice();
+  const out: BumperSource[] = [];
+  while (remaining.length > 0) {
+    const total = remaining.reduce((s, x) => s + x.w, 0);
+    let r = rng() * total;
+    let idx = remaining.length - 1;
+    for (let i = 0; i < remaining.length; i++) {
+      r -= remaining[i]!.w;
+      if (r <= 0) {
+        idx = i;
+        break;
+      }
+    }
+    out.push(remaining[idx]!.src);
+    remaining.splice(idx, 1);
+  }
+  return out;
+}
+
+/**
+ * Split candidates into "not yet tried this cycle" (try first) and already-tried
+ * (fallback only if every fresh source fails). When the cycle is full, reset.
+ */
+export function partitionSourcesForCycle(
+  candidates: BumperSource[],
+  usedThisCycle: ReadonlySet<BumperSource>,
+): { fresh: BumperSource[]; fallback: BumperSource[]; resetCycle: boolean } {
+  if (candidates.length === 0) return { fresh: [], fallback: [], resetCycle: false };
+  const fresh = candidates.filter((s) => !usedThisCycle.has(s));
+  if (fresh.length === 0) {
+    // Full cycle complete — everyone was tried; start over with all candidates.
+    return { fresh: candidates.slice(), fallback: [], resetCycle: true };
+  }
+  const fallback = candidates.filter((s) => usedThisCycle.has(s));
+  return { fresh, fallback, resetCycle: false };
+}
+
 export class RadioBumperFactory implements BumperFactory {
+  /** Sources already tried (success or fail) in the current diversity cycle. */
+  private usedThisCycle = new Set<BumperSource>();
+
   constructor(private deps: RadioBumperFactoryDeps) {}
 
   async build(slot: WheelSlot, floor: string[] = ["unclassified"]): Promise<BuiltBumper | null> {
     const cfg = this.deps.getConfig();
     const enabled = new Set(cfg.sources);
-    const wanted = slot.sources && slot.sources.length > 0 ? slot.sources : cfg.sources;
-    for (const src of wanted) {
-      if (!enabled.has(src)) continue; // a slot can't use a globally-disabled source
+    const wanted = (slot.sources && slot.sources.length > 0 ? slot.sources : cfg.sources).filter(
+      (s) => enabled.has(s),
+    );
+
+    // Explicit topic (e.g. !radio bumper mining) → doctrine only (does not burn cycle).
+    if (slot.topic?.trim()) {
+      const built = await this.buildOne("doctrine", floor, slot.topic.trim());
+      if (built) {
+        this.deps.logger.info(
+          { source: "doctrine", topic: slot.topic },
+          "radio: bumper source chosen",
+        );
+        return built;
+      }
+      return null;
+    }
+
+    if (wanted.length === 0) return null;
+
+    // Drop cycle entries that are no longer in the candidate list (sources toggled off).
+    for (const s of [...this.usedThisCycle]) {
+      if (!wanted.includes(s)) this.usedThisCycle.delete(s);
+    }
+
+    const profile = cfg.profiles[cfg.activeProfile];
+    const weights = profile?.bumper?.sourceWeights;
+    const rng = this.deps.random ?? Math.random;
+    const part = partitionSourcesForCycle(wanted, this.usedThisCycle);
+    if (part.resetCycle) this.usedThisCycle.clear();
+
+    const order = [
+      ...orderBumperSources(part.fresh, weights, rng),
+      ...orderBumperSources(part.fallback, weights, rng),
+    ];
+
+    for (const src of order) {
       const built = await this.buildOne(src, floor, slot.topic);
-      if (built) return built;
+      // Mark tried on success or fail so a dead source cannot monopolize the cycle.
+      this.usedThisCycle.add(src);
+      if (built) {
+        // Cycle complete: clear everyone, then re-block the winner so the next
+        // break must try other sources first before this one can win again.
+        if (wanted.every((s) => this.usedThisCycle.has(s))) {
+          this.usedThisCycle.clear();
+          this.usedThisCycle.add(src);
+        }
+        this.deps.logger.info(
+          {
+            source: src,
+            label: built.label,
+            order,
+            cycleUsed: [...this.usedThisCycle],
+          },
+          "radio: bumper source chosen",
+        );
+        return built;
+      }
     }
     return null;
   }

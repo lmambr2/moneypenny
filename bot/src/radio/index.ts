@@ -16,6 +16,8 @@ export {
 export { BumperCache, type BumperCacheEntry, type BumperCacheOptions } from "./bumper-cache.js";
 export {
   type NowPlayingInfo,
+  orderBumperSources,
+  partitionSourcesForCycle,
   RadioBumperFactory,
   type RadioBumperFactoryDeps,
 } from "./bumper-factory.js";

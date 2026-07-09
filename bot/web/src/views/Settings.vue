@@ -627,8 +627,12 @@
           </label>
         </div>
         <div class="profile-toggle-hint" style="margin-top:6px">
-          Hover each source for details. <strong>Prerecorded</strong> = files in <code>data/bumpers/</code> or Library “bumper” flags.
-          <strong>Doctrine</strong> needs RAG; <strong>Org memory</strong> needs MemPalace + opt-in (never private <code>!remember</code>).
+          Enabled sources use a <strong>diversity cycle</strong>: once a source plays (or is tried
+          and fails), it cannot win again until every other enabled source has been tried; within
+          the remaining set, order is <strong>weighted random</strong> (equal by default). Same
+          rules for <code>!radio bumper</code>. Hover each source for details.
+          <strong>Prerecorded</strong> = <code>data/bumpers/</code> or Library “bumper” flags.
+          <strong>Doctrine</strong> needs RAG; <strong>Org memory</strong> needs MemPalace + opt-in.
         </div>
       </div>
 

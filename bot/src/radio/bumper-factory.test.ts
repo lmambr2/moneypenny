@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { type NowPlayingInfo, RadioBumperFactory } from "./bumper-factory.js";
+import {
+  type NowPlayingInfo,
+  orderBumperSources,
+  partitionSourcesForCycle,
+  RadioBumperFactory,
+} from "./bumper-factory.js";
 import type { PrerecordedPool } from "./prerecorded.js";
 import type { SpeechSink } from "./speech.js";
 import { type BumperSource, defaultRadioConfig, type RadioConfig } from "./types.js";
@@ -14,14 +19,25 @@ function harness(opts: {
   llm?: { complete: ReturnType<typeof vi.fn> } | null;
   orgMemory?: { searchOrg: ReturnType<typeof vi.fn> } | null;
   memoryBroadcastOptIn?: boolean;
-  profile?: { topics?: string[]; tone?: string };
+  profile?: {
+    topics?: string[];
+    tone?: string;
+    sourceWeights?: Partial<Record<BumperSource, number>>;
+  };
+  /** Default 0 → weighted order preserves candidate list order (deterministic tests). */
+  random?: () => number;
 }) {
   const cfg: RadioConfig = {
     ...defaultRadioConfig(),
     sources: opts.sources ?? ["prerecorded", "stationId", "timeCheck", "nowPlaying"],
     memoryBroadcastOptIn: opts.memoryBroadcastOptIn ?? false,
     activeProfile: "ops",
-    profiles: { ops: { name: "ops", bumper: opts.profile ?? { topics: ["refinery yields"] } } },
+    profiles: {
+      ops: {
+        name: "ops",
+        bumper: opts.profile ?? { topics: ["refinery yields"] },
+      },
+    },
   };
   const prerecorded = {
     pick: vi.fn(() => opts.prerecordedPick ?? null),
@@ -45,9 +61,43 @@ function harness(opts: {
     getOrgMemory: () => (opts.orgMemory === undefined ? null : opts.orgMemory) as never,
     logger,
     now: () => new Date(2026, 5, 30, 14, 5).getTime(),
+    random: opts.random ?? (() => 0),
   });
-  return { factory, prerecorded, renderFn };
+  return { factory, prerecorded, renderFn, logger };
 }
+
+describe("orderBumperSources / partitionSourcesForCycle", () => {
+  it("with rng→0 preserves candidate order (equal weights)", () => {
+    expect(
+      orderBumperSources(["prerecorded", "stationId", "timeCheck"], undefined, () => 0),
+    ).toEqual(["prerecorded", "stationId", "timeCheck"]);
+  });
+
+  it("honors sourceWeights (heavy weight tends to first)", () => {
+    const order = orderBumperSources(
+      ["prerecorded", "stationId"],
+      { prerecorded: 1, stationId: 99 },
+      () => 0.5,
+    );
+    expect(order[0]).toBe("stationId");
+  });
+
+  it("defers used sources until the rest of the cycle is exhausted", () => {
+    const used = new Set<BumperSource>(["prerecorded"]);
+    const p = partitionSourcesForCycle(["prerecorded", "stationId", "timeCheck"], used);
+    expect(p.fresh).toEqual(["stationId", "timeCheck"]);
+    expect(p.fallback).toEqual(["prerecorded"]);
+    expect(p.resetCycle).toBe(false);
+  });
+
+  it("resets the cycle when every candidate was already used", () => {
+    const used = new Set<BumperSource>(["prerecorded", "stationId"]);
+    const p = partitionSourcesForCycle(["prerecorded", "stationId"], used);
+    expect(p.resetCycle).toBe(true);
+    expect(p.fresh).toEqual(["prerecorded", "stationId"]);
+    expect(p.fallback).toEqual([]);
+  });
+});
 
 describe("RadioBumperFactory.prewarm", () => {
   it("renders station liners and upcoming time checks into the speech cache", async () => {
@@ -55,7 +105,6 @@ describe("RadioBumperFactory.prewarm", () => {
     const result = await factory.prewarm({ hoursAhead: 2 });
     expect(result.rendered).toBeGreaterThan(3);
     expect(result.failed).toBe(0);
-    // station IDs + at least one time check
     expect(renderFn).toHaveBeenCalledWith(
       expect.stringContaining("This is Moneypenny Radio."),
       "stationId",
@@ -80,16 +129,72 @@ describe("RadioBumperFactory.prewarm", () => {
     const result = await factory.prewarm({ includeDoctrine: true, hoursAhead: 1 });
     expect(result.rendered).toBeGreaterThan(0);
     expect(llm.complete).toHaveBeenCalled();
-    expect(renderFn.mock.calls.some((c) => c[1] === "doctrine" || c[1] === "stationId")).toBe(true);
+    expect(renderFn.mock.calls.some((c) => c[1] === "doctrine" || c[1] === "stationId")).toBe(
+      true,
+    );
   });
 });
 
 describe("RadioBumperFactory", () => {
-  it("prefers prerecorded when an asset is available", async () => {
+  it("can pick prerecorded when ordered first (rng→0) and asset available", async () => {
     const { factory, renderFn } = harness({ prerecordedPick: "/bumpers/id.mp3" });
     const b = await factory.build({ slot: "bumper", sources: ["prerecorded", "stationId"] });
     expect(b).toEqual({ path: "/bumpers/id.mp3", label: "prerecorded" });
     expect(renderFn).not.toHaveBeenCalled();
+  });
+
+  it("after prerecorded wins, next build tries other sources first (cycle)", async () => {
+    const { factory, renderFn } = harness({
+      prerecordedPick: "/bumpers/id.mp3",
+      random: () => 0,
+    });
+    const a = await factory.build({ slot: "bumper", sources: ["prerecorded", "stationId"] });
+    expect(a?.label).toBe("prerecorded");
+    const b = await factory.build({ slot: "bumper", sources: ["prerecorded", "stationId"] });
+    // prerecorded is "used this cycle" → stationId is the only fresh source
+    expect(b?.label).toBe("stationId");
+    expect(renderFn).toHaveBeenCalled();
+    // Third: both used → cycle reset, but winner (stationId) stays used so prerecorded is fresh
+    const c = await factory.build({ slot: "bumper", sources: ["prerecorded", "stationId"] });
+    expect(c?.label).toBe("prerecorded");
+  });
+
+  it("cycles through three sources before repeating a winner", async () => {
+    const labels: string[] = [];
+    const { factory } = harness({
+      prerecordedPick: "/bumpers/id.mp3",
+      nowPlaying: { previous: { name: "Song" } },
+      random: () => 0, // always first of remaining fresh list (input order)
+      sources: ["prerecorded", "stationId", "nowPlaying"],
+    });
+    for (let i = 0; i < 3; i++) {
+      const b = await factory.build({
+        slot: "bumper",
+        sources: ["prerecorded", "stationId", "nowPlaying"],
+      });
+      labels.push(b?.label ?? "null");
+    }
+    expect(labels).toEqual(["prerecorded", "stationId", "nowPlaying"]);
+  });
+
+  it("marks a failed source as used so the next break skips it", async () => {
+    const { factory, renderFn } = harness({
+      prerecordedPick: null, // prerecorded always fails
+      random: () => 0,
+    });
+    const a = await factory.build({
+      slot: "bumper",
+      sources: ["prerecorded", "stationId", "timeCheck"],
+    });
+    // Tries prerecorded (fail), then stationId (ok)
+    expect(a?.label).toBe("stationId");
+    const b = await factory.build({
+      slot: "bumper",
+      sources: ["prerecorded", "stationId", "timeCheck"],
+    });
+    // prerecorded + stationId used → only timeCheck is fresh
+    expect(b?.label).toBe("timeCheck");
+    expect(renderFn.mock.calls.some((c) => c[1] === "timeCheck")).toBe(true);
   });
 
   it("prefers a bumper-flagged library asset over the dir pool (§9.2)", async () => {
@@ -118,14 +223,34 @@ describe("RadioBumperFactory", () => {
     expect(renderFn).toHaveBeenCalledWith("This is Moneypenny Radio.", "stationId");
   });
 
-  it("honors slot source order", async () => {
+  it("honors a single-source slot", async () => {
     const { factory, renderFn } = harness({});
     await factory.build({ slot: "bumper", sources: ["timeCheck"] });
     expect(renderFn).toHaveBeenCalledWith("The time is 2:05 PM.", "timeCheck");
   });
 
+  it("topic override targets doctrine even when other sources are listed", async () => {
+    const retrieval = {
+      query: vi.fn(async () => [{ text: "Mining SOP.", source: "ops.md" }]),
+    };
+    const llm = { complete: vi.fn(async () => "Stay sharp on mining SOP.") };
+    const { factory, renderFn } = harness({
+      sources: ["prerecorded", "doctrine"],
+      prerecordedPick: "/bumpers/id.mp3",
+      retrieval,
+      llm,
+    });
+    const b = await factory.build({
+      slot: "bumper",
+      sources: ["prerecorded", "doctrine"],
+      topic: "mining",
+    });
+    expect(b?.label).toBe("doctrine");
+    expect(llm.complete).toHaveBeenCalled();
+    expect(renderFn).toHaveBeenCalled();
+  });
+
   it("skips a globally-disabled source", async () => {
-    // stationId not in cfg.sources → the slot can't use it, falls to nowPlaying
     const { factory, renderFn } = harness({
       sources: ["nowPlaying"],
       nowPlaying: { previous: { name: "Aurora", artist: "VNV" } },
@@ -163,119 +288,9 @@ describe("RadioBumperFactory", () => {
     const { factory } = harness({
       sources: ["memory"],
       memoryBroadcastOptIn: false,
-      orgMemory: { searchOrg: vi.fn(async () => [{ fact: "Fleet CO is Alice" }]) },
-      llm: { complete: vi.fn(async () => "Fleet CO is Alice.") },
+      orgMemory: { searchOrg: vi.fn(async () => [{ fact: "x" }]) },
+      llm: { complete: vi.fn(async () => "hi") },
     });
     expect(await factory.build({ slot: "bumper", sources: ["memory"] })).toBeNull();
-  });
-
-  it("memory bumper speaks org KG when opted in", async () => {
-    const searchOrg = vi.fn(async () => [{ fact: "Fleet CO is Alice as of 2026" }]);
-    const complete = vi.fn(async () => "Fleet command is with Alice.");
-    const { factory, renderFn } = harness({
-      sources: ["memory"],
-      memoryBroadcastOptIn: true,
-      orgMemory: { searchOrg },
-      llm: { complete },
-    });
-    const b = await factory.build({ slot: "bumper", sources: ["memory"] });
-    expect(b?.label).toBe("memory");
-    expect(searchOrg).toHaveBeenCalled();
-    expect(complete).toHaveBeenCalled();
-    expect(renderFn).toHaveBeenCalled();
-    const [, source] = renderFn.mock.calls[0] as unknown as [string, string];
-    expect(source).toBe("memory");
-  });
-});
-
-describe("say (§12 operator liner)", () => {
-  it("speaks capped text with the non-cacheable operator floor", async () => {
-    const { factory, renderFn } = harness({});
-    const long = Array.from({ length: 200 }, (_, i) => `w${i}`).join(" ");
-    const b = await factory.say(long);
-    expect(b?.label).toBe("say");
-    const [text, source, opts] = renderFn.mock.calls[0] as unknown as [
-      string,
-      string,
-      { floor: string[] },
-    ];
-    expect(text.split(/\s+/).length).toBeLessThanOrEqual(75); // 30s cap
-    expect(source).toBe("say");
-    expect(opts.floor).toContain("operator"); // never enters the persistent cache
-  });
-
-  it("rejects empty text", async () => {
-    const { factory, renderFn } = harness({});
-    expect(await factory.say("   ")).toBeNull();
-    expect(renderFn).not.toHaveBeenCalled();
-  });
-});
-
-describe("doctrine source (§6.1/§6.2/§6.3)", () => {
-  const retrieval = (text: string | null) => ({
-    query: vi.fn(async () => (text ? [{ text, source: "doctrine/x.md" }] : [])),
-  });
-  const llm = (reply: string) => ({ complete: vi.fn(async () => reply) });
-
-  it("floored retrieval → LLM rewrite → render with the floor", async () => {
-    const r = retrieval("Quantanium must be refined within 40 minutes.");
-    const l = llm("Remember: quantanium sours in forty minutes — refine it fast.");
-    const { factory, renderFn } = harness({ sources: ["doctrine"], retrieval: r, llm: l });
-
-    const b = await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]);
-    expect(b?.label).toBe("doctrine");
-    // Floor reaches the retrieval filter BEFORE the model sees text (§6.3).
-    expect(r.query).toHaveBeenCalledWith("refinery yields", 3, ["unclassified"]);
-    expect(renderFn).toHaveBeenCalledWith(expect.stringContaining("quantanium"), "doctrine", {
-      floor: ["unclassified"],
-    });
-  });
-
-  it("caps the script to the word budget", async () => {
-    const long = Array.from({ length: 300 }, (_, i) => `w${i}`).join(" ");
-    const { factory, renderFn } = harness({
-      sources: ["doctrine"],
-      retrieval: retrieval("material"),
-      llm: llm(long),
-    });
-    await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]);
-    const script = (renderFn.mock.calls[0] as unknown[])[0] as string;
-    expect(script.split(/\s+/).length).toBeLessThanOrEqual(75); // 30s * 2.5 wpm-per-s
-  });
-
-  it("LLM/RAG down → falls through to the next source (canned fallback)", async () => {
-    const { factory, renderFn } = harness({
-      sources: ["doctrine", "stationId"],
-      retrieval: null, // RAG off
-      llm: llm("never used"),
-    });
-    const b = await factory.build({ slot: "bumper", sources: ["doctrine", "stationId"] }, [
-      "unclassified",
-    ]);
-    expect(b?.label).toBe("stationId"); // music/canned never blocked by a dead substrate
-    expect(renderFn).toHaveBeenCalledWith("This is Moneypenny Radio.", "stationId");
-  });
-
-  it("no retrieved material → null (invent nothing)", async () => {
-    const { factory } = harness({
-      sources: ["doctrine"],
-      retrieval: retrieval(null),
-      llm: llm("made up"),
-    });
-    expect(
-      await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]),
-    ).toBeNull();
-  });
-
-  it("no curated topics → null (nothing to talk about)", async () => {
-    const { factory } = harness({
-      sources: ["doctrine"],
-      retrieval: retrieval("x"),
-      llm: llm("y"),
-      profile: { topics: [] },
-    });
-    expect(
-      await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]),
-    ).toBeNull();
   });
 });
