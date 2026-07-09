@@ -23,6 +23,25 @@ tracks as a library fill / `!radio gen` — design sketch [ace-step.md](./ace-st
 **Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
 and **`focus`** ship in `defaultRadioConfig()`; add custom profiles in config or
 via Settings before `!radio ops` can switch to them.
+
+### Dashboard (Settings → Radio / DJ)
+
+- Enable radio, N / dead-air / bumper length / speech floor, profile picker
+- **Bumper sources** checkboxes: prerecorded · stationId · timeCheck · nowPlaying · doctrine · memory
+- **Org memory on air** (`memoryBroadcastOptIn`) — KG/diary only; never private `!remember`
+- Test bumper + status buttons
+
+### Operator smoke
+
+```text
+# Settings: Radio on + TTS (Piper) + at least prerecorded/stationId/timeCheck
+!radio on
+!radio status
+!radio bumper
+!radio say This is Moneypenny Radio
+!radio ops lobby
+!radio skip
+```
 **Note:** command registration now goes through the single `COMMAND_MANIFEST`
 (`bot/src/bot/commands.ts`); the multi-list registration described against
 older revisions no longer exists.

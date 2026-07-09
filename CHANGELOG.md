@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Radio / DJ Settings: sources + org memory on air
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Bumper source checkboxes + `memoryBroadcastOptIn` in Settings
+- Persist via existing radio API validation
+- `docs/radio.md` smoke + dashboard notes
+
 ### Voice polish (under music)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

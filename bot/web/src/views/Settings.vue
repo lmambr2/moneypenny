@@ -543,6 +543,31 @@
         </div>
       </div>
 
+      <div v-if="ai.radioEnabled" class="form-group" style="margin: 0 0 10px">
+        <label>Bumper sources</label>
+        <div class="form-row" style="flex-wrap:wrap;gap:10px 16px">
+          <label v-for="src in RADIO_SOURCE_OPTIONS" :key="src.id" class="profile-toggle" style="margin:0;flex:0 0 auto">
+            <span>{{ src.label }}</span>
+            <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioSources[src.id]" />
+          </label>
+        </div>
+        <div class="profile-toggle-hint" style="margin-top:6px">
+          Tried in priority order for each bumper slot. <strong>Doctrine</strong> needs RAG;
+          <strong>Org memory</strong> needs MemPalace + the opt-in below (never private <code>!remember</code>).
+        </div>
+      </div>
+
+      <label v-if="ai.radioEnabled" class="profile-toggle" style="margin: 0 0 10px">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">Org memory on air</div>
+          <div class="profile-toggle-hint">
+            Allow the <code>memory</code> bumper source to speak <strong>org knowledge graph</strong> facts
+            (<code>!kg</code> / <code>!diary</code>). Off by default. Private per-user memory is never broadcast.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioMemoryBroadcastOptIn" />
+      </label>
+
       <div v-if="ai.radioEnabled" class="llm-status-card" style="margin-bottom:12px">
         <button type="button" class="btn-sm" :disabled="radioPanel.busy" @click="refreshRadioStatus">
           {{ radioPanel.busy ? 'Checking…' : 'Refresh radio status' }}
@@ -1310,7 +1335,25 @@ const ai = reactive({
   radioProfileNames: ['lobby', 'focus'] as string[],
   radioRatingWeight: true,
   radioAnalyzerEnabled: false,
+  radioMemoryBroadcastOptIn: false,
+  radioSources: {
+    prerecorded: true,
+    stationId: true,
+    timeCheck: true,
+    nowPlaying: true,
+    doctrine: false,
+    memory: false,
+  } as Record<string, boolean>,
 });
+
+const RADIO_SOURCE_OPTIONS = [
+  { id: 'prerecorded', label: 'Prerecorded' },
+  { id: 'stationId', label: 'Station ID' },
+  { id: 'timeCheck', label: 'Time check' },
+  { id: 'nowPlaying', label: 'Now playing' },
+  { id: 'doctrine', label: 'Doctrine (RAG)' },
+  { id: 'memory', label: 'Org memory' },
+] as const;
 const radioPanel = reactive({
   busy: false,
   testing: false,
@@ -1440,6 +1483,14 @@ async function loadAiSettings() {
       : ['lobby', 'focus'];
     ai.radioRatingWeight = radio.ratingWeight?.enabled !== false;
     ai.radioAnalyzerEnabled = !!radio.analyzer?.enabled;
+    ai.radioMemoryBroadcastOptIn = !!radio.memoryBroadcastOptIn;
+    const srcSet = new Set(Array.isArray(radio.sources) ? radio.sources : []);
+    for (const opt of RADIO_SOURCE_OPTIONS) {
+      ai.radioSources[opt.id] =
+        srcSet.size === 0
+          ? ['prerecorded', 'stationId', 'timeCheck', 'nowPlaying'].includes(opt.id)
+          : srcSet.has(opt.id);
+    }
   } catch (e) { console.error('Settings load/save failed', e); }
   if (ai.llmEnabled) refreshLlmStatus();
   if (ai.ragEnabled) refreshRagStatus();
@@ -1876,6 +1927,8 @@ async function saveAiSettings() {
         activeProfile: ai.radioActiveProfile,
         ratingWeight: { enabled: ai.radioRatingWeight, exponent: 1, maxRatio: 3 },
         analyzer: { enabled: ai.radioAnalyzerEnabled, tool: 'keyfinder', onIngest: ai.radioAnalyzerEnabled },
+        memoryBroadcastOptIn: ai.radioMemoryBroadcastOptIn,
+        sources: RADIO_SOURCE_OPTIONS.filter((s) => ai.radioSources[s.id]).map((s) => s.id),
       },
     });
     aiSuccess.value = 'Saved. Applied to running bots.';
