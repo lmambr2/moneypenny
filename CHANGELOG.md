@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Voice polish (under music)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Settings: duck volume + listen window (seconds); Piper placeholders
+- Quiet “duck skipped when idle” logs (debug only)
+- `docs/voice.md` under-music tips for base NPU
+
 ### Phase 8 roast polish
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

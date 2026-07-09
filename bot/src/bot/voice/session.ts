@@ -1162,7 +1162,8 @@ export class VoiceSession {
   private ensureMusicDuckedOnWake(clientId: number): void {
     if (!this.duckMusicOnSpeech) return;
     if (this.deps.player.getState() !== "playing") {
-      this.deps.logger.info(
+      // Idle channel is common — do not spam info logs on every wake.
+      this.deps.logger.debug(
         { clientId, state: this.deps.player.getState() },
         "Voice: wake duck skipped — player not playing",
       );

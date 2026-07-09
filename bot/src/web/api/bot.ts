@@ -209,6 +209,26 @@ export function createBotRouter(
         res.status(400).json({ error: "voice.duckMusicOnSpeech must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
+      if ("duckMusicVolume" in patch) {
+        const v = patch.duckMusicVolume;
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 100) {
+          res.status(400).json({
+            error: "voice.duckMusicVolume must be a number 0–100",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+      }
+      if ("listenWindowMs" in patch) {
+        const v = patch.listenWindowMs;
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 5000 || v > 60_000) {
+          res.status(400).json({
+            error: "voice.listenWindowMs must be 5000–60000",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+      }
       if ("energyThreshold" in patch && typeof patch.energyThreshold !== "number") {
         res.status(400).json({ error: "voice.energyThreshold must be a number", code: "VALIDATION_ERROR" });
         return;

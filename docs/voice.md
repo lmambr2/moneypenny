@@ -84,7 +84,15 @@ For a planned listen-only delegate bot (Intercom), see [`docs/intercom.md`](./in
 - **Ducking:** `AudioPlayer.duckForStt()` / `restoreFromSttDuck()` — volume attenuation
   during STT capture (not hard-pause). TTS replies still use save-position → speak → resume.
 
+## Under-music tips (SBC)
+
+- Product STT: **Whisper base on NPU** (`STT_MODEL=base`, `STT_BACKEND=rknn`).
+- Keep **Duck music while listening** on; set duck volume low (default 2).
+- **Listen window** ≥ 15s so “Moneypenny” … “pause” works without re-saying the watchword.
+- Prefer short transport verbs: pause / skip / clear / next (no synonym maps).
+- Memory / roast: “Moneypenny, remember I like jazz” · “Moneypenny, roast”.
+
 ## Remaining / hardware
 
-- Live TS6 round-trip latency on RK3588 with the `voice` profile.
-- STT/TTS sidecar tuning on the Pi (enable `voice` profile, Settings → Voice → **Test**).
+- Live TS6 round-trip latency on RK3588 with `voice-edge`.
+- STT/TTS sidecar tuning on the Pi (Settings → Voice → **Test**).

@@ -779,16 +779,28 @@
           <input v-model="ai.voiceSttUrl" class="input" placeholder="http://sherpa-stt:9000" />
         </div>
         <div class="form-group">
-          <label>TTS URL (Kokoro)</label>
-          <input v-model="ai.voiceTtsUrl" class="input" placeholder="http://kokoro:8880" />
+          <label>TTS URL (Piper)</label>
+          <input v-model="ai.voiceTtsUrl" class="input" placeholder="http://piper-tts:8880" />
         </div>
         <div class="form-group">
           <label>TTS voice</label>
-          <input v-model="ai.voiceTtsVoice" class="input" placeholder="bf_emma" />
+          <input v-model="ai.voiceTtsVoice" class="input" placeholder="en_GB-southern_english_female-low" />
         </div>
         <div class="form-group">
           <label>Watchword</label>
           <input v-model="ai.voiceWatchword" class="input" placeholder="moneypenny" />
+        </div>
+      </div>
+      <div v-if="ai.voiceEnabled" class="form-row" style="margin: 4px 0 8px">
+        <div class="form-group">
+          <label>Duck volume (0–100)</label>
+          <input v-model.number="ai.voiceDuckMusicVolume" type="number" min="0" max="100" class="input" />
+          <div class="profile-toggle-hint">Music level while listening (default 2). Only while music is playing.</div>
+        </div>
+        <div class="form-group">
+          <label>Listen window (seconds)</label>
+          <input v-model.number="ai.voiceListenWindowSec" type="number" min="5" max="60" class="input" />
+          <div class="profile-toggle-hint">After “Moneypenny”, accept bare follow-ups (pause/skip…) without repeating the watchword. Min 15s recommended with music.</div>
         </div>
       </div>
       <label v-if="ai.voiceEnabled" class="profile-toggle" style="margin-top: 4px">
@@ -801,7 +813,7 @@
       <label v-if="ai.voiceEnabled" class="profile-toggle" style="margin-top: 4px">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">Duck music while listening</div>
-          <div class="profile-toggle-hint">Pauses bot playback when you speak so channel audio does not drown out STT.</div>
+          <div class="profile-toggle-hint">Lowers bot music volume (does not hard-pause) so STT can hear you. Restore is immediate after the listen window or a command.</div>
         </div>
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.voiceDuckMusicOnSpeech" />
       </label>
@@ -847,7 +859,7 @@
         <p v-if="voicePanel.error" class="user-error">{{ voicePanel.error }}</p>
         <p class="profile-toggle-hint">
           Smoke test routes a transcript through the control router (no Opus capture). Save settings first — needs an active bot connection.
-          Dev STT: <code>docker compose --profile voice up -d</code> then <code>http://sherpa-stt:9000</code> (mock: <code>--profile voice-dev</code> on port 9001).
+          STT: <code>http://stt-whisper:9000</code> (SBC: profile <code>voice-edge</code> / Whisper base NPU; Server: <code>voice-server</code>). TTS: Piper. Mock: <code>voice-dev</code> on :9001.
         </p>
       </div>
 
@@ -1286,6 +1298,8 @@ const ai = reactive({
   voiceWatchword: 'moneypenny',
   voiceRequireWatchword: true,
   voiceDuckMusicOnSpeech: true,
+  voiceDuckMusicVolume: 2,
+  voiceListenWindowSec: 15,
   voiceRespondWithVoice: true,
   radioEnabled: false,
   radioEveryNSongs: 4,
@@ -1408,6 +1422,11 @@ async function loadAiSettings() {
     ai.voiceWatchword = voice.watchword ?? 'moneypenny';
     ai.voiceRequireWatchword = voice.requireWatchword !== false;
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
+    ai.voiceDuckMusicVolume = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 2;
+    ai.voiceListenWindowSec = Math.max(
+      5,
+      Math.round((typeof voice.listenWindowMs === 'number' ? voice.listenWindowMs : 15000) / 1000),
+    );
     ai.voiceRespondWithVoice = voice.respondWithVoice !== false;
     const radio = res.data.radio ?? {};
     ai.radioEnabled = !!radio.enabled;
@@ -1845,6 +1864,8 @@ async function saveAiSettings() {
         watchword: ai.voiceWatchword.trim() || 'moneypenny',
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
+        duckMusicVolume: Math.max(0, Math.min(100, Number(ai.voiceDuckMusicVolume) || 2)),
+        listenWindowMs: Math.max(5000, Math.min(60_000, (Number(ai.voiceListenWindowSec) || 15) * 1000)),
       },
       radio: {
         enabled: ai.radioEnabled,
