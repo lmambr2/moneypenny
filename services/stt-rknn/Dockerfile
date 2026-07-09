@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY server.py /app/server.py
+COPY server.py rknn_whisper_infer.py /app/
 COPY README.md /app/README.md
 
 # faster-whisper always (fallback). rknnlite is optional — install on aarch64 when available.

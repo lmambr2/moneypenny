@@ -85,58 +85,46 @@ def _find_rknn_pair() -> tuple[Path, Path]:
 
 
 class RknnWhisper:
-    """Minimal RKNN Whisper runner.
-
-    Full encoder/decoder mel pipeline is model-zoo specific. This class loads
-    RKNNLite modules when present; if the runtime or graphs are incomplete it
-    raises so the service can fall back to faster-whisper.
-    """
+    """Zoo-compatible RKNN Whisper (20s tiny/base exports)."""
 
     def __init__(self, encoder: Path, decoder: Path):
         try:
-            from rknnlite.api import RKNNLite  # type: ignore
+            from rknn_whisper_infer import ZooRknnWhisper  # type: ignore
+        except ImportError:
+            from .rknn_whisper_infer import ZooRknnWhisper  # type: ignore
+        except Exception:
+            # plain import next to server.py in container
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                "rknn_whisper_infer",
+                Path(__file__).resolve().parent / "rknn_whisper_infer.py",
+            )
+            if spec is None or spec.loader is None:
+                raise RknnWhisperNotReady("rknn_whisper_infer.py missing")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            ZooRknnWhisper = mod.ZooRknnWhisper
+
+        try:
+            from rknnlite.api import RKNNLite  # noqa: F401
         except ImportError as e:
             raise RknnWhisperNotReady(
-                "rknnlite not installed — build services/stt-rknn on aarch64 "
-                "with Rockchip rknn-toolkit-lite2"
+                "rknnlite not installed — need rknn-toolkit-lite2 on aarch64"
             ) from e
-        self._RKNNLite = RKNNLite
-        self.enc_path = encoder
-        self.dec_path = decoder
-        self.encoder = RKNNLite()
-        self.decoder = RKNNLite()
-        ret = self.encoder.load_rknn(str(encoder))
-        if ret != 0:
-            raise RknnWhisperNotReady(f"encoder load_rknn failed: {ret}")
-        ret = self.decoder.load_rknn(str(decoder))
-        if ret != 0:
-            raise RknnWhisperNotReady(f"decoder load_rknn failed: {ret}")
-        # core_mask: NPU cores — try all three on RK3588
-        core = getattr(RKNNLite, "NPU_CORE_0_1_2", 0)
-        ret = self.encoder.init_runtime(core_mask=core)
-        if ret != 0:
-            ret = self.encoder.init_runtime()
-        if ret != 0:
-            raise RknnWhisperNotReady(f"encoder init_runtime failed: {ret}")
-        ret = self.decoder.init_runtime(core_mask=core)
-        if ret != 0:
-            ret = self.decoder.init_runtime()
-        if ret != 0:
-            raise RknnWhisperNotReady(f"decoder init_runtime failed: {ret}")
-        print(f"[stt-rknn] loaded encoder={encoder} decoder={decoder}", flush=True)
+
+        root = encoder.parent
+        vocab = root / "vocab_en.txt"
+        mels = root / "mel_80_filters.txt"
+        if not vocab.is_file() or not mels.is_file():
+            raise RknnWhisperNotReady(
+                f"Need vocab_en.txt + mel_80_filters.txt next to weights in {root}"
+            )
+        self._impl = ZooRknnWhisper(encoder, decoder, vocab, mels)
+        print(f"[stt-rknn] NPU Whisper ready enc={encoder.name} dec={decoder.name}", flush=True)
 
     def transcribe(self, audio, sample_rate: int) -> str:
-        """
-        Placeholder for full mel→encoder→decoder loop.
-
-        Rockchip zoo demos own the exact I/O tensors. Until a zoo-compatible
-        pipeline is wired here, we refuse so fallback can run.
-        """
-        raise RknnWhisperNotReady(
-            "RKNN runtime loaded but mel/encoder/decoder pipeline not fully "
-            "wired for this export yet — using STT_FALLBACK. See "
-            "services/stt-rknn/README.md (Rockchip whisper model zoo)."
-        )
+        return self._impl.transcribe(audio, sample_rate)
 
 
 def get_model():

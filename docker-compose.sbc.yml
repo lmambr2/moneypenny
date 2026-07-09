@@ -49,7 +49,9 @@ services:
       # On-chip SRAM for RKNN runtime (host/driver must support; see Rockchip doc)
       - RKNN_INTERNAL_MEM_TYPE=${RKNN_INTERNAL_MEM_TYPE:-sram}
       - RKNN_WEIGHT_MEM_TYPE=${RKNN_WEIGHT_MEM_TYPE:-}
-    # NPU device nodes (RK3588 DRM) — ignore if missing on non-Pi hosts
+    # NPU: DRM + device-tree + librknnrt. privileged required for rknnlite
+    # container checks (same pattern as rkllama / Rockchip demos).
+    privileged: true
     devices:
       - /dev/dri:/dev/dri
     group_add:
@@ -57,6 +59,8 @@ services:
     volumes:
       - whisper-models:/models
       - whisper-fw-cache:/root/.cache
+      - /usr/lib/librknnrt.so:/usr/lib/librknnrt.so:ro
+      - /proc/device-tree/compatible:/proc/device-tree/compatible:ro
 
   piper-tts:
     environment:

@@ -4,9 +4,13 @@ Place Rockchip **encoder + decoder** `.rknn` pairs here (mounted as
 `/models/rknn` in `stt-rknn`):
 
 ```text
-whisper-tiny-encoder.rknn
+whisper-tiny-encoder.rknn   # RK3588 FP export (openai whisper tiny, 20s)
 whisper-tiny-decoder.rknn
+vocab_en.txt
+mel_80_filters.txt
 ```
+
+Built on workstation via `models/convert/export-whisper-rknn.sh` (rknn-toolkit2).
 
 ## Export
 

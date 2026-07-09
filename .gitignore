@@ -19,15 +19,21 @@ build/
 
 # Models (large binaries — never commit weights)
 models/**/*.rkllm
+models/**/*.rknn
 models/**/*.onnx
 models/**/*.bin
 models/**/*.gguf
 models/**/*.safetensors
 models/convert/hf/
 models/convert/.venv/
+models/convert/.venv-rknn2/
+models/convert/vendor/
 models/npu-llm/**
 !models/**/README.md
 !models/**/Modelfile
+# Allow small RKNN companion text assets
+!models/rknn/vocab_en.txt
+!models/rknn/mel_80_filters.txt
 
 # Logs & runtime
 *.log

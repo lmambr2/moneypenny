@@ -22,6 +22,8 @@ assistant** authored each batch of work, since not every commit carries a
   both-resident-ok), `scripts/download-whisper-ggml.sh`
 - Pi smoke: dual-track voice live (CPU tiny fallback), LAN chat → `.89:11434`
   12B, Piper TTS, sherpa/Kokoro stopped
+- **RKNN Whisper tiny built** (20s FP export) + zoo mel/decoder path on Pi NPU;
+  live ASR smoke: *“Mr. Quilter is the apostle…”* on `test_en.wav`
 
 ### Dual editions — SBC + Server product packaging
 **Author: Grok (xAI), driven by Lane Ambrose.**
