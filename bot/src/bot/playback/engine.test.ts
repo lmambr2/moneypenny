@@ -121,4 +121,25 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
     expect(play).not.toHaveBeenCalled();
     expect(streamGetUrl).toHaveBeenCalled();
   });
+
+  it("resolveAndPlay skips YouTube full-album titles", async () => {
+    const getSongUrl = vi.fn().mockResolvedValue("https://example.com/audio.ogg");
+    (engine as any).opts.youtubeProvider.getSongUrl = getSongUrl;
+    const queue = (engine as any).opts.queue as PlayQueue;
+    queue.clear();
+    queue.add({
+      id: "dQw4w9WgXcQ",
+      name: "Artist - Greatest Hits (Full Album)",
+      artist: "Artist",
+      album: "YouTube",
+      duration: 7200,
+      coverUrl: "",
+      platform: "youtube",
+    });
+    queue.play();
+    const ok = await engine.resolveAndPlay(queue.current()!);
+    expect(ok).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+    expect(getSongUrl).not.toHaveBeenCalled();
+  });
 });

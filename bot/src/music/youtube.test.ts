@@ -1,6 +1,28 @@
 import { execSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL, YouTubeProvider } from "./youtube.js";
+import {
+  DEFAULT_DEMO_VIDEO_ID,
+  DEFAULT_DEMO_VIDEO_URL,
+  isYoutubeFullAlbumTitle,
+  YouTubeProvider,
+} from "./youtube.js";
+
+describe("isYoutubeFullAlbumTitle", () => {
+  it("blocks full album dumps (case / punctuation variants)", () => {
+    expect(isYoutubeFullAlbumTitle("Artist - Album Name (Full Album)")).toBe(true);
+    expect(isYoutubeFullAlbumTitle("FULL ALBUM STREAM")).toBe(true);
+    expect(isYoutubeFullAlbumTitle("Something - Full-Album [HQ]")).toBe(true);
+    expect(isYoutubeFullAlbumTitle("band fullalbum 2020")).toBe(true);
+    expect(isYoutubeFullAlbumTitle("Night Drive (full_album)")).toBe(true);
+  });
+
+  it("allows normal track titles", () => {
+    expect(isYoutubeFullAlbumTitle("Full Moon Tonight")).toBe(false);
+    expect(isYoutubeFullAlbumTitle("Album Cover Art ASMR")).toBe(false);
+    expect(isYoutubeFullAlbumTitle("Bohemian Rhapsody")).toBe(false);
+    expect(isYoutubeFullAlbumTitle("")).toBe(false);
+  });
+});
 
 const hasYtDlp = (() => {
   try {

@@ -80,6 +80,25 @@ export function extractVideoId(input: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * Block multi-hour “full album” dumps that wreck the DJ queue.
+ * Matches “full album”, “full-album”, “fullalbum”, etc. (case-insensitive).
+ * Pure helper — unit-tested; used at search/detail/playlist and play resolve.
+ */
+export function isYoutubeFullAlbumTitle(title: string): boolean {
+  const t = String(title || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s._-]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return false;
+  // full album | full-album | full_album | full.album | fullalbum
+  if (/\bfull[\s._-]*album\b/.test(t)) return true;
+  if (t.includes("fullalbum")) return true;
+  return false;
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Resolve the yt-dlp binary path. Checks the project bin/ dir first, then PATH. */
@@ -169,16 +188,19 @@ function sourceLabelFor(webUrl: string, extractor?: string): string {
   return "Web";
 }
 
-function entryToSong(entry: YtDlpEntry): Song {
+function entryToSong(entry: YtDlpEntry): Song | null {
+  const title = entry.title ?? "Unknown";
+  // Full-album dumps only apply to YouTube track titles (not X/Bandcamp posts).
   const webUrl = entry.webpage_url ?? "";
   const isYt =
     /youtube|youtu\.be/i.test(entry.extractor ?? "") || /youtube\.com|youtu\.be/i.test(webUrl);
+  if (isYt && isYoutubeFullAlbumTitle(title)) return null;
   const label = isYt ? "YouTube" : sourceLabelFor(webUrl, entry.extractor);
   return {
     // For non-YouTube (X/Twitter/…) keep the full page URL as the id — there's no
     // youtube-style ?v= id for getSongUrl to rebuild from, so it re-resolves the URL.
     id: isYt ? (entry.id ?? "") : webUrl || entry.id || "",
-    name: entry.title ?? "Unknown",
+    name: title,
     artist: entry.uploader ?? entry.channel ?? label,
     album: label,
     duration: Math.round(entry.duration ?? 0),
@@ -207,8 +229,8 @@ export class YouTubeProvider implements MusicProvider {
         try {
           raw = await runYtDlp([safe, "--dump-json", "--no-warnings", "--quiet"]);
           const entry = JSON.parse(raw.trim()) as YtDlpEntry;
-          const songs = [entryToSong(entry)];
-          return { songs, playlists: [], albums: [] };
+          const song = entryToSong(entry);
+          return { songs: song ? [song] : [], playlists: [], albums: [] };
         } catch (err: unknown) {
           const msg = errorMessage(err, "");
           if (
@@ -217,7 +239,8 @@ export class YouTubeProvider implements MusicProvider {
           ) {
             const oembed = await getOEmbedEntry(videoId);
             if (oembed) {
-              return { songs: [entryToSong(oembed)], playlists: [], albums: [] };
+              const song = entryToSong(oembed);
+              return { songs: song ? [song] : [], playlists: [], albums: [] };
             }
           }
           return { songs: [], playlists: [], albums: [] };
@@ -231,10 +254,12 @@ export class YouTubeProvider implements MusicProvider {
           "--quiet",
         ]);
         const lines = raw.trim().split("\n").filter(Boolean);
-        const songs: Song[] = lines.map((line) => {
+        const songs: Song[] = [];
+        for (const line of lines) {
           const entry = JSON.parse(line) as YtDlpEntry;
-          return entryToSong(entry);
-        });
+          const song = entryToSong(entry);
+          if (song) songs.push(song);
+        }
         return { songs, playlists: [], albums: [] };
       }
     } catch {
@@ -363,7 +388,12 @@ export class YouTubeProvider implements MusicProvider {
         60_000,
       );
       const lines = raw.trim().split("\n").filter(Boolean);
-      return lines.map((line) => entryToSong(JSON.parse(line) as YtDlpEntry));
+      const songs: Song[] = [];
+      for (const line of lines) {
+        const song = entryToSong(JSON.parse(line) as YtDlpEntry);
+        if (song) songs.push(song);
+      }
+      return songs;
     } catch {
       return [];
     }
