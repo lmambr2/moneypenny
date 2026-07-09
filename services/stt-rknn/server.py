@@ -169,7 +169,9 @@ def pcm_s16le_to_float(pcm: bytes, sample_rate: int, channels: int):
     if len(pcm) < 2:
         return np.zeros(0, dtype=np.float32), sample_rate
     n = len(pcm) // 2
-    samples = np.frombuffer(pcm, dtype=np.int16, count=n).astype(np.float32) / 32768.0
+    # frombuffer → float without intermediate object churn where possible
+    raw = np.frombuffer(pcm, dtype=np.int16, count=n)
+    samples = raw.astype(np.float32, copy=False) * np.float32(1.0 / 32768.0)
     if channels > 1:
         samples = samples.reshape(-1, channels).mean(axis=1)
     if sample_rate != TARGET_SR and len(samples) > 0:
@@ -179,7 +181,7 @@ def pcm_s16le_to_float(pcm: bytes, sample_rate: int, channels: int):
         x_new = np.linspace(0, 1, num=new_len, endpoint=False)
         samples = np.interp(x_new, x_old, samples).astype(np.float32)
         sample_rate = TARGET_SR
-    return samples, sample_rate
+    return np.ascontiguousarray(samples, dtype=np.float32), sample_rate
 
 
 def peak_float(audio) -> float:

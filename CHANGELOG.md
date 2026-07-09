@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### NPU STT runtime opts (stt-rknn)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Multi-core init chain (`RKNN_CORE_MASK`, prefer 0_1_2) with logged mask
+- Faster log-mel (precomputed window, \|z\|² without abs), reused mel buffers
+- Decoder step cap (`RKNN_MAX_DECODE_STEPS`); CPU unit tests for preprocess
+
 ### Tooling: Biome lint + format
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

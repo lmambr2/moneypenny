@@ -74,6 +74,10 @@ Volume / bind `models/whisper-cpp` → `/models`: `ggml-tiny.bin`, `ggml-base.bi
 
 ### SBC (RKNN)
 
+Runtime opts (see `services/stt-rknn/README.md`): multi-core init
+(`RKNN_CORE_MASK`, prefer all three cores), faster log-mel, reused buffers,
+decoder step cap. Quant is in the `.rknn` export — not `STT_COMPUTE_TYPE`.
+
 `/models/rknn/` (product default **base**):
 
 ```text
