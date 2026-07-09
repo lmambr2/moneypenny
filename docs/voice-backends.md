@@ -10,6 +10,9 @@ Moneypenny does **not** embed STT/TTS. The bot only calls HTTP sidecars.
 **Canonical TTS:** Piper **`en_GB-cori-medium`** (British female, medium quality).  
 Samples: [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/) · models: [huggingface.co/rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) (`en/en_GB/…`).  
 Download helper: `./scripts/download-piper-voice.sh [en_GB-cori-medium]`.  
+Compose mounts a **`piper-models` volume** at `/models` (overrides image-baked
+weights). After a voice upgrade, put the `.onnx` + `.onnx.json` into that volume
+(or rebuild and copy them in), then recreate `piper-tts`.  
 After changing voice: Settings → **Clear TTS bumper cache**, then **Pre-generate bumpers**.
 
 **Canonical STT:** Whisper dual-track (below).  
