@@ -286,8 +286,8 @@ export class BotInstance extends EventEmitter {
       generateProvider: this.generateProvider,
       logger: this.logger,
       onRelayChanged: (cfg) => {
-        if (cfg) this.relayScheduler.start(cfg);
-        else this.relayScheduler.stop();
+        // start(null) fully stops (clears cfg + generation so in-flight fire cannot re-arm).
+        this.relayScheduler.start(cfg);
       },
     });
 

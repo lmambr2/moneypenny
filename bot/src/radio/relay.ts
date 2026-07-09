@@ -52,6 +52,8 @@ export class RelayScheduler {
   private cfg: RelayConfig | null = null;
   private ticks = 0;
   private lastTickAt = 0;
+  /** Bumped on every stop/start so in-flight fire() cannot re-arm after stop. */
+  private generation = 0;
 
   constructor(private deps: RelaySchedulerDeps) {}
 
@@ -84,13 +86,13 @@ export class RelayScheduler {
   }
 
   /**
-   * Begin (or restart) the timer for this relay. Pass null to stop.
+   * Begin (or restart) the timer for this relay. Pass null to stop fully
+   * (clears cfg + handle; in-flight bumpers will not re-arm).
    * Returns whether the scheduler is now active.
    */
   start(cfg: RelayConfig | null): boolean {
     this.stop();
     if (!cfg || cfg.bumperIntervalSec <= 0) {
-      this.cfg = null;
       return false;
     }
     this.cfg = cfg;
@@ -102,27 +104,38 @@ export class RelayScheduler {
     return true;
   }
 
+  /**
+   * Cancel timer and leave relay mode. Safe during an in-flight onBumper —
+   * generation guard prevents re-arm when that promise settles.
+   */
   stop(): void {
+    this.generation += 1;
     if (this.handle != null) {
       (this.deps.clearTimer ?? clearTimeout)(this.handle);
       this.handle = null;
     }
+    this.cfg = null;
   }
 
   /** Test/helper: force one tick now (does not reset the schedule). */
   async tickNow(): Promise<void> {
-    await this.fire();
+    await this.fire(this.generation);
   }
 
   private arm(): void {
     if (!this.cfg) return;
+    const gen = this.generation;
     const ms = this.cfg.bumperIntervalSec * 1000;
     this.handle = (this.deps.setTimer ?? setTimeout)(() => {
-      void this.fire().then(() => this.arm());
+      void this.fire(gen).then(() => {
+        // Only re-arm if this generation is still live (not stopped/restarted).
+        if (this.generation === gen && this.cfg) this.arm();
+      });
     }, ms) as ReturnType<typeof setTimeout>;
   }
 
-  private async fire(): Promise<void> {
+  private async fire(gen: number): Promise<void> {
+    if (this.generation !== gen || !this.cfg) return;
     this.ticks += 1;
     this.lastTickAt = (this.deps.now ?? Date.now)();
     try {

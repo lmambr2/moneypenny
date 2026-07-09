@@ -101,4 +101,57 @@ describe("RelayScheduler", () => {
     await scheduler.tickNow();
     expect(onBumper).toHaveBeenCalledOnce();
   });
+
+  it("stop/start(null) during in-flight onBumper does not re-arm", async () => {
+    let resolveBumper!: () => void;
+    const bumperPending = new Promise<void>((r) => {
+      resolveBumper = r;
+    });
+    const onBumper = vi.fn(() => bumperPending);
+    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const clearTimer = vi.fn();
+    const scheduler = new RelayScheduler({
+      onBumper,
+      setTimer: (fn, ms) => {
+        timers.push({ fn, ms });
+        return timers.length as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimer,
+      now: () => 1_000_000,
+    });
+
+    expect(
+      scheduler.start({
+        relayUrl: "https://icecast.example.org:8000/live",
+        bumperIntervalSec: 30,
+      }),
+    ).toBe(true);
+    expect(timers).toHaveLength(1);
+
+    // Fire timer → onBumper starts but does not resolve yet
+    timers[0]!.fn();
+    await vi.waitFor(() => expect(onBumper).toHaveBeenCalledOnce());
+    const ticksAfterFire = scheduler.tickCount;
+    expect(ticksAfterFire).toBe(1);
+
+    // Leave relay while bumper is in flight (same as !radio off / library ops)
+    scheduler.stop();
+    // Also exercise start(null) path used by BotInstance.onRelayChanged
+    expect(scheduler.start(null)).toBe(false);
+
+    expect(scheduler.getConfig()).toBeNull();
+    expect(scheduler.active).toBe(false);
+    const timerCountAfterStop = timers.length;
+
+    // Resolve in-flight bumper — must NOT re-arm
+    resolveBumper();
+    await bumperPending;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(timers.length).toBe(timerCountAfterStop); // no new arm
+    expect(scheduler.tickCount).toBe(ticksAfterFire);
+    expect(scheduler.active).toBe(false);
+    expect(scheduler.getConfig()).toBeNull();
+  });
 });
