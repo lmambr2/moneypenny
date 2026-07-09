@@ -129,9 +129,7 @@ describe("RadioBumperFactory.prewarm", () => {
     const result = await factory.prewarm({ includeDoctrine: true, hoursAhead: 1 });
     expect(result.rendered).toBeGreaterThan(0);
     expect(llm.complete).toHaveBeenCalled();
-    expect(renderFn.mock.calls.some((c) => c[1] === "doctrine" || c[1] === "stationId")).toBe(
-      true,
-    );
+    expect(renderFn.mock.calls.some((c) => c[1] === "doctrine" || c[1] === "stationId")).toBe(true);
   });
 });
 
