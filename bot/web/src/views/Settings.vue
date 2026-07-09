@@ -366,6 +366,26 @@
         <p class="profile-toggle-hint">Save changes above before testing — the test uses the running bot's current LLM config.</p>
       </div>
 
+      <!-- Poke commands (TS poke → ControlRouter) -->
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
+            <Icon icon="mdi:hand-pointing-right" class="setting-icon" /> Poke commands
+          </div>
+          <div class="profile-toggle-hint">
+            Treat TeamSpeak pokes to the bot as commands (same rights as chat; <code>!</code> optional).
+            Reply is a poke-back; public results also go to channel chat.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.pokeCommandsEnabled" />
+      </label>
+      <div v-if="ai.pokeCommandsEnabled" class="form-row" style="margin: 4px 0 12px">
+        <div class="form-group" style="flex:1">
+          <label>Pokes per invoker / minute</label>
+          <input v-model.number="ai.pokeCommandsPerMinute" type="number" min="1" max="120" class="input" />
+        </div>
+      </div>
+
       <!-- Rank gating toggle -->
       <label class="profile-toggle">
         <div class="profile-toggle-text">
@@ -1252,6 +1272,8 @@ const ai = reactive({
   mempalaceUrl: '',
   fileDropEnabled: false,
   fileDropPollSec: 30,
+  pokeCommandsEnabled: true,
+  pokeCommandsPerMinute: 12,
   rightsEnabled: false,
   adminGroupsText: '',
   rightsMode: 'simple' as 'simple' | 'advanced',
@@ -1366,6 +1388,8 @@ async function loadAiSettings() {
     ai.mempalaceUrl = res.data.mempalaceUrl ?? '';
     ai.fileDropEnabled = !!res.data.fileDropEnabled;
     ai.fileDropPollSec = res.data.fileDropPollSec ?? 30;
+    ai.pokeCommandsEnabled = res.data.pokeCommandsEnabled !== false;
+    ai.pokeCommandsPerMinute = res.data.pokeCommandsPerMinute ?? 12;
     ai.rightsEnabled = !!res.data.rightsEnabled;
     ai.adminGroupsText = (res.data.adminGroups ?? []).join(', ');
     if (res.data.rights && typeof res.data.rights === 'object') {
@@ -1787,6 +1811,8 @@ async function saveAiSettings() {
       mempalaceUrl: ai.mempalaceUrl.trim(),
       fileDropEnabled: ai.fileDropEnabled,
       fileDropPollSec: ai.fileDropPollSec,
+      pokeCommandsEnabled: ai.pokeCommandsEnabled,
+      pokeCommandsPerMinute: ai.pokeCommandsPerMinute,
       rightsEnabled: ai.rightsEnabled,
       adminGroups,
       ...(rightsPayload !== undefined ? { rights: rightsPayload } : {}),

@@ -4,8 +4,10 @@ import type { Logger } from "../../logger.js";
 import type { KnowledgeService } from "../knowledge/service.js";
 import type { IdlePoller } from "./idle-poller.js";
 import type { TextMessageHandler } from "../control/text-handler.js";
+import type { PokeHandler } from "../control/poke-handler.js";
 import type { VoiceSession } from "../voice/session.js";
 import type { RadioDirector } from "../../radio/index.js";
+import type { TS3Poke } from "../../ts-protocol/client.js";
 
 export interface PlayerEventBindings {
   player: AudioPlayer;
@@ -47,6 +49,7 @@ export function bindPlayerEvents(deps: PlayerEventBindings): void {
 export interface TsEventBindings {
   tsClient: TS3Client;
   text: TextMessageHandler;
+  poke: PokeHandler;
   idlePoller: IdlePoller;
   knowledge: KnowledgeService;
   player: AudioPlayer;
@@ -62,6 +65,12 @@ export function bindTsEvents(deps: TsEventBindings): void {
   deps.tsClient.on("textMessage", (msg: TS3TextMessage) => {
     deps.text.handle(msg).catch((err) => {
       deps.logger.error({ err }, "Unhandled error in text message handler");
+    });
+  });
+
+  deps.tsClient.on("poke", (poke: TS3Poke) => {
+    deps.poke.handle(poke).catch((err) => {
+      deps.logger.error({ err }, "Unhandled error in poke handler");
     });
   });
 

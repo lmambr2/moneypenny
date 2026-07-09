@@ -8,6 +8,7 @@ import {
   listChannels,
   listClients,
   clientMove,
+  poke as tsPoke,
   fileTransferDeleteFile,
   downloadFileData,
   type Identity,
@@ -16,6 +17,7 @@ import {
   type FileUploadInfo,
   type FileDownloadInfo,
   type VoiceData,
+  type PokeEvent,
 } from "@honeybbq/teamspeak-client";
 import type { Logger } from "../logger.js";
 import {
@@ -128,6 +130,14 @@ export interface TS3TextMessage {
   invokerGroups?: string[];
   message: string;
   targetMode: number; // 1=private, 2=channel, 3=server
+}
+
+/** Inbound poke (TeamSpeak poke-as-command channel). */
+export interface TS3Poke {
+  invokerName: string;
+  invokerId: string;
+  invokerUid: string;
+  message: string;
 }
 
 /** Inbound per-speaker voice packet (DESIGN §10 capture). `data` is Opus. */
@@ -331,6 +341,17 @@ export class TS3Client extends EventEmitter {
       this.emit("textMessage", tsMsg);
     });
 
+    // Library event name is `poked` (README also says "poke").
+    this.client.on("poked", (ev: PokeEvent) => {
+      const poke: TS3Poke = {
+        invokerName: ev.invokerName,
+        invokerId: String(ev.invokerID),
+        invokerUid: ev.invokerUID,
+        message: ev.message ?? "",
+      };
+      this.emit("poke", poke);
+    });
+
     this.client.on("disconnected", (err) => {
       this.logger.warn({ err: err?.message }, "Connection closed");
       this.clientId = 0;
@@ -459,6 +480,16 @@ export class TS3Client extends EventEmitter {
     // targetMode 2 = channel, target 0 = current channel
     const target = targetMode === 2 ? BigInt(0) : BigInt(this.clientId);
     await sendTextMessage(this.client, targetMode, target, message);
+  }
+
+  /**
+   * Poke a client (short private nudge). Used to ack poke-commands.
+   * `clid` is the invoker's numeric client id.
+   */
+  async pokeClient(clid: number, message: string): Promise<void> {
+    if (!this.client || !Number.isFinite(clid) || clid <= 0) return;
+    const text = message.length > 100 ? `${message.slice(0, 97)}…` : message;
+    await tsPoke(this.client, clid, text);
   }
 
   /**

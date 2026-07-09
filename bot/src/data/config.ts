@@ -14,6 +14,13 @@ export interface BotConfig {
   theme: "dark" | "light";
   commandPrefix: string;
   commandAliases: Record<string, string>;
+  /**
+   * When true (default), TeamSpeak pokes to the bot are treated as commands
+   * (same ControlRouter as chat/voice; `!` prefix optional). See docs/BUILD.md P0.
+   */
+  pokeCommandsEnabled: boolean;
+  /** Max poke-commands accepted per invoker per rolling minute (default 12). */
+  pokeCommandsPerMinute: number;
   adminPassword: string;
   adminGroups: number[];
   autoReturnDelay: number;
@@ -139,6 +146,8 @@ export function getDefaultConfig(): BotConfig {
     theme: "dark",
     commandPrefix: "!",
     commandAliases: { p: "play", s: "skip", n: "next" },
+    pokeCommandsEnabled: true,
+    pokeCommandsPerMinute: 12,
     adminPassword: "",
     adminGroups: [],
     autoReturnDelay: 300,

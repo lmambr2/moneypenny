@@ -57,6 +57,8 @@ export function createBotRouter(
       adminGroups: config.adminGroups ?? [],
       rights: config.rights ?? null,
       streamBridgeUrl: config.streamBridgeUrl ?? "",
+      pokeCommandsEnabled: config.pokeCommandsEnabled !== false,
+      pokeCommandsPerMinute: config.pokeCommandsPerMinute ?? 12,
       voice: { ...defaultVoiceConfig(), ...config.voice },
       radio: { ...defaultRadioConfig(), ...config.radio },
       vectorDbUrl: config.vectorDbUrl ?? "",
@@ -126,6 +128,8 @@ export function createBotRouter(
       { key: "fileDropPollSec", type: "int", min: 5, touch: "fileDrop" },
       { key: "rightsEnabled", type: "boolean", touch: "rights" },
       { key: "streamBridgeUrl", type: "string", touch: "stream" },
+      { key: "pokeCommandsEnabled", type: "boolean" },
+      { key: "pokeCommandsPerMinute", type: "int", min: 1, max: 120 },
     ];
 
     const cfg = config as unknown as Record<string, unknown>;

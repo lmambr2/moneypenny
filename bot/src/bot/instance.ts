@@ -50,6 +50,7 @@ import { IdlePoller } from "./lifecycle/idle-poller.js";
 import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
 import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
 import { TextMessageHandler } from "./control/text-handler.js";
+import { PokeHandler } from "./control/poke-handler.js";
 import { RightsRuntime } from "./rights/runtime.js";
 import { allowedClassificationsFor } from "./rights/subject.js";
 import { RoutedCommandExecutor } from "./control/routed-executor.js";
@@ -108,6 +109,7 @@ export class BotInstance extends EventEmitter {
   private idlePoller: IdlePoller;
   private radio: RadioDirector;
   private text: TextMessageHandler;
+  private poke: PokeHandler;
   private rights: RightsRuntime;
   private routed: RoutedCommandExecutor;
   private mempalace: MemPalaceClient | null = null;
@@ -336,6 +338,16 @@ export class BotInstance extends EventEmitter {
       rightsEngine: () => this.rights.getEngine(),
     });
 
+    this.poke = new PokeHandler({
+      bot: this,
+      config: this.config,
+      logger: this.logger,
+      tsClient: this.tsClient,
+      router: this.controlRouter,
+      llm: this.llm,
+      rightsEngine: () => this.rights.getEngine(),
+    });
+
     this.voice = new VoiceSession({
       config: this.config,
       logger: this.logger,
@@ -394,6 +406,7 @@ export class BotInstance extends EventEmitter {
     bindTsEvents({
       tsClient: this.tsClient,
       text: this.text,
+      poke: this.poke,
       idlePoller: this.idlePoller,
       knowledge: this.knowledge,
       player: this.player,

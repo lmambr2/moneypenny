@@ -11,7 +11,7 @@ ordered **do list**, not full specs.
 
 | ID | Item | Notes | Status |
 |----|------|--------|--------|
-| **P0** | Poke as command channel | TS poke → same ControlRouter as chat; rights + rate limit; optional poke-back ack. Client already has `on("poke")` / `poke()`. | **Queued** |
+| **P0** | Poke as command channel | TS poke → ControlRouter; rights + rate limit; poke-back ack. | **Shipped** |
 | **A\*** | ACE-Step music gen | Design: [ace-step.md](./ace-step.md). Optional sidecar; `!generate` / radio auto-fill. | **Sketch done** |
 | **V1** | Server whisper.cpp Vulkan smoke | On AMD host (.89): ggml download + voice-server profile | Queued |
 | **V2** | Drop sherpa/Kokoro | After dual-track voice stable in ops | Queued |
@@ -32,17 +32,15 @@ ordered **do list**, not full specs.
 
 ---
 
-## Poke commands — acceptance sketch
+## Poke commands — shipped
 
-1. Bind `client.on("poke", …)` next to text-message handling.
-2. Parse poke body as command line (`!` optional).
-3. Resolve invoker → rights subject (same as chat).
-4. `ControlRouter.route` / deterministic path; no rights bypass.
-5. Config: `pokeCommandsEnabled` (default **on**).
-6. Rate limit per invoker; deny message via private chat or poke-back.
-7. Tests: mock poke → skip / denied / ask.
+1. Library event `poked` → `TS3Client` emits `poke`.
+2. `PokeHandler` → `routeVoice` (prefix optional) → same rights/execute as chat.
+3. Config: `pokeCommandsEnabled` (default on), `pokeCommandsPerMinute` (default 12).
+4. Settings → AI & Permissions → Poke commands toggle.
+5. Reply: poke-back (truncated); channel mirror for now-playing / long replies.
 
-**Non-goals:** multi-line pokes, poke from unauthenticated sources, privilege via poke.
+**Non-goals still:** multi-line pokes; privilege via poke.
 
 ---
 
