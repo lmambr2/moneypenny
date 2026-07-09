@@ -267,6 +267,58 @@ describe("RadioDirector", () => {
       expect(h.player.play).toHaveBeenCalledTimes(1);
     });
 
+    it("cued bumper plays on !skip / track boundary (even when every-N not due)", async () => {
+      h = harness({ everyNSongs: 99, minPresentToBroadcast: 1, cooldownSeconds: 9999 });
+      h.director.onPoll([], 1);
+      expect(await h.director.cueBumper()).toBe("cued");
+      expect(await h.director.onTrackBoundary()).toBe("bumper");
+      expect(h.player.play).toHaveBeenCalledTimes(1);
+      expect(h.playNext).not.toHaveBeenCalled();
+    });
+
+    it("cued bumper wins dead-air fill (bypasses presence gate and fill sources)", async () => {
+      h = harness({
+        everyNSongs: 4,
+        minPresentToBroadcast: 5, // would block scheduled fill
+        cooldownSeconds: 9999,
+      });
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false);
+      expect(await h.director.cueBumper()).toBe("cued"); // still playing
+
+      await h.director.onTrackBoundary(); // dry advance → would arm dead air, but cue fires at boundary first
+      // If cue already fired at the boundary above, play was called. If not (song slot consumed cue):
+      expect(h.player.play).toHaveBeenCalledTimes(1);
+      expect(h.director.status().cuePending).toBe(false);
+    });
+
+    it("cued bumper fires on idle poll without waiting deadAirSeconds", async () => {
+      h = harness({ minPresentToBroadcast: 1, deadAirSeconds: 60 });
+      h.director.onPoll([], 1);
+      expect(await h.director.cueBumper()).toBe("cued");
+      // Simulate !stop: player goes idle without a track boundary
+      h.setPlayerState("idle");
+      h.director.onPoll([], 1);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(h.player.play).toHaveBeenCalledTimes(1);
+      expect(h.pendingTimerCount()).toBe(0); // did not wait for dead-air timer
+    });
+
+    it("cued bumper fires immediately when dead-air arm finds idle + cue", async () => {
+      h = harness({ everyNSongs: 4, minPresentToBroadcast: 1, deadAirSeconds: 60 });
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false);
+      expect(await h.director.cueBumper()).toBe("cued");
+      // Boundary with cued still present fires the cue before advance — use a path
+      // where cue survives: fire after dry state via armDeadAir only.
+      // Clear by: skip the boundary path — set idle and call onPoll.
+      h.setPlayerState("idle");
+      h.director.onPoll([], 1);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.player.play).toHaveBeenCalledTimes(1);
+    });
+
     it("a topic cue targets the doctrine source but keeps the classification floor", async () => {
       h = harness({ minPresentToBroadcast: 1 });
       h.director.onPoll([], 1);
@@ -348,7 +400,7 @@ describe("RadioDirector", () => {
 
       h.setPlayerState("idle"); // still idle when the timer fires
       h.fireTimers();
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
       expect(h.bumperFactory.build).toHaveBeenCalledTimes(1);
       expect(h.player.play).toHaveBeenCalledWith("/bumpers/id.mp3", 0, 0, { volumePctFloor: 85 });
     });

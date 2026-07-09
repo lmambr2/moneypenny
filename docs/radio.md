@@ -32,7 +32,7 @@ and **`focus`** in `defaultRadioConfig()`; add custom profiles before `!radio op
 - **Music color / quality** (clean · AM · FM · telephone · vinyl · lofi)
 - **Bumper sources:** prerecorded · stationId · timeCheck · nowPlaying · doctrine · memory
 - **Org memory on air** (`memoryBroadcastOptIn`) — KG/diary only; never private `!remember`
-- **Refresh status** · **Test bumper now** (forced, bypasses every-N / presence) ·
+- **Refresh status** · **Test bumper now** (forced — idle now, else next skip/end/dead air) ·
   **Pre-generate bumpers** (+ doctrine) — TTS cache warm
 - Hover labels for native browser tooltips
 
@@ -270,10 +270,18 @@ the director, server-side:
 - **Rate/spam/DoS:** cooldown, max/hour, min-present, quiet hours. Never delays or
   blocks music — limit hit → `playNext()`.
 
-### 6.4 Forced mid-song bumper (rare)
-`!radio bumper`/`!radio say` speak now via the voice save-position → speak → resume
-path (`savedMusic`/`tryResumeMusic`). Single stream, so the song pauses for the
-drop — fine for the occasional forced bumper, not the default rotation.
+### 6.4 Forced bumper (`!radio bumper` / `!radio say` / Test bumper)
+Operator-forced break (bypasses every-N, presence, cooldown, quiet hours; still
+uses the classification floor):
+
+- **Idle** (dead air / stopped) → plays **immediately**.
+- **Music playing** → **cued** for the next break: `!skip`, natural track end, or
+  dead-air fill (cued wins over the scheduled fill sources).
+- After the forced bumper ends, the queue advances (or auto-programs if the
+  queue was dry).
+
+Does **not** duck mid-song under a live track (single stream; use skip for an
+immediate break).
 
 ### 6.5 Persistence / caching (generated bumpers do NOT go in the music library)
 - **Generated TTS bumpers are cached, not added to `MUSIC_DIR`.** A dedicated

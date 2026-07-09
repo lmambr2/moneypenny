@@ -68,7 +68,7 @@ export class RadioCommands {
         return r === "played"
           ? "📻 Bumper playing."
           : r === "cued"
-            ? "📻 Bumper cued for the next track break."
+            ? "📻 Bumper cued — plays on next skip, track end, or dead air."
             : "No bumper available (radio off, or no source could produce one).";
       }
       case "say": {
@@ -79,7 +79,7 @@ export class RadioCommands {
         return r === "played"
           ? "📻 On air."
           : r === "cued"
-            ? "📻 Liner cued for the next track break."
+            ? "📻 Liner cued — plays on next skip, track end, or dead air."
             : "Can't speak right now (radio off or TTS unavailable).";
       }
       case "skip": {

@@ -182,7 +182,7 @@ export class RadioDirector {
   }
 
   /** `!radio bumper [topic]` (§6.4/§12): cue a bumper — immediate when idle,
-   *  otherwise at the next track boundary. Returns what happened for the reply. */
+   *  otherwise at the next track break (`!skip` / track end / dead air). */
   async cueBumper(topic?: string): Promise<"played" | "cued" | "unavailable"> {
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return "unavailable";
@@ -227,6 +227,8 @@ export class RadioDirector {
 
   private async maybeFireNow(cfg: RadioConfig): Promise<"played" | "cued" | "unavailable"> {
     if (this.deps.player.getState() !== "idle") return "cued";
+    // Cancel any pending dead-air timer — the operator cue owns this idle window.
+    this.cancelDeadAir();
     const ok = await this.fireCued(cfg);
     return ok ? "played" : "unavailable";
   }
@@ -245,6 +247,7 @@ export class RadioDirector {
       if (!bumper) return false;
       this.recordBumper(); // still counts against the hourly window
       this.pendingAfterBumper = true;
+      this.cancelDeadAir();
       this.deps.player.resetFailures();
       this.markPlayed(bumper);
       this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
@@ -261,20 +264,42 @@ export class RadioDirector {
   }
 
   /**
+   * If an operator cue is waiting and the player is idle, fire it now.
+   * Used by dead-air fill and the idle poller so forced bumpers are not stuck
+   * behind the dead-air timer or a scheduled fill source.
+   */
+  private async tryFireCuedIfIdle(opts?: { restockAfter?: boolean }): Promise<boolean> {
+    if (!this.cued) return false;
+    if (this.deps.player.getState() !== "idle") return false;
+    const cfg = this.deps.getConfig();
+    if (!cfg.enabled) return false;
+    const ok = await this.fireCued(cfg);
+    if (ok && opts?.restockAfter) {
+      const wantProgram = cfg.clock?.deadAir?.thenAutoProgram ?? true;
+      this.autoProgramAfterBumper = wantProgram;
+    }
+    return ok;
+  }
+
+  /**
    * Idle-poller backstop (§5.3): refresh presence and, if we're sitting idle
-   * with listeners and no dead-air timer armed, arm one.
+   * with listeners, fire a pending operator cue or arm the dead-air timer.
    */
   onPoll(clients: unknown[], humanCount: number): void {
     this.lastClients = clients;
     this.lastHumanCount = humanCount;
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
+    if (this.deps.player.getState() !== "idle") return;
+
+    // Forced cue waiting after stop / missed boundary — play now, don't wait.
+    if (this.cued) {
+      void this.tryFireCuedIfIdle({ restockAfter: true });
+      return;
+    }
+
     const humans = this.effectiveHumanCount();
-    if (
-      this.deps.player.getState() === "idle" &&
-      humans >= cfg.minPresentToBroadcast &&
-      this.deadAirHandle == null
-    ) {
+    if (humans >= cfg.minPresentToBroadcast && this.deadAirHandle == null) {
       this.armDeadAir();
     }
   }
@@ -361,6 +386,10 @@ export class RadioDirector {
     if (!cfg.enabled) return;
     if (this.deps.player.getState() !== "idle") return; // music resumed meanwhile
     const wantProgram = cfg.clock?.deadAir?.thenAutoProgram ?? true;
+
+    // Operator-forced cue wins over scheduled dead-air fill (and bypasses gates).
+    if (await this.tryFireCuedIfIdle({ restockAfter: wantProgram })) return;
+
     if (this.canBroadcast(cfg)) {
       const fill = cfg.clock?.deadAir?.fill ?? (["prerecorded", "stationId"] as const);
       if (await this.tryBumper(cfg, { slot: "bumper", sources: [...fill] })) {
@@ -392,6 +421,11 @@ export class RadioDirector {
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
     this.cancelDeadAir();
+    // Don't make a forced cue wait out the full dead-air delay — fire ASAP.
+    if (this.cued && this.deps.player.getState() === "idle") {
+      void this.tryFireCuedIfIdle({ restockAfter: cfg.clock?.deadAir?.thenAutoProgram ?? true });
+      return;
+    }
     this.deadAirHandle = this.setTimer(() => {
       void this.fillDeadAir();
     }, Math.max(1, cfg.deadAirSeconds) * 1000);
