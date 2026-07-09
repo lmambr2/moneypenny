@@ -6,7 +6,7 @@
 #
 # Or: ./install.sh --edition server
 #
-# Defaults: local Gemma 4 12B chat, Whisper small|large-v3, Piper TTS.
+# Defaults: local Gemma 4 12B chat, Whisper medium (Vulkan on AMD), Piper TTS.
 # Can also act as the LAN LLM host for an SBC edition (docs/editions.md).
 
 services:

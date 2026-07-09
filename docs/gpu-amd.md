@@ -43,7 +43,7 @@ accept model swap).
 ./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp small
 # Map ./models/whisper-cpp into volume whisper-models
 
-export WHISPER_VULKAN=1 STT_MODEL=small STT_DEVICE=vulkan
+export WHISPER_VULKAN=1 STT_MODEL=medium STT_DEVICE=vulkan
 # Host groups for /dev/dri:
 # Arch / CachyOS: GIDs are often ~987/983, not Debian 992/44 — always export from host:
 export RENDER_GID=$(getent group render | cut -d: -f3)

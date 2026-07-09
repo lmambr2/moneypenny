@@ -20,17 +20,21 @@ Moneypenny does **not** embed STT/TTS. The bot only calls HTTP sidecars.
 
 | Edition | Image | Engine | Default model | Accelerator |
 |---------|-------|--------|---------------|-------------|
-| **SBC** | `services/stt-rknn` | faster-whisper **small** (default); RKNN **tiny** optional | `small` | CPU (NPU when `STT_MODEL=tiny` + `.rknn`) |
+| **SBC** | `services/stt-rknn` | **RKNN** NPU (faster-whisper CPU if weights missing) | **`base`** | **NPU** (`STT_DEVICE=npu`) |
 | **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `medium` | **Vulkan** (AMD) / CPU |
 
 Same compose service name: **`stt-whisper`** → bot always uses  
 `http://stt-whisper:9000`. Overlays swap the build context.
 
 ```text
-                    ┌─ docker-compose.sbc.yml ──► stt-rknn (NPU)
+                    ┌─ docker-compose.sbc.yml ──► stt-rknn (NPU base)
  bot ──sttUrl──► stt-whisper
-                    └─ docker-compose.server.yml ► stt-whisper-cpp (Vulkan)
+                    └─ docker-compose.server.yml ► stt-whisper-cpp (Vulkan medium)
 ```
+
+Rockchip zoo RKNN Whisper ladder: **tiny / base / medium** (no `small`). Product
+default on the Pi is **base** — validated as snappier and cleaner than CPU
+`small` on RK3588. Optional: `tiny` (lighter) or `medium` (heavier NPU RAM).
 
 ---
 
@@ -43,8 +47,8 @@ Same compose service name: **`stt-whisper`** → bot always uses
 | **`voice-dev`** | CI | stt-mock | — |
 
 ```bash
-# SBC — small on CPU (better accuracy; first start downloads HF weights)
-export STT_MODEL=small STT_BACKEND=faster-whisper STT_DEVICE=cpu
+# SBC — base on NPU (export .rknn first; else CPU fallback)
+export STT_MODEL=base STT_BACKEND=rknn STT_DEVICE=npu
 docker compose -f docker-compose.yml -f docker-compose.sbc.yml \
   --profile voice-edge up -d --build
 
@@ -65,11 +69,33 @@ Smoke: `./scripts/voice-smoke.sh` · `./scripts/voice-profile.sh`
 
 ### Server (whisper.cpp)
 
-Volume / bind `models/whisper-cpp` → `/models`: `ggml-tiny.bin`, `ggml-small.bin`, …
+Volume / bind `models/whisper-cpp` → `/models`: `ggml-tiny.bin`, `ggml-base.bin`,
+`ggml-small.bin`, `ggml-medium.bin`, …
 
 ### SBC (RKNN)
 
-`/models/rknn/`: `whisper-tiny-encoder.rknn`, `whisper-tiny-decoder.rknn`, vocab, mel filters.
+`/models/rknn/` (product default **base**):
+
+```text
+whisper-base-encoder.rknn
+whisper-base-decoder.rknn
+vocab_en.txt
+mel_80_filters.txt
+```
+
+Export on an x86 host with rknn-toolkit2:
+
+```bash
+MODEL_TYPE=base ./models/convert/export-whisper-rknn.sh
+# → models/rknn/whisper-base-{encoder,decoder}.rknn (+ vocab, mel)
+# rsync to the Pi, copy into the whisper-models volume if used
+```
+
+Optional overrides: `RKNN_ENCODER` / `RKNN_DECODER`. Tiny/medium pairs use the
+same naming (`whisper-tiny-*`, `whisper-medium-*`).
+
+Without weights the service falls back to **faster-whisper** on CPU
+(`STT_FALLBACK=faster-whisper`, often `STT_MODEL=base` or `small`).
 
 ---
 

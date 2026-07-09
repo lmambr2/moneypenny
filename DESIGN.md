@@ -46,9 +46,9 @@ Workloads are placed by edition:
 | **Bot + music + rights + RAG index** | Always | Always (all-in-one) or none (LLM-only host) |
 | **Chat / tool-calling** | Prefer LAN 12B; E2B fallback | Local 12B (+ 31B delegate) |
 | **Embeddings + Qdrant** | On-device | On-device |
-| **STT** | Whisper tiny (CPU; RKNN later) | Whisper small → large-v3 (CUDA) |
+| **STT** | Whisper **base** (RKNN NPU; faster-whisper CPU fallback) | Whisper **medium** (Vulkan on AMD; large-v3 optional) |
 | **TTS** | Piper British female | Piper British female |
-| **NPU** | Optional offline LLM / future ASR | — |
+| **NPU** | **Whisper base** STT (RKNN); offline LLM opt-in only | — |
 
 ---
 
@@ -287,18 +287,16 @@ Replace the base's flat `PUBLIC_COMMANDS` / `ADMIN_COMMANDS` sets with a **decla
 - **Viable alternatives:** `Llama-3.2-3B-Instruct` (solid tool-calling), `Gemma3-4B` (strong instruction-following; convert W8A8), `Phi-4-mini` (good reasoning for size). All RKLLM-supported. Qwen3 is the safest given the validated RK3588 numbers *and* RKLLama's tool-calling support is best-tested on Qwen.
 - **Avoid:** DeepSeek-R1 distills (produce garbage on RKLLM 1.2.3 — known bug); anything >4B for interactive use (too slow on a 6-TOPS NPU).
 
-### STT (on the CPU — keep the NPU free for the LLM)
-- **Recommended: SenseVoice-small via sherpa-onnx** — fast on the A76 cores, accurate, robust; one toolkit also gives you VAD. Good general default.
-- **Lowest command latency: a Moonshine model (base/tiny.en) via sherpa-onnx** — purpose-built for short utterances, so "skip"/"play X" transcribe with minimal delay. Ideal if voice *control* responsiveness matters most.
-- **Fallback:** Whisper-base.en. (useful-transformers runs Whisper tiny.en on the *NPU* at ~30× real-time, but that contends with the LLM — prefer CPU STT so the NPU stays dedicated to the model.)
-- **VAD:** Silero VAD (bundled with sherpa-onnx) for the circular-buffer end-pointing in §10.
+### STT (dual-track Whisper)
+- **SBC (product default):** Whisper **base** on the **NPU** via RKNN (`stt-rknn`). Chat stays on LAN 12B / E2B CPU so NPU ASR does not fight an NPU LLM. CPU **faster-whisper** is fallback only when `.rknn` weights are missing.
+- **Server:** whisper.cpp **medium** (Vulkan on AMD preferred).
+- Zoo RKNN ladder: tiny / base / medium only (no Rockchip `small`). See [docs/voice-backends.md](./docs/voice-backends.md).
 
 ### TTS
-- **Recommended (quality): `Kokoro-82M` (q8 ONNX) on the CPU**, via Kokoro-FastAPI's OpenAI-compatible endpoint. Best naturalness at small size, Apache-2.0, multiple voices.
-- **Lower latency / NPU-offload: Piper** through RKLLama (ONNX encoder + RKNN decoder on the NPU). One fewer service and faster, at some loss of naturalness — use if the CPU is contended by music transcode + STT.
+- **Canonical: Piper** `en_GB-southern_english_female-low` via HTTP sidecar (`piper-tts`).
 
-### Putting it on the silicon
-NPU → Qwen3 (LLM). CPU → SenseVoice/Moonshine (STT) + Silero VAD + Kokoro (TTS) + ffmpeg/yt-dlp + the bot + TS6. Turn-based interaction means these don't collide within a single exchange. If CPU audio work ever starves things, the escape hatch is moving TTS to Piper-on-NPU or the LLM to MLC-on-GPU (§4).
+### Putting it on the silicon (SBC)
+NPU → Whisper base (RKNN STT). CPU → bot + music + Piper TTS + ollama E2B/embed + Qdrant. Chat LLM usually on LAN Server. Optional NPU LLM (`rkllama`) only for offline opt-in.
 
 ---
 

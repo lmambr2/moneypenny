@@ -6,9 +6,9 @@
 #
 # Or: ./install.sh --edition sbc
 #
-# Defaults: edge Whisper (tiny), Piper British TTS, on-device ollama for
-# embeddings + E2B fallback. Point llmUrl at a LAN server for fast chat
-# (docs/remote-llm.md, docs/editions.md).
+# Defaults: edge Whisper base on NPU (RKNN), Piper British TTS, on-device
+# ollama for embeddings + E2B fallback. Point llmUrl at a LAN server for
+# fast chat (docs/remote-llm.md, docs/editions.md).
 
 services:
   bot:
@@ -28,16 +28,16 @@ services:
     environment:
       - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-2}
       - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
-    # Soft cap: leave RAM for bot + Whisper small + Qdrant on 16 GB boards.
+    # Soft cap: leave RAM for bot + Whisper base (NPU) + Qdrant on 16 GB boards.
     mem_limit: ${OLLAMA_MEM_LIMIT:-8g}
 
-  # Dual-track STT: RKNN NPU (with faster-whisper CPU fallback until .rknn mounted)
+  # Dual-track STT: RKNN NPU Whisper base (faster-whisper CPU if .rknn missing)
   stt-whisper:
     build:
       context: ./services/stt-rknn
       dockerfile: Dockerfile
     environment:
-      - STT_MODEL=${STT_MODEL:-small}
+      - STT_MODEL=${STT_MODEL:-base}
       - STT_DEVICE=${STT_DEVICE:-npu}
       - STT_BACKEND=${STT_BACKEND:-rknn}
       - STT_FALLBACK=${STT_FALLBACK:-faster-whisper}

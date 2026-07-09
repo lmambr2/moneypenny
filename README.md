@@ -33,7 +33,7 @@ tests passing (110 test files).
 
 | Edition | Bot primary host | Chat | Voice |
 |---------|------------------|------|-------|
-| **SBC** | Orange Pi 5 Max (RK3588) | LAN Gemma 4 **12B** (E2B offline fallback) | Whisper **tiny** (+ RKNN later) + Piper |
+| **SBC** | Orange Pi 5 Max (RK3588) | LAN Gemma 4 **12B** (E2B offline fallback) | Whisper **base** (RKNN NPU) + Piper |
 | **Server** | x86_64 Linux (**AMD** first; NVIDIA untested) | **Host Ollama** Gemma 4 **12B** (+ 31B if headroom) | whisper.cpp **Vulkan** (AMD) + Piper |
 
 **Bot runs on the machine you install** (`--edition sbc` or `server`). Embeddings +
@@ -130,7 +130,7 @@ curl -fsSL https://raw.githubusercontent.com/lmambr2/moneypenny/main/install.sh 
 
 | Host | Edition | Defaults |
 |------|---------|----------|
-| Orange Pi / RK3588 | **sbc** | E2B offline fallback; Whisper tiny; point `llmUrl` at LAN 12B |
+| Orange Pi / RK3588 | **sbc** | E2B offline fallback; Whisper base (NPU); point `llmUrl` at LAN 12B |
 | x86_64 Linux (**AMD**) | **server** | host Ollama Gemma 4 12B; whisper.cpp Vulkan; optional TS6 |
 | Either | `--llm npu` | rkllama on SBC only (offline opt-in) |
 

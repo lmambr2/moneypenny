@@ -8,6 +8,17 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### SBC STT default — Whisper base on NPU (RKNN)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Product default for `voice-edge`: `STT_MODEL=base`, `STT_BACKEND=rknn`,
+  `STT_DEVICE=npu` (was CPU `small` / optional NPU `tiny`)
+- Validated live: base RKNN snappier and cleaner than faster-whisper `small` on CPU
+- Export: `MODEL_TYPE=base ./models/convert/export-whisper-rknn.sh` →
+  `models/rknn/whisper-base-{encoder,decoder}.rknn`
+- Zoo ladder note: tiny / base / medium only (no Rockchip `small`)
+- Updated `install.sh`, compose overlays, `.env.example*`, voice docs, RELEASES
+
 ### V2 — remove sherpa/Kokoro (Whisper + Piper only)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

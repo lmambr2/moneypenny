@@ -9,8 +9,8 @@
 #   core        : the bot itself (always)
 #   npu         : rkllama on the RK3588 NPU (SBC offline opt-in only)
 #   ollama      : Ollama CPU/GPU inference (embeddings both; chat on server)
-#   voice-edge  : Whisper STT tiny + piper-tts — SBC (stt-rknn overlay)
-#   voice-server: Whisper STT small/large-v3 + piper-tts — Server (whisper.cpp)
+#   voice-edge  : Whisper STT base (RKNN NPU) + piper-tts — SBC (stt-rknn overlay)
+#   voice-server: Whisper STT medium + piper-tts — Server (whisper.cpp)
 #   voice-dev   : stt-mock only (CI)
 #   (Removed: profile "voice" / sherpa-stt / Kokoro — V2 2026-07)
 #   rag         : Qdrant vector store

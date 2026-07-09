@@ -28,15 +28,15 @@ echo
 
 if [[ "$EDITION" == "sbc" ]]; then
   cat <<EOF
-# SBC — RKNN NPU Whisper tiny → faster-whisper CPU fallback
+# SBC — RKNN NPU Whisper base (product default)
 COMPOSE_FILE=docker-compose.yml:docker-compose.sbc.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-edge
-# Prefer faster-whisper small (accuracy). RKNN path is still tiny-only weights.
-STT_MODEL=small
-STT_DEVICE=cpu
-STT_BACKEND=faster-whisper
+STT_MODEL=base
+STT_DEVICE=npu
+STT_BACKEND=rknn
 STT_FALLBACK=faster-whisper
-# Optional NPU tiny: STT_MODEL=tiny STT_BACKEND=rknn STT_DEVICE=npu
+RKNN_MODELS_DIR=/models/rknn
+# Export: MODEL_TYPE=base ./models/convert/export-whisper-rknn.sh
 # Bot: sttUrl=http://stt-whisper:9000 ttsUrl=http://piper-tts:8880 textWakeFallback=true
 EOF
 elif [[ "$HAS_AMD" -eq 1 ]]; then

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 PORT = int(os.environ.get("PORT", "9000"))
-STT_MODEL = os.environ.get("STT_MODEL", "tiny").strip()
+STT_MODEL = os.environ.get("STT_MODEL", "base").strip()
 STT_DEVICE = os.environ.get("STT_DEVICE", "npu").strip().lower()
 STT_BACKEND = os.environ.get("STT_BACKEND", "rknn").strip().lower()
 STT_FALLBACK = os.environ.get("STT_FALLBACK", "faster-whisper").strip().lower()

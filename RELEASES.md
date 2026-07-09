@@ -100,7 +100,7 @@ git checkout vX.Y.Z   # or dev
 | bot | core | always |
 | ollama | ollama | E2B fallback + embeddinggemma |
 | qdrant | rag | vectors on-device |
-| stt-whisper | voice-edge | `STT_MODEL=tiny` |
+| stt-whisper | voice-edge | `STT_MODEL=base` (RKNN NPU) |
 | piper-tts | voice-edge | southern English female |
 | rkllama | npu | **opt-in** offline chat only |
 
@@ -111,7 +111,7 @@ git checkout vX.Y.Z   # or dev
 | bot | core | always |
 | ollama | ollama | Gemma 4 **12B** (+ embed) |
 | qdrant | rag | on-device |
-| stt-whisper | voice-server | `small` or `large-v3` (CUDA) |
+| stt-whisper | voice-server | `medium` (Vulkan on AMD; large-v3 optional) |
 | piper-tts | voice-server | same British voice |
 
 ---

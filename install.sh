@@ -46,8 +46,8 @@ Moneypenny — one-command installer.
   curl … | bash                # interactive if a TTY is attached
 
 Two editions (docs/editions.md):
-  sbc    — RK3588 / Orange Pi edge (tiny Whisper, E2B fallback, RAG on-device)
-  server — x86_64 (Gemma 4 12B local, Whisper small|large-v3)
+  sbc    — RK3588 / Orange Pi edge (Whisper base NPU, E2B fallback, RAG on-device)
+  server — x86_64 (Gemma 4 12B local, Whisper medium|large-v3)
 
 Usage: ./install.sh [options]
   --interactive                force the text wizard
@@ -56,7 +56,7 @@ Usage: ./install.sh [options]
   --llm <npu|ollama|mock|URL>  LLM backend (default: ollama; npu opt-in on SBC)
   --model <name>               LLM model (sbc: E2B GGUF; server: 12B QAT; npu: npu-llm)
   --with-voice                 Whisper+Piper by edition (edge/server)
-  --with-voice-edge            force Pi Whisper small + piper
+  --with-voice-edge            force Pi Whisper base (RKNN NPU) + piper
   --with-voice-server          force x86 Whisper medium + piper
   --with-server                also start a TeamSpeak 6 server container
   --with-rag                   Qdrant + embedding model (knowledge base)
@@ -324,7 +324,7 @@ run_wizard() {
         :
       else
         ask_menu "Voice profile?" 1 \
-          "edge — Whisper small CPU (SBC/ARM)" \
+          "edge — Whisper base NPU (SBC/ARM)" \
           "server — Whisper medium + Piper (x86/AMD)"
         case "$REPLY" in
           1) VOICE_PROFILE=edge ;;
@@ -433,11 +433,12 @@ if [ "$WITH_VOICE" -eq 1 ]; then
   case "$VOICE_PROFILE" in
     edge)
       PROFILES+=("voice-edge")
-      # small on CPU for accuracy (RKNN weights are tiny-only today)
-      : "${STT_MODEL:=small}"
-      : "${STT_DEVICE:=cpu}"
-      : "${STT_BACKEND:=faster-whisper}"
-      say "Voice: ${c_b}edge${c_0} (Whisper ${STT_MODEL} via faster-whisper CPU + piper; NPU tiny optional)"
+      # Validated default: Whisper base on RK3588 NPU (RKNN). Falls back to
+      # faster-whisper CPU if .rknn weights are missing (STT_FALLBACK).
+      : "${STT_MODEL:=base}"
+      : "${STT_DEVICE:=npu}"
+      : "${STT_BACKEND:=rknn}"
+      say "Voice: ${c_b}edge${c_0} (Whisper ${STT_MODEL} via RKNN NPU + piper; CPU fallback if no .rknn)"
       ;;
     server)
       PROFILES+=("voice-server")
@@ -564,15 +565,20 @@ fi
 if [ "$WITH_VOICE" -eq 1 ] && [ "$VOICE_PROFILE" != "legacy" ]; then
   set_env STT_URL "http://stt-whisper:9000"
   set_env TTS_URL "http://piper-tts:8880"
-  set_env STT_MODEL "${STT_MODEL:-small}"
-  set_env STT_DEVICE "${STT_DEVICE:-auto}"
-  set_env STT_BACKEND "${STT_BACKEND:-faster-whisper}"
-  if [ "${STT_BACKEND}" = "rknn" ]; then
+  # STT_* already set above by VOICE_PROFILE (edge → base/npu/rknn; server → medium/…).
+  if [ "${VOICE_PROFILE}" = "edge" ]; then
+    set_env STT_MODEL "${STT_MODEL:-base}"
+    set_env STT_DEVICE "${STT_DEVICE:-npu}"
+    set_env STT_BACKEND "${STT_BACKEND:-rknn}"
     set_env STT_FALLBACK "faster-whisper"
     set_env RKNN_MODELS_DIR "/models/rknn"
-  fi
-  if [ "${STT_BACKEND}" = "whisper-cpp" ]; then
-    set_env WHISPER_VULKAN "${WHISPER_VULKAN:-1}"
+  else
+    set_env STT_MODEL "${STT_MODEL:-medium}"
+    set_env STT_DEVICE "${STT_DEVICE:-auto}"
+    set_env STT_BACKEND "${STT_BACKEND:-whisper-cpp}"
+    if [ "${STT_BACKEND}" = "whisper-cpp" ]; then
+      set_env WHISPER_VULKAN "${WHISPER_VULKAN:-1}"
+    fi
   fi
   set_env PIPER_VOICE "en_GB-southern_english_female-low"
   set_env PIPER_MODEL "/models/en_GB-southern_english_female-low.onnx"
@@ -660,7 +666,7 @@ if [ "$WITH_VOICE" -eq 1 ] && [ "${VOICE_PROFILE:-}" != "legacy" ]; then
   if [ "$EDITION" = "server" ]; then
     echo "  ${c_d}STT models: ./scripts/download-whisper-ggml.sh medium${c_0}"
   else
-    echo "  ${c_d}SBC STT: Whisper small on CPU (faster-whisper); optional NPU tiny via STT_MODEL=tiny + .rknn.${c_0}"
+    echo "  ${c_d}SBC STT: Whisper base on NPU (RKNN). Export: MODEL_TYPE=base ./models/convert/export-whisper-rknn.sh → models/rknn/.${c_0}"
   fi
 fi
 echo

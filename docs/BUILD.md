@@ -25,7 +25,7 @@ ordered **do list**, not full specs.
 |------|--------|
 | Dual editions (SBC / Server) | compose overlays, install wizard, RELEASES |
 | Dual-track STT | stt-rknn (NPU) + stt-whisper-cpp; Piper TTS |
-| RKNN Whisper tiny on Pi | Live ASR smoke with zoo test wav |
+| RKNN Whisper base on Pi | Live ASR smoke; health `engine=rknn model=base` |
 | 31B analyst opt-in | Settings toggle; VRAM helper |
 | AMD packaging docs | [gpu-amd.md](./gpu-amd.md) |
 | Security F1–F11 + STT alias removal | See CHANGELOG |

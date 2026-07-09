@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Export openai-whisper tiny → ONNX (20s) → RK3588 .rknn for SBC stt-rknn.
+# Export openai-whisper → ONNX (20s) → RK3588 .rknn for SBC stt-rknn.
 #
+# Product default MODEL_TYPE=base (tiny/medium also in Rockchip zoo; no small).
 # Prereq: models/convert/.venv-rknn2 with rknn-toolkit2 (see script body).
 # Usage:
-#   ./models/convert/export-whisper-rknn.sh
-#   MODEL_TYPE=base ./models/convert/export-whisper-rknn.sh
+#   ./models/convert/export-whisper-rknn.sh              # base
+#   MODEL_TYPE=tiny ./models/convert/export-whisper-rknn.sh
+#   MODEL_TYPE=medium ./models/convert/export-whisper-rknn.sh
 set -euo pipefail
 export TMPDIR="${TMPDIR:-$HOME/tmp}"
 mkdir -p "$TMPDIR"
@@ -14,7 +16,7 @@ CONVERT="$(cd "$(dirname "$0")" && pwd)"
 VENV="${CONVERT}/.venv-rknn2"
 ZOO="${CONVERT}/vendor/rknn_model_zoo/examples/whisper"
 OUT="${ROOT}/models/rknn"
-MODEL_TYPE="${MODEL_TYPE:-tiny}"
+MODEL_TYPE="${MODEL_TYPE:-base}"
 PLATFORM="${PLATFORM:-rk3588}"
 DTYPE="${DTYPE:-fp}"  # i8 needs a dataset file
 

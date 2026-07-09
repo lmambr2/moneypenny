@@ -16,11 +16,11 @@
 
 ```bash
 ./scripts/voice-profile.sh
-# Pi: RKNN Whisper tiny + Piper
-export STT_MODEL=tiny STT_BACKEND=rknn
+# Pi: RKNN Whisper base + Piper (export .rknn first — models/rknn/README.md)
+export STT_MODEL=base STT_BACKEND=rknn STT_DEVICE=npu
 docker compose -f docker-compose.yml -f docker-compose.sbc.yml --profile voice-edge up -d --build
 # x86 AMD: whisper.cpp Vulkan
-export STT_MODEL=small STT_DEVICE=vulkan WHISPER_VULKAN=1
+export STT_MODEL=medium STT_DEVICE=vulkan WHISPER_VULKAN=1
 docker compose -f docker-compose.yml -f docker-compose.server.yml --profile voice-server up -d --build
 ```
 

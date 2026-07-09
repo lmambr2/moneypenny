@@ -17,7 +17,7 @@ memory, radio polish) on the **dual-edition** product.
   ┌── SBC edition (RK3588) ──┐          ┌── Server edition (x86+GPU) ──┐
   │ bot, rights, music       │  chat    │ ollama Gemma 4 12B (+ 31B)  │
   │ ollama embeddinggemma    │ ───────► │ optional heavy STT large-v3 │
-  │ qdrant, Whisper tiny     │          └─────────────────────────────┘
+  │ qdrant, Whisper base NPU │          └─────────────────────────────┘
   │ piper-tts                │
   │ (opt rkllama offline)    │   OR server all-in-one (Topology B)
   └──────────────────────────┘
@@ -90,7 +90,7 @@ CPU. The only lever that actually moves decode is **model size**: dropping 4B→
 - **Server edition / LAN chat:** Gemma 4 **12B** QAT on ollama.
 - **SBC on-device fallback:** Gemma 4 **E2B** QAT on ollama (~10 tok/s).
 - **SBC NPU:** rkllama + operator `.rkllm` only when offline opt-in (`--llm npu`).
-- Day-to-day chat is **not** NPU-bound; free NPU for future Whisper RKNN / Piper.
+- Day-to-day chat is **not** NPU-bound; NPU is used for **Whisper base** STT (RKNN).
 
 **NotPunchnox/rkllama** (`ghcr.io/notpunchnox/rkllama:main`) is validated as a
 drop-in maintained replacement for `server.py`: OpenAI `/v1`, model management,
