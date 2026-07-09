@@ -770,9 +770,10 @@
       </div>
       <label v-if="ai.aceStepEnabled" class="profile-toggle" style="margin: 4px 0">
         <div class="profile-toggle-text">
-          <div class="profile-toggle-label">Radio auto-fill (A4)</div>
+          <div class="profile-toggle-label">Radio auto-fill</div>
           <div class="profile-toggle-hint">
-            When radio queue is empty, generate a track (not wired yet — flag stored for A4).
+            On dead air / empty profile pool, generate a track from the active radio profile
+            (ACE-Step). Fail-open: if gen fails, radio keeps waiting — never blocks skip.
           </div>
         </div>
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.aceStepAutoFill" />
