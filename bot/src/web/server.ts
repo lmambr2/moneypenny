@@ -142,6 +142,12 @@ export function createWebServer(options: WebServerOptions): WebServer {
       tagStore: options.tagStore,
       radioAnalyzer: options.radioAnalyzer,
       getRadioConfig: () => options.config.radio,
+      // @dj web parity: radio.tags token (admin always passes inside the middleware).
+      canEditTags: async (user) => {
+        const bot = options.botManager.getAllBots()[0];
+        if (!bot) return false;
+        return bot.canWebUserRunCommand(user, "radio.tags");
+      },
     })
   );
   app.use("/api/player", createPlayerRouter(options.botManager, logger, options.database));

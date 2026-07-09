@@ -22,6 +22,15 @@ export interface MusicRouterOptions {
   tagStore?: TagStore;
   radioAnalyzer?: RadioAnalyzer;
   getRadioConfig?: () => RadioConfig;
+  /**
+   * When set, PATCH /tracks/:id/tags allows this web user (in addition to
+   * platform admins). Used for `@dj` / `radio.tags` rank-gating.
+   */
+  canEditTags?: (user: {
+    id: string;
+    username: string;
+    role: "admin" | "member";
+  }) => boolean | Promise<boolean>;
 }
 
 const MAX_SEARCH_LIMIT = 50;
@@ -47,8 +56,39 @@ export function createMusicRouter(
   logger: Logger,
   options: MusicRouterOptions = {}
 ): Router {
-  const { tagStore, radioAnalyzer, getRadioConfig } = options;
+  const { tagStore, radioAnalyzer, getRadioConfig, canEditTags } = options;
   const router = Router();
+
+  /** Admin always; optional canEditTags for @dj / radio.tags web editors. */
+  async function requireTagEditor(
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction,
+  ): Promise<void> {
+    if (!req.user) {
+      res.status(401).json({ error: "unauthenticated" });
+      return;
+    }
+    if (req.user.role === "admin") {
+      next();
+      return;
+    }
+    if (canEditTags) {
+      try {
+        if (await canEditTags(req.user)) {
+          next();
+          return;
+        }
+      } catch (err) {
+        logger.warn({ err }, "canEditTags check failed");
+      }
+    }
+    res.status(403).json({
+      error: "forbidden",
+      message: "Admin or DJ (radio.tags) privileges are required to edit track tags.",
+      code: "PERMISSION_DENIED",
+    });
+  }
 
   function scheduleIngestAnalysis(trackIds: string[]): void {
     const cfg = getRadioConfig?.();
@@ -445,9 +485,7 @@ export function createMusicRouter(
   }
 
   // ─── Radio tag overlay (docs/radio.md §9.3) ───────────────────────────────
-  // Admin-gated like the rest of the mutating music API. ponytail: @dj web
-  // gating needs the rights engine wired into this router (it isn't) — admin
-  // covers the common case; @dj-via-web is a follow-up.
+  // Admin or rank-gated DJ (radio.tags) via canEditTags — not bare members.
   if (tagStore) {
     // Selection-tag fields an editor may set; strings trimmed, numbers coerced.
     const STRING_TAGS = ["genre", "subgenre", "mood", "musicalKey", "keyScale"] as const;
@@ -458,7 +496,7 @@ export function createMusicRouter(
       res.json({ id, tags: tagStore.get(id), rating: tagStore.getRating(id) });
     });
 
-    router.patch("/tracks/:id/tags", requireAdmin, (req, res) => {
+    router.patch("/tracks/:id/tags", requireTagEditor, (req, res) => {
       const id = String(req.params.id);
       const body = (req.body ?? {}) as Record<string, unknown>;
       const tags: Partial<TrackTags> = {};

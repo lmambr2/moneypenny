@@ -41,6 +41,10 @@ RSYNC_EXCLUDES=(
   --exclude 'bot/data'
   --exclude 'models/npu-llm/*.rkllm'
   --exclude 'models/**/*.rkllm'
+  --exclude 'models/convert/.venv'
+  --exclude 'models/convert/.venv-rknn2'
+  --exclude 'models/convert/vendor'
+  --exclude 'models/convert/hf'
   --exclude '.env'
 )
 

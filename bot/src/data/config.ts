@@ -136,6 +136,13 @@ export interface BotConfig {
   fileDropEnabled: boolean;
   // How often (seconds) to poll the drop channel for new files.
   fileDropPollSec: number;
+  // === ACE-Step music generation (docs/ace-step.md) — optional LAN sidecar ===
+  aceStepEnabled: boolean;
+  aceStepUrl: string;
+  aceStepAutoFill: boolean;
+  aceStepTimeoutMs: number;
+  /** Subdir under MUSIC_DIR for generated files. */
+  aceStepOutputDir: string;
 }
 
 export function getDefaultConfig(): BotConfig {
@@ -188,6 +195,11 @@ export function getDefaultConfig(): BotConfig {
     kgEnabled: false,
     fileDropEnabled: false,
     fileDropPollSec: 30,
+    aceStepEnabled: false,
+    aceStepUrl: "",
+    aceStepAutoFill: false,
+    aceStepTimeoutMs: 300_000,
+    aceStepOutputDir: "generated/ace-step",
   };
 }
 

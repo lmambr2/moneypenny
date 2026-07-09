@@ -1,0 +1,173 @@
+/**
+ * HTTP client for an ACE-Step music-generation sidecar (docs/ace-step.md A1).
+ * Bot never embeds ACE-Step — same pattern as STT/TTS/LLM.
+ */
+import axios, { type AxiosInstance } from "axios";
+import type { Logger } from "../logger.js";
+
+export interface AceStepHealth {
+  ok: boolean;
+  engine?: string;
+  busy?: boolean;
+  error?: string;
+}
+
+export interface AceStepGenerateRequest {
+  prompt: string;
+  durationSec?: number;
+  seed?: number | null;
+  lyrics?: string | null;
+  tags?: string[];
+}
+
+export type AceStepJobStatus = "queued" | "running" | "done" | "error";
+
+export interface AceStepJob {
+  id: string;
+  status: AceStepJobStatus;
+  /** Relative or absolute path under MUSIC_DIR when done (shared FS preferred). */
+  path?: string | null;
+  error?: string | null;
+  progress?: number;
+}
+
+export interface AceStepClientOpts {
+  url: string;
+  timeoutMs?: number;
+  logger?: Logger;
+  /** Injectable for tests. */
+  http?: AxiosInstance;
+}
+
+export class AceStepClient {
+  private base: string;
+  private timeoutMs: number;
+  private http: AxiosInstance;
+  private logger?: Logger;
+
+  constructor(opts: AceStepClientOpts) {
+    this.base = opts.url.replace(/\/$/, "");
+    this.timeoutMs = opts.timeoutMs ?? 30_000;
+    this.logger = opts.logger;
+    this.http =
+      opts.http ??
+      axios.create({
+        baseURL: this.base,
+        timeout: this.timeoutMs,
+        validateStatus: () => true,
+      });
+  }
+
+  async health(): Promise<AceStepHealth> {
+    try {
+      const { data, status } = await this.http.get("/health", { timeout: 5_000 });
+      if (status >= 200 && status < 300 && data && typeof data === "object") {
+        return {
+          ok: !!(data as AceStepHealth).ok,
+          engine: (data as AceStepHealth).engine ?? "ace-step",
+          busy: !!(data as AceStepHealth).busy,
+        };
+      }
+      return { ok: false, error: `HTTP ${status}` };
+    } catch (err) {
+      this.logger?.debug({ err }, "ACE-Step health failed");
+      return { ok: false, error: err instanceof Error ? err.message : "unreachable" };
+    }
+  }
+
+  async isAvailable(): Promise<boolean> {
+    const h = await this.health();
+    return h.ok;
+  }
+
+  async generate(req: AceStepGenerateRequest): Promise<AceStepJob> {
+    const prompt = req.prompt?.trim();
+    if (!prompt) throw new Error("prompt is required");
+
+    const body = {
+      prompt,
+      durationSec: req.durationSec,
+      seed: req.seed ?? null,
+      lyrics: req.lyrics ?? null,
+      tags: req.tags ?? [],
+    };
+    const { data, status } = await this.http.post("/v1/generate", body, {
+      timeout: this.timeoutMs,
+    });
+    if (status < 200 || status >= 300) {
+      const msg =
+        data && typeof data === "object" && "error" in data
+          ? String((data as { error: unknown }).error)
+          : `HTTP ${status}`;
+      throw new Error(msg);
+    }
+    return normalizeJob(data);
+  }
+
+  async getJob(id: string): Promise<AceStepJob> {
+    if (!id?.trim()) throw new Error("job id required");
+    const { data, status } = await this.http.get(`/v1/jobs/${encodeURIComponent(id)}`, {
+      timeout: this.timeoutMs,
+    });
+    if (status < 200 || status >= 300) {
+      const msg =
+        data && typeof data === "object" && "error" in data
+          ? String((data as { error: unknown }).error)
+          : `HTTP ${status}`;
+      throw new Error(msg);
+    }
+    return normalizeJob(data);
+  }
+
+  /**
+   * Poll until done/error or timeout. Fail-open callers should catch and continue.
+   */
+  async waitForJob(
+    id: string,
+    opts: { pollMs?: number; maxWaitMs?: number } = {},
+  ): Promise<AceStepJob> {
+    const pollMs = opts.pollMs ?? 2_000;
+    const maxWaitMs = opts.maxWaitMs ?? 300_000;
+    const deadline = Date.now() + maxWaitMs;
+    let last: AceStepJob = { id, status: "queued" };
+    while (Date.now() < deadline) {
+      last = await this.getJob(id);
+      if (last.status === "done" || last.status === "error") return last;
+      await sleep(pollMs);
+    }
+    return {
+      ...last,
+      status: "error",
+      error: last.error ?? `timed out after ${maxWaitMs}ms`,
+    };
+  }
+}
+
+function normalizeJob(raw: unknown): AceStepJob {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("invalid job response");
+  }
+  const o = raw as Record<string, unknown>;
+  const id = String(o.id ?? "");
+  if (!id) throw new Error("job missing id");
+  const statusRaw = String(o.status ?? "queued").toLowerCase();
+  const status: AceStepJobStatus =
+    statusRaw === "running" || statusRaw === "done" || statusRaw === "error" || statusRaw === "queued"
+      ? statusRaw
+      : "queued";
+  return {
+    id,
+    status,
+    path: o.path != null ? String(o.path) : null,
+    error: o.error != null ? String(o.error) : null,
+    progress: typeof o.progress === "number" ? o.progress : undefined,
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+export async function probeAceStep(url: string): Promise<boolean> {
+  return new AceStepClient({ url }).isAvailable();
+}

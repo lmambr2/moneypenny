@@ -11,12 +11,20 @@ const stub = (platform: MusicProvider["platform"]): MusicProvider =>
      getSongDetail: vi.fn(), getPlaylistSongs: vi.fn(), getRecommendPlaylists: vi.fn(),
      getAlbumSongs: vi.fn(), getLyrics: vi.fn(), getAuthStatus: vi.fn() }) as unknown as MusicProvider;
 
-function build(role: "admin" | "member" | null) {
+function build(
+  role: "admin" | "member" | null,
+  opts: { canEditTags?: (u: { role: string }) => boolean | Promise<boolean> } = {},
+) {
   const tagStore = new TagStore({ db: new Database(":memory:") });
   const app = express();
   app.use(express.json());
   if (role) app.use((req, _res, next) => { req.user = { id: "u1", username: "u", role }; next(); });
-  app.use(createMusicRouter(stub("local"), stub("youtube"), stub("stream"), console as never, { tagStore }));
+  app.use(
+    createMusicRouter(stub("local"), stub("youtube"), stub("stream"), console as never, {
+      tagStore,
+      canEditTags: opts.canEditTags as never,
+    }),
+  );
   return { app, tagStore };
 }
 
@@ -43,8 +51,20 @@ describe("PATCH /tracks/:id/tags", () => {
     expect(tagStore.isBumper("abc")).toBe(true);
   });
 
-  it("rejects a non-admin", async () => {
+  it("rejects a non-admin without canEditTags", async () => {
     const { app } = build("member");
+    expect((await request(app).patch("/tracks/abc/tags").send({ genre: "x" })).status).toBe(403);
+  });
+
+  it("allows a member when canEditTags (radio.tags / @dj) returns true", async () => {
+    const { app, tagStore } = build("member", { canEditTags: async () => true });
+    const res = await request(app).patch("/tracks/abc/tags").send({ genre: "ambient" });
+    expect(res.status).toBe(200);
+    expect(tagStore.get("abc")?.genre).toBe("ambient");
+  });
+
+  it("still rejects a member when canEditTags returns false", async () => {
+    const { app } = build("member", { canEditTags: async () => false });
     expect((await request(app).patch("/tracks/abc/tags").send({ genre: "x" })).status).toBe(403);
   });
 

@@ -3,7 +3,7 @@
 Living backlog of next implementation work. Design sketches link out; this is the
 ordered **do list**, not full specs.
 
-**Last updated:** 2026-07-08
+**Last updated:** 2026-07-08 (evening)
 
 ---
 
@@ -11,11 +11,11 @@ ordered **do list**, not full specs.
 
 | ID | Item | Notes | Status |
 |----|------|--------|--------|
-| **P0** | Poke as command channel | TS poke → ControlRouter; rights + rate limit; poke-back ack. | **Shipped** |
-| **A\*** | ACE-Step music gen | Design: [ace-step.md](./ace-step.md). Optional sidecar; `!generate` / radio auto-fill. | **Sketch done** |
-| **V1** | Server whisper.cpp Vulkan smoke | AMD R9700 + CachyOS/podman: image builds, `/health` device=vulkan, JFK ASR OK | **Done** |
-| **V2** | Drop sherpa/Kokoro | Removed compose services, install legacy flag, `services/sherpa-stt` | **Done** |
-| **R-live** | Radio live smoke on opi5 | Bumpers, `!radio ops` | Queued |
+| **A1** | ACE-Step client + health + config keys | `bot/src/music/ace-step-client.ts` | **Shipped** |
+| **A2** | `!generate` → job → library → play | Needs live ACE-Step API host | Queued |
+| **A3** | Settings panel for ACE-Step | After A2 | Queued |
+| **R-live** | Radio live smoke on opi5 | Bumpers, `!radio ops` | Queued (ops) |
+| **V-live** | Voice round-trip under music on Pi | Base NPU already default | Queued (ops) |
 
 ---
 
@@ -23,24 +23,15 @@ ordered **do list**, not full specs.
 
 | Item | Notes |
 |------|--------|
-| Dual editions (SBC / Server) | compose overlays, install wizard, RELEASES |
-| Dual-track STT | stt-rknn (NPU) + stt-whisper-cpp; Piper TTS |
-| RKNN Whisper base on Pi | Live ASR smoke; health `engine=rknn model=base` |
-| 31B analyst opt-in | Settings toggle; VRAM helper |
-| AMD packaging docs | [gpu-amd.md](./gpu-amd.md) |
-| Security F1–F11 + STT alias removal | See CHANGELOG |
-
----
-
-## Poke commands — shipped
-
-1. Library event `poked` → `TS3Client` emits `poke`.
-2. `PokeHandler` → `routeVoice` (prefix optional) → same rights/execute as chat.
-3. Config: `pokeCommandsEnabled` (default on), `pokeCommandsPerMinute` (default 12).
-4. Settings → AI & Permissions → Poke commands toggle.
-5. Reply: poke-back (truncated); channel mirror for now-playing / long replies.
-
-**Non-goals still:** multi-line pokes; privilege via poke.
+| Library scroll + track delete | Full library panel, admin delete |
+| Phase 7 memory A1–A5 | docs/memory.md, voice remember, radio org bumper, install `--with-memory` |
+| Phase 8 roast polish | `!roastin`, capture hygiene, docs/roast.md |
+| Voice under-music polish | Duck volume + listen window Settings |
+| Radio Settings | Bumper sources + org memory on air |
+| Dual editions + dual-track STT | SBC base NPU / Server medium Vulkan |
+| V2 drop sherpa/Kokoro | Whisper + Piper only |
+| **@dj tag edit (web)** | PATCH tags: admin **or** `radio.tags` rights |
+| Deploy excludes | No rsync of convert venv/vendor/hf |
 
 ---
 
@@ -48,7 +39,7 @@ ordered **do list**, not full specs.
 
 See [ace-step.md](./ace-step.md) §9:
 
-1. **A1** Client + config + health  
+1. **A1** Client + config + health — **done**
 2. **A2** `!generate` → file → play  
 3. **A3** Settings UI  
 4. **A4** Radio auto-fill  
@@ -63,4 +54,4 @@ See [ace-step.md](./ace-step.md) §9:
 - Spotify librespot bridge
 - Vue E2E
 - Whisper large-v3 on server when VRAM free
-- INT8 quant path for RKNN Whisper (currently FP tiny)
+- INT8 quant path for RKNN Whisper
