@@ -117,7 +117,7 @@ async function stopCapture() {
     rec.stop();
   });
   recording.value = false;
-  rec.stream.getTracks().forEach((t) => t.stop());
+  for (const t of rec.stream.getTracks()) t.stop();
   const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
   const name = `capture-${Date.now()}.webm`;
   try {
