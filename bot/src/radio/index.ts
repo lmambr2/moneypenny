@@ -15,11 +15,16 @@ export {
 } from "./audio-color.js";
 export { BumperCache, type BumperCacheEntry, type BumperCacheOptions } from "./bumper-cache.js";
 export {
+  buildTimeCheckSpeech,
+  formatClockInZone,
   type NowPlayingInfo,
   orderBumperSources,
+  parseTimeCheckTimezones,
   partitionSourcesForCycle,
   RadioBumperFactory,
   type RadioBumperFactoryDeps,
+  resolveStationIdLines,
+  type TimeZoneSpec,
 } from "./bumper-factory.js";
 export { FormatClock, isWithinQuietHours } from "./clock.js";
 export {

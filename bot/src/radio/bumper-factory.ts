@@ -78,6 +78,109 @@ export interface RadioBumperFactoryDeps {
 /** ~150 spoken wpm (§6.2): seconds → word budget. */
 const wordCap = (seconds: number): number => Math.max(20, Math.round(seconds * 2.5));
 
+const DEFAULT_STATION_ID_TEMPLATES = [
+  "This is {name}.",
+  "You're listening to {name}.",
+  "Stay tuned on {name}.",
+] as const;
+
+/**
+ * Resolve spoken station-ID lines from config + station name.
+ * Empty `stationIdLines` → built-in defaults. Supports `{name}` / `{station}`.
+ */
+export function resolveStationIdLines(stationName: string, configured?: string[] | null): string[] {
+  const name = (stationName || "Moneypenny").trim() || "Moneypenny";
+  const expand = (s: string) =>
+    s
+      .replace(/\{name\}/gi, name)
+      .replace(/\{station\}/gi, name)
+      .trim();
+  const custom = (configured ?? []).map(expand).filter(Boolean);
+  if (custom.length > 0) return custom;
+  return DEFAULT_STATION_ID_TEMPLATES.map(expand);
+}
+
+export interface TimeZoneSpec {
+  /** IANA zone id, or null for host local. */
+  zone: string | null;
+  /** Spoken place name (e.g. "New York"). Empty for single local check. */
+  label: string;
+}
+
+/** Parse config lines: `America/New_York` or `Europe/London|London`. Empty → local only. */
+export function parseTimeCheckTimezones(configured?: string[] | null): TimeZoneSpec[] {
+  const raw = (configured ?? []).map((s) => s.trim()).filter(Boolean);
+  if (raw.length === 0) return [{ zone: null, label: "" }];
+  const out: TimeZoneSpec[] = [];
+  for (const line of raw.slice(0, 8)) {
+    const pipe = line.indexOf("|");
+    const zone = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+    let label = (pipe >= 0 ? line.slice(pipe + 1) : "").trim();
+    if (!zone) continue;
+    // Validate zone if possible; invalid IANA falls back to skipping.
+    if (zone.toLowerCase() !== "local" && zone !== "host") {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: zone });
+      } catch {
+        continue;
+      }
+    }
+    const isLocal = zone.toLowerCase() === "local" || zone === "host";
+    if (!label && !isLocal) {
+      // America/New_York → "New York"
+      const tail = zone.includes("/") ? zone.slice(zone.lastIndexOf("/") + 1) : zone;
+      label = tail.replace(/_/g, " ");
+    }
+    out.push({ zone: isLocal ? null : zone, label });
+  }
+  return out.length > 0 ? out : [{ zone: null, label: "" }];
+}
+
+/** 12-hour spoken clock for a zone (or host local when zone is null). */
+export function formatClockInZone(ms: number, timeZone?: string | null): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      ...(timeZone ? { timeZone } : {}),
+    }).formatToParts(new Date(ms));
+    const hour = parts.find((p) => p.type === "hour")?.value ?? "12";
+    const minute = parts.find((p) => p.type === "minute")?.value ?? "00";
+    const dayPeriod = (parts.find((p) => p.type === "dayPeriod")?.value ?? "AM").toUpperCase();
+    return `${hour}:${minute.padStart(2, "0")} ${dayPeriod}`;
+  } catch {
+    // Fallback local formatting
+    const d = new Date(ms);
+    let h = d.getHours();
+    const m = d.getMinutes();
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
+  }
+}
+
+/**
+ * Full time-check sentence. One zone: "The time is 2:05 PM."
+ * Several: "The time is 2:05 PM in New York, and 7:05 PM in London."
+ */
+export function buildTimeCheckSpeech(ms: number, zones: TimeZoneSpec[]): string {
+  const specs = zones.length > 0 ? zones : [{ zone: null, label: "" }];
+  if (specs.length === 1) {
+    const z = specs[0]!;
+    const clock = formatClockInZone(ms, z.zone);
+    if (z.label) return `The time is ${clock} in ${z.label}.`;
+    return `The time is ${clock}.`;
+  }
+  const bits = specs.map((z) => {
+    const clock = formatClockInZone(ms, z.zone);
+    return z.label ? `${clock} in ${z.label}` : clock;
+  });
+  if (bits.length === 2) return `The time is ${bits[0]}, and ${bits[1]}.`;
+  const last = bits[bits.length - 1];
+  return `The time is ${bits.slice(0, -1).join(", ")}, and ${last}.`;
+}
+
 /**
  * Weighted random order of bumper sources (without replacement).
  * Missing weights default to 1; weight ≤ 0 drops the source from the draw.
@@ -254,14 +357,14 @@ export class RadioBumperFactory implements BumperFactory {
     };
 
     const cfg = this.deps.getConfig();
-    const name = this.deps.stationName || "Moneypenny";
 
-    // Station ID + a few canned liners (always useful; cheap if already cached).
-    await render(`This is ${name}.`, "stationId");
-    await render(`You're listening to ${name}.`, "stationId");
-    await render(`Stay tuned on ${name}.`, "stationId");
+    // Station ID liners (config `stationIdLines`, or built-in defaults).
+    for (const line of resolveStationIdLines(this.deps.stationName, cfg.stationIdLines)) {
+      await render(line, "stationId");
+    }
 
     // Time checks for the next hoursAhead hours (default 12) at :00 and :30.
+    const zones = parseTimeCheckTimezones(cfg.timeCheckTimezones);
     const hours = Math.max(1, Math.min(opts.hoursAhead ?? 12, 24));
     const base = (this.deps.now ?? Date.now)();
     const seen = new Set<string>();
@@ -270,10 +373,10 @@ export class RadioBumperFactory implements BumperFactory {
         const t = new Date(base);
         t.setMinutes(min, 0, 0);
         t.setHours(t.getHours() + h);
-        const label = this.formatTimeAt(t.getTime());
-        if (seen.has(label)) continue;
-        seen.add(label);
-        await render(`The time is ${label}.`, "timeCheck");
+        const speech = buildTimeCheckSpeech(t.getTime(), zones);
+        if (seen.has(speech)) continue;
+        seen.add(speech);
+        await render(speech, "timeCheck");
       }
     }
 
@@ -324,10 +427,21 @@ export class RadioBumperFactory implements BumperFactory {
           const path = flagged ?? this.deps.prerecorded.pick();
           return path ? { path, label: "prerecorded" } : null;
         }
-        case "stationId":
-          return this.speak(`This is ${this.deps.stationName}.`, "stationId");
-        case "timeCheck":
-          return this.speak(`The time is ${this.formatTime()}.`, "timeCheck");
+        case "stationId": {
+          const lines = resolveStationIdLines(
+            this.deps.stationName,
+            this.deps.getConfig().stationIdLines,
+          );
+          if (lines.length === 0) return null;
+          const rng = this.deps.random ?? Math.random;
+          const text = lines[Math.floor(rng() * lines.length)]!;
+          return this.speak(text, "stationId");
+        }
+        case "timeCheck": {
+          const zones = parseTimeCheckTimezones(this.deps.getConfig().timeCheckTimezones);
+          const speech = buildTimeCheckSpeech((this.deps.now ?? Date.now)(), zones);
+          return this.speak(speech, "timeCheck");
+        }
         case "nowPlaying": {
           const text = this.nowPlayingText();
           return text ? this.speak(text, "nowPlaying") : null;
@@ -443,17 +557,8 @@ export class RadioBumperFactory implements BumperFactory {
     return t.artist ? `${t.name} by ${t.artist}` : t.name;
   }
 
-  private formatTime(): string {
-    return this.formatTimeAt((this.deps.now ?? Date.now)());
-  }
-
-  /** Same spoken time format as live timeCheck, for an arbitrary timestamp. */
+  /** Same spoken time format as live timeCheck, for an arbitrary timestamp (host local). */
   formatTimeAt(ms: number): string {
-    const d = new Date(ms);
-    let h = d.getHours();
-    const m = d.getMinutes();
-    const ampm = h >= 12 ? "PM" : "AM";
-    h = h % 12 || 12;
-    return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
+    return formatClockInZone(ms, null);
   }
 }

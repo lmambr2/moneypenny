@@ -440,6 +440,8 @@ export function createBotRouter(
         "profiles",
         "clock",
         "ttsVoice",
+        "stationIdLines",
+        "timeCheckTimezones",
         "bumperDir",
         "analyzer",
         "ratingWeight",
@@ -447,6 +449,40 @@ export function createBotRouter(
         "audioColor",
         "icecast",
       ]);
+      if ("stationIdLines" in patch) {
+        const lines = patch.stationIdLines;
+        if (!Array.isArray(lines) || !lines.every((x) => typeof x === "string")) {
+          res.status(400).json({
+            error: "radio.stationIdLines must be an array of strings",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+        if (lines.length > 32) {
+          res.status(400).json({
+            error: "radio.stationIdLines: at most 32 lines",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+      }
+      if ("timeCheckTimezones" in patch) {
+        const zones = patch.timeCheckTimezones;
+        if (!Array.isArray(zones) || !zones.every((x) => typeof x === "string")) {
+          res.status(400).json({
+            error: "radio.timeCheckTimezones must be an array of strings",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+        if (zones.length > 8) {
+          res.status(400).json({
+            error: "radio.timeCheckTimezones: at most 8 zones",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+      }
       const unknown = Object.keys(patch).filter((k) => !KNOWN_RADIO_KEYS.has(k));
       if (unknown.length > 0) {
         res.status(400).json({

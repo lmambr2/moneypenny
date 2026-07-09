@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildTimeCheckSpeech,
   type NowPlayingInfo,
   orderBumperSources,
+  parseTimeCheckTimezones,
   partitionSourcesForCycle,
   RadioBumperFactory,
+  resolveStationIdLines,
 } from "./bumper-factory.js";
 import type { PrerecordedPool } from "./prerecorded.js";
 import type { SpeechSink } from "./speech.js";
@@ -65,6 +68,38 @@ function harness(opts: {
   });
   return { factory, prerecorded, renderFn, logger };
 }
+
+describe("resolveStationIdLines / time zones", () => {
+  it("defaults station ID templates with {name}", () => {
+    expect(resolveStationIdLines("Moneypenny", [])).toEqual([
+      "This is Moneypenny.",
+      "You're listening to Moneypenny.",
+      "Stay tuned on Moneypenny.",
+    ]);
+  });
+
+  it("honors custom station ID lines", () => {
+    expect(resolveStationIdLines("Penny", ["This is {name} Radio.", "Stay sharp."])).toEqual([
+      "This is Penny Radio.",
+      "Stay sharp.",
+    ]);
+  });
+
+  it("builds multi-zone time checks with labels", () => {
+    const ms = new Date(2026, 5, 30, 14, 5).getTime(); // local 2:05 PM
+    const zones = parseTimeCheckTimezones(["UTC|UTC", "local|here"]);
+    expect(zones).toHaveLength(2);
+    const speech = buildTimeCheckSpeech(ms, zones);
+    expect(speech).toMatch(/^The time is /);
+    expect(speech).toMatch(/UTC/);
+    expect(speech).toMatch(/here/);
+  });
+
+  it("single local zone keeps classic phrasing", () => {
+    const ms = new Date(2026, 5, 30, 14, 5).getTime();
+    expect(buildTimeCheckSpeech(ms, parseTimeCheckTimezones([]))).toBe("The time is 2:05 PM.");
+  });
+});
 
 describe("orderBumperSources / partitionSourcesForCycle", () => {
   it("with rng→0 preserves candidate order (equal weights)", () => {

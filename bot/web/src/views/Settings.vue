@@ -776,6 +776,45 @@
       </div>
 
       <div v-if="ai.radioEnabled" class="form-group" style="margin: 0 0 10px">
+        <label
+          title="Spoken station-ID liners (stationId source). One line per entry. Use {name} for the bot/station display name. Empty = built-in defaults."
+          >Station ID liners</label
+        >
+        <textarea
+          v-model="ai.radioStationIdLinesText"
+          class="input radio-profile-textarea"
+          rows="3"
+          placeholder="This is {name}.&#10;You're listening to {name}.&#10;Stay tuned on {name}."
+        />
+        <p class="profile-toggle-hint" style="margin:4px 0 0">
+          What the <strong>Station ID</strong> bumper says (TTS). One phrase per line.
+          <code>{name}</code> becomes the bot nickname (e.g. Moneypenny). Leave blank for the
+          built-in three defaults. After editing: <strong>Save</strong>, clear TTS bumper cache,
+          then pre-generate or test a bumper.
+        </p>
+      </div>
+
+      <div v-if="ai.radioEnabled" class="form-group" style="margin: 0 0 10px">
+        <label
+          title="IANA time zones for the Time check bumper. Empty = host local only. Optional spoken label after |."
+          >Time check timezones</label
+        >
+        <textarea
+          v-model="ai.radioTimeCheckTimezonesText"
+          class="input radio-profile-textarea"
+          rows="3"
+          placeholder="America/New_York|Eastern&#10;Europe/London|London&#10;UTC|UTC"
+        />
+        <p class="profile-toggle-hint" style="margin:4px 0 0">
+          One IANA zone per line for the <strong>Time check</strong> bumper (e.g.
+          <code>America/New_York</code>). Optional spoken label:
+          <code>Europe/London|London</code>. Leave blank for the host’s local clock only.
+          Multiple zones are spoken in one liner (“… in New York, and … in London”).
+          Max 8. After edit: Save → clear TTS cache → pre-generate.
+        </p>
+      </div>
+
+      <div v-if="ai.radioEnabled" class="form-group" style="margin: 0 0 10px">
         <label title="Tried in listed order until one produces audio. Fail-open to next source, then music."
           >Bumper sources</label
         >
@@ -1743,6 +1782,10 @@ const ai = reactive({
   radioMemoryBroadcastOptIn: false,
   radioIcecastEnabled: false,
   radioIcecastMountUrl: '',
+  /** One station-ID liner per line; empty = built-in defaults. */
+  radioStationIdLinesText: '',
+  /** One IANA zone per line (optional |label); empty = host local. */
+  radioTimeCheckTimezonesText: '',
   radioSources: {
     prerecorded: true,
     stationId: true,
@@ -2197,6 +2240,14 @@ async function loadAiSettings() {
     ai.radioMemoryBroadcastOptIn = !!radio.memoryBroadcastOptIn;
     ai.radioIcecastEnabled = !!radio.icecast?.enabled;
     ai.radioIcecastMountUrl = radio.icecast?.mountUrl ?? '';
+    ai.radioStationIdLinesText = Array.isArray(radio.stationIdLines)
+      ? radio.stationIdLines.filter((x: unknown) => typeof x === 'string' && x.trim()).join('\n')
+      : '';
+    ai.radioTimeCheckTimezonesText = Array.isArray(radio.timeCheckTimezones)
+      ? radio.timeCheckTimezones
+          .filter((x: unknown) => typeof x === 'string' && (x as string).trim())
+          .join('\n')
+      : '';
     const srcSet = new Set(Array.isArray(radio.sources) ? radio.sources : []);
     for (const opt of RADIO_SOURCE_OPTIONS) {
       ai.radioSources[opt.id] =
@@ -2722,6 +2773,16 @@ async function saveAiSettings() {
         activeProfile: ai.radioActiveProfile,
         // Keep radio TTS aligned with voice settings (station IDs / time checks).
         ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-medium',
+        stationIdLines: ai.radioStationIdLinesText
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 32),
+        timeCheckTimezones: ai.radioTimeCheckTimezonesText
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 8),
         profiles: Object.fromEntries(
           Object.entries(ai.radioProfiles).map(([key, edit]) => [key, profileToApi(key, edit)]),
         ),

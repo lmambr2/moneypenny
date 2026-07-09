@@ -72,6 +72,18 @@ LLM rewrite (tone applied, invent nothing) → length cap → TTS.
 **Force one topic without changing the profile:** `!radio bumper <topic>` (doctrine only;
 does not advance the diversity cycle). Prewarm with doctrine uses up to **8** profile topics.
 
+### Station ID liners & time zones (Settings)
+
+- **`stationIdLines`** — spoken text for the **Station ID** bumper. One phrase per
+  line; `{name}` / `{station}` → bot nickname. Empty → built-in  
+  “This is {name}.” / “You're listening to {name}.” / “Stay tuned on {name}.”
+- **`timeCheckTimezones`** — IANA zones for the **Time check** bumper (max 8).
+  Form: `America/New_York` or `Europe/London|London`. Empty → host local only.
+  Several zones → one sentence (“… in New York, and … in London”).
+
+After editing either: **Save** → **Clear TTS bumper cache** → **Pre-generate bumpers**
+(or wait for live re-synth).
+
 ### Bumper source selection (diversity cycle)
 
 Enabled sources are **not** fixed priority. Each scheduled break **and** forced

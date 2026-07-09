@@ -87,6 +87,18 @@ export interface RadioConfig {
   profiles: Record<string, RadioProfile>;
   clock?: FormatClockSpec;
   ttsVoice?: string;
+  /**
+   * Spoken station-ID liners (`stationId` source). One line per entry.
+   * `{name}` / `{station}` expands to the bot/station display name.
+   * Empty / omit → built-in defaults ("This is {name}.", etc.).
+   */
+  stationIdLines?: string[];
+  /**
+   * IANA time zones for the `timeCheck` bumper (e.g. `America/New_York`).
+   * Optional `Zone|Spoken label` form: `Europe/London|London`.
+   * Empty / omit → host local timezone only.
+   */
+  timeCheckTimezones?: string[];
   /** Directory holding prerecorded bumper assets (R-R1 pool; R-R2 adds the
    *  tag-flagged overlay). Relative paths resolve against the data dir. */
   bumperDir?: string;
@@ -117,6 +129,8 @@ export function defaultRadioConfig(): RadioConfig {
     maxBumpersPerHour: 12,
     quietHours: [],
     sources: ["prerecorded", "stationId", "timeCheck", "nowPlaying"],
+    stationIdLines: [],
+    timeCheckTimezones: [],
     memoryBroadcastOptIn: false,
     activeProfile: "lobby",
     profiles: {
