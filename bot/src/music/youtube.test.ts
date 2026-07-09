@@ -4,6 +4,9 @@ import {
   DEFAULT_DEMO_VIDEO_ID,
   DEFAULT_DEMO_VIDEO_URL,
   isYoutubeFullAlbumTitle,
+  isYoutubeTooLong,
+  shouldBlockYoutubeSong,
+  YOUTUBE_MAX_DURATION_SEC,
   YouTubeProvider,
 } from "./youtube.js";
 
@@ -21,6 +24,28 @@ describe("isYoutubeFullAlbumTitle", () => {
     expect(isYoutubeFullAlbumTitle("Album Cover Art ASMR")).toBe(false);
     expect(isYoutubeFullAlbumTitle("Bohemian Rhapsody")).toBe(false);
     expect(isYoutubeFullAlbumTitle("")).toBe(false);
+  });
+});
+
+describe("isYoutubeTooLong / shouldBlockYoutubeSong", () => {
+  it("caps at 15 minutes", () => {
+    expect(YOUTUBE_MAX_DURATION_SEC).toBe(900);
+    expect(isYoutubeTooLong(900)).toBe(false); // exactly 15m ok
+    expect(isYoutubeTooLong(901)).toBe(true);
+    expect(isYoutubeTooLong(3600)).toBe(true);
+    expect(isYoutubeTooLong(180)).toBe(false);
+  });
+
+  it("allows unknown duration (oEmbed / missing metadata)", () => {
+    expect(isYoutubeTooLong(0)).toBe(false);
+    expect(isYoutubeTooLong(undefined)).toBe(false);
+    expect(isYoutubeTooLong(null)).toBe(false);
+  });
+
+  it("combines title and duration gates", () => {
+    expect(shouldBlockYoutubeSong({ title: "Full Album", duration: 60 })).toBe(true);
+    expect(shouldBlockYoutubeSong({ title: "Normal Song", duration: 1200 })).toBe(true);
+    expect(shouldBlockYoutubeSong({ title: "Normal Song", duration: 240 })).toBe(false);
   });
 });
 

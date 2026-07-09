@@ -80,6 +80,9 @@ export function extractVideoId(input: string): string | null {
   return m ? m[1] : null;
 }
 
+/** Max YouTube play length (seconds). Longer dumps (albums, mixes) are skipped. */
+export const YOUTUBE_MAX_DURATION_SEC = 15 * 60;
+
 /**
  * Block multi-hour “full album” dumps that wreck the DJ queue.
  * Matches “full album”, “full-album”, “fullalbum”, etc. (case-insensitive).
@@ -96,6 +99,26 @@ export function isYoutubeFullAlbumTitle(title: string): boolean {
   // full album | full-album | full_album | full.album | fullalbum
   if (/\bfull[\s._-]*album\b/.test(t)) return true;
   if (t.includes("fullalbum")) return true;
+  return false;
+}
+
+/**
+ * True when duration is known and exceeds the 15-minute cap.
+ * Unknown/zero duration is allowed (oEmbed age-restricted path often lacks it).
+ */
+export function isYoutubeTooLong(durationSec: number | null | undefined): boolean {
+  const d = Number(durationSec);
+  if (!Number.isFinite(d) || d <= 0) return false;
+  return d > YOUTUBE_MAX_DURATION_SEC;
+}
+
+/** Combined gate for YouTube queue pollution (title dump or over-long). */
+export function shouldBlockYoutubeSong(opts: {
+  title?: string | null;
+  duration?: number | null;
+}): boolean {
+  if (isYoutubeFullAlbumTitle(opts.title ?? "")) return true;
+  if (isYoutubeTooLong(opts.duration)) return true;
   return false;
 }
 
@@ -190,11 +213,12 @@ function sourceLabelFor(webUrl: string, extractor?: string): string {
 
 function entryToSong(entry: YtDlpEntry): Song | null {
   const title = entry.title ?? "Unknown";
-  // Full-album dumps only apply to YouTube track titles (not X/Bandcamp posts).
+  const duration = Math.round(entry.duration ?? 0);
+  // Full-album / over-long gates only for YouTube (not X/Bandcamp posts).
   const webUrl = entry.webpage_url ?? "";
   const isYt =
     /youtube|youtu\.be/i.test(entry.extractor ?? "") || /youtube\.com|youtu\.be/i.test(webUrl);
-  if (isYt && isYoutubeFullAlbumTitle(title)) return null;
+  if (isYt && shouldBlockYoutubeSong({ title, duration })) return null;
   const label = isYt ? "YouTube" : sourceLabelFor(webUrl, entry.extractor);
   return {
     // For non-YouTube (X/Twitter/…) keep the full page URL as the id — there's no
@@ -203,7 +227,7 @@ function entryToSong(entry: YtDlpEntry): Song | null {
     name: title,
     artist: entry.uploader ?? entry.channel ?? label,
     album: label,
-    duration: Math.round(entry.duration ?? 0),
+    duration,
     coverUrl: entry.thumbnail ?? "",
     platform: "youtube",
   };

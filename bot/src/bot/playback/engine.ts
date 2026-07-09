@@ -14,7 +14,7 @@ import {
   DEFAULT_DEMO_VIDEO_ID,
   DEFAULT_DEMO_VIDEO_URL,
   extractVideoId,
-  isYoutubeFullAlbumTitle,
+  shouldBlockYoutubeSong,
 } from "../../music/youtube.js";
 import type { YtLibrary } from "../../music/ytlibrary.js";
 import type { ParsedCommand } from "../commands.js";
@@ -222,11 +222,14 @@ export class PlaybackEngine {
     this.voteSkipUsers.clear();
     const provider = this.getProviderFor(song.platform);
     try {
-      // Belt-and-suspenders: refuse full-album dumps even if already queued.
-      if (song.platform === "youtube" && isYoutubeFullAlbumTitle(song.name)) {
+      // Belt-and-suspenders: refuse full-album / >15m dumps even if already queued.
+      if (
+        song.platform === "youtube" &&
+        shouldBlockYoutubeSong({ title: song.name, duration: song.duration })
+      ) {
         this.opts.logger.info(
-          { songId: song.id, name: song.name },
-          "YouTube full-album title blocked — skipping",
+          { songId: song.id, name: song.name, duration: song.duration },
+          "YouTube full-album or over-long track blocked — skipping",
         );
         return false;
       }

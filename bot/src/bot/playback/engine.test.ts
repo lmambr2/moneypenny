@@ -142,4 +142,25 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
     expect(play).not.toHaveBeenCalled();
     expect(getSongUrl).not.toHaveBeenCalled();
   });
+
+  it("resolveAndPlay skips YouTube tracks longer than 15 minutes", async () => {
+    const getSongUrl = vi.fn().mockResolvedValue("https://example.com/audio.ogg");
+    (engine as any).opts.youtubeProvider.getSongUrl = getSongUrl;
+    const queue = (engine as any).opts.queue as PlayQueue;
+    queue.clear();
+    queue.add({
+      id: "longTrackId1",
+      name: "Ambient Mix Hour 1",
+      artist: "DJ",
+      album: "YouTube",
+      duration: 901,
+      coverUrl: "",
+      platform: "youtube",
+    });
+    queue.play();
+    const ok = await engine.resolveAndPlay(queue.current()!);
+    expect(ok).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+    expect(getSongUrl).not.toHaveBeenCalled();
+  });
 });
