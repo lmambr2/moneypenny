@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { EconomyDiskCache } from "./cache/store.js";
 import {
   blueprintToBom,
   blueprintToCraftOrder,
@@ -60,9 +64,21 @@ describe("blueprintToBom / blueprintToCraftOrder", () => {
 });
 
 describe("ScCraftClient", () => {
+  let disk: EconomyDiskCache;
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sccraft-"));
+    disk = new EconomyDiskCache(dir);
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("resolveBlueprint picks best injectable match", async () => {
     const client = new ScCraftClient({
       enabled: true,
+      disk,
       fetchSearch: async () => [
         { id: 1, name: "Other Gun", ingredients: [] },
         SAMPLE,
@@ -75,6 +91,7 @@ describe("ScCraftClient", () => {
   it("fails soft when disabled", async () => {
     const client = new ScCraftClient({
       enabled: false,
+      disk,
       fetchSearch: async () => {
         throw new Error("should not run");
       },
@@ -86,6 +103,7 @@ describe("ScCraftClient", () => {
   it("fails soft when fetch throws", async () => {
     const client = new ScCraftClient({
       enabled: true,
+      disk,
       fetchSearch: async () => {
         throw new Error("offline");
       },
@@ -97,6 +115,7 @@ describe("ScCraftClient", () => {
     let calls = 0;
     const client = new ScCraftClient({
       enabled: true,
+      disk,
       ttlMs: 60_000,
       fetchSearch: async () => {
         calls += 1;
