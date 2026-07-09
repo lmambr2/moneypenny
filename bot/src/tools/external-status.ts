@@ -143,12 +143,17 @@ export function createStarCitizenOrgStatusPlugin(opts: {
       }
       // Lazy import avoids circular deps with tests that mock fetch only.
       const { ScOrgClient } = await import("./sc-org-client.js");
-      const client = new ScOrgClient({
-        baseUrl: base,
-        orgName: org,
-        fetchImpl: fetchImpl as typeof fetch | undefined,
-      });
-      return client.formatBrief();
+      try {
+        const client = new ScOrgClient({
+          baseUrl: base,
+          orgName: org,
+          fetchImpl: fetchImpl as typeof fetch | undefined,
+        });
+        return await client.formatBrief();
+      } catch (err) {
+        // Invalid scheme / bad URL → fail-open message (same as network down).
+        throw err instanceof Error ? err : new Error(String(err));
+      }
     },
   };
 }

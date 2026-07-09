@@ -42,7 +42,7 @@ export class ScOrgClient {
   private fetchImpl: typeof fetch;
 
   constructor(opts: ScOrgClientOpts) {
-    this.base = opts.baseUrl.replace(/\/$/, "");
+    this.base = normalizeScOrgBaseUrl(opts.baseUrl);
     this.orgName = opts.orgName ?? "org";
     this.timeoutMs = opts.timeoutMs ?? 3_500;
     const f = opts.fetchImpl ?? globalThis.fetch?.bind(globalThis);
@@ -154,4 +154,27 @@ export function formatScOrgStatusLine(st: ScOrgStatus, orgFallback = "org"): str
     st.summary ?? null,
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+/**
+ * Only http(s) bases are accepted. Rejects file:/gopher:/relative junk so a
+ * mis-set Settings field cannot turn the bot into a weird scheme fetcher.
+ * (Admin SSRF to LAN http remains intentional — same as llmUrl.)
+ */
+export function normalizeScOrgBaseUrl(raw: string): string {
+  const trimmed = (raw ?? "").trim().replace(/\/$/, "");
+  if (!trimmed) return "";
+  let u: URL;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    throw new Error("SC org status URL is not a valid absolute URL");
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error("SC org status URL must be http or https");
+  }
+  if (u.username || u.password) {
+    throw new Error("SC org status URL must not embed credentials");
+  }
+  return `${u.origin}${u.pathname === "/" ? "" : u.pathname.replace(/\/$/, "")}`;
 }

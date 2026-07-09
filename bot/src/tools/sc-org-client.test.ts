@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   formatScOrgStatusLine,
+  normalizeScOrgBaseUrl,
   parseStatusPayload,
   ScOrgClient,
 } from "./sc-org-client.js";
@@ -10,6 +11,15 @@ import {
 } from "./external-status.js";
 
 describe("ScOrgClient (G2 depth)", () => {
+  it("normalizeScOrgBaseUrl allows only http(s)", () => {
+    expect(normalizeScOrgBaseUrl("http://sc:9100/")).toBe("http://sc:9100");
+    expect(normalizeScOrgBaseUrl("https://example.com/bridge")).toBe("https://example.com/bridge");
+    expect(() => normalizeScOrgBaseUrl("file:///etc/passwd")).toThrow(/http/i);
+    expect(() => normalizeScOrgBaseUrl("gopher://x")).toThrow(/http/i);
+    expect(() => normalizeScOrgBaseUrl("http://user:pass@host/")).toThrow(/credential/i);
+    expect(normalizeScOrgBaseUrl("")).toBe("");
+  });
+
   it("parses status payload flexibly", () => {
     const st = parseStatusPayload(
       { state: "standing-by", online: 3, summary: "ops quiet", org: "RSI" },

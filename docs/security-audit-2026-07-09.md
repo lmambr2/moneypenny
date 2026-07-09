@@ -1,0 +1,243 @@
+# Security audit, bug hunt, and refactor opportunities — 2026-07-09
+
+**Scope:** Moneypenny application attack surface after the harness / org / ops /
+voice-smoke / SC-client arc. Complements
+[security-audit-2026-07-08.md](./security-audit-2026-07-08.md),
+[hardening.md](./hardening.md), [audit-findings.md](./audit-findings.md), and
+[DESIGN.md](../DESIGN.md) §11.
+
+**Method:** Source review of `bot/src/web/**` (auth/CSRF/gates), `bot/src/rights`,
+`bot/src/control`, `bot/src/ts-protocol`, `bot/src/ingest`, `bot/src/music/url-guard`,
+`bot/src/harness`, `bot/src/tools` (SC/status), `bot/src/memory`, `bot/src/rag`,
+`scripts/deploy-to-pi.sh`, `scripts/rights-rank-gating.json`; full bot vitest
+suite; `npm audit` (bot); static `rg` for spawn/eval/path/fetch/secrets.
+
+**Non-goals:** Live Pi/TS pen-test, full transitive SCA product, Python brain /
+Vue rewrite / teamspeak.js adoption, shipping every remediation in this pass.
+
+---
+
+## Executive summary
+
+**Posture:** Consistent with design intent — **localhost-bound UI by default**,
+**session + CSRF + admin gates** on sensitive APIs, **fail-open music** (LLM/RAG
+must not strand playback), **rank-gated TS commands**, **parameterized SQL**,
+**no shell-true on untrusted input**, **playback SSRF denylist + DNS checks**
+(2026-07-08). Residual risk is mostly **operator deployment** (binding,
+TLS, proxy trust) and **admin-equivalent power** on a shared dashboard.
+
+**Top risks (ordered fix-first):**
+
+1. **P0 (fixed this pass):** Rank-gating starter template omitted `!ops` →
+   public command drift / rights template test failure.
+2. **P0 (fixed this pass):** SC org status URL accepted non-http(s) schemes;
+   now normalized to http(s) only, no embedded credentials.
+3. **Medium (defer / ops):** `trustProxy` + spoofable `X-Forwarded-For` dilutes
+   rate limits (known 2026-07-08).
+4. **Medium (product):** Admin harness **intent mode** executes mapped tools
+   via `CommandExecutor` without a second rights pass (admin-only endpoint —
+   intentional power, document blast radius).
+5. **Low:** Authenticated non-admin can read `GET /api/bot/llm/status` (and bot
+   list/status) — minor recon for multi-member installs.
+6. **Low/privacy:** Admin `GET /api/bot/memory/private?uid=` can list any
+   member’s `!remember` facts — expected for admin, sensitive on shared
+   admin accounts.
+
+**No Critical** in-repo issues found in this pass. Suite: **1016 passed**,
+1 failed before P0 template fix; re-verify green after fix.
+
+---
+
+## 1. Security findings
+
+### Critical
+
+**None.** Prior closed items (player rights C2, playback DNS rebinding H) remain
+closed; see 2026-07-08 audit.
+
+### High
+
+**None newly confirmed.** Prior H-2026-07-08-1 (DNS rebinding on play path)
+remains fixed and covered by `url-guard` / engine tests.
+
+### Medium
+
+#### M-2026-07-09-1 — Admin harness intent executes tools without web rights re-check
+
+| | |
+|--|--|
+| **Severity** | Medium (admin-only) |
+| **Location** | `bot/src/bot/instance.ts` `runHarnessTurn` → `commands.execute` after `toolCallToCommand` |
+| **Threat** | Compromised admin session or prompt-injection against the local LLM can drive **play / skip / stop / volume** (and any mapped tool) on the live queue without the web player’s `canWebUserRunCommand` path. |
+| **Impact** | Live music disruption; not a cross-user privilege escalation (route is `requireAdmin`). |
+| **Remediation** | Document as “admin equals DJ console”; optionally restrict intent tools to a safer allowlist (`play`/`now` only) or dry-run mode. **Accepted risk** for current product if operators keep UI localhost/TLS. |
+
+#### M-2026-07-09-2 — Admin-configured outbound URLs (LAN SSRF by design)
+
+| | |
+|--|--|
+| **Severity** | Medium (operator/admin) |
+| **Location** | Settings: `llmUrl`, `aceStepUrl`, `streamBridgeUrl`, `scOrgStatusUrl`, `mempalaceUrl`, `vectorDbUrl`, … consumed by axios/fetch/ffmpeg |
+| **Threat** | Admin can point the bot at internal metadata IPs / sidecars. |
+| **Impact** | Expected for self-hosted LAN; catastrophic if the dashboard is exposed to untrusted admins on the internet. |
+| **Remediation** | Keep UI off public internet ([hardening.md](./hardening.md)); do not grant admin to untrusted users. Optional future: warn when URL resolves private. |
+| **This pass** | SC base URL now **http(s) only** (`normalizeScOrgBaseUrl`) — reduces `file:` / credential-in-URL footguns. |
+
+#### M-2026-07-09-3 — Rate-limit key under `trustProxy` — **still deferred**
+
+| | |
+|--|--|
+| **Severity** | Medium (ops) |
+| **Location** | `bot/src/web/middleware/rateLimit.ts` + `trustProxy` |
+| **Threat** | Spoofed `X-Forwarded-For` can dilute login/player limits. |
+| **Remediation** | Only enable trust proxy behind a hop that overwrites XFF; document hop count. Same as M-2026-07-08-3. |
+
+#### M-2026-07-09-4 — Admin private-memory inspection by arbitrary TS uid
+
+| | |
+|--|--|
+| **Severity** | Medium (privacy) |
+| **Location** | `GET /api/bot/memory/private?uid=` — `bot/src/web/api/bot.ts` |
+| **Threat** | Any admin can read every user’s private `!remember` facts. |
+| **Impact** | Privacy violation on multi-admin shared logins; not a member→member leak. |
+| **Remediation** | Audit-log each private read; optional confirm dialog in Harness; restrict to super-admin. **Accepted** for single-operator deployments. |
+
+### Low / Info
+
+| ID | Location | Note |
+|----|----------|------|
+| L-2026-07-09-1 | `GET /api/bot/llm/status` | **Authenticated, not admin-only.** Leaks LLM configured/reachable/fallback flags to any dashboard member. Prefer `requireAdmin` for multi-tenant UIs. |
+| L-2026-07-09-2 | `GET /api/bot/`, `GET /api/bot/:id` | Bot name, connected, now-playing metadata for all authed users — intentional for the SPA player. |
+| L-2026-07-09-3 | `GET /api/health`, `public-url` | Unauthenticated by design; no secrets. |
+| L-2026-07-09-4 | In-memory harness turn ring | Shared process-wide among admins; last turns visible to next admin session. |
+| L-2026-07-09-5 | `npm audit` | 1 **low**: esbuild Windows dev-server advisory — not production path. |
+| L-2026-07-09-6 | `BOT_SESSION_SECRET` | Still reserved/unused; sessions are random DB-hashed tokens. |
+| L-2026-07-09-7 | Deploy rsync | `scripts/deploy-to-pi.sh` excludes `.env`; `--delete` gated — good. Operator must protect SSH and host `bot/data`. |
+
+### Surfaces reviewed (OK / residual)
+
+| Surface | Status | Residual |
+|---------|--------|----------|
+| Session cookie httpOnly + SameSite=Lax + Secure under HTTPS | **OK** | Cleartext LAN without TLS |
+| CSRF Origin/Referer host match (case-insensitive) | **OK** | SameSite already helps |
+| requireAuth on `/api/*` after public health/session | **OK** | |
+| requireAdmin on settings, harness, org-kg, rag, rights debug, bot secrets config | **OK** | llm/status is weaker (L1) |
+| WebSocket upgrade session cookie | **OK** | |
+| Player → `executeRoutedCommand` + rights | **OK** | |
+| Rank gating engine + migrations (incl. ops v5) | **OK** after template fix | Custom ruleset operator risk |
+| Doctrine `safeName` path containment | **OK** | |
+| Playback URL SSRF denylist + DNS | **OK** (2026-07-08) | TOCTOU theoretical |
+| child_process arg arrays, no shell:true on untrusted | **OK** | |
+| Secrets redaction on `GET /api/bot/:id/config` | **OK** | |
+| Parameterized better-sqlite3 | **OK** | |
+| File-drop channel | **OK** | Trust TS channel ACLs |
+| SC org / host status plugins | **OK** fail-open | Admin URL LAN SSRF (M2) |
+
+---
+
+## 2. Bug hunt
+
+### Confirmed (code + test)
+
+#### B-2026-07-09-1 — Rank-gating template missing `ops` — **FIXED**
+
+| | |
+|--|--|
+| **Evidence** | `vitest` `src/rights/rank-gating-template.test.ts` failed: `missing = ['ops']` |
+| **Location** | `scripts/rights-rank-gating.json` vs `COMMAND_MANIFEST` public `ops` |
+| **Impact** | Operators importing the starter template deny `!ops` to everyone; drift class that previously broke `!playnext` / `!chevron7`. |
+| **Fix** | Added `ops` to `defaultAllow` and to admin/dj/analyst groups in the template. Runtime migration v5 already granted ops on live configs. |
+
+### Confirmed (fixed this pass)
+
+#### B-2026-07-09-2 — SC org URL scheme not validated — **FIXED**
+
+| | |
+|--|--|
+| **Location** | `bot/src/tools/sc-org-client.ts` |
+| **Impact** | Misconfiguration could attempt non-HTTP fetches. |
+| **Fix** | `normalizeScOrgBaseUrl` — http(s) only, no userinfo; tests added. |
+
+### Hypotheses (read path; not repro’d failing)
+
+| ID | Hypothesis | Read path |
+|----|------------|-----------|
+| H1 | Harness intent + aggressive local model might call `stop` during demos more often than chat rights would allow a DJ | `instance.ts` executeTool → `toolCallToCommand` includes `stop` |
+| H2 | Shared harness turn buffer could confuse multi-admin debugging | `InMemoryHarnessStore` per bot process |
+| H3 | TOCTOU DNS rebinding still theoretical between assert and ffmpeg connect | `url-guard.ts` + player spawn |
+
+### Suite status
+
+```
+Full bot vitest (pre-fix): 1 failed (rank-gating template ops), 1016 passed, 3 skipped
+After P0 fixes: rank-gating-template + sc-org-client + external-status green
+npm audit: 1 low (esbuild, Windows dev only)
+```
+
+---
+
+## 3. Refactor opportunities
+
+### Quick wins
+
+| Item | Observation | Why |
+|------|-------------|-----|
+| **Admin-only on `GET /llm/status`** | Auth-only while other LLM routes are admin | Consistency + less recon |
+| **Harness intent dry-run flag** | Always executes tools | Safer demos / shared admin |
+| **Audit log private memory reads** | No trail today | Privacy accountability |
+| **Split `createBotRouter`** | `bot.ts` is a mega-router | Testability, reviewability |
+
+### Medium
+
+| Item | Observation | Why |
+|------|-------------|-----|
+| **Thin adapter for outbound service clients** | LLM, ACE, MemPalace, SC, stream bridge each roll their own fetch | Shared timeout, URL normalize, metrics |
+| **BotInstance façade growth** | harness/ops/kg/voice methods keep landing on instance | Extract `HarnessFacade` / `OpsFacade` |
+| **Duplicate ask surfaces** | `POST /llm/ask` vs `POST /harness/ask` | Single turn pipeline, two thin handlers |
+| **Rights template + migrations dual source** | Template JSON vs `migrations.ts` deltas | Generate template from manifest or test both |
+
+### Large (do **not** start now)
+
+| Item | Why deferred |
+|------|----------------|
+| Python “brain” extract | Plan-only until pain criteria ([brain-boundary.md](./brain-boundary.md)) |
+| Vue → Svelte/Next | Explicit non-goal |
+| teamspeak.js swap for voice | Query-only; keep honeybbq ([feature-roadmap watchlist](./feature-roadmap.md)) |
+| Full microservice split | Overkill for current ops load |
+
+---
+
+## 4. Fix-first backlog (recommended order)
+
+1. ~~Sync `rights-rank-gating.json` with public commands (`ops`)~~ **done**  
+2. ~~Validate SC org URL scheme~~ **done**  
+3. Optionally `requireAdmin` on `GET /api/bot/llm/status`  
+4. Optional harness intent allowlist / dry-run  
+5. Audit-log `memory/private` reads  
+6. Keep proxy/TLS discipline from [hardening.md](./hardening.md)  
+7. Periodic `npm audit` / dependabot  
+
+---
+
+## 5. Verification notes
+
+Evidence under implementer scratch (not committed): suite log, static scan,
+npm audit, spot-checks.
+
+```bash
+# Spot-check cited modules exist
+test -f bot/src/web/middleware/csrf.ts
+test -f bot/src/music/url-guard.ts
+test -f bot/src/bot/instance.ts
+test -f bot/src/tools/sc-org-client.ts
+test -f scripts/rights-rank-gating.json
+
+cd bot && npx vitest run src/rights/rank-gating-template.test.ts \
+  src/tools/sc-org-client.test.ts src/music/url-guard.test.ts \
+  src/web/middleware/csrf.test.ts
+```
+
+---
+
+*Analysis goal: document first. Trivial P0 template + URL normalize shipped in
+the same batch. Residual risk remains for live network ops not exercised here.*

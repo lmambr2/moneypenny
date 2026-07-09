@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Security audit + small P0 fixes
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **docs/security-audit-2026-07-09.md** — security / bugs / refactors after harness-ops arc
+- **Fix:** `scripts/rights-rank-gating.json` includes public `ops` (template drift)
+- **Fix:** SC org status URL http(s) only (`normalizeScOrgBaseUrl`)
+
 ### Feature roadmap follow-up: H3, V1/H4, G2 depth, R3
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

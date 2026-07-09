@@ -1,5 +1,8 @@
 # Production Hardening (DESIGN §11)
 
+Latest application audit: [security-audit-2026-07-09.md](./security-audit-2026-07-09.md)
+(prior: [security-audit-2026-07-08.md](./security-audit-2026-07-08.md)).
+
 Moneypenny's application code is already conservative (no shell-exec injection;
 `/api` behind auth + CSRF-origin + rate-limit; WS upgrade auth; bcrypt-12;
 session tokens stored only as SHA-256; parameterized SQL; session cookie
