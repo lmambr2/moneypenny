@@ -25,6 +25,14 @@ function fakeBot() {
     updateMemory(...a: any[]) { this.calls.push(["memory", a]); },
     updateMemPalace(...a: any[]) { this.calls.push(["mempalace", a]); },
     getMemPalaceStatus: async () => ({ configured: true, available: true, url: "http://mempalace:8090" }),
+    updateAceStep(...a: any[]) { this.calls.push(["aceStep", a]); },
+    getAceStepStatus: async () => ({
+      configured: true,
+      available: true,
+      url: "http://192.168.1.89:7865",
+      autoFill: false,
+      engine: "ace-step",
+    }),
     updateVoice(...a: any[]) { this.calls.push(["voice", a]); },
     getEffectiveRights: async () => ({
       subject: { uid: "u1", serverGroups: ["105"] },
@@ -177,6 +185,27 @@ describe("bot settings router", () => {
 
     const bad = await request(app).post("/api/bot/settings").set("Cookie", adminCookie).send({ rights: { rules: "nope" } });
     expect(bad.status).toBe(400);
+  });
+
+  it("updates ACE-Step settings live and reports status", async () => {
+    const res = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({
+        aceStepEnabled: true,
+        aceStepUrl: "http://192.168.1.89:7865",
+        aceStepAutoFill: true,
+        aceStepTimeoutMs: 120000,
+      });
+    expect(res.status).toBe(200);
+    expect(config.aceStepEnabled).toBe(true);
+    expect(config.aceStepUrl).toBe("http://192.168.1.89:7865");
+    expect(config.aceStepAutoFill).toBe(true);
+    expect(bot.calls.some((c) => c[0] === "aceStep")).toBe(true);
+
+    const status = await request(app).get("/api/bot/ace-step/status").set("Cookie", adminCookie);
+    expect(status.status).toBe(200);
+    expect(status.body).toMatchObject({ configured: true, available: true, engine: "ace-step" });
   });
 
   it("updates stream bridge and voice settings live", async () => {

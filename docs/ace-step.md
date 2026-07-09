@@ -1,7 +1,7 @@
 # ACE-Step music generation — design sketch
 
-> **Status:** **A1–A2 shipped** (client + `!generate` → library → play). Settings
-> UI / radio auto-fill still queued (A3–A6). Optional DJ / library fill via
+> **Status:** **A1–A3 shipped** (client + `!generate` + Settings UI). Radio
+> auto-fill still queued (A4–A6). Optional DJ / library fill via
 > [ACE-Step](https://ace-step.com/) / [ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5)
 > on a GPU host (e.g. AMD Server / LAN workstation).  
 > Related: [radio.md](./radio.md), [editions.md](./editions.md), [remote-llm.md](./remote-llm.md).
@@ -226,7 +226,7 @@ Document next to [gpu-amd.md](./gpu-amd.md): “music-gen vs analyst concurrency
 |----|-------------|--------|
 | **A1** | `AceStepClient` + health probe + config keys | Unit tests with mock HTTP — **done** |
 | **A2** | `!generate` → job → save under `generated/ace-step/` → play | Unit tests + manual on host with API — **done** |
-| **A3** | Settings panel (URL, enable, autoFill) | UI round-trip |
+| **A3** | Settings panel (URL, enable, autoFill) | UI + `/api/bot/ace-step/status` — **done** |
 | **A4** | Radio director auto-fill + bumper-while-wait | Dead air → gen → play |
 | **A5** | Prune + tags + `!radio gen` alias | Ops-ready |
 | **A6** | Optional compose profile / docs for LAN ACE-Step host | Install notes |

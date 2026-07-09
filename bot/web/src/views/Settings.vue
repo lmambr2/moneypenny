@@ -743,6 +743,60 @@
       <label class="profile-toggle">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">
+            <Icon icon="mdi:music-note-plus" class="setting-icon" /> ACE-Step music gen
+          </div>
+          <div class="profile-toggle-hint">
+            Optional LAN GPU sidecar for <code>!generate &lt;prompt&gt;</code> (rank-gated @dj).
+            Files land under <code>MUSIC_DIR/generated/ace-step/</code>. See <code>docs/ace-step.md</code>.
+            Prefer Server/LAN host — not the Pi.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.aceStepEnabled" />
+      </label>
+
+      <div v-if="ai.aceStepEnabled" class="form-row" style="margin: 8px 0 4px">
+        <div class="form-group" style="flex:2">
+          <label>ACE-Step URL</label>
+          <input v-model="ai.aceStepUrl" class="input" placeholder="http://192.168.1.89:7865" />
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Timeout (ms)</label>
+          <input v-model.number="ai.aceStepTimeoutMs" type="number" min="10000" step="1000" class="input" />
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Output subdir</label>
+          <input v-model="ai.aceStepOutputDir" class="input" placeholder="generated/ace-step" />
+        </div>
+      </div>
+      <label v-if="ai.aceStepEnabled" class="profile-toggle" style="margin: 4px 0">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">Radio auto-fill (A4)</div>
+          <div class="profile-toggle-hint">
+            When radio queue is empty, generate a track (not wired yet — flag stored for A4).
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.aceStepAutoFill" />
+      </label>
+      <div v-if="ai.aceStepEnabled && ai.aceStepUrl.trim()" class="llm-status-card">
+        <div class="llm-status-row">
+          <span
+            class="llm-dot"
+            :class="aceStep.available ? 'ok' : (aceStep.configured ? 'warn' : 'off')"
+          />
+          <span class="llm-status-text">
+            {{ aceStep.available
+              ? `ACE-Step OK${aceStep.busy ? ' (busy)' : ''}${aceStep.engine ? ' · ' + aceStep.engine : ''}`
+              : (aceStep.configured ? (aceStep.error || 'Configured but unreachable') : 'Not checked') }}
+          </span>
+          <button class="btn-sm" :disabled="aceStep.checking" @click="refreshAceStepStatus">
+            {{ aceStep.checking ? 'Checking…' : 'Check' }}
+          </button>
+        </div>
+      </div>
+
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
             <Icon icon="mdi:folder-upload" class="setting-icon" /> File drop (TeamSpeak)
           </div>
           <div class="profile-toggle-hint">
@@ -1307,6 +1361,11 @@ const ai = reactive({
   kgEnabled: false,
   mempalaceEnabled: false,
   mempalaceUrl: '',
+  aceStepEnabled: false,
+  aceStepUrl: '',
+  aceStepAutoFill: false,
+  aceStepTimeoutMs: 300000,
+  aceStepOutputDir: 'generated/ace-step',
   fileDropEnabled: false,
   fileDropPollSec: 30,
   pokeCommandsEnabled: true,
@@ -1384,6 +1443,14 @@ const memPalace = reactive({
   syncing: false,
   syncMsg: '',
 });
+const aceStep = reactive({
+  configured: false,
+  available: false,
+  checking: false,
+  busy: false,
+  engine: '',
+  error: '',
+});
 const rag = reactive({
   configured: false,
   available: false,
@@ -1443,6 +1510,11 @@ async function loadAiSettings() {
     ai.kgEnabled = !!res.data.kgEnabled;
     ai.mempalaceEnabled = !!res.data.mempalaceEnabled;
     ai.mempalaceUrl = res.data.mempalaceUrl ?? '';
+    ai.aceStepEnabled = !!res.data.aceStepEnabled;
+    ai.aceStepUrl = res.data.aceStepUrl ?? '';
+    ai.aceStepAutoFill = !!res.data.aceStepAutoFill;
+    ai.aceStepTimeoutMs = res.data.aceStepTimeoutMs ?? 300000;
+    ai.aceStepOutputDir = res.data.aceStepOutputDir ?? 'generated/ace-step';
     ai.fileDropEnabled = !!res.data.fileDropEnabled;
     ai.fileDropPollSec = res.data.fileDropPollSec ?? 30;
     ai.pokeCommandsEnabled = res.data.pokeCommandsEnabled !== false;
@@ -1496,6 +1568,7 @@ async function loadAiSettings() {
   if (ai.ragEnabled) refreshRagStatus();
   if (ai.streamBridgeUrl.trim()) refreshBridgeStatus();
   if (ai.mempalaceEnabled && ai.mempalaceUrl.trim()) refreshMemPalaceStatus();
+  if (ai.aceStepEnabled && ai.aceStepUrl.trim()) refreshAceStepStatus();
   if (ai.voiceEnabled) refreshVoiceStatus();
   if (ai.radioEnabled) refreshRadioStatus();
 }
@@ -1655,6 +1728,25 @@ async function refreshMemPalaceStatus() {
     memPalace.available = false;
   } finally {
     memPalace.checking = false;
+  }
+}
+
+async function refreshAceStepStatus() {
+  aceStep.checking = true;
+  aceStep.error = '';
+  try {
+    const res = await api.get('/api/bot/ace-step/status');
+    aceStep.configured = !!res.data.configured;
+    aceStep.available = !!res.data.available;
+    aceStep.busy = !!res.data.busy;
+    aceStep.engine = res.data.engine ?? '';
+    aceStep.error = res.data.error ?? '';
+  } catch {
+    aceStep.configured = ai.aceStepEnabled && !!ai.aceStepUrl.trim();
+    aceStep.available = false;
+    aceStep.error = 'status request failed';
+  } finally {
+    aceStep.checking = false;
   }
 }
 
@@ -1898,6 +1990,11 @@ async function saveAiSettings() {
       kgEnabled: ai.kgEnabled,
       mempalaceEnabled: ai.mempalaceEnabled,
       mempalaceUrl: ai.mempalaceUrl.trim(),
+      aceStepEnabled: ai.aceStepEnabled,
+      aceStepUrl: ai.aceStepUrl.trim(),
+      aceStepAutoFill: ai.aceStepAutoFill,
+      aceStepTimeoutMs: Math.max(10000, Number(ai.aceStepTimeoutMs) || 300000),
+      aceStepOutputDir: (ai.aceStepOutputDir || 'generated/ace-step').trim() || 'generated/ace-step',
       fileDropEnabled: ai.fileDropEnabled,
       fileDropPollSec: ai.fileDropPollSec,
       pokeCommandsEnabled: ai.pokeCommandsEnabled,
@@ -1936,6 +2033,7 @@ async function saveAiSettings() {
     if (ai.ragEnabled) refreshRagStatus();
     if (ai.streamBridgeUrl.trim()) refreshBridgeStatus();
     if (ai.mempalaceEnabled && ai.mempalaceUrl.trim()) refreshMemPalaceStatus();
+    if (ai.aceStepEnabled && ai.aceStepUrl.trim()) refreshAceStepStatus();
     if (ai.radioEnabled) refreshRadioStatus();
   } catch (e: any) {
     aiError.value = e?.response?.data?.error ?? 'Failed to save settings.';

@@ -8,6 +8,12 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### ACE-Step A3 — Settings UI
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Settings → ACE-Step: enable, URL, timeout, output dir, auto-fill flag
+- `GET /api/bot/ace-step/status` health probe; live apply via `updateAceStep`
+
 ### ACE-Step A2 — !generate → library → play
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

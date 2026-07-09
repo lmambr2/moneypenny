@@ -51,6 +51,11 @@ export function createBotRouter(
       kgEnabled: config.kgEnabled ?? false,
       mempalaceEnabled: config.mempalaceEnabled ?? false,
       mempalaceUrl: config.mempalaceUrl ?? "",
+      aceStepEnabled: config.aceStepEnabled ?? false,
+      aceStepUrl: config.aceStepUrl ?? "",
+      aceStepAutoFill: config.aceStepAutoFill ?? false,
+      aceStepTimeoutMs: config.aceStepTimeoutMs ?? 300_000,
+      aceStepOutputDir: config.aceStepOutputDir ?? "generated/ace-step",
       fileDropEnabled: config.fileDropEnabled ?? false,
       fileDropPollSec: config.fileDropPollSec ?? 30,
       rightsEnabled: config.rightsEnabled ?? true,
@@ -82,6 +87,7 @@ export function createBotRouter(
       memory: false,
       kg: false,
       mempalace: false,
+      aceStep: false,
       fileDrop: false,
       stream: false,
       voice: false,
@@ -124,6 +130,11 @@ export function createBotRouter(
       { key: "kgEnabled", type: "boolean", touch: "kg" },
       { key: "mempalaceEnabled", type: "boolean", touch: "mempalace" },
       { key: "mempalaceUrl", type: "string", touch: "mempalace" },
+      { key: "aceStepEnabled", type: "boolean", touch: "aceStep" },
+      { key: "aceStepUrl", type: "string", touch: "aceStep" },
+      { key: "aceStepAutoFill", type: "boolean", touch: "aceStep" },
+      { key: "aceStepTimeoutMs", type: "int", min: 10_000, max: 900_000, touch: "aceStep" },
+      { key: "aceStepOutputDir", type: "string", touch: "aceStep" },
       { key: "fileDropEnabled", type: "boolean", touch: "fileDrop" },
       { key: "fileDropPollSec", type: "int", min: 5, touch: "fileDrop" },
       { key: "rightsEnabled", type: "boolean", touch: "rights" },
@@ -364,6 +375,15 @@ export function createBotRouter(
       if (touched.mempalace) {
         bot.updateMemPalace(config.mempalaceEnabled ?? false, config.mempalaceUrl);
       }
+      if (touched.aceStep) {
+        bot.updateAceStep({
+          enabled: config.aceStepEnabled ?? false,
+          url: config.aceStepUrl,
+          autoFill: config.aceStepAutoFill,
+          timeoutMs: config.aceStepTimeoutMs,
+          outputDir: config.aceStepOutputDir,
+        });
+      }
       if (touched.stream) bot.updateStreamBridge(config.streamBridgeUrl ?? "");
       if (touched.voice && config.voice) bot.updateVoice(config.voice);
     }
@@ -425,6 +445,21 @@ export function createBotRouter(
     } catch (err: unknown) {
       res.status(502).json({ error: errorMessage(err, "memory sync failed"), code: "MEMORY_ERROR" });
     }
+  });
+
+  // GET /api/bot/ace-step/status — ACE-Step sidecar configured + reachable.
+  router.get("/ace-step/status", requireAdmin, async (_req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.json({
+        configured: !!(config.aceStepEnabled && config.aceStepUrl?.trim()),
+        available: false,
+        url: config.aceStepUrl ?? "",
+        autoFill: config.aceStepAutoFill ?? false,
+      });
+      return;
+    }
+    res.json(await bot.getAceStepStatus());
   });
 
   // GET /api/bot/memory/status — MemPalace sidecar configured + reachable.

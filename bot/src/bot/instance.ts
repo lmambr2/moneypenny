@@ -629,7 +629,7 @@ export class BotInstance extends EventEmitter {
     });
   }
 
-  /** Hot-apply ACE-Step settings from the web UI (A3 can call this). */
+  /** Hot-apply ACE-Step settings from the web UI (A3). */
   updateAceStep(partial: {
     enabled?: boolean;
     url?: string;
@@ -643,6 +643,42 @@ export class BotInstance extends EventEmitter {
     if (partial.timeoutMs !== undefined) this.config.aceStepTimeoutMs = partial.timeoutMs;
     if (partial.outputDir !== undefined) this.config.aceStepOutputDir = partial.outputDir;
     this.aceStep = this.createAceStepClient();
+  }
+
+  async getAceStepStatus(): Promise<{
+    configured: boolean;
+    available: boolean;
+    url: string;
+    autoFill: boolean;
+    engine?: string;
+    busy?: boolean;
+    error?: string;
+  }> {
+    const url =
+      (this.config.aceStepUrl || process.env.ACE_STEP_URL || "").trim();
+    const configured = !!this.config.aceStepEnabled && !!url;
+    if (!configured) {
+      return {
+        configured: false,
+        available: false,
+        url,
+        autoFill: !!this.config.aceStepAutoFill,
+      };
+    }
+    if (!this.aceStep) this.aceStep = this.createAceStepClient();
+    if (!this.aceStep) {
+      return { configured: true, available: false, url, autoFill: !!this.config.aceStepAutoFill };
+    }
+    const h = await this.aceStep.health();
+    return {
+      configured: true,
+      available: h.ok,
+      url,
+      autoFill: !!this.config.aceStepAutoFill,
+      engine: h.engine,
+      busy: h.busy,
+      error: h.error,
+    };
   }
 
   getLlmStatus() {
