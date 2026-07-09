@@ -12,17 +12,14 @@
 > key/BPM) and the recommended selection substrate is **your own analyzer-populated
 > tags, not a third-party API**.
 
-**Status:** backend **implemented** (R-R1 – R-R5 mechanism-complete on `dev`,
-2026-07-03; commit refs in §13). Dashboard surfaces shipped (`e02b87f`): Settings
-**Radio / DJ** panel, Library **Track tags** editor + star ratings, `!radio pin`
-(pin-to-pool). Pi deployed at `e02b87f`. **Analyzer sidecar** (OQ2 keyfinder+aubio) ships in the
-bot image + `POST /api/music/analyze` + Library “Analyze library” when enabled in Settings.
-Still pending: TS live smoke (bumper test, `!radio ops`), re-run OQ3 when a full org
-library is mounted, and optional R-R6. **Future:** optional ACE-Step generated
-tracks as a library fill / `!radio gen` — design sketch [ace-step.md](./ace-step.md).
+**Status:** backend **implemented** (R-R1 – R-R6 on `dev`/`main`, 2026-07).
+Dashboard: Settings **Radio / DJ**, Library **Track tags** + stars, `!radio pin`.
+**Analyzer** (keyfinder+aubio) in the bot image + analyze API. **R-R6:** Icecast
+tee, relay-in, Spotify/Tidal playlist expand via stream bridge (fail-open).
+**ACE-Step** radio auto-fill / `!radio gen` / `!generate` ship when enabled —
+[ace-step.md](./ace-step.md), [ace-step-host.md](./ace-step-host.md).
 **Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
-and **`focus`** ship in `defaultRadioConfig()`; add custom profiles in config or
-via Settings before `!radio ops` can switch to them.
+and **`focus`** in `defaultRadioConfig()`; add custom profiles before `!radio ops`.
 
 ### Dashboard (Settings → Radio / DJ)
 
@@ -306,9 +303,10 @@ theming.
   "music": {
     "select": { "mood": ["calm","focus"], "genreAny": ["ambient","synthwave"], "bpmMax": 110, "energyMax": 0.5 },
     "playlistRefs": [                             // expanded via getPlaylistSongs (§8.1)
-      { "platform": "local",   "ref": "ops-mining" },                          // ✅ now
-      { "platform": "youtube", "ref": "https://youtube.com/playlist?list=…" }  // ✅ now
-      // { "platform": "spotify", "ref": "https://open.spotify.com/playlist/…" } // ⏳ §8.1
+      { "platform": "local",   "ref": "ops-mining" },                          // ✅
+      { "platform": "youtube", "ref": "https://youtube.com/playlist?list=…" }, // ✅
+      { "platform": "spotify", "ref": "https://open.spotify.com/playlist/…" }, // ✅ R-R6 + stream bridge
+      { "platform": "tidal",   "ref": "https://tidal.com/browse/playlist/…" }  // ✅ R-R6 + tidal-bridge
     ],
     "shuffle": true,
     "seedQueries": ["ambient","focus"],           // sparse-data fallback
@@ -338,14 +336,13 @@ Per-platform support **today** (verified in-code):
   `--flat-playlist`. This is the existing `!playlist -y` path reused — **no new code**.
   (Note: `!play <playlist url>` is single-video/unreliable; the playlist path is
   `getPlaylistSongs`.)
-- **`spotify`** / **`tidal`** — R-R6: expand via stream bridge (`STREAM_BRIDGE_URL` /
-  spotify-bridge or tidal-bridge). Empty when bridge unavailable (fail-open).
-  `StreamProvider.getPlaylistSongs` is a stub returning `[]`; Spotify/Tidal refs
-  currently resolve to a *single track* only (bridge `/resolve?uri=` or
-  link→"Artist Title" search). Needs a service-aware `getPlaylistSongs` that
-  enumerates the playlist then resolves each track via that existing single-track
-  path. Until built, a spotify/tidal ref is skipped with a log — never blocks the
-  profile.
+- **`spotify`** / **`tidal`** — R-R6: expand via stream bridge
+  (`STREAM_BRIDGE_URL` → spotify-bridge and/or tidal-bridge).
+  `StreamProvider.getPlaylistSongs` calls `GET {bridge}/playlist?uri=…` and
+  returns track list for rotation; each track re-resolves at play time via
+  `/resolve`. Empty / log when bridge is off or unavailable (**fail-open** —
+  never blocks the rest of the profile). Single track links still use
+  `/resolve` or metadata→Local/YouTube search when no bridge.
 
 **Mechanics.** `shuffle:true` drops expanded tracks into the Random/RandomLoop bag
 (rating-weighting §9.7 still applies); `false` keeps playlist order (Sequential).
