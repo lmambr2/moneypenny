@@ -51,7 +51,7 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 |---------|---------|----------|
 | `bot` | `core` | The Node app (A + B built-in) |
 | `ollama` / `rkllama` | `ollama` / `npu` | OpenAI-compatible `/v1` LLM (`npu` = SBC offline only) |
-| `stt-whisper`, `piper-tts` | `voice-edge` / `voice-server` | Dual-track STT: SBC=`stt-rknn`, Server=`stt-whisper-cpp` + Piper (`docs/voice-backends.md`); sherpa/kokoro = legacy `voice` only |
+| `stt-whisper`, `piper-tts` | `voice-edge` / `voice-server` | Dual-track STT: SBC=`stt-rknn`, Server=`stt-whisper-cpp` + Piper (`docs/voice-backends.md`). **No** sherpa/Kokoro (V2). |
 | `stt-mock` | `voice-dev` | CI-only STT stub |
 | `qdrant` | `rag` | Vector DB |
 | `tidal-bridge` | `stream` | Tidal stream resolve |
@@ -149,7 +149,7 @@ When you hit a failure mode — especially one an LLM “fixed” wrong — add 
 ```bash
 ./scripts/deploy-preflight.sh          # local: production-fork fingerprint + critical tests
 ./scripts/deploy-to-pi.sh              # preflight → rsync → rebuild bot → verify
-./scripts/deploy-to-pi.sh --files bot/src/bot/voice/session.ts --services bot,sherpa-stt
+./scripts/deploy-to-pi.sh --files bot/src/bot/voice/session.ts --services bot,stt-whisper
 ./scripts/verify-pi-deploy.sh          # remote smoke: dist markers, /music writable, health
 ```
 

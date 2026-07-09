@@ -99,7 +99,7 @@ flowchart TD
         QUEUE[PlayQueue]
         ENGINE[PlaybackEngine\nresolve + playNext]
         IDLE[IdlePoller\n30s presence poll]
-        TTS[KokoroTtsClient]
+        TTS[Piper TTS client]
         RAG[RetrievalStore.query\nrank-gated chunks]
         MEM[MemPalaceClient]
         LLM[LlmModule.ask\nscript rewrite]

@@ -9,10 +9,10 @@
 #   core        : the bot itself (always)
 #   npu         : rkllama on the RK3588 NPU (SBC offline opt-in only)
 #   ollama      : Ollama CPU/GPU inference (embeddings both; chat on server)
-#   voice-edge  : Whisper STT tiny + piper-tts — SBC
-#   voice-server: Whisper STT small/large-v3 + piper-tts — Server
-#   voice       : LEGACY Moonshine sherpa + Kokoro (deprecated)
-#   voice-dev   : stt-mock only
+#   voice-edge  : Whisper STT tiny + piper-tts — SBC (stt-rknn overlay)
+#   voice-server: Whisper STT small/large-v3 + piper-tts — Server (whisper.cpp)
+#   voice-dev   : stt-mock only (CI)
+#   (Removed: profile "voice" / sherpa-stt / Kokoro — V2 2026-07)
 #   rag         : Qdrant vector store
 #   memory      : MemPalace semantic memory bridge
 #   stream      : Tidal bridge
@@ -188,28 +188,6 @@ services:
     networks:
       - moneypenny
 
-  # LEGACY ONLY — Moonshine sherpa + KWS. Dual-track Whisper is product default.
-  # Do not start with install --with-voice. Removal candidate after Pi+Server smoke.
-  # Profile: voice (legacy)
-  sherpa-stt:
-    build:
-      context: ./services/sherpa-stt
-      dockerfile: Dockerfile
-    profiles: ["voice"]
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:9002:9000"
-    environment:
-      - NUM_THREADS=${SHERPA_NUM_THREADS:-4}
-      - PASSIVE_KWS_ACCUM_S=${SHERPA_PASSIVE_KWS_ACCUM_S:-0.35}
-      - PARTIAL_DECODE_INTERVAL_S=${SHERPA_PARTIAL_DECODE_INTERVAL_S:-999}
-      - KWS_THRESHOLD=${KWS_THRESHOLD:-0.10}
-      - KWS_SCORE=${KWS_SCORE:-3.0}
-      - KWS_TRAILING_BLANKS=${KWS_TRAILING_BLANKS:-8}
-      - COMMAND_WINDOW_S=${COMMAND_WINDOW_S:-15}
-    networks:
-      - moneypenny
-
   # Dev-only STT mock (fixed transcript) — no model download, instant CI smoke.
   stt-mock:
     build:
@@ -224,7 +202,7 @@ services:
     networks:
       - moneypenny
 
-  # Piper / espeak TTS — OpenAI /v1/audio/speech (same client as Kokoro).
+  # Piper TTS — OpenAI /v1/audio/speech (KokoroTtsClient name is historical).
   # Bot: voice.ttsUrl=http://piper-tts:8880
   # Optional: mount a Piper .onnx and set PIPER_MODEL=/models/voice.onnx
   piper-tts:
@@ -241,20 +219,6 @@ services:
       - PIPER_BIN=${PIPER_BIN:-piper}
     volumes:
       - piper-models:/models
-    networks:
-      - moneypenny
-
-  # LEGACY ONLY — Kokoro TTS. Product default is piper-tts (voice-edge/server).
-  kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
-    profiles: ["voice"]
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8880:8880"
-    environment:
-      - MODEL_PATH=/app/models/kokoro-v0_19.onnx
-    volumes:
-      - kokoro-models:/app/models
     networks:
       - moneypenny
 
@@ -306,7 +270,6 @@ volumes:
   ts-data:
   rkllama-cache:
   ollama-models:
-  kokoro-models:
   whisper-models:
   whisper-fw-cache:
   piper-models:

@@ -16,11 +16,12 @@ function streamErrorDetail(err: unknown): string | undefined {
 
 /**
  * Speech-to-text HTTP client (DESIGN §10). Backend-agnostic: any sidecar that
- * implements the contract works — sherpa/Moonshine (edge), stt-whisper
- * (faster-whisper tiny…large-v3 on x86), or stt-mock. See docs/voice-backends.md.
+ * implements the contract works — stt-rknn / stt-whisper-cpp / stt-whisper
+ * (product dual-track) or stt-mock (CI). Class name is historical.
+ * See docs/voice-backends.md.
  *
  * Batch: POST /asr — whole utterance (smoke tests, synthetic admin turns).
- * Stream: POST /asr/stream — partial/final + optional KWS fields.
+ * Stream: POST /asr/stream — partial/final (no KWS on Whisper path).
  */
 export class SherpaSttClient implements SttProvider {
   private url: string;

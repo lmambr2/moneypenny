@@ -137,5 +137,5 @@ Only **where models run**, **STT backend**, and **default profiles** change.
 
 - **macOS / Apple Silicon** as an install or GPU target
 - Day-to-day chat on RK3588 NPU
-- Shipping sherpa/Kokoro once Whisper is proven (legacy until then)
+- Shipping sherpa/Kokoro (removed V2 — Whisper + Piper only)
 - NVIDIA as a first-class tested path (docs may mention; untested here)

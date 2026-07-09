@@ -13,8 +13,8 @@ ordered **do list**, not full specs.
 |----|------|--------|--------|
 | **P0** | Poke as command channel | TS poke → ControlRouter; rights + rate limit; poke-back ack. | **Shipped** |
 | **A\*** | ACE-Step music gen | Design: [ace-step.md](./ace-step.md). Optional sidecar; `!generate` / radio auto-fill. | **Sketch done** |
-| **V1** | Server whisper.cpp Vulkan smoke | AMD R9700 + CachyOS/podman: image builds, `/health` device=vulkan, JFK ASR OK | **Done** (2026-07-08) |
-| **V2** | Drop sherpa/Kokoro | After dual-track voice stable in ops | Queued (Pi already on whisper+piper) |
+| **V1** | Server whisper.cpp Vulkan smoke | AMD R9700 + CachyOS/podman: image builds, `/health` device=vulkan, JFK ASR OK | **Done** |
+| **V2** | Drop sherpa/Kokoro | Removed compose services, install legacy flag, `services/sherpa-stt` | **Done** |
 | **R-live** | Radio live smoke on opi5 | Bumpers, `!radio ops` | Queued |
 
 ---

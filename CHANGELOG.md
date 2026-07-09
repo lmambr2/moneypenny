@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### V2 — remove sherpa/Kokoro (Whisper + Piper only)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Deleted compose profile `voice`, services `sherpa-stt` / `kokoro`, volume `kokoro-models`
+- Removed `services/sherpa-stt/` tree and install `--with-voice-legacy`
+- `voice-smoke.sh` / `ci-validate` / `voice-profile.sh` target dual-track + mock only
+- Docs: `docs/voice-backends.md`, `docs/voice.md`, hardening, AGENTS, BUILD V2 **Done**
+- Bot HTTP client class names `SherpaSttClient` / `KokoroTtsClient` kept (historical); contract unchanged
+
 ### Dual-track STT — RKNN on SBC, whisper.cpp on Server
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

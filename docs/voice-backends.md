@@ -2,17 +2,17 @@
 
 Moneypenny does **not** embed STT/TTS. The bot only calls HTTP sidecars.
 
-| Role | Client | Contract |
-|------|--------|----------|
-| STT | `SherpaSttClient` (name is historical) | `GET /health`, `POST /asr`, `POST /asr/stream`, `DELETE /asr/stream` |
-| TTS | `KokoroTtsClient` (OpenAI speech) | `POST /v1/audio/speech` → audio bytes |
+| Role | Client (class name is historical) | Contract |
+|------|-------------------------------------|----------|
+| STT | `SherpaSttClient` | `GET /health`, `POST /asr`, `POST /asr/stream`, `DELETE /asr/stream` |
+| TTS | `KokoroTtsClient` | `POST /v1/audio/speech` → audio bytes |
 
 **Canonical TTS:** Piper `en_GB-southern_english_female-low`.  
-**Canonical STT family:** Whisper (dual implementation tracks).  
+**Canonical STT:** Whisper dual-track (below).  
 **No** English-word → command alias tables.  
 **No** KWS on Whisper path → enable `voice.textWakeFallback`.
 
-Moonshine/sherpa + Kokoro remain **legacy only** (`--profile voice`) until Whisper is proven, then removed.
+**Removed (V2, 2026-07):** Moonshine **sherpa-stt**, **Kokoro** TTS, compose profile `voice`.
 
 ---
 
@@ -20,7 +20,7 @@ Moonshine/sherpa + Kokoro remain **legacy only** (`--profile voice`) until Whisp
 
 | Edition | Image | Engine | Default model | Accelerator |
 |---------|-------|--------|---------------|-------------|
-| **SBC** | `services/stt-rknn` | **RKNN** → faster-whisper fallback | `tiny` | Rockchip **NPU** (CPU until `.rknn` ready) |
+| **SBC** | `services/stt-rknn` | **RKNN** → faster-whisper fallback | `tiny` | Rockchip **NPU** |
 | **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `small` | **Vulkan** (AMD) / CPU |
 
 Same compose service name: **`stt-whisper`** → bot always uses  
@@ -32,12 +32,6 @@ Same compose service name: **`stt-whisper`** → bot always uses
                     └─ docker-compose.server.yml ► stt-whisper-cpp (Vulkan)
 ```
 
-### Why not one engine everywhere?
-
-- **AMD Server** wants whisper.cpp + Vulkan (no CUDA).  
-- **Pi** wants NPU utilization via **RKNN** Whisper.  
-- Shared **HTTP contract** keeps the bot single-path.
-
 ---
 
 ## Profiles
@@ -46,7 +40,6 @@ Same compose service name: **`stt-whisper`** → bot always uses
 |---------|---------|-----------|-----|
 | **`voice-edge`** | SBC | stt-rknn | piper-tts |
 | **`voice-server`** | Server | stt-whisper-cpp | piper-tts |
-| **`voice`** | legacy | sherpa + Kokoro | — |
 | **`voice-dev`** | CI | stt-mock | — |
 
 ```bash
@@ -55,12 +48,16 @@ export STT_MODEL=tiny STT_BACKEND=rknn
 docker compose -f docker-compose.yml -f docker-compose.sbc.yml \
   --profile voice-edge up -d --build
 
-# Server (AMD)
+# Server (AMD / CachyOS)
 export STT_MODEL=small STT_DEVICE=vulkan WHISPER_VULKAN=1
-# Place ggml-small.bin in the whisper-models volume
+export RENDER_GID=$(getent group render | cut -d: -f3)
+export VIDEO_GID=$(getent group video | cut -d: -f3)
+./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp small
 docker compose -f docker-compose.yml -f docker-compose.server.yml \
   --profile voice-server up -d --build
 ```
+
+Smoke: `./scripts/voice-smoke.sh` · `./scripts/voice-profile.sh`
 
 ---
 
@@ -68,26 +65,15 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml \
 
 ### Server (whisper.cpp)
 
-Volume `whisper-models` → `/models`. Files like:
-
-- `ggml-tiny.bin`, `ggml-base.bin`, `ggml-small.bin`, `ggml-medium.bin`, `ggml-large-v3.bin`
-
-From [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) (or `STT_MODEL_PATH`).
+Volume / bind `models/whisper-cpp` → `/models`: `ggml-tiny.bin`, `ggml-small.bin`, …
 
 ### SBC (RKNN)
 
-Volume path `/models/rknn/`:
-
-- `whisper-tiny-encoder.rknn` + `whisper-tiny-decoder.rknn`
-
-From Rockchip [rknn_model_zoo whisper](https://github.com/airockchip/rknn_model_zoo/tree/main/examples/whisper).  
-Until present, **faster-whisper tiny on CPU** runs automatically (`STT_FALLBACK`).
-
-Full mel→token RKNN loop may still fall back until the zoo I/O is fully wired — see `services/stt-rknn/README.md`.
+`/models/rknn/`: `whisper-tiny-encoder.rknn`, `whisper-tiny-decoder.rknn`, vocab, mel filters.
 
 ---
 
-## Bot config (both editions)
+## Bot Settings
 
 ```json
 {
@@ -96,25 +82,22 @@ Full mel→token RKNN loop may still fall back until the zoo I/O is fully wired 
     "sttUrl": "http://stt-whisper:9000",
     "ttsUrl": "http://piper-tts:8880",
     "ttsVoice": "en_GB-southern_english_female-low",
-    "respondWithVoice": true,
-    "requireWatchword": true,
-    "textWakeFallback": true
+    "textWakeFallback": true,
+    "requireWatchword": true
   }
 }
 ```
 
 ---
 
-## Legacy
+## Migrating off legacy sherpa/Kokoro
 
-| Profile | Engine |
-|---------|--------|
-| `voice` | sherpa Moonshine + KWS (port 9002) + Kokoro |
-| `services/stt-whisper` | faster-whisper only (dev / unoverlaid base compose) |
+If an old host still has `COMPOSE_PROFILES=…,voice` or `sherpa-stt` / `kokoro` containers:
 
----
+```bash
+docker compose --profile voice stop sherpa-stt kokoro 2>/dev/null || true
+docker rm -f moneypenny-sherpa-stt-1 moneypenny-kokoro-1 2>/dev/null || true
+# Set profiles to voice-edge (Pi) or voice-server (x86); sttUrl/ttsUrl as above
+```
 
-## Security
-
-- Host ports bind `127.0.0.1` only.  
-- No cloud STT/TTS in default profiles.  
+Install flag `--with-voice-legacy` now **errors** with a pointer to edge/server.

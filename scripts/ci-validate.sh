@@ -37,10 +37,11 @@ Options:
   --live            Run detached Phase 0 against real TS6 (needs .env + server)
   --phase0-only     Only Phase 0 preflight (--live adds detached run)
   --doctrine-only   Only doctrine git sync test
-  --voice-only      Only voice sidecar smoke
-  --sherpa          Voice smoke against sherpa-stt (builds image; slower)
+  --voice-only      Only voice sidecar smoke (stt-mock by default)
   --timeout SEC     Phase 0 detached timeout (default 180)
   -h, --help
+
+  (Removed: --sherpa — legacy Moonshine/Kokoro path deleted in V2.)
 EOF
 }
 
@@ -50,7 +51,10 @@ while [[ $# -gt 0 ]]; do
     --phase0-only) PHASE0_ONLY=1; shift ;;
     --doctrine-only) DOCTRINE_ONLY=1; shift ;;
     --voice-only) VOICE_ONLY=1; shift ;;
-    --sherpa) VOICE_MOCK=0; shift ;;
+    --sherpa)
+      echo "error: --sherpa removed (V2). Voice CI uses stt-mock; product is Whisper+Piper." >&2
+      exit 2
+      ;;
     --timeout) PHASE0_TIMEOUT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -105,21 +109,12 @@ if [ "$run_all" -eq 1 ] || [ "$DOCTRINE_ONLY" -eq 1 ]; then
 fi
 
 if [ "$run_all" -eq 1 ] || [ "$VOICE_ONLY" -eq 1 ]; then
-  echo "--- Voice sidecars ---"
-  if [ "$VOICE_MOCK" -eq 1 ]; then
-    if ./scripts/voice-smoke.sh --up-mock --no-tts; then
-      echo "OK: voice mock STT"
-    else
-      echo "FAIL: voice mock STT" >&2
-      fail_voice=1
-    fi
+  echo "--- Voice sidecars (stt-mock) ---"
+  if ./scripts/voice-smoke.sh --up-mock --no-tts; then
+    echo "OK: voice mock STT"
   else
-    if ./scripts/voice-smoke.sh --up --no-tts; then
-      echo "OK: sherpa STT"
-    else
-      echo "FAIL: sherpa STT" >&2
-      fail_voice=1
-    fi
+    echo "FAIL: voice mock STT" >&2
+    fail_voice=1
   fi
   echo
 fi

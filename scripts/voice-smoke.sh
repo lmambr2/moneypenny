@@ -1,139 +1,116 @@
 #!/usr/bin/env bash
+# Voice sidecar smoke — dual-track Whisper STT + Piper TTS (product path).
 #
-# Voice sidecar smoke test — probes STT (sherpa-stt / stt-mock) and Kokoro TTS.
+#   ./scripts/voice-smoke.sh                    # probe localhost defaults
+#   ./scripts/voice-smoke.sh --up-mock          # stt-mock (CI)
+#   ./scripts/voice-smoke.sh --up edge          # voice-edge then probe
+#   ./scripts/voice-smoke.sh --up server        # voice-server then probe
+#   ./scripts/voice-smoke.sh --no-tts           # STT only
 #
-# Usage:
-#   ./scripts/voice-smoke.sh              # probe localhost defaults (sherpa :9000)
-#   ./scripts/voice-smoke.sh --up         # start sherpa-stt + kokoro, then probe
-#   ./scripts/voice-smoke.sh --up-mock    # fast CI path: stt-mock on :9001
-#
-# Exit 0 when every configured endpoint responds; 1 otherwise.
-
 set -euo pipefail
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-UP=0
-UP_MOCK=0
 STT_URL="${STT_URL:-http://127.0.0.1:9000}"
 TTS_URL="${TTS_URL:-http://127.0.0.1:8880}"
-TTS_VOICE="${TTS_VOICE:-bf_emma}"
-PROBE_TIMEOUT="${PROBE_TIMEOUT:-15}"
-SHERPA_WARMUP="${SHERPA_WARMUP:-90}"
+UP=""
+NO_TTS=0
 
 usage() {
   cat <<'EOF'
-Voice sidecar smoke test
+Usage: ./scripts/voice-smoke.sh [--up edge|server|mock] [--up-mock] [--no-tts] [--stt URL] [--tts URL]
 
-  ./scripts/voice-smoke.sh [--up | --up-mock] [--stt URL] [--tts URL]
-
-Options:
-  --up          docker compose --profile voice up -d (sherpa-stt + kokoro)
-  --up-mock     docker compose --profile voice-dev up -d (stt-mock, port 9001)
-  --stt URL     STT base URL (default http://127.0.0.1:9000)
-  --tts URL     TTS base URL (default http://127.0.0.1:8880)
-  --no-tts      skip Kokoro probe (STT only)
-  -h, --help    show this help
+Product voice is Whisper + Piper. Legacy sherpa/Kokoro were removed (V2).
 EOF
 }
 
-SKIP_TTS=0
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
   case "$1" in
-    --up) UP=1; shift ;;
-    --up-mock) UP_MOCK=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --up)
+      UP="${2:?edge|server|mock}"
+      shift 2
+      ;;
+    --up-mock) UP=mock; shift ;;
+    --no-tts) NO_TTS=1; shift ;;
     --stt) STT_URL="$2"; shift 2 ;;
     --tts) TTS_URL="$2"; shift 2 ;;
-    --no-tts) SKIP_TTS=1; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+    # Old flag: ignored (legacy sherpa path removed)
+    --up-sherpa|--sherpa)
+      echo "error: sherpa/Kokoro removed (V2). Use --up-mock, --up edge, or --up server." >&2
+      exit 1
+      ;;
+    *) echo "unknown: $1" >&2; usage; exit 1 ;;
   esac
 done
 
-if ! command -v curl >/dev/null 2>&1; then
-  echo "FAIL: curl is required" >&2
-  exit 1
-fi
-
-echo "=== Moneypenny Voice Smoke Test ==="
-echo "STT: $STT_URL"
-if [ "$SKIP_TTS" -eq 0 ]; then
-  echo "TTS: $TTS_URL (voice=$TTS_VOICE)"
-else
-  echo "TTS: (skipped)"
-fi
-echo
-
-if [ "$UP_MOCK" -eq 1 ]; then
-  echo "Starting voice-dev profile (stt-mock)…"
-  docker compose --profile voice-dev up -d --build stt-mock
-  STT_URL="http://127.0.0.1:9001"
-  echo "Waiting for stt-mock…"
-  sleep 2
-elif [ "$UP" -eq 1 ]; then
-  echo "Starting voice profile (sherpa-stt + kokoro)…"
-  docker compose --profile voice up -d --build sherpa-stt kokoro
-  STT_URL="http://127.0.0.1:9000"
-  TTS_URL="http://127.0.0.1:8880"
-  echo "Waiting for sherpa-stt (model load may take up to ${SHERPA_WARMUP}s)…"
-  deadline=$((SECONDS + SHERPA_WARMUP))
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    if curl -sf --max-time 3 "$STT_URL/health" | grep -q '"ok"'; then
-      break
-    fi
-    sleep 3
+if [ -n "$UP" ]; then
+  case "$UP" in
+    mock|voice-dev)
+      STT_URL="${STT_URL:-http://127.0.0.1:9001}"
+      echo "Starting voice-dev (stt-mock)…"
+      docker compose -f docker-compose.yml --profile voice-dev up -d --build stt-mock
+      # mock publishes 9001
+      STT_URL="http://127.0.0.1:9001"
+      ;;
+    edge)
+      echo "Starting voice-edge (stt-whisper + piper-tts)…"
+      docker compose -f docker-compose.yml -f docker-compose.sbc.yml \
+        --profile voice-edge up -d --build stt-whisper piper-tts
+      STT_URL="http://127.0.0.1:9000"
+      TTS_URL="http://127.0.0.1:8880"
+      ;;
+    server)
+      echo "Starting voice-server (stt-whisper + piper-tts)…"
+      export RENDER_GID="${RENDER_GID:-$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)}"
+      export VIDEO_GID="${VIDEO_GID:-$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)}"
+      docker compose -f docker-compose.yml -f docker-compose.server.yml \
+        --profile voice-server up -d --build stt-whisper piper-tts
+      STT_URL="http://127.0.0.1:9000"
+      TTS_URL="http://127.0.0.1:8880"
+      ;;
+    *)
+      echo "Use --up edge|server|mock" >&2
+      exit 1
+      ;;
+  esac
+  echo "Waiting for STT at ${STT_URL}…"
+  for _ in $(seq 1 90); do
+    if curl -sf "${STT_URL}/health" >/dev/null 2>&1; then break; fi
+    sleep 1
   done
 fi
 
-fail=0
-
-stt_base="${STT_URL%/}"
-echo -n "STT GET /health … "
-if curl -sf --max-time "$PROBE_TIMEOUT" "$stt_base/health" | grep -q '"ok"'; then
-  echo "OK"
-else
-  echo "FAIL"
-  fail=1
+echo "=== STT ${STT_URL}/health ==="
+if ! curl -sf "${STT_URL}/health" | tee /tmp/mp-stt-health.json; then
+  echo "FAIL: STT health" >&2
+  exit 1
 fi
+echo
+python3 -c "import json,sys; j=json.load(open('/tmp/mp-stt-health.json')); sys.exit(0 if j.get('ok') else 1)" \
+  || { echo "FAIL: STT not ok" >&2; exit 1; }
 
-echo -n "STT POST /asr … "
-pcm="$(python3 -c 'print("x" * 128)')"
-if resp="$(curl -sf --max-time "$PROBE_TIMEOUT" -X POST "$stt_base/asr" \
-  -H 'Content-Type: application/octet-stream' \
-  -H 'X-Sample-Rate: 16000' -H 'X-Channels: 1' \
-  --data-binary "$pcm")" && echo "$resp" | grep -q '"text"'; then
-  echo "OK ($(echo "$resp" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("text",""))' 2>/dev/null || echo '?'))"
-else
-  echo "FAIL"
-  fail=1
-fi
-
-if [ "$SKIP_TTS" -eq 0 ]; then
-  tts_base="${TTS_URL%/}"
-  echo -n "TTS synthesis … "
-  if curl -sf --max-time "$PROBE_TIMEOUT" -X POST "$tts_base/v1/audio/speech" \
-    -H 'Content-Type: application/json' \
-    -d "{\"model\":\"kokoro\",\"input\":\"ok\",\"voice\":\"$TTS_VOICE\",\"response_format\":\"wav\"}" \
-    -o /dev/null -w '%{http_code}' | grep -qE '^(200|201)$'; then
-    echo "OK"
+if [ "$NO_TTS" -eq 0 ]; then
+  echo "=== TTS ${TTS_URL} ==="
+  if curl -sf "${TTS_URL}/health" >/tmp/mp-tts-health.json 2>/dev/null; then
+    cat /tmp/mp-tts-health.json
+    echo
+    python3 -c "import json,sys; j=json.load(open('/tmp/mp-tts-health.json')); sys.exit(0 if j.get('ok') else 1)" \
+      || { echo "FAIL: TTS not ok" >&2; exit 1; }
   else
-    echo "FAIL (Kokoro may still be downloading models — retry in a minute)"
-    fail=1
+    code=$(curl -sS -o /tmp/mp-tts-smoke.wav -w "%{http_code}" \
+      -X POST "${TTS_URL}/v1/audio/speech" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"piper","input":"ok","voice":"en_GB-southern_english_female-low","response_format":"wav"}' \
+      || true)
+    if [ "$code" != "200" ] || [ ! -s /tmp/mp-tts-smoke.wav ]; then
+      echo "FAIL: TTS speech (HTTP $code)" >&2
+      exit 1
+    fi
+    echo "OK TTS speech → /tmp/mp-tts-smoke.wav ($(wc -c </tmp/mp-tts-smoke.wav) bytes)"
   fi
 fi
 
 echo
-if [ "$fail" -eq 0 ]; then
-  echo "Voice smoke test passed."
-  if [ "$UP_MOCK" -eq 1 ]; then
-    echo "In Docker use http://stt-mock:9000 (host maps to :9001)."
-  else
-    echo "Configure in Settings: STT URL → http://sherpa-stt:9000"
-  fi
-  exit 0
-fi
-echo "Voice smoke test failed — check sidecar logs:"
-echo "  docker compose --profile voice logs sherpa-stt kokoro"
-echo "  docker compose --profile voice-dev logs stt-mock"
-exit 1
+echo "Voice smoke OK."
+echo "  sttUrl=http://stt-whisper:9000  ttsUrl=http://piper-tts:8880  textWakeFallback=true"

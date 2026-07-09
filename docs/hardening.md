@@ -36,7 +36,7 @@ The bot core runs under `--profile core`. Add profiles as needed — each is a s
 | `core` | `bot` | Always |
 | `npu` / `ollama` | `rkllama` / `ollama` | On-device LLM |
 | `rag` | `qdrant` | Document RAG / doctrine |
-| `voice` | `sherpa-stt`, `kokoro` | Voice loop |
+| `voice-edge` / `voice-server` | `stt-whisper`, `piper-tts` | Dual-track Whisper + Piper |
 | `voice-dev` | `stt-mock` | CI / fast dev |
 | `stream` | `tidal-bridge` | Real Tidal playback (`STREAM_BRIDGE_URL`) |
 | `server` | `teamspeak` | Bundled TS6 server |
@@ -71,4 +71,4 @@ See `docker-compose.yml` and `install.sh --help` for the full matrix.
    `@discordjs/opus → node-pre-gyp → tar` install-time chain.
 
 Only the TeamSpeak ports (9987/udp, 30033/tcp, query) face the network. The bot
-UI (`3000`), RKLLama (`8080`), and Kokoro (`8880`) are localhost-bound in compose.
+UI (`3000`), RKLLama (`8080`), STT (`9000`), and Piper (`8880`) are localhost-bound in compose.

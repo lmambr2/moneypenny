@@ -8,31 +8,29 @@
 
 | Service | Profile | URL (Docker) | Purpose |
 |---------|---------|--------------|---------|
-| **`stt-whisper`** | **`voice-edge`**, **`voice-server`** | `http://stt-whisper:9000` | **Whisper ladder** (`tiny`→`large-v3`) |
+| **`stt-whisper`** | **`voice-edge`**, **`voice-server`** | `http://stt-whisper:9000` | **Whisper** dual-track (RKNN / whisper.cpp) |
 | **`piper-tts`** | edge + server | `http://piper-tts:8880` | British female Piper |
-| `sherpa-stt` | `voice` **legacy only** | host `:9002` | Moonshine + KWS (deprecated) |
-| `kokoro` | `voice` legacy | `http://kokoro:8880` | Heavy TTS (deprecated) |
 | `stt-mock` | `voice-dev` | host `:9001` | CI |
+
+**Removed (V2):** `sherpa-stt` (Moonshine) and `kokoro` TTS.
 
 ```bash
 ./scripts/voice-profile.sh
-# Pi: Whisper tiny + Piper
-export STT_MODEL=tiny
-docker compose --profile voice-edge up -d --build
-# x86 GPU: Whisper large
-export STT_MODEL=large-v3 STT_DEVICE=cuda
-docker compose --profile voice-server up -d --build
+# Pi: RKNN Whisper tiny + Piper
+export STT_MODEL=tiny STT_BACKEND=rknn
+docker compose -f docker-compose.yml -f docker-compose.sbc.yml --profile voice-edge up -d --build
+# x86 AMD: whisper.cpp Vulkan
+export STT_MODEL=small STT_DEVICE=vulkan WHISPER_VULKAN=1
+docker compose -f docker-compose.yml -f docker-compose.server.yml --profile voice-server up -d --build
 ```
 
 ## Smoke tests
 
 ```bash
-./scripts/voice-smoke.sh --up          # sherpa-stt + kokoro
 ./scripts/voice-smoke.sh --up-mock --no-tts   # CI-fast STT only
-./scripts/ci-validate.sh --voice-only  # non-interactive
+./scripts/voice-smoke.sh --up edge            # product edge stack
+./scripts/ci-validate.sh --voice-only
 ```
-
-`sherpa-stt` bakes the Moonshine model into the image (~first start may take up to 90s to load).
 
 ## Enable in Settings
 
@@ -44,16 +42,14 @@ docker compose --profile voice-server up -d --build
 
 ## HTTP contract
 
-Both `sherpa-stt` and `stt-mock` implement `bot/src/voice/stt.ts`:
+`stt-whisper` (any dual-track image) and `stt-mock` implement `bot/src/voice/stt.ts`:
 
-- `GET /health` → `{ "ok": true, "streaming": true }`
+- `GET /health` → `{ "ok": true, "streaming": true, … }`
 - `POST /asr` — batch offline decode (smoke tests)
 - `POST /asr/stream` — streaming chunks; headers `X-Client-Id`, `X-Sample-Rate`, `X-Channels` → `{ "partial", "final", "speaking" }`
 - `DELETE /asr/stream` — reset per-speaker session (`X-Client-Id`)
 
-The bot feeds 100 ms PCM chunks while you talk. Sherpa runs **simulated streaming** (Silero VAD + periodic Moonshine tiny decode), not the HuggingFace `moonshine-streaming-tiny` Transformers checkpoint — same idea, ONNX path tuned for the Pi.
-
-`sherpa-stt` resamples/downmixes (e.g. 48 kHz stereo from the bot) to 16 kHz mono internally.
+The bot feeds 100 ms PCM chunks while you talk. Sidecars resample to 16 kHz mono as needed.
 
 ## API (admin)
 

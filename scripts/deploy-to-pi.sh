@@ -7,7 +7,7 @@
 #   ./scripts/deploy-to-pi.sh --check          # preflight only
 #   ./scripts/deploy-to-pi.sh --verify         # post-deploy verify only
 #   ./scripts/deploy-to-pi.sh --files bot/src/bot/voice/session.ts
-#   ./scripts/deploy-to-pi.sh --services bot,sherpa-stt
+#   ./scripts/deploy-to-pi.sh --services bot,stt-whisper
 #   ./scripts/deploy-to-pi.sh --full-test        # preflight runs test:all
 #
 # NEVER use --delete unless you mean to wipe Pi-only files. Requires
@@ -63,7 +63,7 @@ Options:
 
 Examples:
   $0
-  $0 --files bot/src/bot/voice/session.ts services/sherpa-stt/server.py --services bot,sherpa-stt
+  $0 --files bot/src/bot/voice/session.ts services/stt-rknn/server.py --services bot,stt-whisper
 EOF
 }
 

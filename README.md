@@ -353,7 +353,7 @@ docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --
 docker compose -f docker-compose.yml -f docker-compose.npu.yml --profile core --profile npu logs -f bot
 ```
 
-If you also want the bundled TeamSpeak server or voice sidecars, add `--profile server` or `--profile voice`.
+If you also want the bundled TeamSpeak server or voice sidecars, add `--profile server` or `--profile voice-edge` / `voice-server` (Whisper + Piper).
 
 ### Pi deploy (operators)
 

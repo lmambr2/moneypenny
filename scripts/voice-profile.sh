@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Recommend compose voice profile + Whisper STT_MODEL for this host/edition.
 # Usage: ./scripts/voice-profile.sh
-# See also: ./scripts/detect-edition.sh  docs/editions.md  docs/voice-backends.md
+# See: docs/editions.md  docs/voice-backends.md  docs/gpu-amd.md
 set -euo pipefail
 
 ARCH="$(uname -m)"
 HAS_NVIDIA=0
+HAS_AMD=0
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
   HAS_NVIDIA=1
+fi
+if command -v lspci >/dev/null 2>&1 && lspci 2>/dev/null | grep -qiE 'VGA.*(AMD|ATI)|Display.*AMD'; then
+  HAS_AMD=1
 fi
 
 EDITION="server"
@@ -18,51 +22,53 @@ if [ -x "$(dirname "$0")/detect-edition.sh" ]; then
   EDITION="$("$(dirname "$0")/detect-edition.sh" | awk -F= '/^edition=/{print $2; exit}')"
 fi
 
-echo "edition=$EDITION arch=$ARCH nvidia=$HAS_NVIDIA"
-echo "# STT family: Whisper (stt-whisper). TTS: Piper British southern female."
+echo "edition=$EDITION arch=$ARCH nvidia=$HAS_NVIDIA amd=$HAS_AMD"
+echo "# STT: Whisper dual-track. TTS: Piper. (sherpa/Kokoro removed — V2)"
 echo
 
 if [[ "$EDITION" == "sbc" ]]; then
   cat <<EOF
-# SBC edition — Whisper tiny on CPU (NPU RKNN backend later)
+# SBC — RKNN NPU Whisper tiny → faster-whisper CPU fallback
 COMPOSE_FILE=docker-compose.yml:docker-compose.sbc.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-edge
 STT_MODEL=tiny
-STT_DEVICE=cpu
-STT_BACKEND=faster-whisper
-# Bot Settings:
-#   voice.sttUrl = "http://stt-whisper:9000"
-#   voice.ttsUrl = "http://piper-tts:8880"
-#   voice.ttsVoice = "en_GB-southern_english_female-low"
-#   voice.textWakeFallback = true
-#   voice.requireWatchword = true
-#
-# When RKNN Whisper lands: STT_BACKEND=rknn (same service URL).
+STT_DEVICE=npu
+STT_BACKEND=rknn
+STT_FALLBACK=faster-whisper
+# Bot: sttUrl=http://stt-whisper:9000 ttsUrl=http://piper-tts:8880 textWakeFallback=true
+EOF
+elif [[ "$HAS_AMD" -eq 1 ]]; then
+  cat <<EOF
+# Server + AMD — whisper.cpp Vulkan
+COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
+COMPOSE_PROFILES=core,ollama,rag,voice-server
+STT_MODEL=small
+STT_DEVICE=vulkan
+STT_BACKEND=whisper-cpp
+WHISPER_VULKAN=1
+RENDER_GID=\$(getent group render | cut -d: -f3)
+VIDEO_GID=\$(getent group video | cut -d: -f3)
+# Download: ./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp small
 EOF
 elif [[ "$HAS_NVIDIA" -eq 1 ]]; then
   cat <<EOF
-# Server edition + NVIDIA — full Whisper ladder
+# Server + NVIDIA (untested) — whisper.cpp or faster-whisper
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-server
-STT_MODEL=large-v3
+STT_MODEL=small
 STT_DEVICE=cuda
-STT_BACKEND=faster-whisper
-# Bot Settings: same URLs as edge; textWakeFallback=true
-# Enable GPU deploy block under stt-whisper if needed.
+STT_BACKEND=whisper-cpp
 EOF
 else
   cat <<EOF
-# Server edition CPU-only
+# Server CPU
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-server
 STT_MODEL=small
 STT_DEVICE=cpu
-STT_BACKEND=faster-whisper
-# For better titles: STT_MODEL=medium (slower). large-v3 wants a GPU.
-# Bot Settings: stt-whisper + piper-tts + textWakeFallback=true
+STT_BACKEND=whisper-cpp
 EOF
 fi
 
 echo
-echo "# Legacy Moonshine+KWS+Kokoro (deprecated): profile \"voice\" only"
-echo "# Docs: docs/voice-backends.md  docs/editions.md"
+echo "# Docs: docs/voice-backends.md  docs/editions.md  docs/gpu-amd.md"

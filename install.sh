@@ -58,7 +58,6 @@ Usage: ./install.sh [options]
   --with-voice                 Whisper+Piper by edition (edge/server)
   --with-voice-edge            force Pi Whisper tiny + piper
   --with-voice-server          force x86 Whisper + piper
-  --with-voice-legacy          DEPRECATED: Moonshine sherpa + Kokoro
   --with-server                also start a TeamSpeak 6 server container
   --with-rag                   Qdrant + embedding model (knowledge base)
   --no-rag                     disable RAG (non-interactive / wizard default override)
@@ -82,7 +81,9 @@ while [ $# -gt 0 ]; do
     --with-voice) WITH_VOICE=1; FLAG_VOICE=1; NO_VOICE=0 ;;
     --with-voice-edge) WITH_VOICE=1; VOICE_PROFILE=edge; FLAG_VOICE=1; NO_VOICE=0 ;;
     --with-voice-server) WITH_VOICE=1; VOICE_PROFILE=server; FLAG_VOICE=1; NO_VOICE=0 ;;
-    --with-voice-legacy) WITH_VOICE=1; VOICE_PROFILE=legacy; FLAG_VOICE=1; NO_VOICE=0 ;;
+    --with-voice-legacy)
+      die "--with-voice-legacy was removed (V2). Use --with-voice / --with-voice-edge / --with-voice-server (Whisper+Piper)."
+      ;;
     --no-voice) WITH_VOICE=0; FLAG_VOICE=1; NO_VOICE=1 ;;
     --with-server) WITH_SERVER=1; FLAG_SERVER=1 ;;
     --with-rag) WITH_RAG=1; FLAG_RAG=1; NO_RAG=0 ;;
@@ -323,13 +324,11 @@ run_wizard() {
         :
       else
         ask_menu "Voice profile?" 1 \
-          "edge — Whisper tiny (SBC/ARM)" \
-          "server — Whisper small/large-v3 (x86)" \
-          "legacy — DEPRECATED sherpa + Kokoro"
+          "edge — Whisper tiny + RKNN (SBC/ARM)" \
+          "server — whisper.cpp + Piper (x86/AMD)"
         case "$REPLY" in
           1) VOICE_PROFILE=edge ;;
           2) VOICE_PROFILE=server ;;
-          3) VOICE_PROFILE=legacy ;;
         esac
       fi
     else
@@ -458,10 +457,9 @@ if [ "$WITH_VOICE" -eq 1 ]; then
       fi
       ;;
     legacy)
-      PROFILES+=("voice")
-      say "Voice: ${c_b}legacy${c_0} (DEPRECATED Moonshine sherpa + Kokoro)"
+      die "VOICE_PROFILE=legacy was removed (V2). Use edge or server (Whisper+Piper)."
       ;;
-    *) die "Invalid VOICE_PROFILE '$VOICE_PROFILE' (edge|server|legacy)" ;;
+    *) die "Invalid VOICE_PROFILE '$VOICE_PROFILE' (edge|server)" ;;
   esac
 fi
 [ "$WITH_SERVER" -eq 1 ] && PROFILES+=("server")

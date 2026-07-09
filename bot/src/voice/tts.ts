@@ -14,6 +14,7 @@ export function ttsTimeoutForText(text: string, baseMs = 20_000, maxMs = 120_000
   return Math.min(maxMs, Math.max(baseMs, text.length * 40));
 }
 
+/** OpenAI-compatible speech client (Piper product TTS; class name historical). */
 export class KokoroTtsClient implements TtsProvider {
   private url: string;
   private voice: string;

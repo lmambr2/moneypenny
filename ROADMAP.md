@@ -248,7 +248,7 @@ See **[docs/BUILD.md](./docs/BUILD.md)** for the living queue. Highlights:
 |----|------|-----|
 | **P0** | **Poke as command channel** (TS poke → router) | BUILD.md |
 | **A\*** | **ACE-Step** optional music generation for DJ / `!generate` | [docs/ace-step.md](./docs/ace-step.md) |
-| V1–V2 | Server Vulkan STT smoke; remove sherpa/Kokoro | voice-backends.md |
+| V1–V2 | Server Vulkan STT smoke; removed sherpa/Kokoro (V2) | voice-backends.md |
 
 ## Phase 9 — Radio mode / autonomous DJ (backend shipped 2026-07)
 
