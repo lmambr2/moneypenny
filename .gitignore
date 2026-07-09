@@ -63,7 +63,10 @@ tmp/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+# Keep shared Biome/editor recommendations; ignore personal workspace state.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 *.swp
 
 # Docker
