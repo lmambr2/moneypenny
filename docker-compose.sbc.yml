@@ -46,6 +46,9 @@ services:
       - RKNN_MODELS_DIR=${RKNN_MODELS_DIR:-/models/rknn}
       - RKNN_ENCODER=${RKNN_ENCODER:-}
       - RKNN_DECODER=${RKNN_DECODER:-}
+      # On-chip SRAM for RKNN runtime (host/driver must support; see Rockchip doc)
+      - RKNN_INTERNAL_MEM_TYPE=${RKNN_INTERNAL_MEM_TYPE:-sram}
+      - RKNN_WEIGHT_MEM_TYPE=${RKNN_WEIGHT_MEM_TYPE:-}
     # NPU device nodes (RK3588 DRM) — ignore if missing on non-Pi hosts
     devices:
       - /dev/dri:/dev/dri

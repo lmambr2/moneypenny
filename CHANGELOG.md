@@ -17,6 +17,11 @@ assistant** authored each batch of work, since not every commit carries a
   optional **Vulkan** build (`WHISPER_VULKAN=1`) for AMD
 - Same compose service name `stt-whisper` / bot URL; overlays swap the image
 - Docs: `docs/voice-backends.md`, edition env examples, install voice defaults
+- **AMD packaging:** `docs/gpu-amd.md`, `docker-compose.server.rocm.yml`,
+  `scripts/detect-gpu.sh`, `scripts/check-analyst-vram.sh` (R9700 ~32 GB →
+  both-resident-ok), `scripts/download-whisper-ggml.sh`
+- Pi smoke: dual-track voice live (CPU tiny fallback), LAN chat → `.89:11434`
+  12B, Piper TTS, sherpa/Kokoro stopped
 
 ### Dual editions — SBC + Server product packaging
 **Author: Grok (xAI), driven by Lane Ambrose.**

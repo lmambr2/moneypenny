@@ -1,0 +1,20 @@
+# Optional ROCm Ollama for Server edition (when host Ollama is not used).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml \
+#     -f docker-compose.server.rocm.yml --profile ollama up -d
+#
+# Prefer host Ollama on AMD (docs/gpu-amd.md). This overlay is the container path.
+
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - "${RENDER_GID:-992}"
+      - "${VIDEO_GID:-44}"
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+    # Keep 12B resident; enable 2 only after check-analyst-vram.sh says both-ok

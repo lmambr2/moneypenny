@@ -18,10 +18,12 @@ DEPLOY_CRITICAL_SOURCE_PATHS=(
   bot/src/rights/index.ts
   bot/src/radio/analyzer.ts
   bot/src/bot/voice/session.ts
-  services/sherpa-stt/server.py
+  services/stt-rknn/server.py
+  services/piper-tts/server.py
   scripts/rights-rank-gating.json
   docker-compose.yml
-  docker-compose.npu.yml
+  docker-compose.sbc.yml
+  docs/voice-backends.md
 )
 
 _deploy_die() {

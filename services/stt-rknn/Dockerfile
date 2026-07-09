@@ -12,7 +12,10 @@ COPY README.md /app/README.md
 
 # faster-whisper always (fallback). rknnlite is optional — install on aarch64 when available.
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir faster-whisper==1.1.1 numpy==2.2.6 \
+    && pip install --no-cache-dir \
+         faster-whisper==1.1.1 \
+         numpy==2.2.6 \
+         requests \
     && (pip install --no-cache-dir rknn-toolkit-lite2==2.3.2 \
         || pip install --no-cache-dir rknnlite \
         || echo "rknnlite not on this platform — CPU fallback only")

@@ -509,11 +509,12 @@ See **[ROADMAP.md](./ROADMAP.md)** for the status of Phases 4–8.
 ## Documentation
 
 - **[docs/editions.md](./docs/editions.md)** — SBC vs Server product matrix and topologies
+- **[docs/gpu-amd.md](./docs/gpu-amd.md)** — AMD Server: host Ollama + whisper.cpp Vulkan
 - **[RELEASES.md](./RELEASES.md)** — how release tarballs are built and installed
 - **[DESIGN.md](./DESIGN.md)** — architecture (v3), rights (§8), hardening (§11), phased plan (§13)
 - **[ROADMAP.md](./ROADMAP.md)** — phase status (4–8) and the org-AI direction
-- **[docs/remote-llm.md](./docs/remote-llm.md)** — split-brain chat + embeddings
-- **[docs/voice-backends.md](./docs/voice-backends.md)** — Whisper ladder + Piper (canonical voice)
+- **[docs/remote-llm.md](./docs/remote-llm.md)** — split-brain chat + embeddings; 31B opt-in
+- **[docs/voice-backends.md](./docs/voice-backends.md)** — dual-track Whisper (RKNN / whisper.cpp) + Piper
 - **[docs/voice.md](./docs/voice.md)** — voice loop wiring, probes, smoke tests
 - **[docs/rank-gating.md](./docs/rank-gating.md)** — TS server-group → command/doctrine permissions
 - **[docs/rag-ingestion.md](./docs/rag-ingestion.md)** — knowledge base ingestion paths

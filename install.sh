@@ -224,6 +224,9 @@ fi
 
 say "Host: arch=${c_b}${ARCH}${c_0}$([ "$HAS_NPU" -eq 1 ] && echo ' · RK3588 NPU')$([ "$HAS_NVIDIA" -eq 1 ] && echo ' · NVIDIA')$([ "$HAS_AMD" -eq 1 ] && echo ' · AMD/ROCm')"
 say "Suggested edition: ${c_b}${SUGGESTED_EDITION}${c_0}  (docs/editions.md)"
+if [ "$HAS_AMD" -eq 1 ] && [ -x ./scripts/detect-gpu.sh ]; then
+  say "AMD tip: prefer ${c_b}host Ollama${c_0} for 12B chat + whisper.cpp Vulkan STT (docs/gpu-amd.md)"
+fi
 
 # ── 2b. text-interactive wizard (TTY) ────────────────────────────────────────
 run_wizard() {
@@ -646,13 +649,22 @@ echo
 echo "${c_g}${c_b}Moneypenny is up.${c_0}  edition=${c_b}${EDITION}${c_0}"
 echo "  ${c_b}Web UI:${c_0} http://localhost:3000   ${c_d}(localhost-only by default)${c_0}"
 echo "  ${c_d}First run: open the UI, create the admin account, add your TS6 server + a bot.${c_0}"
-if [ "$EDITION" = "sbc" ] && [ "$LLM" = "ollama" ]; then
-  echo "  ${c_d}SBC tip: for fast chat, set llmUrl to a LAN Gemma 4 12B host (docs/remote-llm.md).${c_0}"
+if [ "$EDITION" = "sbc" ] && { [ "$LLM" = "ollama" ] || [ "$LLM" = "external" ]; }; then
+  echo "  ${c_d}SBC tip: llmUrl → LAN 12B (e.g. http://192.168.1.89:11434); E2B is offline fallback (docs/remote-llm.md).${c_0}"
+fi
+if [ "$EDITION" = "server" ] && [ "$HAS_AMD" -eq 1 ]; then
+  echo "  ${c_d}AMD: host Ollama for chat; ./scripts/download-whisper-ggml.sh; docs/gpu-amd.md${c_0}"
+  echo "  ${c_d}31B analyst: ./scripts/check-analyst-vram.sh then Settings toggle (off by default).${c_0}"
 fi
 if [ "$WITH_VOICE" -eq 1 ] && [ "${VOICE_PROFILE:-}" != "legacy" ]; then
-  echo "  ${c_d}Voice: enable Settings → voice + textWakeFallback; stt-whisper + piper-tts.${c_0}"
+  echo "  ${c_d}Voice: Settings → voice + textWakeFallback; dual-track STT + piper (docs/voice-backends.md).${c_0}"
+  if [ "$EDITION" = "server" ]; then
+    echo "  ${c_d}STT models: ./scripts/download-whisper-ggml.sh small${c_0}"
+  else
+    echo "  ${c_d}SBC STT: CPU tiny until .rknn in models/rknn/ (models/rknn/README.md).${c_0}"
+  fi
 fi
 echo
 echo "  ${c_d}Logs:${c_0}    docker compose ${COMPOSE_FILES[*]} ${PROFILE_FLAGS[*]} logs -f bot"
 echo "  ${c_d}Stop:${c_0}    docker compose ${COMPOSE_FILES[*]} ${PROFILE_FLAGS[*]} down"
-echo "  ${c_d}Editions:${c_0} docs/editions.md · ${c_d}LAN access + TLS:${c_0} DESIGN.md §11"
+echo "  ${c_d}Editions:${c_0} docs/editions.md · ${c_d}AMD:${c_0} docs/gpu-amd.md · ${c_d}TLS:${c_0} DESIGN.md §11"

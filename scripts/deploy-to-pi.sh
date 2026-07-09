@@ -156,8 +156,8 @@ fi
 
 if [ "$NO_BUILD" -eq 0 ]; then
   echo "--- Docker rebuild: ${SERVICES[*]} ---"
-  svc_csv="$(IFS=,; echo "${SERVICES[*]}")"
-  remote_ssh "cd '$DEPLOY_PATH' && docker compose build $svc_csv && docker compose up -d $svc_csv"
+  # docker compose expects space-separated service names (not commas)
+  remote_ssh "cd '$DEPLOY_PATH' && docker compose build ${SERVICES[*]} && docker compose up -d --build ${SERVICES[*]}"
   _deploy_ok "containers rebuilt"
 else
   _deploy_warn "skipped docker build (--no-build)"

@@ -188,8 +188,9 @@ services:
     networks:
       - moneypenny
 
-  # LEGACY only: sherpa-onnx Moonshine + KWS. Prefer stt-whisper (voice-edge/server).
-  # Profile: voice (legacy) — not started by --with-voice auto edge/server.
+  # LEGACY ONLY — Moonshine sherpa + KWS. Dual-track Whisper is product default.
+  # Do not start with install --with-voice. Removal candidate after Pi+Server smoke.
+  # Profile: voice (legacy)
   sherpa-stt:
     build:
       context: ./services/sherpa-stt
@@ -243,7 +244,7 @@ services:
     networks:
       - moneypenny
 
-  # Legacy: Kokoro TTS (CPU, high quality, ~1.4GiB)
+  # LEGACY ONLY — Kokoro TTS. Product default is piper-tts (voice-edge/server).
   kokoro:
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
     profiles: ["voice"]

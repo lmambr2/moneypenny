@@ -320,7 +320,7 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 {
                     "ok": True,
-                    "engine": _ENGINE,
+                    "engine": _ENGINE if ready else f"{STT_BACKEND}(loading)",
                     "family": "whisper",
                     "track": "sbc",
                     "model": STT_MODEL,
@@ -328,6 +328,7 @@ class Handler(BaseHTTPRequestHandler):
                     "streaming": True,
                     "modelLoaded": ready,
                     "rknnWeightsPresent": rknn_pair,
+                    "fallback": STT_FALLBACK,
                     "kws": False,
                     "textWakeRequired": True,
                 },

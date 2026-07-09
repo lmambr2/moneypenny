@@ -311,9 +311,11 @@
           <label>Delegate analyst URL</label>
           <input v-model="ai.llmDelegateUrl" class="input" placeholder="http://gpu-host:11434" @input="ai.llmPreset = 'custom'" />
           <div class="profile-toggle-hint">
-            Off by default so 12B chat stays resident. Only enable if the GPU has enough VRAM for
-            <strong>both</strong> 12B + 31B (roughly 24&nbsp;GB+ for Q4), or accept that Ollama will
-            unload 12B while the analyst runs. Same host URL as chat is fine.
+            Off by default so 12B chat stays resident. Run
+            <code>./scripts/check-analyst-vram.sh</code> first. Only enable if VRAM fits
+            <strong>both</strong> 12B + 31B (~28&nbsp;GB+), or accept Ollama swap
+            (<code>OLLAMA_MAX_LOADED_MODELS=1</code>). Same host URL as chat is fine.
+            Docs: <code>docs/remote-llm.md</code>, <code>docs/gpu-amd.md</code>.
           </div>
         </div>
         <div class="form-group" style="flex:1">
