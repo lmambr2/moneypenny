@@ -539,7 +539,7 @@ export function createBotRouter(
         active: false,
         sttUrl: config.voice?.sttUrl ?? "",
         ttsUrl: config.voice?.ttsUrl ?? "",
-        ttsVoice: config.voice?.ttsVoice ?? "en_GB-southern_english_female-low",
+        ttsVoice: config.voice?.ttsVoice ?? "en_GB-cori-medium",
         respondWithVoice: config.voice?.respondWithVoice ?? true,
         sttAvailable: false,
         ttsAvailable: false,
@@ -683,6 +683,23 @@ export function createBotRouter(
       res.json({ ok: true, result });
     } catch (err: unknown) {
       res.status(502).json({ error: errorMessage(err, "bumper cue failed"), code: "RADIO_ERROR" });
+    }
+  });
+
+  // POST /api/bot/radio/clear-bumper-cache — drop TTS bumper files (after voice change).
+  router.post("/radio/clear-bumper-cache", requireAdmin, async (_req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    try {
+      const result = bot.clearRadioBumperCache();
+      res.json({ ok: true, ...result });
+    } catch (err: unknown) {
+      res
+        .status(502)
+        .json({ error: errorMessage(err, "bumper cache clear failed"), code: "RADIO_ERROR" });
     }
   });
 

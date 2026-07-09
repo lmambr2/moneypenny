@@ -23,18 +23,40 @@ from pathlib import Path
 
 PORT = int(os.environ.get("PORT", "8880"))
 PIPER_BIN = os.environ.get("PIPER_BIN", "piper")
-PIPER_MODEL = os.environ.get("PIPER_MODEL", "")  # path to .onnx
-PIPER_VOICE = os.environ.get("PIPER_VOICE", "en_GB-southern_english_female-low")
+PIPER_MODEL = os.environ.get("PIPER_MODEL", "")  # default path to .onnx
+PIPER_VOICE = os.environ.get("PIPER_VOICE", "en_GB-cori-medium")
+PIPER_MODELS_DIR = os.environ.get("PIPER_MODELS_DIR", "/models")
 DEFAULT_FORMAT = os.environ.get("TTS_FORMAT", "wav")
 ESPEAK = os.environ.get("ESPEAK_BIN", "espeak-ng")
 
 
 def _engine() -> str:
-    if PIPER_MODEL and Path(PIPER_MODEL).is_file() and shutil.which(PIPER_BIN):
+    if _resolve_model(None) and shutil.which(PIPER_BIN):
         return "piper"
     if shutil.which(ESPEAK):
         return "espeak"
     return "none"
+
+
+def _resolve_model(voice: str | None) -> str | None:
+    """Pick onnx for the requested voice id, else PIPER_MODEL, else first .onnx in models dir."""
+    v = (voice or PIPER_VOICE or "").strip()
+    candidates: list[Path] = []
+    if v:
+        candidates.append(Path(PIPER_MODELS_DIR) / f"{v}.onnx")
+        # Accept bare speaker names mapped to default quality files if present
+        candidates.append(Path(PIPER_MODELS_DIR) / f"{v}.onnx")
+    if PIPER_MODEL:
+        candidates.append(Path(PIPER_MODEL))
+    models_dir = Path(PIPER_MODELS_DIR)
+    if models_dir.is_dir():
+        # Prefer product default if present
+        candidates.append(models_dir / f"{PIPER_VOICE}.onnx")
+        candidates.extend(sorted(models_dir.glob("*.onnx")))
+    for p in candidates:
+        if p.is_file():
+            return str(p)
+    return None
 
 
 def synthesize(text: str, voice: str | None = None) -> tuple[bytes, str]:
@@ -43,7 +65,7 @@ def synthesize(text: str, voice: str | None = None) -> tuple[bytes, str]:
         raise ValueError("empty input")
     eng = _engine()
     if eng == "piper":
-        return _synth_piper(text), "wav"
+        return _synth_piper(text, voice), "wav"
     if eng == "espeak":
         return _synth_espeak(text, voice or PIPER_VOICE), "wav"
     raise RuntimeError(
@@ -51,13 +73,16 @@ def synthesize(text: str, voice: str | None = None) -> tuple[bytes, str]:
     )
 
 
-def _synth_piper(text: str) -> bytes:
+def _synth_piper(text: str, voice: str | None = None) -> bytes:
+    model = _resolve_model(voice)
+    if not model:
+        raise RuntimeError("no piper model file found under PIPER_MODELS_DIR / PIPER_MODEL")
     with tempfile.TemporaryDirectory(prefix="piper-") as td:
         out = Path(td) / "out.wav"
         cmd = [
             PIPER_BIN,
             "--model",
-            PIPER_MODEL,
+            model,
             "--output_file",
             str(out),
         ]
@@ -70,7 +95,7 @@ def _synth_piper(text: str) -> bytes:
         )
         if proc.returncode != 0 or not out.is_file():
             err = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace")[:500]
-            raise RuntimeError(f"piper failed: {err}")
+            raise RuntimeError(f"piper failed ({model}): {err}")
         return out.read_bytes()
 
 
@@ -114,13 +139,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path.split("?")[0] in ("/health", "/v1/health"):
+            resolved = _resolve_model(PIPER_VOICE)
             self._json(
                 200,
                 {
                     "ok": _engine() != "none",
                     "engine": _engine(),
                     "voice": PIPER_VOICE,
-                    "model": PIPER_MODEL or None,
+                    "model": resolved or PIPER_MODEL or None,
                 },
             )
             return

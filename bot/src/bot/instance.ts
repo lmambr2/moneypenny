@@ -113,6 +113,7 @@ export class BotInstance extends EventEmitter {
   private idlePoller: IdlePoller;
   private radio: RadioDirector;
   private bumperFactory: RadioBumperFactory;
+  private bumperCache: BumperCache;
   private text: TextMessageHandler;
   private poke: PokeHandler;
   private rights: RightsRuntime;
@@ -338,14 +339,14 @@ export class BotInstance extends EventEmitter {
           logger: this.logger,
         })
       : { synthesize: () => Promise.reject(new Error("TTS not configured")) };
-    const bumperCache = new BumperCache({
+    this.bumperCache = new BumperCache({
       db: this.database.db,
       cacheDir: join(dataDir, "bumper-cache"),
       logger: this.logger,
     });
     const speechSink = new SpeechSink({
       tts: radioTts,
-      cache: bumperCache,
+      cache: this.bumperCache,
       logger: this.logger,
       voice: radioTtsVoice,
       player: this.player,
@@ -834,6 +835,11 @@ export class BotInstance extends EventEmitter {
    */
   prewarmRadioBumpers(opts?: { includeDoctrine?: boolean; hoursAhead?: number; lines?: string[] }) {
     return this.bumperFactory.prewarm(opts ?? {});
+  }
+
+  /** Drop all TTS bumper cache entries (after voice/model change). */
+  clearRadioBumperCache(): { removed: number } {
+    return this.bumperCache.clearAll();
   }
 
   /** Chat/voice presence hint for radio minPresent gate. */

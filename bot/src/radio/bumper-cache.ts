@@ -139,6 +139,19 @@ export class BumperCache {
     for (const e of overflow) this.remove(e.hash, e.path);
   }
 
+  /**
+   * Drop every cached TTS bumper (files + index). Call after a voice/model
+   * change so station IDs and time checks re-synthesize in the new voice.
+   */
+  clearAll(): { removed: number } {
+    const rows = this.db
+      .prepare(`SELECT hash, path FROM bumper_cache`)
+      .all() as { hash: string; path: string }[];
+    for (const e of rows) this.remove(e.hash, e.path);
+    this.logger?.info({ removed: rows.length }, "bumper cache: cleared all entries");
+    return { removed: rows.length };
+  }
+
   private remove(hash: string, path: string): void {
     try {
       rmSync(path, { force: true });

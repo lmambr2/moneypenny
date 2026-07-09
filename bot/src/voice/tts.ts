@@ -36,7 +36,7 @@ export class KokoroTtsClient implements TtsProvider {
     normalize?: (audio: Buffer, format: string, logger?: Logger) => Promise<Buffer>;
   }) {
     this.url = opts.url.replace(/\/$/, "");
-    this.voice = opts.voice || "en_GB-southern_english_female-low";
+    this.voice = opts.voice || "en_GB-cori-medium";
     this.model = opts.model || "piper";
     this.format = opts.format || "wav";
     this.logger = opts.logger;

@@ -20,7 +20,7 @@ always co-locates with that install. Chat may still point at a remote Ollama.
 | **Chat LLM** | LAN **Gemma 4 12B QAT** preferred; on-device **E2B** fallback | **Host Ollama** Gemma 4 **12B QAT** (`!ask`); **31B analyst opt-in** (Settings toggle; only if VRAM fits or swap OK) |
 | **Embeddings / vectors** | On this host (`embeddinggemma` + Qdrant) | On this host |
 | **STT (dual track)** | **`stt-rknn`**: RKNN NPU **base** → faster-whisper CPU fallback | **`stt-whisper-cpp`**: whisper.cpp + **Vulkan** on AMD (`medium`) |
-| **TTS** | Piper `en_GB-southern_english_female-low` | Same |
+| **TTS** | Piper `en_GB-cori-medium` (British female medium) | Same |
 | **NPU** | **RKNN Whisper** priority; offline chat opt-in only | N/A |
 | **Compose files** | `docker-compose.yml` + `docker-compose.sbc.yml` | `docker-compose.yml` + `docker-compose.server.yml` |
 | **Installer** | `./install.sh --edition sbc` | `./install.sh --edition server` |

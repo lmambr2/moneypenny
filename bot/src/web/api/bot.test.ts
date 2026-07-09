@@ -87,7 +87,7 @@ function fakeBot() {
       active: true,
       sttUrl: "http://stt:9000",
       ttsUrl: "",
-      ttsVoice: "en_GB-southern_english_female-low",
+      ttsVoice: "en_GB-cori-medium",
       respondWithVoice: true,
       sttAvailable: true,
       ttsAvailable: false,

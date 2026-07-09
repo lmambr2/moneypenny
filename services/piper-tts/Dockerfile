@@ -1,4 +1,4 @@
-# Piper TTS — default British female voice (southern_english_female, low).
+# Piper TTS — default British female medium (cori).
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,14 +20,21 @@ RUN set -e; \
     && rm -f /tmp/piper.tar.gz \
     || (echo "WARN: piper binary download failed for ${ARCH} — espeak-ng fallback only" && true)
 
-# Official voice: en_GB southern_english_female low
+# Canonical product voice: en_GB-cori-medium (British female, medium quality).
+# Also ship the old low southern_english as fallback if request names it.
 # https://huggingface.co/rhasspy/piper-voices
-ARG VOICE_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_GB/southern_english_female/low
+ARG VOICE_ID=en_GB-cori-medium
+ARG VOICE_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_GB/cori/medium
+ARG FALLBACK_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_GB/southern_english_female/low
 RUN mkdir -p /models \
+    && curl -fsSL -o /models/${VOICE_ID}.onnx \
+         "${VOICE_BASE}/${VOICE_ID}.onnx" \
+    && curl -fsSL -o /models/${VOICE_ID}.onnx.json \
+         "${VOICE_BASE}/${VOICE_ID}.onnx.json" \
     && curl -fsSL -o /models/en_GB-southern_english_female-low.onnx \
-         "${VOICE_BASE}/en_GB-southern_english_female-low.onnx" \
+         "${FALLBACK_BASE}/en_GB-southern_english_female-low.onnx" \
     && curl -fsSL -o /models/en_GB-southern_english_female-low.onnx.json \
-         "${VOICE_BASE}/en_GB-southern_english_female-low.onnx.json"
+         "${FALLBACK_BASE}/en_GB-southern_english_female-low.onnx.json"
 
 WORKDIR /app
 COPY server.py /app/server.py
@@ -35,8 +42,9 @@ RUN chmod +x /app/server.py
 
 ENV PORT=8880 \
     PIPER_BIN=/usr/local/bin/piper \
-    PIPER_MODEL=/models/en_GB-southern_english_female-low.onnx \
-    PIPER_VOICE=en_GB-southern_english_female-low
+    PIPER_MODEL=/models/en_GB-cori-medium.onnx \
+    PIPER_VOICE=en_GB-cori-medium \
+    PIPER_MODELS_DIR=/models
 
 EXPOSE 8880
 # Models owned by root; nobody can read them if 644

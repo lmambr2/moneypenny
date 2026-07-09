@@ -45,7 +45,7 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml --profile voic
 ## Enable in Settings
 
 1. Settings → AI & Permissions → **Voice loop** → enable.
-2. STT `http://stt-whisper:9000`, TTS `http://piper-tts:8880`, voice **`en_GB-southern_english_female-low`**.
+2. STT `http://stt-whisper:9000`, TTS `http://piper-tts:8880`, voice **`en_GB-cori-medium`** (British medium; samples at [piper-samples](https://rhasspy.github.io/piper-samples/)).
 3. Turn on **text wake fallback** (`textWakeFallback: true`) — Whisper has no separate KWS.
 4. **Watchword** defaults to `moneypenny` — say **“Moneypenny, pause”**.
 5. **Check** + synthetic **Test** (transcript `Moneypenny pause`).

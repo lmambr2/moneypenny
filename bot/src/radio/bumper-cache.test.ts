@@ -70,4 +70,15 @@ describe("BumperCache", () => {
     expect(cache.get("old")).toBeNull();
     expect(cache.get("new")).not.toBeNull();
   });
+
+  it("clearAll removes every entry and file", () => {
+    const cache = make();
+    const p1 = cache.put("a", Buffer.from("1"), "wav", { text: "a", source: "s" });
+    const p2 = cache.put("b", Buffer.from("2"), "wav", { text: "b", source: "s" });
+    expect(cache.clearAll()).toEqual({ removed: 2 });
+    expect(cache.get("a")).toBeNull();
+    expect(cache.get("b")).toBeNull();
+    expect(existsSync(p1!)).toBe(false);
+    expect(existsSync(p2!)).toBe(false);
+  });
 });

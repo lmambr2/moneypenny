@@ -7,7 +7,11 @@ Moneypenny does **not** embed STT/TTS. The bot only calls HTTP sidecars.
 | STT | `SherpaSttClient` | `GET /health`, `POST /asr`, `POST /asr/stream`, `DELETE /asr/stream` |
 | TTS | `KokoroTtsClient` | `POST /v1/audio/speech` → audio bytes |
 
-**Canonical TTS:** Piper `en_GB-southern_english_female-low`.  
+**Canonical TTS:** Piper **`en_GB-cori-medium`** (British female, medium quality).  
+Samples: [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/) · models: [huggingface.co/rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) (`en/en_GB/…`).  
+Download helper: `./scripts/download-piper-voice.sh [en_GB-cori-medium]`.  
+After changing voice: Settings → **Clear TTS bumper cache**, then **Pre-generate bumpers**.
+
 **Canonical STT:** Whisper dual-track (below).  
 **No** English-word → command alias tables.  
 **No** KWS on Whisper path → enable `voice.textWakeFallback`.
@@ -111,7 +115,7 @@ Without weights the service falls back to **faster-whisper** on CPU
     "enabled": true,
     "sttUrl": "http://stt-whisper:9000",
     "ttsUrl": "http://piper-tts:8880",
-    "ttsVoice": "en_GB-southern_english_female-low",
+    "ttsVoice": "en_GB-cori-medium",
     "textWakeFallback": true,
     "requireWatchword": true
   }

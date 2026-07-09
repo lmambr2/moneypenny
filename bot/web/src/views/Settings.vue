@@ -847,6 +847,16 @@
           type="button"
           class="btn-sm"
           style="margin-left:8px"
+          :disabled="radioPanel.clearingCache"
+          title="Delete cached station IDs / time checks so the next bumper re-synthesizes with the current Piper voice. Use after changing TTS voice."
+          @click="clearRadioBumperCache"
+        >
+          {{ radioPanel.clearingCache ? 'Clearing…' : 'Clear TTS bumper cache' }}
+        </button>
+        <button
+          type="button"
+          class="btn-sm"
+          style="margin-left:8px"
           :disabled="radioPanel.prewarming"
           title="Also pre-render doctrine liners for the active profile's topics (LLM + RAG). Chat: !radio prewarm doctrine"
           @click="prewarmRadioBumpers(true)"
@@ -1131,10 +1141,14 @@
       <label class="profile-toggle">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">
-            <Icon icon="mdi:microphone" class="setting-icon" /> Voice loop (Phase 2)
+            <Icon icon="mdi:microphone" class="setting-icon" /> Voice loop
           </div>
           <div class="profile-toggle-hint">
-            Inbound voice → STT → the same control router → optional TTS reply. Say the <strong>watchword</strong> first (default <code>Moneypenny</code>), e.g. “Moneypenny, pause”. Requires sherpa-onnx STT and Kokoro TTS sidecars (<code>--profile voice</code>).
+            Inbound voice → STT → control router → optional TTS reply. Say the
+            <strong>watchword</strong> first (default <code>Moneypenny</code>), e.g. “Moneypenny, pause”.
+            Needs dual-track Whisper STT + <strong>Piper</strong> TTS
+            (<code>voice-edge</code> / <code>voice-server</code>). Samples:
+            <a href="https://rhasspy.github.io/piper-samples/" target="_blank" rel="noopener">piper-samples</a>.
           </div>
         </div>
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.voiceEnabled" />
@@ -1142,16 +1156,27 @@
 
       <div v-if="ai.voiceEnabled" class="form-row" style="margin: 8px 0 4px">
         <div class="form-group">
-          <label>STT URL (sherpa-onnx)</label>
-          <input v-model="ai.voiceSttUrl" class="input" placeholder="http://sherpa-stt:9000" />
+          <label>STT URL (Whisper sidecar)</label>
+          <input v-model="ai.voiceSttUrl" class="input" placeholder="http://stt-whisper:9000" />
         </div>
         <div class="form-group">
           <label>TTS URL (Piper)</label>
           <input v-model="ai.voiceTtsUrl" class="input" placeholder="http://piper-tts:8880" />
         </div>
         <div class="form-group">
-          <label>TTS voice</label>
-          <input v-model="ai.voiceTtsVoice" class="input" placeholder="en_GB-southern_english_female-low" />
+          <label title="Piper voice id matching /models/<id>.onnx. Product default: en_GB-cori-medium (British female, medium)."
+            >TTS voice (Piper id)</label
+          >
+          <input
+            v-model="ai.voiceTtsVoice"
+            class="input"
+            placeholder="en_GB-cori-medium"
+            title="Must match a model file on the piper-tts service. Radio bumpers use the same voice."
+          />
+          <p class="profile-toggle-hint" style="margin:4px 0 0">
+            Default <code>en_GB-cori-medium</code> (British). After changing voice:
+            <strong>Save</strong>, clear bumper cache below, then pre-generate / test bumper.
+          </p>
         </div>
         <div class="form-group">
           <label>Watchword</label>
@@ -1690,7 +1715,7 @@ const ai = reactive({
   voiceEnabled: false,
   voiceSttUrl: '',
   voiceTtsUrl: '',
-  voiceTtsVoice: 'bf_emma',
+  voiceTtsVoice: 'en_GB-cori-medium',
   voiceWatchword: 'moneypenny',
   voiceRequireWatchword: true,
   voiceDuckMusicOnSpeech: true,
@@ -2014,6 +2039,7 @@ function renameRadioProfile(raw: string) {
 }
 const radioPanel = reactive({
   prewarming: false,
+  clearingCache: false,
   busy: false,
   testing: false,
   error: '',
@@ -2134,7 +2160,7 @@ async function loadAiSettings() {
     ai.voiceEnabled = !!voice.enabled;
     ai.voiceSttUrl = voice.sttUrl ?? '';
     ai.voiceTtsUrl = voice.ttsUrl ?? '';
-    ai.voiceTtsVoice = voice.ttsVoice ?? 'bf_emma';
+    ai.voiceTtsVoice = voice.ttsVoice ?? 'en_GB-cori-medium';
     ai.voiceWatchword = voice.watchword ?? 'moneypenny';
     ai.voiceRequireWatchword = voice.requireWatchword !== false;
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
@@ -2477,6 +2503,21 @@ async function prewarmRadioBumpers(includeDoctrine: boolean) {
   }
 }
 
+/** Drop cached station IDs / time checks so they re-synthesize with the current Piper voice. */
+async function clearRadioBumperCache() {
+  radioPanel.clearingCache = true;
+  radioPanel.error = '';
+  try {
+    const res = await api.post('/api/bot/radio/clear-bumper-cache', {});
+    const n = res.data?.removed ?? 0;
+    radioPanel.statusText = `Cleared ${n} TTS bumper cache entr${n === 1 ? 'y' : 'ies'}. Pre-generate or play a bumper to rebuild.`;
+  } catch (e: any) {
+    radioPanel.error = e?.response?.data?.error ?? 'Clear bumper cache failed';
+  } finally {
+    radioPanel.clearingCache = false;
+  }
+}
+
 async function testVoiceTurn() {
   if (!voicePanel.transcript.trim()) return;
   voicePanel.testing = true;
@@ -2658,7 +2699,7 @@ async function saveAiSettings() {
         respondWithVoice: ai.voiceRespondWithVoice,
         sttUrl: ai.voiceSttUrl.trim(),
         ttsUrl: ai.voiceTtsUrl.trim(),
-        ttsVoice: ai.voiceTtsVoice.trim() || 'bf_emma',
+        ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-medium',
         watchword: ai.voiceWatchword.trim() || 'moneypenny',
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
@@ -2675,6 +2716,8 @@ async function saveAiSettings() {
         maxBumperSeconds: ai.radioMaxBumperSeconds,
         speechVolumePct: ai.radioSpeechVolumePct,
         activeProfile: ai.radioActiveProfile,
+        // Keep radio TTS aligned with voice settings (station IDs / time checks).
+        ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-medium',
         profiles: Object.fromEntries(
           Object.entries(ai.radioProfiles).map(([key, edit]) => [key, profileToApi(key, edit)]),
         ),

@@ -601,8 +601,8 @@ if [ "$WITH_VOICE" -eq 1 ] && [ "$VOICE_PROFILE" != "legacy" ]; then
       set_env WHISPER_VULKAN "${WHISPER_VULKAN:-1}"
     fi
   fi
-  set_env PIPER_VOICE "en_GB-southern_english_female-low"
-  set_env PIPER_MODEL "/models/en_GB-southern_english_female-low.onnx"
+  set_env PIPER_VOICE "en_GB-cori-medium"
+  set_env PIPER_MODEL "/models/en_GB-cori-medium.onnx"
 fi
 [ "$LLM" = "npu" ] && set_env RKLLM_BACKEND native
 # Default the music library to a local, writable folder. Respect a real custom

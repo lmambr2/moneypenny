@@ -64,5 +64,6 @@ services:
 
   piper-tts:
     environment:
-      - PIPER_VOICE=${PIPER_VOICE:-en_GB-southern_english_female-low}
-      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-southern_english_female-low.onnx}
+      - PIPER_VOICE=${PIPER_VOICE:-en_GB-cori-medium}
+      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-cori-medium.onnx}
+      - PIPER_MODELS_DIR=${PIPER_MODELS_DIR:-/models}

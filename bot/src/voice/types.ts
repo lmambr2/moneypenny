@@ -93,8 +93,8 @@ export function defaultVoiceConfig(): VoiceConfig {
     respondWithVoice: true,
     sttUrl: "",
     ttsUrl: "",
-    // Piper default (British); Kokoro legacy uses e.g. bf_emma when ttsUrl points at kokoro.
-    ttsVoice: "en_GB-southern_english_female-low",
+    // Piper default: British female medium (samples: https://rhasspy.github.io/piper-samples/).
+    ttsVoice: "en_GB-cori-medium",
     energyThreshold: 200,
     watchword: "moneypenny",
     requireWatchword: true,

@@ -471,7 +471,7 @@ See [docs/remote-llm.md](./docs/remote-llm.md) for split-brain + analyst presets
 - `voice.respondWithVoice`
 - `voice.sttUrl` (`http://stt-whisper:9000`)
 - `voice.ttsUrl` (`http://piper-tts:8880`)
-- `voice.ttsVoice` (`en_GB-southern_english_female-low`)
+- `voice.ttsVoice` (`en_GB-cori-medium` — British Piper medium; [samples](https://rhasspy.github.io/piper-samples/))
 - `voice.textWakeFallback` (**true** for Whisper — no KWS)
 
 **Advanced / Hardening**
