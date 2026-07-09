@@ -117,7 +117,7 @@ export type SpawnFn = (
 ) => {
   stdin?: { write: (b: Buffer) => boolean; end: () => void } | null;
   killed?: boolean;
-  kill: (sig?: string) => void;
+  kill: (sig?: string | number) => void | boolean;
   on?: (ev: string, cb: (...a: unknown[]) => void) => void;
 };
 

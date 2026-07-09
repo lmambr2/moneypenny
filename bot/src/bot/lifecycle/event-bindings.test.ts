@@ -99,7 +99,7 @@ describe("bindPlayerEvents Icecast PCM tee path", () => {
       logger: { debug: vi.fn(), error: vi.fn() },
       playNext: vi.fn(async () => true),
       // Same wiring as BotInstance: onPcm → tee.writePcm
-      onPcm: (pcm) => tee.writePcm(pcm),
+      onPcm: (pcm: Buffer) => tee.writePcm(pcm),
     } as unknown as PlayerEventBindings);
 
     const frame = Buffer.alloc(960);

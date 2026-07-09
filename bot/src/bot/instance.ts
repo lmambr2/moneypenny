@@ -242,12 +242,26 @@ export class BotInstance extends EventEmitter {
 
     this.icecastTee = new IcecastTee({
       logger: this.logger,
-      spawn: (cmd, args, opts) =>
-        nodeSpawn(cmd, args, {
+      spawn: (cmd, args, opts) => {
+        const child = nodeSpawn(cmd, args, {
           stdio: (opts?.stdio as ("pipe" | "ignore")[] | undefined) ?? ["pipe", "ignore", "pipe"],
-        }) as ReturnType<typeof nodeSpawn> & {
-          stdin: { write: (b: Buffer) => boolean; end: () => void };
-        },
+        });
+        return {
+          stdin: child.stdin
+            ? {
+                write: (b: Buffer) => child.stdin!.write(b),
+                end: () => {
+                  child.stdin!.end();
+                },
+              }
+            : null,
+          killed: child.killed,
+          kill: (sig?: string | number) => child.kill(sig as NodeJS.Signals | undefined),
+          on: (ev: string, cb: (...a: unknown[]) => void) => {
+            child.on(ev, cb);
+          },
+        };
+      },
     });
     this.relayScheduler = new RelayScheduler({
       onBumper: async () => {

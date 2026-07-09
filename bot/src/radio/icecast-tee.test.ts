@@ -85,9 +85,9 @@ describe("IcecastTee lifecycle", () => {
     });
     expect(r.running).toBe(true);
     expect(spawn).toHaveBeenCalledOnce();
-    const [bin, args] = spawn.mock.calls[0]!;
-    expect(bin).toBe("ffmpeg");
-    expect(args).toEqual(
+    const call = spawn.mock.calls[0] as unknown as [string, string[]];
+    expect(call[0]).toBe("ffmpeg");
+    expect(call[1]).toEqual(
       expect.arrayContaining(["-f", "s16le", "-i", "pipe:0", "libmp3lame"]),
     );
     expect(tee.isRunning()).toBe(true);
