@@ -22,7 +22,9 @@ tee, relay-in, Spotify/Tidal playlist expand via stream bridge (fail-open).
 **ACE-Step** radio auto-fill / `!radio gen` / `!generate` when enabled —
 [ace-step.md](./ace-step.md), [ace-step-host.md](./ace-step-host.md).
 **Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
-and **`focus`** in `defaultRadioConfig()`; add custom profiles before `!radio ops`.
+and **`focus`** in `defaultRadioConfig()`. Edit/add/delete profiles in **Settings →
+Radio → Op-context profiles** (seed queries, bumper topics/tone, playlist refs);
+switch live with the active-profile dropdown or `!radio ops <name>`.
 
 ### Dashboard (Settings → Radio / DJ)
 

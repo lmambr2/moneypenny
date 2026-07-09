@@ -526,8 +526,8 @@
       <div v-if="ai.radioEnabled" class="form-row" style="margin: 0 0 8px">
         <div class="form-group" style="flex:1" title="Op context for seedQueries / bumper topics. Same as !radio ops <name>.">
           <label>Active profile</label>
-          <select v-model="ai.radioActiveProfile" class="input">
-            <option v-for="p in ai.radioProfileNames" :key="p" :value="p">{{ p }}</option>
+          <select v-model="ai.radioActiveProfile" class="input" @change="onActiveProfileChanged">
+            <option v-for="p in radioProfileKeys" :key="p" :value="p">{{ p }}</option>
           </select>
         </div>
         <div class="form-group" style="flex:1">
@@ -563,6 +563,144 @@
             <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioAnalyzerEnabled" />
           </label>
         </div>
+      </div>
+
+      <!-- Op-context profiles editor (seedQueries, bumper topics/tone, …) -->
+      <div v-if="ai.radioEnabled" class="radio-profiles-card">
+        <div class="profile-toggle-label" style="margin-bottom:6px">
+          <Icon icon="mdi:account-music" class="setting-icon" /> Op-context profiles
+        </div>
+        <p class="profile-toggle-hint" style="margin:0 0 10px">
+          Each profile retunes <strong>music seeds</strong> (dead-air / auto-program search) and
+          <strong>bumper topics/tone</strong>. Switch live with the active profile dropdown or
+          <code>!radio ops &lt;name&gt;</code>. Avoid seed words like <code>mix</code> /
+          <code>hours</code> if you don’t want multi-hour YouTube results. <strong>Save</strong> applies.
+        </p>
+
+        <div class="form-row" style="margin:0 0 10px;align-items:flex-end;gap:8px;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:140px;margin:0">
+            <label>Edit profile</label>
+            <select v-model="ai.radioEditKey" class="input">
+              <option v-for="p in radioProfileKeys" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </div>
+          <button type="button" class="btn-sm" title="Create a new empty profile" @click="addRadioProfile">
+            + Add
+          </button>
+          <button
+            type="button"
+            class="btn-sm"
+            title="Duplicate the profile being edited"
+            :disabled="!ai.radioEditKey"
+            @click="duplicateRadioProfile"
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            class="btn-sm"
+            title="Delete the profile being edited"
+            :disabled="!ai.radioEditKey || radioProfileKeys.length <= 1"
+            @click="deleteRadioProfile"
+          >
+            Delete
+          </button>
+        </div>
+
+        <template v-if="editedRadioProfile">
+          <div class="form-row" style="margin:0 0 8px">
+            <div class="form-group" style="flex:1">
+              <label title="Internal id used by !radio ops and the active-profile list. Lowercase, no spaces."
+                >Profile id</label
+              >
+              <input
+                class="input"
+                :value="ai.radioEditKey"
+                placeholder="lobby"
+                title="Changing id renames the profile key"
+                @change="renameRadioProfile(($event.target as HTMLInputElement).value)"
+              />
+            </div>
+            <div class="form-group" style="flex:1">
+              <label title="Display name (optional; defaults to id)">Display name</label>
+              <input v-model="editedRadioProfile.name" class="input" placeholder="Lobby" />
+            </div>
+            <div class="form-group" style="flex:0 0 auto;align-self:flex-end">
+              <label
+                class="profile-toggle"
+                style="margin:0"
+                title="Shuffle the programmed pool when restocking from this profile"
+              >
+                <span>Shuffle pool</span>
+                <input type="checkbox" class="profile-toggle-switch" v-model="editedRadioProfile.shuffle" />
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin:0 0 8px">
+            <label
+              title="Free-text searches used when auto-programming (dead air / !radio ops). Local library first, then YouTube. One query per line."
+              >Music seed queries</label
+            >
+            <textarea
+              v-model="editedRadioProfile.seedQueriesText"
+              class="input radio-profile-textarea"
+              rows="3"
+              placeholder="synthwave&#10;chill electronic&#10;retrowave"
+            />
+            <p class="profile-toggle-hint" style="margin:4px 0 0">
+              One search per line. Used when the profile has no tag select / playlist pool.
+              Prefer short-track terms over “4 hour mix”.
+            </p>
+          </div>
+
+          <div class="form-group" style="margin:0 0 8px">
+            <label
+              title="Optional playlist/album refs expanded into the pool. Format: platform:ref — e.g. local:my-playlist or youtube:PLxxxx"
+              >Playlist refs (optional)</label
+            >
+            <textarea
+              v-model="editedRadioProfile.playlistRefsText"
+              class="input radio-profile-textarea"
+              rows="2"
+              placeholder="local:ops-lobby&#10;youtube:PLxxxxxxxx"
+            />
+            <p class="profile-toggle-hint" style="margin:4px 0 0">
+              One per line: <code>local:</code>, <code>youtube:</code>, <code>spotify:</code>, or
+              <code>tidal:</code> + ref. Tried before seed queries.
+            </p>
+          </div>
+
+          <div class="form-row" style="margin:0 0 8px">
+            <div class="form-group" style="flex:1">
+              <label title="Topics for doctrine / memory bumpers (RAG + LLM rewrite). One per line."
+                >Bumper topics</label
+              >
+              <textarea
+                v-model="editedRadioProfile.bumperTopicsText"
+                class="input radio-profile-textarea"
+                rows="3"
+                placeholder="org announcements&#10;station welcome"
+              />
+            </div>
+            <div class="form-group" style="flex:1">
+              <label title="Voice/style hint for the LLM when rewriting doctrine/memory into spoken liners."
+                >Bumper tone</label
+              >
+              <textarea
+                v-model="editedRadioProfile.bumperTone"
+                class="input radio-profile-textarea"
+                rows="3"
+                placeholder="warm late-night host"
+              />
+            </div>
+          </div>
+
+          <p class="profile-toggle-hint" style="margin:0">
+            Advanced tag filters (<code>music.select</code>) and source weights stay in config if set —
+            this panel won’t wipe them. Editing seeds/topics merges on Save.
+          </p>
+        </template>
       </div>
 
       <div v-if="ai.radioEnabled" class="form-row" style="margin: 0 0 8px">
@@ -1542,7 +1680,10 @@ const ai = reactive({
   radioMaxBumperSeconds: 30,
   radioSpeechVolumePct: 85,
   radioActiveProfile: 'lobby',
-  radioProfileNames: ['lobby', 'focus'] as string[],
+  /** Key of the profile currently open in the editor (may match active). */
+  radioEditKey: 'lobby',
+  /** Editable op-context profiles (seedQueries, bumper topics/tone, …). */
+  radioProfiles: {} as Record<string, RadioProfileEdit>,
   radioRatingWeight: true,
   radioHarmonicSequencing: false,
   radioAudioColor: 'off' as 'off' | 'am' | 'fm' | 'telephone' | 'vinyl' | 'lofi',
@@ -1559,6 +1700,18 @@ const ai = reactive({
     memory: false,
   } as Record<string, boolean>,
 });
+
+/** Dashboard-editable slice of a RadioProfile (§8). Preserves unknown fields in `extra`. */
+interface RadioProfileEdit {
+  name: string;
+  seedQueriesText: string;
+  bumperTopicsText: string;
+  bumperTone: string;
+  shuffle: boolean;
+  playlistRefsText: string;
+  /** Original profile blob minus fields we edit — re-merged on save so select/relay/weights survive. */
+  extra: Record<string, unknown>;
+}
 
 const RADIO_SOURCE_OPTIONS = [
   {
@@ -1592,6 +1745,238 @@ const RADIO_SOURCE_OPTIONS = [
     tip: 'Org KG only (MemPalace). Requires “Org memory on air”. Never private !remember.',
   },
 ] as const;
+
+const radioProfileKeys = computed(() => Object.keys(ai.radioProfiles).sort());
+const editedRadioProfile = computed(() =>
+  ai.radioEditKey ? (ai.radioProfiles[ai.radioEditKey] ?? null) : null,
+);
+
+function linesToText(arr: unknown): string {
+  if (!Array.isArray(arr)) return '';
+  return arr.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).join('\n');
+}
+function textToLines(text: string): string[] {
+  return text
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+function playlistRefsToText(refs: unknown): string {
+  if (!Array.isArray(refs)) return '';
+  return refs
+    .map((r) => {
+      if (!r || typeof r !== 'object') return '';
+      const platform = String((r as { platform?: string }).platform ?? '').trim();
+      const ref = String((r as { ref?: string }).ref ?? '').trim();
+      if (!platform || !ref) return '';
+      return `${platform}:${ref}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+function textToPlaylistRefs(
+  text: string,
+): { platform: 'local' | 'youtube' | 'spotify' | 'tidal'; ref: string }[] {
+  const allowed = new Set(['local', 'youtube', 'spotify', 'tidal']);
+  const out: { platform: 'local' | 'youtube' | 'spotify' | 'tidal'; ref: string }[] = [];
+  for (const line of text
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    const idx = line.indexOf(':');
+    if (idx <= 0) continue;
+    const platform = line.slice(0, idx).trim().toLowerCase();
+    const ref = line.slice(idx + 1).trim();
+    if (!allowed.has(platform) || !ref) continue;
+    out.push({ platform: platform as 'local' | 'youtube' | 'spotify' | 'tidal', ref });
+  }
+  return out;
+}
+
+function profileFromApi(key: string, raw: unknown): RadioProfileEdit {
+  const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const music =
+    p.music && typeof p.music === 'object' && !Array.isArray(p.music)
+      ? { ...(p.music as Record<string, unknown>) }
+      : {};
+  const bumper =
+    p.bumper && typeof p.bumper === 'object' && !Array.isArray(p.bumper)
+      ? { ...(p.bumper as Record<string, unknown>) }
+      : {};
+  // Strip fields we edit so they don't double-write; keep select/relay/weights/etc.
+  const { seedQueries: _s, playlistRefs: _pl, shuffle: _sh, ...musicRest } = music;
+  const { topics: _t, tone: _tone, ...bumperRest } = bumper;
+  const { name: _n, music: _m, bumper: _b, ...topRest } = p;
+  return {
+    name: typeof p.name === 'string' && p.name.trim() ? p.name : key,
+    seedQueriesText: linesToText(music.seedQueries),
+    bumperTopicsText: linesToText(bumper.topics),
+    bumperTone: typeof bumper.tone === 'string' ? bumper.tone : '',
+    shuffle: music.shuffle !== false,
+    playlistRefsText: playlistRefsToText(music.playlistRefs),
+    extra: {
+      ...topRest,
+      ...(Object.keys(musicRest).length ? { music: musicRest } : {}),
+      ...(Object.keys(bumperRest).length ? { bumper: bumperRest } : {}),
+    },
+  };
+}
+
+function profileToApi(key: string, edit: RadioProfileEdit): Record<string, unknown> {
+  const seeds = textToLines(edit.seedQueriesText);
+  const topics = textToLines(edit.bumperTopicsText);
+  const refs = textToPlaylistRefs(edit.playlistRefsText);
+  const tone = edit.bumperTone.trim();
+  const extraMusic =
+    edit.extra.music && typeof edit.extra.music === 'object'
+      ? (edit.extra.music as Record<string, unknown>)
+      : {};
+  const extraBumper =
+    edit.extra.bumper && typeof edit.extra.bumper === 'object'
+      ? (edit.extra.bumper as Record<string, unknown>)
+      : {};
+  const { music: _em, bumper: _eb, ...topExtra } = edit.extra;
+  const music: Record<string, unknown> = {
+    ...extraMusic,
+    shuffle: edit.shuffle,
+  };
+  if (seeds.length) music.seedQueries = seeds;
+  else delete music.seedQueries;
+  if (refs.length) music.playlistRefs = refs;
+  else delete music.playlistRefs;
+  const bumper: Record<string, unknown> = { ...extraBumper };
+  if (topics.length) bumper.topics = topics;
+  else delete bumper.topics;
+  if (tone) bumper.tone = tone;
+  else delete bumper.tone;
+  return {
+    ...topExtra,
+    name: edit.name.trim() || key,
+    music,
+    ...(Object.keys(bumper).length ? { bumper } : {}),
+  };
+}
+
+function loadRadioProfilesFromApi(profiles: unknown) {
+  const next: Record<string, RadioProfileEdit> = {};
+  const src =
+    profiles && typeof profiles === 'object' && !Array.isArray(profiles)
+      ? (profiles as Record<string, unknown>)
+      : {};
+  const keys = Object.keys(src);
+  if (keys.length === 0) {
+    // Sensible starters if config has none
+    next.lobby = profileFromApi('lobby', {
+      name: 'lobby',
+      music: { seedQueries: ['chill', 'ambient'], shuffle: true },
+      bumper: { topics: ['station', 'welcome'] },
+    });
+    next.focus = profileFromApi('focus', {
+      name: 'focus',
+      music: { seedQueries: ['focus', 'ambient'], shuffle: true },
+      bumper: { topics: ['ops', 'briefing'] },
+    });
+  } else {
+    for (const k of keys) next[k] = profileFromApi(k, src[k]);
+  }
+  ai.radioProfiles = next;
+  if (!ai.radioProfiles[ai.radioActiveProfile]) {
+    ai.radioActiveProfile = Object.keys(next)[0] ?? 'lobby';
+  }
+  if (!ai.radioProfiles[ai.radioEditKey]) {
+    ai.radioEditKey = ai.radioActiveProfile;
+  }
+}
+
+function onActiveProfileChanged() {
+  // Keep editor in sync with what you just activated (still editable).
+  if (ai.radioProfiles[ai.radioActiveProfile]) {
+    ai.radioEditKey = ai.radioActiveProfile;
+  }
+}
+
+function slugProfileId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9_-]/g, '')
+    .slice(0, 40);
+}
+
+function addRadioProfile() {
+  const base = window.prompt('New profile id (e.g. mining, combat, lobby):', '');
+  if (base == null) return;
+  let id = slugProfileId(base);
+  if (!id) {
+    window.alert('Profile id must be letters/numbers (e.g. combat).');
+    return;
+  }
+  if (ai.radioProfiles[id]) {
+    window.alert(`Profile "${id}" already exists.`);
+    return;
+  }
+  ai.radioProfiles[id] = {
+    name: id,
+    seedQueriesText: '',
+    bumperTopicsText: '',
+    bumperTone: '',
+    shuffle: true,
+    playlistRefsText: '',
+    extra: {},
+  };
+  ai.radioEditKey = id;
+}
+
+function duplicateRadioProfile() {
+  const srcKey = ai.radioEditKey;
+  const src = ai.radioProfiles[srcKey];
+  if (!src) return;
+  let id = slugProfileId(`${srcKey}-copy`);
+  let n = 2;
+  while (ai.radioProfiles[id]) {
+    id = slugProfileId(`${srcKey}-copy-${n++}`);
+  }
+  ai.radioProfiles[id] = {
+    ...src,
+    name: `${src.name || srcKey} (copy)`,
+    extra: JSON.parse(JSON.stringify(src.extra ?? {})),
+  };
+  ai.radioEditKey = id;
+}
+
+function deleteRadioProfile() {
+  const key = ai.radioEditKey;
+  if (!key || !ai.radioProfiles[key]) return;
+  if (radioProfileKeys.value.length <= 1) {
+    window.alert('Keep at least one profile.');
+    return;
+  }
+  if (!window.confirm(`Delete radio profile "${key}"?`)) return;
+  delete ai.radioProfiles[key];
+  const remaining = Object.keys(ai.radioProfiles);
+  if (ai.radioActiveProfile === key) {
+    ai.radioActiveProfile = remaining[0]!;
+  }
+  ai.radioEditKey = ai.radioActiveProfile;
+}
+
+function renameRadioProfile(raw: string) {
+  const oldKey = ai.radioEditKey;
+  if (!oldKey || !ai.radioProfiles[oldKey]) return;
+  const newKey = slugProfileId(raw);
+  if (!newKey || newKey === oldKey) return;
+  if (ai.radioProfiles[newKey]) {
+    window.alert(`Profile "${newKey}" already exists.`);
+    return;
+  }
+  const edit = ai.radioProfiles[oldKey]!;
+  delete ai.radioProfiles[oldKey];
+  if (!edit.name || edit.name === oldKey) edit.name = newKey;
+  ai.radioProfiles[newKey] = edit;
+  if (ai.radioActiveProfile === oldKey) ai.radioActiveProfile = newKey;
+  ai.radioEditKey = newKey;
+}
 const radioPanel = reactive({
   prewarming: false,
   busy: false,
@@ -1735,9 +2120,7 @@ async function loadAiSettings() {
     ai.radioMaxBumperSeconds = radio.maxBumperSeconds ?? 30;
     ai.radioSpeechVolumePct = radio.speechVolumePct ?? 85;
     ai.radioActiveProfile = radio.activeProfile ?? 'lobby';
-    ai.radioProfileNames = Object.keys(radio.profiles ?? {}).length
-      ? Object.keys(radio.profiles)
-      : ['lobby', 'focus'];
+    loadRadioProfilesFromApi(radio.profiles);
     ai.radioRatingWeight = radio.ratingWeight?.enabled !== false;
     ai.radioHarmonicSequencing = !!radio.harmonicSequencing;
     ai.radioAudioColor = (
@@ -2257,6 +2640,9 @@ async function saveAiSettings() {
         maxBumperSeconds: ai.radioMaxBumperSeconds,
         speechVolumePct: ai.radioSpeechVolumePct,
         activeProfile: ai.radioActiveProfile,
+        profiles: Object.fromEntries(
+          Object.entries(ai.radioProfiles).map(([key, edit]) => [key, profileToApi(key, edit)]),
+        ),
         ratingWeight: { enabled: ai.radioRatingWeight, exponent: 1, maxRatio: 3 },
         harmonicSequencing: ai.radioHarmonicSequencing,
         audioColor: ai.radioAudioColor,
@@ -3324,6 +3710,18 @@ onMounted(() => {
 .rag-substrate-card {
   margin: 8px 0 12px; padding: 12px;
   background: var(--bg-secondary); border-radius: var(--radius-md);
+}
+.radio-profiles-card {
+  margin: 4px 0 12px; padding: 14px;
+  background: var(--bg-secondary); border-radius: var(--radius-md);
+}
+.radio-profile-textarea {
+  width: 100%;
+  min-height: 4.5em;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 .preset-row { display: flex; gap: 8px; align-items: center; }
 </style>
