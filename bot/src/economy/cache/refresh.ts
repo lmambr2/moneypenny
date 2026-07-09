@@ -4,11 +4,11 @@
  */
 import axios from "axios";
 import type { Logger } from "../../logger.js";
-import { getUexClient } from "../uex.js";
+import { getScCraftClient } from "../sc-craft.js";
 import { getScTradeClient } from "../sc-trade.js";
 import { getScWikiClient } from "../sc-wiki.js";
-import { getScCraftClient } from "../sc-craft.js";
-import { getEconomyDiskCache, type EconomyDiskCache } from "./store.js";
+import { getUexClient } from "../uex.js";
+import { type EconomyDiskCache, getEconomyDiskCache } from "./store.js";
 
 const USER_AGENT =
   "Moneypenny-OrgEconomy/1.0 (+https://github.com; economy-cache refresh; cache-friendly)";
@@ -243,12 +243,7 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
     });
   }
 
-  disk.set(
-    "meta",
-    "last-refresh",
-    { at, results },
-    30 * 24 * 3600_000,
-  );
+  disk.set("meta", "last-refresh", { at, results }, 30 * 24 * 3600_000);
 
   const ok = results.some((r) => r.ok);
   logger?.info({ ok, results }, "economy cache refresh finished");
@@ -274,8 +269,7 @@ export function startEconomyCacheScheduler(opts: {
 }): void {
   stopEconomyCacheScheduler();
   const intervalMs =
-    opts.intervalMs ??
-    (parseInt(process.env.ECONOMY_CACHE_REFRESH_MS || "", 10) || 6 * 3600_000);
+    opts.intervalMs ?? (parseInt(process.env.ECONOMY_CACHE_REFRESH_MS || "", 10) || 6 * 3600_000);
   const run = () => {
     if (refreshInflight) return;
     refreshInflight = refreshEconomyCatalogs({ logger: opts.logger })
@@ -330,8 +324,6 @@ export function formatCacheStatus(): string {
   } else {
     lines.push("Last refresh: never (will warm shortly after boot, or !econ refresh)");
   }
-  lines.push(
-    "Refresh: automatic (ECONOMY_CACHE_REFRESH_MS, default 6h) or !econ refresh",
-  );
+  lines.push("Refresh: automatic (ECONOMY_CACHE_REFRESH_MS, default 6h) or !econ refresh");
   return lines.join("\n");
 }

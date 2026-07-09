@@ -144,9 +144,7 @@ describe("ScTradeClient + handleTradeCommand", () => {
     const client = new ScTradeClient({
       enabled: true,
       apiToken: "t",
-      postBuyers: async () => [
-        { shop: "Area18 TDD", price: 6400, maxQuantityInScu: 100 },
-      ],
+      postBuyers: async () => [{ shop: "Area18 TDD", price: 6400, maxQuantityInScu: 100 }],
     });
     const out = await handleTradeCommand("buyers Agricium scu:32", "!", client);
     expect(out).toMatch(/Best buyers/);

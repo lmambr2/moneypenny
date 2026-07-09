@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { formatCraftOrder, formatMineOrder } from "./format.js";
 import {
   formatMaterialName,
   isUnstableMaterial,
-  unstableFlag,
   UNSTABLE_EMOJI,
+  unstableFlag,
 } from "./material-flags.js";
-import { formatMaterialList } from "./work-orders.js";
-import { formatCraftOrder, formatMineOrder } from "./format.js";
 import { buildMineOrder, isOrderError } from "./orders.js";
+import { formatMaterialList } from "./work-orders.js";
 
 describe("material unstable flags (TS6 emoji)", () => {
   it("flags quantainium and other volatile catalog ores", () => {

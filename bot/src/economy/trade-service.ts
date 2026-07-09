@@ -142,11 +142,7 @@ async function runRoutes(
   f: ReturnType<typeof parseTradeArgs>,
 ) {
   const invest = f.invest ?? DEFAULT_INVEST;
-  const commodityInclude = f.commodity
-    ? [f.commodity]
-    : f.rest && f.ship
-      ? [f.rest]
-      : undefined;
+  const commodityInclude = f.commodity ? [f.commodity] : f.rest && f.ship ? [f.rest] : undefined;
   const res = await client.findTrades({
     ship: ship.name,
     investment: invest,

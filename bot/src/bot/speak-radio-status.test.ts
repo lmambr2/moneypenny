@@ -3,8 +3,8 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { defaultRadioConfig } from "../radio/index.js";
-import { BotInstance } from "./instance.js";
 import { CommandExecutor } from "./commands/executor.js";
+import { BotInstance } from "./instance.js";
 
 const speakRadioStatus = BotInstance.prototype.speakRadioStatus;
 
@@ -58,7 +58,10 @@ describe("BotInstance.speakRadioStatus (V3)", () => {
   it("reports nothing playing and radio off; text-only when cueSay unavailable", async () => {
     const cueSay = vi.fn(async () => "unavailable" as const);
     const getLiveStatus = vi.fn(async () =>
-      liveStatus({ nowPlaying: null, radio: { enabled: false, activeProfile: "x", nextBumperHint: "" } }),
+      liveStatus({
+        nowPlaying: null,
+        radio: { enabled: false, activeProfile: "x", nextBumperHint: "" },
+      }),
     );
     const out = await speakRadioStatus.call({ getLiveStatus, radio: { cueSay } });
     expect(out).toMatch(/Nothing is playing/);

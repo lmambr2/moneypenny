@@ -39,8 +39,7 @@ export async function handleWorkOrderCommand(
     const orders = store.list();
     if (orders.length === 0) return "No open work orders.";
     const lines = orders.map(
-      (o) =>
-        `#${o.id} ${o.qty}× ${o.itemName} — ${formatMaterialList(o.lines)}`,
+      (o) => `#${o.id} ${o.qty}× ${o.itemName} — ${formatMaterialList(o.lines)}`,
     );
     return ["Open work orders:", ...lines, "", `Totals: ${prefix}work-items`].join("\n");
   }

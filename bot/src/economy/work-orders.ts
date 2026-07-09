@@ -29,10 +29,7 @@ export interface MaterialNeed {
 }
 
 /** Pure: scale BOM lines by qty. */
-export function scaleBom(
-  lines: WorkOrderLine[],
-  qty: number,
-): WorkOrderLine[] {
+export function scaleBom(lines: WorkOrderLine[], qty: number): WorkOrderLine[] {
   const n = Math.max(1, Math.floor(qty));
   return lines.map((l) => ({
     material: l.material,

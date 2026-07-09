@@ -13,7 +13,7 @@
  */
 import axios, { type AxiosError } from "axios";
 import type { Logger } from "../logger.js";
-import { getEconomyDiskCache, type EconomyDiskCache } from "./cache/store.js";
+import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 
 const DEFAULT_BASE = "https://sc-trade.tools";
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 min for route results
@@ -111,10 +111,7 @@ export interface ScTradeClientOptions {
   postTrades?: (body: Record<string, unknown>) => Promise<ScTradeRoute[]>;
   postBuyers?: (body: Record<string, unknown>) => Promise<ScTradeTransaction[]>;
   postItinerary?: (body: Record<string, unknown>) => Promise<ScTradeRoute[]>;
-  postCircuit?: (
-    tradeId: number,
-    body: Record<string, unknown>,
-  ) => Promise<ScTradeRoute[]>;
+  postCircuit?: (tradeId: number, body: Record<string, unknown>) => Promise<ScTradeRoute[]>;
   fetchShips?: () => Promise<ScTradeShip[]>;
   fetchLocations?: () => Promise<Array<{ name: string; type?: string }>>;
 }
@@ -420,9 +417,10 @@ export class ScTradeClient {
     return { ...opts, locationNames: names };
   }
 
-  async findTrades(opts: TradeSearchOpts): Promise<
-    | { ok: true; routes: ScTradeRoute[]; attribution: string }
-    | { ok: false; error: string }
+  async findTrades(
+    opts: TradeSearchOpts,
+  ): Promise<
+    { ok: true; routes: ScTradeRoute[]; attribution: string } | { ok: false; error: string }
   > {
     if (!this.enabled) return { ok: false, error: "sc-trade disabled (ECONOMY_SCTRADE=0)." };
     if (!this.hasToken() && !this.postTrades) {
@@ -452,9 +450,10 @@ export class ScTradeClient {
     }
   }
 
-  async findItinerary(opts: ItineraryOpts): Promise<
-    | { ok: true; routes: ScTradeRoute[]; attribution: string }
-    | { ok: false; error: string }
+  async findItinerary(
+    opts: ItineraryOpts,
+  ): Promise<
+    { ok: true; routes: ScTradeRoute[]; attribution: string } | { ok: false; error: string }
   > {
     if (!this.enabled) return { ok: false, error: "sc-trade disabled (ECONOMY_SCTRADE=0)." };
     if (!this.hasToken() && !this.postItinerary) {
@@ -462,7 +461,11 @@ export class ScTradeClient {
     }
     try {
       const resolved = (await this.withLocationNames(opts)) as ItineraryOpts;
-      const body = buildItineraryBody({ ...resolved, origin: opts.origin, destination: opts.destination });
+      const body = buildItineraryBody({
+        ...resolved,
+        origin: opts.origin,
+        destination: opts.destination,
+      });
       let routes: ScTradeRoute[];
       if (this.postItinerary) {
         routes = await this.postItinerary(body);
@@ -484,8 +487,7 @@ export class ScTradeClient {
     tradeId: number,
     opts: TradeSearchOpts,
   ): Promise<
-    | { ok: true; routes: ScTradeRoute[]; attribution: string }
-    | { ok: false; error: string }
+    { ok: true; routes: ScTradeRoute[]; attribution: string } | { ok: false; error: string }
   > {
     if (!this.enabled) return { ok: false, error: "sc-trade disabled (ECONOMY_SCTRADE=0)." };
     if (!this.hasToken() && !this.postCircuit) {
@@ -514,9 +516,10 @@ export class ScTradeClient {
     }
   }
 
-  async findBuyers(opts: BuyersOpts): Promise<
-    | { ok: true; buyers: ScTradeTransaction[]; attribution: string }
-    | { ok: false; error: string }
+  async findBuyers(
+    opts: BuyersOpts,
+  ): Promise<
+    { ok: true; buyers: ScTradeTransaction[]; attribution: string } | { ok: false; error: string }
   > {
     if (!this.enabled) return { ok: false, error: "sc-trade disabled (ECONOMY_SCTRADE=0)." };
     if (!this.hasToken() && !this.postBuyers) {
@@ -546,15 +549,11 @@ export class ScTradeClient {
   }
 
   private async postJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
-    try {
-      const res = await axios.post(`${this.baseUrl}${path}`, body, {
-        timeout: this.timeoutMs,
-        headers: this.headers(true),
-      });
-      return res.data as T;
-    } catch (err) {
-      throw err;
-    }
+    const res = await axios.post(`${this.baseUrl}${path}`, body, {
+      timeout: this.timeoutMs,
+      headers: this.headers(true),
+    });
+    return res.data as T;
   }
 
   private describeError(err: unknown): string {

@@ -14,6 +14,9 @@ import { KgStore } from "../data/kg.js";
 import { MemoryStore } from "../data/memory.js";
 import { RoastStore } from "../data/roast.js";
 import type { WorkflowKind } from "../docs/workflow.js";
+import { startEconomyCacheScheduler } from "../economy/cache/refresh.js";
+import { initEconomyDiskCache } from "../economy/cache/store.js";
+import { initWorkOrderStore } from "../economy/work-orders.js";
 import type { Logger } from "../logger.js";
 import { MemPalaceClient } from "../memory/mempalace-client.js";
 import { buildScopesSnapshot } from "../memory/scopes.js";
@@ -36,9 +39,6 @@ import {
   SpeechSink,
   TagStore,
 } from "../radio/index.js";
-import { startEconomyCacheScheduler } from "../economy/cache/refresh.js";
-import { initEconomyDiskCache } from "../economy/cache/store.js";
-import { initWorkOrderStore } from "../economy/work-orders.js";
 import { DEFAULT_EVAL_CASES, type EvalCase, runEvalLoop } from "../rag/eval-loop.js";
 import type { RetrievalStore } from "../rag/index.js";
 import type { RightsConfig } from "../rights/index.js";

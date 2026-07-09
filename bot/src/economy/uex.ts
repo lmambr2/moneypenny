@@ -12,7 +12,7 @@
  */
 import axios from "axios";
 import type { Logger } from "../logger.js";
-import { getEconomyDiskCache, type EconomyDiskCache } from "./cache/store.js";
+import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 
 const DEFAULT_BASE = "https://api.uexcorp.space";
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours

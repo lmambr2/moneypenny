@@ -15,27 +15,25 @@ import { formatMaterialName, UNSTABLE_EMOJI } from "./material-flags.js";
 import type { CraftOrder, MineOrder, RefineOrder } from "./orders.js";
 import {
   blueprintToCraftOrder,
+  SC_CRAFT_ATTRIBUTION,
   type ScCraftBlueprint,
   type ScCraftSearchResult,
-  SC_CRAFT_ATTRIBUTION,
 } from "./sc-craft.js";
 import {
   formatDuration,
   formatMoney,
-  shortPlace,
+  SC_TRADE_ATTRIBUTION,
   type ScTradeRoute,
   type ScTradeShip,
   type ScTradeTransaction,
-  SC_TRADE_ATTRIBUTION,
+  shortPlace,
 } from "./sc-trade.js";
 import type { UexPriceSnapshot } from "./uex.js";
 
 /** Shopping list — not a guidebook. Unstable ores get ⚠️ (TS6 emoji). */
 export function formatMineOrder(o: MineOrder): string {
   const flag =
-    o.ore.stability === "critical" || o.ore.stability === "volatile"
-      ? ` ${UNSTABLE_EMOJI}`
-      : "";
+    o.ore.stability === "critical" || o.ore.stability === "volatile" ? ` ${UNSTABLE_EMOJI}` : "";
   const clock = o.stabilityLine ? ` · ${o.stabilityLine}` : "";
   return [
     `⛏ ${o.ore.name}${flag} — ${o.targetScu} SCU raw${clock}`,
@@ -46,9 +44,7 @@ export function formatMineOrder(o: MineOrder): string {
 export function formatRefineOrder(o: RefineOrder): string {
   const pct = Math.round(o.method.yieldRate * 100);
   const flag =
-    o.ore.stability === "critical" || o.ore.stability === "volatile"
-      ? ` ${UNSTABLE_EMOJI}`
-      : "";
+    o.ore.stability === "critical" || o.ore.stability === "volatile" ? ` ${UNSTABLE_EMOJI}` : "";
   return [
     `⚗ ${o.ore.name}${flag} · ${o.method.name}`,
     `${o.inputScu} SCU raw → ~${o.outputScu} SCU refined (~${pct}%)`,
@@ -57,9 +53,7 @@ export function formatRefineOrder(o: RefineOrder): string {
 }
 
 export function formatCraftOrder(o: CraftOrder): string {
-  const bom = o.bom.map(
-    (b) => `  • ${b.amount} ${b.unit} ${formatMaterialName(b.label)}`,
-  );
+  const bom = o.bom.map((b) => `  • ${b.amount} ${b.unit} ${formatMaterialName(b.label)}`);
   const raw =
     o.impliedRawHint.length > 0
       ? ["Raw if refining first:", ...o.impliedRawHint.map((h) => `  • ${h}`)]
@@ -152,12 +146,9 @@ export function formatTradeBuyers(
     const max = b.maxQuantityInScu != null ? ` max ${b.maxQuantityInScu} SCU` : "";
     return `  ${i + 1}. ${shortPlace(b)} — ${price} aUEC/SCU${max}`;
   });
-  return [
-    `💰 Best buyers — ${scu} SCU ${commodity}`,
-    ...lines,
-    "",
-    SC_TRADE_ATTRIBUTION,
-  ].join("\n");
+  return [`💰 Best buyers — ${scu} SCU ${commodity}`, ...lines, "", SC_TRADE_ATTRIBUTION].join(
+    "\n",
+  );
 }
 
 export function formatTradeShips(ships: ScTradeShip[], query?: string): string {
@@ -172,7 +163,9 @@ export function formatTradeShips(ships: ScTradeShip[], query?: string): string {
   });
   if (rows.length === 0) return `No ships match "${query}".`;
   return [
-    query ? `Ships matching "${query}" (${list.length}):` : `Ships (${ships.length}, showing ${rows.length}):`,
+    query
+      ? `Ships matching "${query}" (${list.length}):`
+      : `Ships (${ships.length}, showing ${rows.length}):`,
     ...rows,
     "",
     "Use exact name: !trade routes ship:Freelancer+MAX invest:100000",
@@ -194,11 +187,7 @@ export function formatScCraftBlueprint(bp: ScCraftBlueprint, query: string): str
   return [...head, "", rest].join("\n");
 }
 
-export function formatScCraftSearch(
-  res: ScCraftSearchResult,
-  query: string,
-  prefix = "!",
-): string {
+export function formatScCraftSearch(res: ScCraftSearchResult, query: string, prefix = "!"): string {
   const lines = res.items.slice(0, 8).map((bp, i) => {
     const ings = bp.ingredients?.length ?? 0;
     const cat = bp.category ? ` · ${bp.category.split(" / ").slice(-2).join(" / ")}` : "";

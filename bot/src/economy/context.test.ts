@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EconomyDiskCache, setEconomyDiskCacheForTests } from "./cache/store.js";
 import { economyContextForQuestion, isEconomyQuestion } from "./context.js";
-import { setScWikiClientForTests, ScWikiClient } from "./sc-wiki.js";
+import { ScWikiClient, setScWikiClientForTests } from "./sc-wiki.js";
 
 describe("economyContextForQuestion", () => {
   let dir: string;

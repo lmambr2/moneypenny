@@ -21,11 +21,7 @@ import {
 } from "./format.js";
 import { buildCraftOrder, buildMineOrder, buildRefineOrder, isOrderError } from "./orders.js";
 import { parseEconomyArgs } from "./parse.js";
-import {
-  blueprintToCraftOrder,
-  getScCraftClient,
-  type ScCraftClient,
-} from "./sc-craft.js";
+import { blueprintToCraftOrder, getScCraftClient, type ScCraftClient } from "./sc-craft.js";
 import { getUexClient, type UexClient } from "./uex.js";
 
 export type EconomyCommand = "mine" | "refine" | "craft" | "econ" | "trade";

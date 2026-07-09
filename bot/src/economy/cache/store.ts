@@ -6,6 +6,8 @@
  *
  * Policy: stale-while-revalidate — callers may serve expired entries when offline.
  */
+
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -18,7 +20,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 
 export type EconomyCacheSource = "uex" | "sc-craft" | "sc-trade" | "sc-wiki" | "meta";
 
@@ -158,7 +159,13 @@ export class EconomyDiskCache {
     const sources: EconomyCacheStats["sources"] = [];
     let totalFiles = 0;
     let totalBytes = 0;
-    for (const source of ["uex", "sc-craft", "sc-trade", "sc-wiki", "meta"] as EconomyCacheSource[]) {
+    for (const source of [
+      "uex",
+      "sc-craft",
+      "sc-trade",
+      "sc-wiki",
+      "meta",
+    ] as EconomyCacheSource[]) {
       const dir = join(this.root, source);
       let files = 0;
       let bytes = 0;

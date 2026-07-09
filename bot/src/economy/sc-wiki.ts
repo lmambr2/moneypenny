@@ -9,7 +9,7 @@
  */
 import axios from "axios";
 import type { Logger } from "../logger.js";
-import { getEconomyDiskCache, type EconomyDiskCache } from "./cache/store.js";
+import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 
 const DEFAULT_BASE = "https://api.star-citizen.wiki";
 const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000; // 12h — game data is patch-stable
@@ -134,13 +134,10 @@ export class ScWikiClient {
           unknown
         >;
       } else {
-        const { data } = await axios.get(
-          `${this.baseUrl}/api/${kind}/${encodeURIComponent(s)}`,
-          {
-            timeout: this.timeoutMs,
-            headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-          },
-        );
+        const { data } = await axios.get(`${this.baseUrl}/api/${kind}/${encodeURIComponent(s)}`, {
+          timeout: this.timeoutMs,
+          headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+        });
         payload = (data?.data ?? data) as Record<string, unknown>;
       }
       if (!payload || typeof payload !== "object") return cached?.data ?? null;
@@ -219,7 +216,10 @@ export class ScWikiClient {
     if (!slug) {
       return formatWikiSnippet(hit, null);
     }
-    const detail = this.disk.get<Record<string, unknown>>("sc-wiki", `${kind}:${slug.toLowerCase()}`);
+    const detail = this.disk.get<Record<string, unknown>>(
+      "sc-wiki",
+      `${kind}:${slug.toLowerCase()}`,
+    );
     return formatWikiSnippet(hit, detail?.data ?? null);
   }
 }
@@ -257,13 +257,10 @@ export function formatWikiSnippet(
   hit: ScWikiSearchHit,
   detail: Record<string, unknown> | null,
 ): string {
-  const lines = [
-    `SC Wiki: ${hit.name}${hit.type ? ` (${hit.type})` : ""}`,
-  ];
+  const lines = [`SC Wiki: ${hit.name}${hit.type ? ` (${hit.type})` : ""}`];
   if (hit.classification_label) lines.push(`Class: ${hit.classification_label}`);
   if (detail) {
-    const desc =
-      (detail.description as { en_EN?: string } | string | null | undefined) ?? null;
+    const desc = (detail.description as { en_EN?: string } | string | null | undefined) ?? null;
     let d = "";
     if (typeof desc === "string") d = desc;
     else if (desc && typeof desc === "object" && desc.en_EN) d = desc.en_EN;
@@ -277,7 +274,9 @@ export function formatWikiSnippet(
     if (typeof detail.output_name === "string") {
       lines.push(`Blueprint output: ${detail.output_name}`);
     }
-    const ingredients = detail.ingredients as Array<{ name?: string; quantity_scu?: number }> | undefined;
+    const ingredients = detail.ingredients as
+      | Array<{ name?: string; quantity_scu?: number }>
+      | undefined;
     if (Array.isArray(ingredients) && ingredients.length) {
       const bom = ingredients
         .slice(0, 8)

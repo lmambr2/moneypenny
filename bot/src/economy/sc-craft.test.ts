@@ -6,9 +6,9 @@ import { EconomyDiskCache } from "./cache/store.js";
 import {
   blueprintToBom,
   blueprintToCraftOrder,
-  scoreBlueprintMatch,
-  ScCraftClient,
   type ScCraftBlueprint,
+  ScCraftClient,
+  scoreBlueprintMatch,
 } from "./sc-craft.js";
 
 const SAMPLE: ScCraftBlueprint = {
@@ -78,10 +78,7 @@ describe("ScCraftClient", () => {
     const client = new ScCraftClient({
       enabled: true,
       disk,
-      fetchSearch: async () => [
-        { id: 1, name: "Other Gun", ingredients: [] },
-        SAMPLE,
-      ],
+      fetchSearch: async () => [{ id: 1, name: "Other Gun", ingredients: [] }, SAMPLE],
     });
     const bp = await client.resolveBlueprint("greatsword cannon");
     expect(bp?.name).toMatch(/Greatsword/);

@@ -10,7 +10,7 @@
  */
 import axios from "axios";
 import type { Logger } from "../logger.js";
-import { getEconomyDiskCache, type EconomyDiskCache } from "./cache/store.js";
+import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 import type { CraftBomLine, CraftOrder } from "./orders.js";
 
 const DEFAULT_BASE = "https://sc-craft.tools";
@@ -80,7 +80,10 @@ function norm(s: string): string {
 }
 
 /** Score how well a blueprint matches a user query (higher = better). */
-export function scoreBlueprintMatch(query: string, bp: Pick<ScCraftBlueprint, "name" | "blueprint_id" | "category">): number {
+export function scoreBlueprintMatch(
+  query: string,
+  bp: Pick<ScCraftBlueprint, "name" | "blueprint_id" | "category">,
+): number {
   const q = norm(query);
   if (!q) return 0;
   const name = norm(bp.name || "");
@@ -167,7 +170,10 @@ export class ScCraftClient {
 
   constructor(opts: ScCraftClientOptions = {}) {
     this.enabled = opts.enabled ?? envEnabled();
-    this.baseUrl = (opts.baseUrl ?? process.env.SCCRAFT_API_BASE ?? DEFAULT_BASE).replace(/\/$/, "");
+    this.baseUrl = (opts.baseUrl ?? process.env.SCCRAFT_API_BASE ?? DEFAULT_BASE).replace(
+      /\/$/,
+      "",
+    );
     this.ttlMs =
       opts.ttlMs ?? (parseInt(process.env.SCCRAFT_CACHE_TTL_MS || "", 10) || DEFAULT_TTL_MS);
     this.timeoutMs =

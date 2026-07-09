@@ -3,16 +3,15 @@
  * No I/O; safe for unit tests and command handlers.
  */
 import {
-  CRAFT_RECIPES,
   type CraftRecipe,
   findOre,
   findRecipe,
   findRefineMethod,
   materialLabel,
   ORES,
+  type OreSpec,
   REFINE_METHODS,
   type RefineMethod,
-  type OreSpec,
 } from "./catalog.js";
 
 export interface MineOrder {
@@ -159,7 +158,9 @@ export function buildCraftOrder(recipeQuery: string, qty?: number): CraftOrder |
     if (!ore) continue;
     const method = findRefineMethod(ore.defaultMethod) ?? REFINE_METHODS[0]!;
     const rawNeeded = Math.ceil((line.amount / method.yieldRate) * 100) / 100;
-    impliedRawHint.push(`~${rawNeeded} SCU raw ${ore.name} (${method.name} ≈${Math.round(method.yieldRate * 100)}%)`);
+    impliedRawHint.push(
+      `~${rawNeeded} SCU raw ${ore.name} (${method.name} ≈${Math.round(method.yieldRate * 100)}%)`,
+    );
   }
 
   return {

@@ -6,13 +6,7 @@
  * Multi-word ship names: ship:Freelancer+MAX or ship:"Freelancer MAX" (quotes optional → +)
  */
 
-export type TradeSub =
-  | "routes"
-  | "itinerary"
-  | "buyers"
-  | "circuit"
-  | "ships"
-  | "help";
+export type TradeSub = "routes" | "itinerary" | "buyers" | "circuit" | "ships" | "help";
 
 export interface TradeFlags {
   sub: TradeSub;
@@ -39,10 +33,7 @@ const FLAG_RE =
 
 function unquote(v: string): string {
   const t = v.trim();
-  if (
-    (t.startsWith('"') && t.endsWith('"')) ||
-    (t.startsWith("'") && t.endsWith("'"))
-  ) {
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
     return t.slice(1, -1).trim();
   }
   // ship:Freelancer+MAX → Freelancer MAX
