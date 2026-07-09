@@ -51,7 +51,25 @@ describe("migrateRightsConfig", () => {
     delete r.commandGroups!.dj;
     const m = migrateRightsConfig(r, 0);
     expect(m.rights!.commandGroups!.dj).toBeUndefined();
-    expect(m.applied.join()).toContain("skipped group 'dj'");
+    // Other groups still receive tokens; dj is never recreated.
+    expect(m.rights!.commandGroups!.admin).toContain("mute");
+    expect(m.applied.some((a) => a.includes("@dj"))).toBe(false);
+  });
+
+  it("adds G4 moderation tokens to admin (and mod when present)", () => {
+    const withMod: RightsConfig = {
+      ...frozen(),
+      commandGroups: {
+        ...frozen().commandGroups!,
+        mod: ["move"],
+      },
+    };
+    const m = migrateRightsConfig(withMod, 0);
+    expect(m.rights!.commandGroups!.admin).toContain("mute");
+    expect(m.rights!.commandGroups!.admin).toContain("kick");
+    expect(m.rights!.commandGroups!.admin).toContain("recording");
+    expect(m.rights!.commandGroups!.mod).toContain("mute");
+    expect(m.rights!.commandGroups!.mod).toContain("kick");
   });
 
   it("no-ops without a custom ruleset (legacy default build)", () => {

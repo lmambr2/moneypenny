@@ -123,7 +123,11 @@ describe("harness + org-kg API (H1/H2/H5 + R4)", () => {
     expect(res.body.turn.reply).toMatch(/Answer to/);
     expect(res.body.turn.sources[0].classification).toBe("unclassified");
     expect(res.body.turn.sources[0].source).toBe("ops.md");
-    expect(bot.runHarnessTurn).toHaveBeenCalledWith("how do we brief?", { mode: "ask" });
+    expect(bot.runHarnessTurn).toHaveBeenCalledWith("how do we brief?", {
+      mode: "ask",
+      dryRun: false,
+      allowDangerous: false,
+    });
   });
 
   it("POST /harness/ask intent mode includes tools", async () => {
@@ -134,6 +138,19 @@ describe("harness + org-kg API (H1/H2/H5 + R4)", () => {
     expect(res.status).toBe(200);
     expect(res.body.turn.tools[0].name).toBe("now_playing");
     expect(res.body.turn.tools[0].ok).toBe(true);
+  });
+
+  it("POST /harness/ask passes dryRun + allowDangerous", async () => {
+    const res = await request(app)
+      .post("/api/bot/harness/ask")
+      .set("Cookie", adminCookie)
+      .send({ question: "stop", mode: "intent", dryRun: true, allowDangerous: true });
+    expect(res.status).toBe(200);
+    expect(bot.runHarnessTurn).toHaveBeenCalledWith("stop", {
+      mode: "intent",
+      dryRun: true,
+      allowDangerous: true,
+    });
   });
 
   it("POST /org-kg seeds fact", async () => {

@@ -10,6 +10,9 @@ export interface OpsServiceDeps {
   getRadioStatus?: () => string | Promise<string>;
   getNowPlaying?: () => string | null | Promise<string | null>;
   getOrgBrief?: () => string | Promise<string>;
+  /** R5 — SC members/fleet briefs (fail-open). */
+  getScMembers?: () => Promise<string>;
+  getScFleet?: () => Promise<string>;
   statusRegistry: ExternalStatusRegistry;
   /** Rights check; if omitted, allow. */
   canRun?: (command: string) => boolean;
@@ -19,7 +22,7 @@ export class OpsService {
   constructor(private deps: OpsServiceDeps) {}
 
   static readonly USAGE =
-    "Usage: !ops [status|brief|sc|host|list] — org brief + external status (fail-open).";
+    "Usage: !ops [status|brief|sc|host|members|fleet|list] — org brief + external status (fail-open).";
 
   async handle(args: string, canRun?: (command: string) => boolean): Promise<string> {
     const gate = canRun ?? this.deps.canRun;
@@ -37,6 +40,10 @@ export class OpsService {
         return this.oneStatus("sc-org");
       case "host":
         return this.oneStatus("host");
+      case "members":
+        return this.scMembers();
+      case "fleet":
+        return this.scFleet();
       case "brief":
         return this.brief();
       case "status":
@@ -48,6 +55,28 @@ export class OpsService {
           return this.oneStatus(sub);
         }
         return OpsService.USAGE;
+    }
+  }
+
+  private async scMembers(): Promise<string> {
+    if (!this.deps.getScMembers) {
+      return "○ SC members: not configured.";
+    }
+    try {
+      return await this.deps.getScMembers();
+    } catch (err) {
+      return `○ SC members unavailable (${err instanceof Error ? err.message : String(err)}). Music unaffected.`;
+    }
+  }
+
+  private async scFleet(): Promise<string> {
+    if (!this.deps.getScFleet) {
+      return "○ SC fleet: not configured.";
+    }
+    try {
+      return await this.deps.getScFleet();
+    } catch (err) {
+      return `○ SC fleet unavailable (${err instanceof Error ? err.message : String(err)}). Music unaffected.`;
     }
   }
 

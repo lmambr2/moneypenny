@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { RightsConfig } from "../rights/index.js";
 import { type VoiceConfig, defaultVoiceConfig } from "../voice/index.js";
 import { type RadioConfig, defaultRadioConfig } from "../radio/index.js";
+import { type BotScopeConfig, defaultBotScope } from "../bot/scope.js";
 
 export interface BotConfig {
   webPort: number;
@@ -34,6 +35,20 @@ export interface BotConfig {
   // (nginx/Caddy/Cloudflare). Required for correct protocol/host detection
   // behind HTTPS-terminating proxies.
   trustProxy: boolean;
+  /**
+   * Trusted reverse-proxy hop count for rate-limit IP keys (audit M-2026-07-09-3).
+   * Only the rightmost N X-Forwarded-For entries are used when trustProxy is on.
+   * Default 1 — set to match your edge proxy chain (never higher than needed).
+   */
+  trustProxyHops: number;
+  /** H6 — preferred channel/server labels for multi-bot ops. */
+  scope: BotScopeConfig;
+  /**
+   * Harness intent: allow stop/vol/move tools (default false — safety policy).
+   */
+  harnessIntentAllowDangerous: boolean;
+  /** Dashboard recording feature enabled (default false — opt-in). */
+  recordingsEnabled: boolean;
   // === LLM (Phase 1b, DESIGN §9) ===
   // When true, the ControlRouter wires the in-process RKLLama client so that
   // `!ask <question>` answers via the NPU-backed LLM and unrecognized prefixed
@@ -168,6 +183,10 @@ export function getDefaultConfig(): BotConfig {
     idleTimeoutMinutes: 0,
     publicUrl: "",
     trustProxy: false,
+    trustProxyHops: 1,
+    scope: defaultBotScope(),
+    harnessIntentAllowDangerous: false,
+    recordingsEnabled: false,
     llmEnabled: false,
     llmUrl: "",
     llmModel: "",

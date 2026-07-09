@@ -18,6 +18,11 @@ export interface CommandHandlerHost {
   memory: MemoryService;
   kg: KgService;
   ops?: OpsService;
+  moderation?: (
+    action: "mute" | "kick",
+    target: string,
+    canRun: (c: string) => boolean,
+  ) => Promise<string>;
   knowledge: KnowledgeService;
   /** ACE-Step !generate (optional until configured). */
   generate?: {
@@ -82,6 +87,20 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     ops: async (cmd, ctx) => {
       if (!host.ops) return "Ops status is not available on this bot.";
       return host.ops.handle(cmd.args, ctx.canRun);
+    },
+    mute: async (cmd, ctx) => {
+      const target = cmd.args.trim();
+      if (!target) return "Usage: !mute <nickname|clid>";
+      if (!host.moderation) return "Moderation is not available on this bot.";
+      const canRun = ctx.canRun ?? (() => true);
+      return host.moderation("mute", target, canRun);
+    },
+    kick: async (cmd, ctx) => {
+      const target = cmd.args.trim();
+      if (!target) return "Usage: !kick <nickname|clid>";
+      if (!host.moderation) return "Moderation is not available on this bot.";
+      const canRun = ctx.canRun ?? (() => true);
+      return host.moderation("kick", target, canRun);
     },
     mine: async (cmd) => handleEconomyCommand("mine" as EconomyCommand, cmd.args),
     refine: async (cmd) => handleEconomyCommand("refine" as EconomyCommand, cmd.args),

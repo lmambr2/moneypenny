@@ -8,6 +8,8 @@
       <RouterLink to="/library" class="nav-link" active-class="active">Library</RouterLink>
       <RouterLink to="/history" class="nav-link" active-class="active">History</RouterLink>
       <RouterLink to="/harness" class="nav-link" active-class="active">Harness</RouterLink>
+      <RouterLink to="/live" class="nav-link" active-class="active">Live</RouterLink>
+      <RouterLink to="/recordings" class="nav-link" active-class="active">Recordings</RouterLink>
     </div>
 
     <div class="nav-right">

@@ -43,6 +43,8 @@ export interface CommandExecutorDeps {
     onTrackBoundary(): Promise<"bumper" | "advanced">;
     status(): { songsUntilBumper: number | null; cuePending: boolean; skipNextPending: boolean };
   };
+  /** V3 spoken radio status (optional). */
+  speakRadioStatus?: () => Promise<string>;
   /** Absolute path to prerecorded bumper assets (`!radio pin`, §6.5). */
   getBumperDir?: () => string;
   /** Pre-render liners into TTS cache (`!radio prewarm`). */

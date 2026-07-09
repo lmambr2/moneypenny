@@ -27,8 +27,12 @@ After changing voice: Settings → **Clear TTS bumper cache**, then **Pre-genera
 
 | Edition | Image | Engine | Default model | Accelerator |
 |---------|-------|--------|---------------|-------------|
-| **SBC** | `services/stt-rknn` | **RKNN** NPU (faster-whisper CPU if weights missing) | **`base`** | **NPU** (`STT_DEVICE=npu`) |
-| **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `medium` | **Vulkan** (AMD) / CPU |
+| **SBC** | `services/stt-rknn` | **RKNN** NPU (faster-whisper CPU if weights missing) | **`base`** (INT8) | **NPU** (`STT_DEVICE=npu`) |
+| **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `medium` (optional `large-v3`) | **Vulkan** (AMD) / CPU |
+| **Dev** | `services/stt-mock` / faster-whisper | mock / CPU | **`tiny`** | CPU |
+
+Defaults match `resolveSttModelSelection` in `bot/src/voice/stt-models.ts`
+(`sbc` → base/rknn/int8 · `server` → medium/whisper-cpp · `dev` → tiny).
 
 Same compose service name: **`stt-whisper`** → bot always uses  
 `http://stt-whisper:9000`. Overlays swap the build context.

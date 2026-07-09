@@ -78,6 +78,9 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "diary", kind: "special" },
   // Org/ops brief + external status plugins (feature-roadmap G1/G2).
   { name: "ops", kind: "special" },
+  // G4 moderation (rights-gated; fail-open on transport).
+  { name: "mute", kind: "special", admin: true },
+  { name: "kick", kind: "special", admin: true },
   // Org economy orders (docs/economy.md) — seed catalog + optional UEX prices.
   { name: "mine", kind: "special" },
   { name: "refine", kind: "special" },

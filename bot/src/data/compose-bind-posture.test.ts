@@ -87,11 +87,11 @@ describe("docker-compose bind posture (multi-service)", () => {
     expect(ports.every(isLoopbackHostPublish)).toBe(false);
   });
 
-  it("ACE-Step overlay defaults to all-interface host publish (operator LAN risk)", () => {
+  it("ACE-Step overlay defaults to loopback host publish", () => {
     const ace = readFileSync(join(REPO_ROOT, "docker-compose.ace-step.yml"), "utf-8");
     const ports = extractServicePortMappings(ace, "ace-step");
     expect(ports.length).toBeGreaterThan(0);
-    // Default is "${ACE_STEP_PORT:-7865}:7865" without 127.0.0.1 — documented residual
-    expect(ports.some((p) => !p.includes("127.0.0.1"))).toBe(true);
+    // Default ACE_STEP_PUBLISH=127.0.0.1 (audit M-2026-07-09-5 closed)
+    expect(ports.some((p) => p.includes("127.0.0.1"))).toBe(true);
   });
 });

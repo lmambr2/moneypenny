@@ -144,6 +144,23 @@ export class RadioCommands {
             ? "📻 Liner cued — plays on next skip, track end, or dead air."
             : "Can't speak right now (radio off or TTS unavailable).";
       }
+      case "speak-status":
+      case "announce": {
+        // V3 — spoken radio/status via TTS say path
+        if (!this.deps.radio) return "Radio controls are not available.";
+        if (typeof this.deps.speakRadioStatus === "function") {
+          return this.deps.speakRadioStatus();
+        }
+        const st = this.deps.radio.status();
+        const text =
+          st.songsUntilBumper == null
+            ? "Radio status unavailable."
+            : st.songsUntilBumper === 0
+              ? "A bumper is due at the next break."
+              : `Next bumper in ${st.songsUntilBumper} tracks.`;
+        const r = await this.deps.radio.cueSay(text);
+        return r === "played" || r === "cued" ? `📻 ${text}` : `📻 ${text} (TTS unavailable)`;
+      }
       case "skip": {
         if (!this.deps.radio) return "Radio controls are not available.";
         return this.deps.radio.skipBumper() === "cue"

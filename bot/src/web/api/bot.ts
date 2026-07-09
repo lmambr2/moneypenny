@@ -1,11 +1,20 @@
+import { dirname } from "node:path";
 import axios from "axios";
 import { Router } from "express";
 import type { BotManager } from "../../bot/manager.js";
+import { parseBotScope } from "../../bot/scope.js";
+import type { AuditStore } from "../../data/audit.js";
 import type { AvatarStore } from "../../data/avatars.js";
 import { redactBotInstanceSecrets } from "../../data/bot-secrets.js";
 import type { BotConfig } from "../../data/config.js";
 import { saveConfig } from "../../data/config.js";
 import type { BotDatabase } from "../../data/database.js";
+import {
+  deleteRecording,
+  listRecordings,
+  readRecording,
+  writeRecording,
+} from "../../data/recordings.js";
 import type { Logger } from "../../logger.js";
 import { defaultRadioConfig, parseAudioColorPreset, type RadioConfig } from "../../radio/index.js";
 import { isRightsConfig } from "../../rights/index.js";
@@ -20,6 +29,7 @@ export function createBotRouter(
   logger: Logger,
   botDb: BotDatabase,
   avatarStore: AvatarStore,
+  audit?: AuditStore,
 ): Router {
   const router = Router();
 
@@ -67,6 +77,11 @@ export function createBotRouter(
       streamBridgeUrl: config.streamBridgeUrl ?? "",
       pokeCommandsEnabled: config.pokeCommandsEnabled !== false,
       pokeCommandsPerMinute: config.pokeCommandsPerMinute ?? 12,
+      trustProxy: config.trustProxy ?? false,
+      trustProxyHops: config.trustProxyHops ?? 1,
+      scope: config.scope ?? { channelHint: "", serverLabel: "", virtualServerId: "" },
+      harnessIntentAllowDangerous: config.harnessIntentAllowDangerous === true,
+      recordingsEnabled: config.recordingsEnabled === true,
       voice: { ...defaultVoiceConfig(), ...config.voice },
       radio: { ...defaultRadioConfig(), ...config.radio },
       vectorDbUrl: config.vectorDbUrl ?? "",
@@ -161,7 +176,15 @@ export function createBotRouter(
       { key: "streamBridgeUrl", type: "string", touch: "stream" },
       { key: "pokeCommandsEnabled", type: "boolean" },
       { key: "pokeCommandsPerMinute", type: "int", min: 1, max: 120 },
+      { key: "trustProxy", type: "boolean" },
+      { key: "trustProxyHops", type: "int", min: 0, max: 5 },
+      { key: "harnessIntentAllowDangerous", type: "boolean" },
+      { key: "recordingsEnabled", type: "boolean" },
     ];
+
+    if ("scope" in body) {
+      config.scope = parseBotScope(body.scope);
+    }
 
     const cfg = config as unknown as Record<string, unknown>;
     for (const spec of FLAT_SETTINGS) {
@@ -863,8 +886,8 @@ export function createBotRouter(
     }
   });
 
-  // GET /api/bot/llm/status — LLM configured + reachable (for the web panel).
-  router.get("/llm/status", async (_req, res) => {
+  // GET /api/bot/llm/status — admin only (audit L-2026-07-09-1).
+  router.get("/llm/status", requireAdmin, async (_req, res) => {
     const bot = botManager.getAllBots()[0];
     if (!bot) {
       res.json({ configured: config.llmEnabled ?? false, available: false });
@@ -927,13 +950,16 @@ export function createBotRouter(
       return;
     }
     const mode = req.body?.mode === "intent" ? "intent" : "ask";
+    const dryRun = req.body?.dryRun === true;
+    const allowDangerous =
+      req.body?.allowDangerous === true || config.harnessIntentAllowDangerous === true;
     const bot = botManager.getAllBots()[0];
     if (!bot) {
       res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
       return;
     }
     try {
-      const turn = await bot.runHarnessTurn(question, { mode });
+      const turn = await bot.runHarnessTurn(question, { mode, dryRun, allowDangerous });
       if (turn.error === "LLM is not enabled") {
         res.status(409).json({ error: turn.error, code: "LLM_DISABLED", turn });
         return;
@@ -1037,6 +1063,13 @@ export function createBotRouter(
       res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
       return;
     }
+    audit?.record({
+      actorId: req.user?.id ?? null,
+      actorUsername: req.user?.username ?? null,
+      targetUserId: uid,
+      targetUsername: null,
+      action: "memory.private_read",
+    });
     res.json({
       scope: "private",
       uid,
@@ -1044,6 +1077,108 @@ export function createBotRouter(
       facts: bot.listPrivateMemory(uid, 50),
       warning: "Private facts never feed radio memory bumpers or org broadcast.",
     });
+  });
+
+  // ─── Recordings (dashboard admin upload/list) ─────────────────────────────
+  const dataDir = () => dirname(configPath);
+
+  router.get("/recordings", requireAdmin, (_req, res) => {
+    if (!config.recordingsEnabled) {
+      res.json({ enabled: false, recordings: [] });
+      return;
+    }
+    res.json({ enabled: true, recordings: listRecordings(dataDir()) });
+  });
+
+  router.post("/recordings", requireAdmin, (req, res) => {
+    if (!config.recordingsEnabled) {
+      res
+        .status(409)
+        .json({ error: "Recordings are disabled (Settings opt-in)", code: "DISABLED" });
+      return;
+    }
+    const filename = typeof req.body?.filename === "string" ? req.body.filename : "";
+    const b64 = typeof req.body?.dataBase64 === "string" ? req.body.dataBase64 : "";
+    if (!filename || !b64) {
+      res.status(400).json({ error: "filename and dataBase64 required", code: "VALIDATION_ERROR" });
+      return;
+    }
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(b64, "base64");
+    } catch {
+      res.status(400).json({ error: "invalid base64", code: "VALIDATION_ERROR" });
+      return;
+    }
+    const meta = writeRecording(dataDir(), filename, buf, {
+      mime: typeof req.body?.mime === "string" ? req.body.mime : undefined,
+    });
+    if (!meta) {
+      res.status(400).json({
+        error: "invalid filename or empty/too-large payload",
+        code: "VALIDATION_ERROR",
+      });
+      return;
+    }
+    audit?.record({
+      actorId: req.user?.id ?? null,
+      actorUsername: req.user?.username ?? null,
+      targetUserId: null,
+      targetUsername: meta.filename,
+      action: "recording.upload",
+    });
+    res.status(201).json({ ok: true, recording: meta });
+  });
+
+  router.get("/recordings/:name", requireAdmin, (req, res) => {
+    if (!config.recordingsEnabled) {
+      res.status(409).json({ error: "Recordings disabled", code: "DISABLED" });
+      return;
+    }
+    const name = String(req.params.name ?? "");
+    const buf = readRecording(dataDir(), name);
+    if (!buf) {
+      res.status(404).json({ error: "not found", code: "NOT_FOUND" });
+      return;
+    }
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    res.send(buf);
+  });
+
+  router.delete("/recordings/:name", requireAdmin, (req, res) => {
+    if (!config.recordingsEnabled) {
+      res.status(409).json({ error: "Recordings disabled", code: "DISABLED" });
+      return;
+    }
+    const name = String(req.params.name ?? "");
+    const ok = deleteRecording(dataDir(), name);
+    if (ok) {
+      audit?.record({
+        actorId: req.user?.id ?? null,
+        actorUsername: req.user?.username ?? null,
+        targetUserId: null,
+        targetUsername: name,
+        action: "recording.delete",
+      });
+    }
+    res.json({ ok });
+  });
+
+  // G3 — member-readable live status (no admin Settings required)
+  router.get("/live", async (_req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.json({
+        connected: false,
+        nowPlaying: null,
+        queue: [],
+        radio: null,
+        scope: config.scope ?? null,
+      });
+      return;
+    }
+    res.json(await bot.getLiveStatus());
   });
 
   // ─── Voice under music smoke (V1/H4) ──────────────────────────────────────

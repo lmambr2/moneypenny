@@ -118,7 +118,7 @@ path; ACE-Step non-mock worker; doctrine prewarm UX more obvious.
 | **H3** | Memory scopes | Multi-user org | Dual-scope Harness UI + APIs; isolation helpers — **shipped** |
 | **H4** | Voice-first progressive enhancement | Hands-free ops | Under-music plan + smoke (`under-music.ts`, API, script) — **shipped** (unit; live Pi still feedback) |
 | **H5** | Tool transparency | Debug agentic loop | Log/tool panel: which tools fired, args, success/fail — **shipped** intent mode on harness panel |
-| **H6** | Multi-channel / multi-server (later) | Scale beyond one channel | Config for channel scope; no single global queue assumption — **deferred** |
+| **H6** | Multi-channel / multi-server (later) | Scale beyond one channel | Config for channel scope; no single global queue assumption — **shipped** (scope config + Live status; one queue per bot) |
 
 **Does not wait on Station “done.”** Fix radio/doctrine regressions from live
 feedback in parallel; don’t block H1–H2 on S1–S5 completeness.
@@ -133,7 +133,7 @@ feedback in parallel; don’t block H1–H2 on S1–S5 completeness.
 | **R2** | Ingest hygiene | Better retrieval | `GET /api/rag/doctrine/hygiene` + Library **Hygiene** — **shipped** |
 | **R3** | Eval loop (light) | Catch empty rewrites | `eval-loop.ts` + `POST /api/bot/rag/eval` + `scripts/rag-eval.mjs` — **shipped** |
 | **R4** | Org KG fill | Memory bumper useful | `POST /api/bot/org-kg` + `!kg remember`; MemPalace/SQLite `searchOrg` — **shipped** |
-| **R5** | Game-state hooks (optional) | SC org awareness | Tools that pull org roster/status into RAG or tools — **plugin**, not core rewrite (see G2) |
+| **R5** | Game-state hooks (optional) | SC org awareness | `!ops members` / `!ops fleet` via ScOrgClient — **shipped** (fail-open plugin) |
 
 **Doctrine/memory split (keep deliberate):**
 
@@ -149,9 +149,9 @@ Never broadcast private `!remember` rooms (already load-bearing).
 | ID | Feature | Why | Accept |
 |----|---------|-----|--------|
 | **V1** | Reliability under music | Real channels | Duck/wake/command under DJ load documented + smoke script — **shipped** (unit path; live channel feedback) |
-| **V2** | STT ladder docs ops | SBC vs server | One-page “which model on which box” stays accurate |
-| **V3** | Spoken radio/status | Voice ops | Optional spoken radio status / “next bumper in N” |
-| **V4** | Orchestration extract (maybe) | If TS turn code chokes | FastAPI voice-turn service; bot stays transport |
+| **V2** | STT ladder docs ops | SBC vs server | One-page “which model on which box” stays accurate — **shipped** ([voice-backends.md](./voice-backends.md)) |
+| **V3** | Spoken radio/status | Voice ops | `!radio speak-status` / `announce` — **shipped** |
+| **V4** | Orchestration extract (maybe) | If TS turn code chokes | FastAPI voice-turn service; bot stays transport — **deferred** |
 
 ---
 
@@ -164,8 +164,8 @@ and never between a user and the music.
 |----|---------|--------|
 | **G1** | Org command surface | `!ops` status/brief/sc/host/list — **shipped** |
 | **G2** | SC API / external status tools | ScOrgClient contract + Settings URL + fail-open — **shipped** (live bridge optional) |
-| **G3** | Shared dashboard for non-admins | Read-only now-playing, next bumper, simple queue — **deferred** |
-| **G4** | Audio / abuse moderation hooks | Rate limits, mute integration — rights-first — **deferred** |
+| **G3** | Shared dashboard for non-admins | Read-only now-playing, next bumper, simple queue — **shipped** (`/live` + `GET /api/bot/live`) |
+| **G4** | Audio / abuse moderation hooks | Rate limits, mute integration — rights-first — **shipped** (`!mute`/`!kick`, fail-open) |
 
 ---
 
@@ -251,6 +251,7 @@ docs.
 | 2026-07-09 | **Deferred earlier:** H3, H4/V1, R3, G2 depth |
 | 2026-07-09 | **Shipped follow-up:** H3 scopes UI, V1/H4 under-music smoke, G2 ScOrgClient + Settings, R3 eval loop |
 | 2026-07-09 | Still later: H6, G3–G4, live Pi voice under music, real SC credentials beyond bridge URL |
+| 2026-07-09 | **Shipped backlog:** H6 scope, G3 Live, G4 mute/kick, R5 members/fleet, V2 docs, V3 speak-status; hardening leftovers; dashboard recordings. V4/brain remain plan-only. |
 | 2026-07-09 | **Watch (not adopt):** [teamspeak.js](https://github.com/teamspeakjs/teamspeak.js) — typed ServerQuery (raw + SSH). Do **not** replace `@honeybbq/teamspeak-client` (voice). Revisit only if Query/SSH DX or TS6 Query maturity clearly beats current `TS3Client` + `http-query` + `ts3-nodejs-library`. |
 
 ### Watchlist — TeamSpeak libraries

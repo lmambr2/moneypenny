@@ -33,18 +33,15 @@ TLS, proxy trust) and **admin-equivalent power** on a shared dashboard.
    public command drift / rights template test failure.
 2. **P0 (fixed this pass):** SC org status URL accepted non-http(s) schemes;
    now normalized to http(s) only, no embedded credentials.
-3. **Medium (defer / ops):** `trustProxy` + spoofable `X-Forwarded-For` dilutes
-   rate limits (known 2026-07-08).
-4. **Medium (product):** Admin harness **intent mode** executes mapped tools
-   via `CommandExecutor` without a second rights pass (admin-only endpoint —
-   intentional power, document blast radius).
-5. **Low:** Authenticated non-admin can read `GET /api/bot/llm/status` (and bot
-   list/status) — minor recon for multi-member installs.
-6. **Low/privacy:** Admin `GET /api/bot/memory/private?uid=` can list any
-   member’s `!remember` facts — expected for admin, sensitive on shared
-   admin accounts.
-7. **Medium (ops bind):** ACE-Step overlay host publish is all-interfaces by
-   default; core AI sidecars correctly use `127.0.0.1:…` publish.
+3. **Medium (mitigated):** `trustProxy` + XFF — **fixed** with `trustProxyHops`
+   rightmost-hop rate-limit keys (operator must overwrite XFF at edge).
+4. **Medium (product):** Admin harness intent tools — **mitigated** with safer
+   default allowlist + dry-run + `harnessIntentAllowDangerous` opt-in.
+5. **Low:** `GET /api/bot/llm/status` — **fixed** (`requireAdmin`).
+6. **Low/privacy:** Admin private-memory read — **mitigated** with
+   `memory.private_read` audit log (still admin-capable by design).
+7. **Medium (ops bind):** ACE-Step host publish — **fixed** default loopback
+   (`ACE_STEP_PUBLISH=127.0.0.1`).
 
 **No Critical** in-repo issues found in this pass. Suite: **1018+** passed after
 P0 fixes; compose bind posture regression tests added.
@@ -86,14 +83,15 @@ remains fixed and covered by `url-guard` / engine tests.
 | **Remediation** | Keep UI off public internet ([hardening.md](./hardening.md)); do not grant admin to untrusted users. Optional future: warn when URL resolves private. |
 | **This pass** | SC base URL now **http(s) only** (`normalizeScOrgBaseUrl`) — reduces `file:` / credential-in-URL footguns. |
 
-#### M-2026-07-09-3 — Rate-limit key under `trustProxy` — **still deferred**
+#### M-2026-07-09-3 — Rate-limit key under `trustProxy` — **mitigated**
 
 | | |
 |--|--|
 | **Severity** | Medium (ops) |
-| **Location** | `bot/src/web/middleware/rateLimit.ts` + `trustProxy` |
+| **Location** | `bot/src/web/middleware/client-ip.ts` + `trustProxyHops` |
 | **Threat** | Spoofed `X-Forwarded-For` can dilute login/player limits. |
-| **Remediation** | Only enable trust proxy behind a hop that overwrites XFF; document hop count. Same as M-2026-07-08-3. |
+| **Remediation** | Only enable trust proxy behind a hop that overwrites XFF; configure `trustProxyHops` to match the chain. |
+| **This pass** | Rightmost-N XFF selection + unit tests; residual: operator misconfig. |
 
 #### M-2026-07-09-4 — Admin private-memory inspection by arbitrary TS uid
 
@@ -109,7 +107,7 @@ remains fixed and covered by `url-guard` / engine tests.
 
 | ID | Location | Note |
 |----|----------|------|
-| L-2026-07-09-1 | `GET /api/bot/llm/status` | **Authenticated, not admin-only.** Leaks LLM configured/reachable/fallback flags to any dashboard member. Prefer `requireAdmin` for multi-tenant UIs. |
+| L-2026-07-09-1 | `GET /api/bot/llm/status` | **Fixed:** `requireAdmin`. |
 | L-2026-07-09-2 | `GET /api/bot/`, `GET /api/bot/:id` | Bot name, connected, now-playing metadata for all authed users — intentional for the SPA player. |
 | L-2026-07-09-3 | `GET /api/health`, `public-url` | Unauthenticated by design; no secrets. |
 | L-2026-07-09-4 | In-memory harness turn ring | Shared process-wide among admins; last turns visible to next admin session. |
@@ -118,16 +116,15 @@ remains fixed and covered by `url-guard` / engine tests.
 | L-2026-07-09-7 | Deploy rsync | `scripts/deploy-to-pi.sh` excludes `.env`; `--delete` gated — good. Operator must protect SSH and host `bot/data`. |
 | L-2026-07-09-8 | Sidecar in-container `0.0.0.0` | STT/TTS/bridges/MemPalace/ACE listen on all interfaces **inside** the container; safety depends on **host publish** mapping. |
 
-#### M-2026-07-09-5 — ACE-Step compose host publish is not loopback-bound by default
+#### M-2026-07-09-5 — ACE-Step compose host publish — **fixed (loopback default)**
 
 | | |
 |--|--|
 | **Severity** | Medium (ops / multi-service bind) |
-| **Location** | `docker-compose.ace-step.yml` `ports: "${ACE_STEP_PORT:-7865}:7865"`; adapter `HOST=0.0.0.0` |
-| **Threat** | On a GPU host, default Docker publish binds **all host interfaces**, so the generate adapter (mock or worker proxy) may be LAN-reachable without auth. |
-| **Impact** | Untrusted LAN clients could burn GPU / fill disk under `MUSIC_DIR` if mock is off and worker is up; mock mode still exposes a generate surface. |
-| **Remediation** | Prefer `127.0.0.1:7865:7865` (or firewall `:7865`) on multi-user LANs; reach from Pi via SSH tunnel or private network ACL. Documented accepted risk for single-operator GPU boxes. |
-| **Tests** | `bot/src/data/compose-bind-posture.test.ts` asserts ACE overlay is not loopback by default (documents residual). |
+| **Location** | `docker-compose.ace-step.yml` `ports: "${ACE_STEP_PUBLISH:-127.0.0.1}:${ACE_STEP_PORT:-7865}:7865"` |
+| **Threat** | On a GPU host, all-interface publish left the generate adapter LAN-reachable without auth. |
+| **Remediation** | Default loopback; set `ACE_STEP_PUBLISH=0.0.0.0` only on trusted single-operator boxes. |
+| **Tests** | `compose-bind-posture.test.ts` asserts ACE overlay includes `127.0.0.1`. |
 
 ### Multi-service network bind posture
 
@@ -146,7 +143,7 @@ remains fixed and covered by `url-guard` / engine tests.
 | **qdrant** | same | *none* (compose network only) | container default | **OK** — bot uses `http://qdrant:6333` |
 | **tidal-bridge** | same | *none* (network only) | `0.0.0.0` | **OK** — bot uses `http://tidal-bridge:8081` |
 | **teamspeak** (profile `server`) | same | `9987/udp`, `30033`, `10080`, `10022` **all interfaces** | image | **OK intentional** — clients must reach voice/query |
-| **ace-step** | `docker-compose.ace-step.yml` | `${PORT:-7865}:7865` **all interfaces** | `HOST=0.0.0.0` | **Residual M-5** |
+| **ace-step** | `docker-compose.ace-step.yml` | `127.0.0.1:${PORT:-7865}:7865` (default) | `HOST=0.0.0.0` | **OK** — loopback host publish |
 
 **Evidence / regression guard:** `bot/src/data/compose-bind-posture.test.ts` parses shipped compose YAML and fails if AI sidecars lose `127.0.0.1:` host publish.
 

@@ -26,6 +26,7 @@ import { createUsersRouter } from "./api/users.js";
 import { validateSessionFromHeaders } from "./auth/validateSession.js";
 import { csrfOriginCheck } from "./middleware/csrf.js";
 import { createRateLimit } from "./middleware/rateLimit.js";
+import { clientIpKeyFn } from "./middleware/client-ip.js";
 import { requireAdmin } from "./middleware/requireAdmin.js";
 import { createRequireAuth } from "./middleware/requireAuth.js";
 import { setupWebSocket } from "./websocket.js";
@@ -69,7 +70,9 @@ export function createWebServer(options: WebServerOptions): WebServer {
   const logger = options.logger.child({ component: "web" });
 
   if (options.config.trustProxy) {
-    app.set("trust proxy", true);
+    // Hop count for Express trust proxy (matches rate-limit XFF policy).
+    const hops = Math.max(1, Math.min(5, options.config.trustProxyHops ?? 1));
+    app.set("trust proxy", hops);
   }
 
   // Security headers: prevent the WebUI from being embedded in a third-party
@@ -103,8 +106,12 @@ export function createWebServer(options: WebServerOptions): WebServer {
   // Anti-DoS: throttle expensive (bcrypt) auth endpoints.
   // 5 req per minute per IP for /login (capacity 5, refill 5/60 = ~0.083/sec).
   // 3 req per minute per IP for /setup (more limited; first-run is rare).
-  const loginLimit = createRateLimit({ capacity: 5, refillPerSec: 5 / 60 });
-  const setupLimit = createRateLimit({ capacity: 3, refillPerSec: 3 / 60 });
+  const ipKey = clientIpKeyFn({
+    trustProxy: !!options.config.trustProxy,
+    trustProxyHops: options.config.trustProxyHops ?? 1,
+  });
+  const loginLimit = createRateLimit({ capacity: 5, refillPerSec: 5 / 60, keyFn: ipKey });
+  const setupLimit = createRateLimit({ capacity: 3, refillPerSec: 3 / 60, keyFn: ipKey });
   app.use("/api/session/login", loginLimit);
   app.use("/api/session/setup", setupLimit);
 
@@ -135,6 +142,7 @@ export function createWebServer(options: WebServerOptions): WebServer {
       logger,
       options.database,
       options.avatarStore,
+      audit,
     ),
   );
   app.use(

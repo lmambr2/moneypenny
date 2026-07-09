@@ -386,6 +386,68 @@
         </div>
       </div>
 
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
+            <Icon icon="mdi:microphone" class="setting-icon" /> Dashboard recordings
+          </div>
+          <div class="profile-toggle-hint">
+            Opt-in admin capture/upload under <code>data/recordings/</code>. Never auto-broadcasts to radio or private memory.
+            UI: <strong>Recordings</strong> nav.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.recordingsEnabled" />
+      </label>
+
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
+            <Icon icon="mdi:shield-alert-outline" class="setting-icon" /> Harness intent: allow dangerous tools
+          </div>
+          <div class="profile-toggle-hint">
+            When off (default), harness intent cannot run stop/volume/move tools. Dry-run mode still works from the Harness panel.
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.harnessIntentAllowDangerous" />
+      </label>
+
+      <div class="form-row" style="margin: 8px 0 4px">
+        <div class="form-group" style="flex:1">
+          <label title="H6 — preferred channel name/id for multi-bot ops">Scope channel hint</label>
+          <input v-model="ai.scopeChannelHint" class="input" placeholder="Ops Lobby (empty = free-roam)" />
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Scope server label</label>
+          <input v-model="ai.scopeServerLabel" class="input" placeholder="SC-TS" />
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Virtual server id</label>
+          <input v-model="ai.scopeVirtualServerId" class="input" placeholder="1" />
+        </div>
+      </div>
+      <p class="profile-toggle-hint" style="margin: 0 0 12px">
+        H6 scope labels appear on Live status. Queue/player remain one stream; this documents intended channel/server.
+      </p>
+
+      <label class="profile-toggle">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">
+            <Icon icon="mdi:lan" class="setting-icon" /> Trust reverse proxy
+          </div>
+          <div class="profile-toggle-hint">
+            Honor <code>X-Forwarded-*</code> only behind a proxy that <strong>overwrites</strong> XFF.
+            Rate-limit keys use the rightmost N hops (below).
+          </div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.trustProxy" />
+      </label>
+      <div v-if="ai.trustProxy" class="form-row" style="margin: 4px 0 12px">
+        <div class="form-group" style="flex:1">
+          <label>Trusted proxy hops (XFF)</label>
+          <input v-model.number="ai.trustProxyHops" type="number" min="1" max="5" class="input" />
+        </div>
+      </div>
+
       <!-- Rank gating toggle -->
       <label class="profile-toggle">
         <div class="profile-toggle-text">
@@ -1772,6 +1834,13 @@ const ai = reactive({
   fileDropPollSec: 30,
   pokeCommandsEnabled: true,
   pokeCommandsPerMinute: 12,
+  recordingsEnabled: false,
+  harnessIntentAllowDangerous: false,
+  scopeChannelHint: '',
+  scopeServerLabel: '',
+  scopeVirtualServerId: '',
+  trustProxy: false,
+  trustProxyHops: 1,
   rightsEnabled: false,
   adminGroupsText: '',
   rightsMode: 'simple' as 'simple' | 'advanced',
@@ -2217,6 +2286,13 @@ async function loadAiSettings() {
     ai.fileDropPollSec = res.data.fileDropPollSec ?? 30;
     ai.pokeCommandsEnabled = res.data.pokeCommandsEnabled !== false;
     ai.pokeCommandsPerMinute = res.data.pokeCommandsPerMinute ?? 12;
+    ai.recordingsEnabled = !!res.data.recordingsEnabled;
+    ai.harnessIntentAllowDangerous = !!res.data.harnessIntentAllowDangerous;
+    ai.scopeChannelHint = res.data.scope?.channelHint ?? '';
+    ai.scopeServerLabel = res.data.scope?.serverLabel ?? '';
+    ai.scopeVirtualServerId = res.data.scope?.virtualServerId ?? '';
+    ai.trustProxy = !!res.data.trustProxy;
+    ai.trustProxyHops = res.data.trustProxyHops ?? 1;
     ai.rightsEnabled = !!res.data.rightsEnabled;
     ai.adminGroupsText = (res.data.adminGroups ?? []).join(', ');
     if (res.data.rights && typeof res.data.rights === 'object') {
@@ -2772,6 +2848,15 @@ async function saveAiSettings() {
       fileDropPollSec: ai.fileDropPollSec,
       pokeCommandsEnabled: ai.pokeCommandsEnabled,
       pokeCommandsPerMinute: ai.pokeCommandsPerMinute,
+      recordingsEnabled: ai.recordingsEnabled,
+      harnessIntentAllowDangerous: ai.harnessIntentAllowDangerous,
+      scope: {
+        channelHint: ai.scopeChannelHint.trim(),
+        serverLabel: ai.scopeServerLabel.trim(),
+        virtualServerId: ai.scopeVirtualServerId.trim(),
+      },
+      trustProxy: ai.trustProxy,
+      trustProxyHops: Math.max(0, Math.min(5, Number(ai.trustProxyHops) || 1)),
       rightsEnabled: ai.rightsEnabled,
       adminGroups,
       ...(rightsPayload !== undefined ? { rights: rightsPayload } : {}),

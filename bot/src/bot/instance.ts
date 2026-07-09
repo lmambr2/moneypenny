@@ -246,6 +246,49 @@ export class BotInstance extends EventEmitter {
         if (facts.length === 0) return "Org KG: (empty — !kg remember <fact>)";
         return `Org KG: ${facts.map((f) => f.fact).join("; ")}`;
       },
+      getScMembers: async () => {
+        const { ScOrgClient } = await import("../tools/sc-org-client.js");
+        const base = (this.config.scOrgStatusUrl || process.env.SC_ORG_STATUS_URL || "").trim();
+        if (!base) return "○ SC members: not configured (set SC org status URL).";
+        try {
+          const client = new ScOrgClient({
+            baseUrl: base,
+            orgName: this.config.scOrgName || undefined,
+          });
+          const members = await client.getMembers();
+          if (members.length === 0) return "○ SC members: (empty list from bridge).";
+          const online = members.filter((m) => m.online);
+          const lines = members
+            .slice(0, 12)
+            .map((m) => `${m.online ? "●" : "○"} ${m.name}${m.rank ? ` (${m.rank})` : ""}`);
+          return `SC members (${online.length} online / ${members.length}):\n${lines.join("\n")}`;
+        } catch (err) {
+          return `○ SC members unavailable (${err instanceof Error ? err.message : String(err)}).`;
+        }
+      },
+      getScFleet: async () => {
+        const { ScOrgClient } = await import("../tools/sc-org-client.js");
+        const base = (this.config.scOrgStatusUrl || process.env.SC_ORG_STATUS_URL || "").trim();
+        if (!base) return "○ SC fleet: not configured (set SC org status URL).";
+        try {
+          const client = new ScOrgClient({
+            baseUrl: base,
+            orgName: this.config.scOrgName || undefined,
+          });
+          const fleet = await client.getFleet();
+          if (fleet.vessels.length === 0) {
+            return fleet.summary
+              ? `SC fleet: ${fleet.summary}`
+              : "○ SC fleet: (empty from bridge).";
+          }
+          const lines = fleet.vessels
+            .slice(0, 12)
+            .map((v) => `· ${v.name}${v.role ? ` — ${v.role}` : ""}`);
+          return [`SC fleet${fleet.summary ? `: ${fleet.summary}` : ""}`, ...lines].join("\n");
+        } catch (err) {
+          return `○ SC fleet unavailable (${err instanceof Error ? err.message : String(err)}).`;
+        }
+      },
     });
 
     this.llm = new LlmRuntime({
@@ -337,6 +380,7 @@ export class BotInstance extends EventEmitter {
         onTrackBoundary: () => this.radio.onTrackBoundary(),
         status: () => this.radio.status(),
       },
+      speakRadioStatus: () => this.speakRadioStatus(),
       getBumperDir: () => this.resolveBumperDir(dirname(this.database.db.name)),
       prewarmRadioBumpers: (opts) => this.prewarmRadioBumpers(opts),
       generateProvider: this.generateProvider,
@@ -521,6 +565,7 @@ export class BotInstance extends EventEmitter {
       memory: this.memory,
       kg: this.kg,
       ops: this.ops,
+      moderation: (action, target, canRun) => this.moderationAction(action, target, canRun),
       knowledge: this.knowledge,
       generate: {
         handleGenerate: (args, invokerKey) =>
@@ -829,9 +874,14 @@ export class BotInstance extends EventEmitter {
    */
   async runHarnessTurn(
     question: string,
-    opts?: { mode?: import("../harness/index.js").HarnessMode },
+    opts?: {
+      mode?: import("../harness/index.js").HarnessMode;
+      dryRun?: boolean;
+      allowDangerous?: boolean;
+    },
   ): Promise<import("../harness/index.js").HarnessTurn> {
     const { runHarnessTurn, InMemoryHarnessStore } = await import("../harness/index.js");
+    const { decideHarnessTool } = await import("../harness/tool-policy.js");
     if (!this.harnessStore) {
       this.harnessStore = new InMemoryHarnessStore(50);
     }
@@ -846,9 +896,18 @@ export class BotInstance extends EventEmitter {
         : null,
       retrieve: async (q) => this.llm.retrieveForHarness(q),
       executeTool: async (name, args) => {
+        const decision = decideHarnessTool(name, {
+          dryRun: opts?.dryRun === true,
+          allowDangerous:
+            opts?.allowDangerous === true || this.config.harnessIntentAllowDangerous === true,
+        });
+        if (decision.action === "dry_run") {
+          return { ok: true, result: `[dry-run] would run ${name}` };
+        }
+        if (decision.action === "block") {
+          return { ok: false, error: decision.reason };
+        }
         try {
-          // Tool proposals only affect music when the real executor is live;
-          // fail-open with a clear message — never throw into the player.
           const { toolCallToCommand } = await import("../control/router.js");
           const cmd = toolCallToCommand({ name, arguments: args });
           if (!cmd) {
@@ -866,6 +925,134 @@ export class BotInstance extends EventEmitter {
       store: this.harnessStore,
       conversationId: "harness-dashboard",
     });
+  }
+
+  /** G3 — member-safe live snapshot. */
+  async getLiveStatus(): Promise<{
+    connected: boolean;
+    nowPlaying: { name: string; artist?: string } | null;
+    queue: Array<{ name: string; artist?: string }>;
+    radio: {
+      enabled: boolean;
+      activeProfile: string;
+      songsUntilBumper: number | null;
+      cuePending: boolean;
+      nextBumperHint: string;
+    } | null;
+    scope: ReturnType<typeof import("./scope.js").resolveScope>;
+  }> {
+    const { resolveScope, parseBotScope, defaultBotScope } = await import("./scope.js");
+    const scope = resolveScope(parseBotScope(this.config.scope ?? defaultBotScope()), {
+      botName: this.name,
+    });
+    const cur = this.queue.current();
+    const q = this.queue
+      .list()
+      .slice(0, 20)
+      .map((s) => ({ name: s.name, artist: s.artist }));
+    let radio: {
+      enabled: boolean;
+      activeProfile: string;
+      songsUntilBumper: number | null;
+      cuePending: boolean;
+      nextBumperHint: string;
+    } | null = null;
+    if (this.config.radio) {
+      const st = this.radio.status();
+      const hint =
+        st.songsUntilBumper == null
+          ? "Radio off or no every-N clock"
+          : st.songsUntilBumper === 0
+            ? "Bumper due next break"
+            : `Next bumper in ${st.songsUntilBumper} track(s)`;
+      radio = {
+        enabled: !!this.config.radio.enabled,
+        activeProfile: this.config.radio.activeProfile,
+        songsUntilBumper: st.songsUntilBumper,
+        cuePending: st.cuePending,
+        nextBumperHint: hint,
+      };
+    }
+    return {
+      connected: this.connected,
+      nowPlaying: cur ? { name: cur.name, artist: cur.artist } : null,
+      queue: q,
+      radio,
+      scope,
+    };
+  }
+
+  /** V3 — spoken radio/status liner via speech sink. */
+  async speakRadioStatus(): Promise<string> {
+    const live = await this.getLiveStatus();
+    const parts = [
+      live.nowPlaying
+        ? `Now playing ${live.nowPlaying.name}${live.nowPlaying.artist ? ` by ${live.nowPlaying.artist}` : ""}.`
+        : "Nothing is playing.",
+      live.radio?.enabled
+        ? `Radio is on, profile ${live.radio.activeProfile}. ${live.radio.nextBumperHint}.`
+        : "Radio is off.",
+    ];
+    const text = parts.join(" ");
+    try {
+      const r = await this.radio.cueSay(text);
+      if (r === "played" || r === "cued") return `📻 ${text}`;
+      return `📻 ${text} (speech unavailable — text only)`;
+    } catch {
+      return `📻 ${text} (speech failed — text only)`;
+    }
+  }
+
+  /** G4 — mute/kick via TS client; fail-open on transport errors. */
+  async moderationAction(
+    action: "mute" | "kick",
+    target: string,
+    canRun: (cmd: string) => boolean,
+  ): Promise<string> {
+    if (!canRun("mute") && !canRun("kick") && !canRun("moveclient")) {
+      return "You don't have permission for moderation actions.";
+    }
+    if (action === "mute" && !canRun("mute") && !canRun("moveclient")) {
+      return "You don't have permission to mute (needs mute or moveclient).";
+    }
+    if (action === "kick" && !canRun("kick") && !canRun("moveclient")) {
+      return "You don't have permission to kick (needs kick or moveclient).";
+    }
+    if (!this.connected) return "Bot is not connected — moderation skipped (music unaffected).";
+    try {
+      // Soft implementation: poke + chat notice; full mute depends on TS library surface.
+      const msg =
+        action === "mute"
+          ? `Moderation: mute requested for ${target} (apply via server groups if API unavailable).`
+          : `Moderation: kick requested for ${target} (apply via server groups if API unavailable).`;
+      const clients = await this.tsClient.getClientsInChannel();
+      const t = target.trim().toLowerCase();
+      const hit = clients.find((c) => {
+        const nick = String(
+          (c as { nickname?: string; name?: string }).nickname ??
+            (c as { name?: string }).name ??
+            "",
+        ).toLowerCase();
+        const id = String(
+          (c as { id?: number | string; clid?: number | string }).id ??
+            (c as { clid?: number }).clid ??
+            "",
+        );
+        return id === t || nick.includes(t);
+      }) as { id?: number; clid?: number; nickname?: string; name?: string } | undefined;
+      const clid = Number(hit?.id ?? hit?.clid);
+      if (!hit || !Number.isFinite(clid)) {
+        return `No client matching "${target}" in channel. Music unaffected.`;
+      }
+      try {
+        await this.tsClient.pokeClient(clid, `Moderation: ${action}`);
+      } catch {
+        /* fail-open */
+      }
+      return `${msg} Target: ${hit.nickname ?? hit.name ?? clid}.`;
+    } catch (err) {
+      return `Moderation ${action} failed open: ${err instanceof Error ? err.message : String(err)}. Music unaffected.`;
+    }
   }
 
   listHarnessTurns(limit = 30) {

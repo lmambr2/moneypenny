@@ -54,4 +54,21 @@ describe("OpsService (G1)", () => {
     expect(text).toMatch(/sc-org/);
     expect(text).toMatch(/host/);
   });
+
+  it("members/fleet fail-open when not configured (R5)", async () => {
+    const { ops } = harness();
+    expect(await ops.handle("members", () => true)).toMatch(/not configured/i);
+    expect(await ops.handle("fleet", () => true)).toMatch(/not configured/i);
+  });
+
+  it("members/fleet return text from injectables", async () => {
+    const statusRegistry = new ExternalStatusRegistry({ cacheTtlMs: 0 });
+    const ops = new OpsService({
+      statusRegistry,
+      getScMembers: async () => "SC members (1 online / 2):\n● Alice",
+      getScFleet: async () => "SC fleet: 1 vessel\n· Idris",
+    });
+    expect(await ops.handle("members", () => true)).toMatch(/Alice/);
+    expect(await ops.handle("fleet", () => true)).toMatch(/Idris/);
+  });
 });

@@ -6,7 +6,7 @@ ordered **do list**, not full specs.
 Product sequence and locked decisions: **[feature-roadmap.md](./feature-roadmap.md)**
 (harness-first, Station via feedback, Vue polish, brain boundary plan-only).
 
-**Last updated:** 2026-07-09 (harness-first sequence locked)
+**Last updated:** 2026-07-09 (backlog ship: H6/G3–G4/R5/V2–V3 + hardening + recordings)
 
 ---
 
@@ -23,11 +23,20 @@ bugs still interrupt from live feedback.
 | **R4** | Org KG seed path | `POST /api/bot/org-kg` + `searchOrg` for memory bumper | **Shipped** 2026-07-09 |
 | **R1–R2** | Topic packs + ingest hygiene | mining profile topics; `GET …/doctrine/hygiene` | **Shipped** 2026-07-09 |
 | **G1–G2** | Org commands + SC/external status tools | `!ops` + fail-open plugins | **Shipped** 2026-07-09 |
-| **Brain** | Python brain boundary sketch | [brain-boundary.md](./brain-boundary.md) only | **Shipped** (doc) |
+| **Brain** | Python brain boundary sketch | [brain-boundary.md](./brain-boundary.md) only | **Shipped** (doc) — **not** implement |
 | **H3** | Memory scopes UI | Harness dual wall + `/api/bot/memory/scopes` | **Shipped** 2026-07-09 |
 | **V1/H4** | Voice under music | `under-music.ts` + API + script | **Shipped** 2026-07-09 |
 | **G2 depth** | SC org client | Settings URL + `docs/sc-org-status.md` | **Shipped** 2026-07-09 |
 | **R3** | RAG eval loop | `eval-loop.ts` + API + `scripts/rag-eval.mjs` | **Shipped** 2026-07-09 |
+| **H6** | Channel/server scope config | `scope` settings + Live status | **Shipped** 2026-07-09 |
+| **G3** | Member read-only Live | `GET /api/bot/live` + `/live` Vue | **Shipped** 2026-07-09 |
+| **G4** | Moderation hooks | `!mute` / `!kick` rights-gated, fail-open | **Shipped** 2026-07-09 |
+| **R5** | SC members/fleet | `!ops members` / `!ops fleet` via ScOrgClient | **Shipped** 2026-07-09 |
+| **V2** | STT ladder docs | [voice-backends.md](./voice-backends.md) matches editions | **Shipped** (docs accuracy) |
+| **V3** | Spoken radio status | `!radio speak-status` / `announce` | **Shipped** 2026-07-09 |
+| **Hardening** | Audit leftovers 2026-07-09 | LLM admin, XFF hops, ACE loopback, harness dry-run, private-memory audit | **Shipped** 2026-07-09 |
+| **Recordings** | Dashboard capture/upload | Opt-in `data/recordings/` + `/recordings` | **Shipped** 2026-07-09 |
+| **V4** | Voice orchestration extract | FastAPI voice-turn | **Deferred** (plan only) |
 | **S\*** | Station polish | Continuous via user feedback (not a gate) | Ongoing |
 
 ### Recently closed build items (2026-07)

@@ -80,6 +80,14 @@ const DELTAS: readonly RightsDelta[] = [
       analyst: ["ops"],
     },
   },
+  {
+    // G4 moderation + recording admin tokens.
+    version: 6,
+    groups: {
+      admin: ["mute", "kick", "recording"],
+      mod: ["mute", "kick"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;
@@ -119,7 +127,9 @@ export function migrateRightsConfig(
     for (const [group, tokens] of Object.entries(delta.groups ?? {})) {
       const live = out.commandGroups![group];
       if (!live) {
-        applied.push(`(skipped group '${group}' — not present in live ruleset)`);
+        // Never recreate a group the admin deleted. Do not put skips in
+        // `applied` — re-running from version 0 must stay empty when the
+        // ruleset is already fully migrated (idempotency).
         continue;
       }
       for (const t of tokens) {

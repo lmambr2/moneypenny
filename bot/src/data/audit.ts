@@ -6,7 +6,12 @@ export type AuditAction =
   | "user.deleted"
   | "user.password_reset"
   | "user.password_changed"
-  | "user.role_changed";
+  | "user.role_changed"
+  | "memory.private_read"
+  | "recording.upload"
+  | "recording.delete"
+  | "moderation.mute"
+  | "moderation.kick";
 
 export interface AuditEntry {
   id: number;

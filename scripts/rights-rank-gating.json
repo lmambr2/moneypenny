@@ -11,11 +11,12 @@
     "admin": [
       "stop", "clear", "move", "moveclient", "moveall", "vol", "mode",
       "follow", "remove", "reindex", "ingeststatus", "generate", "ops",
+      "mute", "kick", "recording",
       "radio.power", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags"
     ],
     "analyst": ["analyst", "agent", "intsum", "aar", "ops"],
     "dj": ["stop", "clear", "vol", "mode", "remove", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags", "generate", "ops"],
-    "mod": ["move", "moveclient", "moveall", "follow"],
+    "mod": ["move", "moveclient", "moveall", "follow", "mute", "kick"],
     "doctrine_restricted": ["doctrine:restricted"],
     "doctrine_confidential": ["doctrine:confidential"],
     "doctrine_secret": ["doctrine:secret"]

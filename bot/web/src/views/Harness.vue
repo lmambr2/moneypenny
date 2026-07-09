@@ -14,6 +14,9 @@
         <label class="mode-label">
           <input v-model="mode" type="radio" value="intent" /> Intent + tools
         </label>
+        <label v-if="mode === 'intent'" class="mode-label" title="Do not execute tools — only record dry-run results">
+          <input v-model="dryRun" type="checkbox" /> Dry-run tools
+        </label>
       </div>
     </header>
 
@@ -164,6 +167,7 @@ interface HarnessTurn {
 
 const question = ref('');
 const mode = ref<'ask' | 'intent'>('ask');
+const dryRun = ref(false);
 const busy = ref(false);
 const formError = ref('');
 const turns = ref<HarnessTurn[]>([]);
@@ -204,6 +208,7 @@ async function submit() {
     const res = await api.post('/api/bot/harness/ask', {
       question: question.value.trim(),
       mode: mode.value,
+      dryRun: mode.value === 'intent' && dryRun.value,
     });
     const turn = res.data.turn as HarnessTurn;
     if (turn) {

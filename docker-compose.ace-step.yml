@@ -19,7 +19,8 @@ services:
     image: ${ACE_STEP_IMAGE:-moneypenny-ace-step-adapter:local}
     container_name: moneypenny-ace-step
     ports:
-      - "${ACE_STEP_PORT:-7865}:7865"
+      # Loopback by default (audit M-2026-07-09-5). Override ACE_STEP_PUBLISH for LAN.
+      - "${ACE_STEP_PUBLISH:-127.0.0.1}:${ACE_STEP_PORT:-7865}:7865"
     volumes:
       # Shared library root the bot also mounts as MUSIC_DIR
       - ${MUSIC_DIR:-./music}:/music

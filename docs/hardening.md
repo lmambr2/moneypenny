@@ -26,6 +26,18 @@ session tokens stored only as SHA-256; parameterized SQL; session cookie
 - **HTTPS-aware cookies.** The session cookie sets `Secure` only when the request
   is HTTPS; set `trustProxy: true` (config) behind a TLS-terminating reverse
   proxy so `X-Forwarded-Proto` is honored.
+- **Trusted proxy hop count.** `trustProxyHops` (default 1) limits how many
+  rightmost `X-Forwarded-For` entries rate limits trust. Only enable
+  `trustProxy` when the edge proxy **overwrites** XFF; never set hops higher
+  than your real chain (`bot/src/web/middleware/client-ip.ts`).
+- **ACE-Step host publish.** `docker-compose.ace-step.yml` defaults to
+  `127.0.0.1:${ACE_STEP_PORT}:7865` (`ACE_STEP_PUBLISH` override for LAN).
+- **Harness intent safety.** Stop/volume/move tools blocked unless
+  `harnessIntentAllowDangerous` or per-request `allowDangerous`; optional
+  `dryRun` skips the executor.
+- **LLM status admin-only.** `GET /api/bot/llm/status` requires admin.
+- **Private-memory audit.** Admin reads of `GET /api/bot/memory/private?uid=`
+  write `memory.private_read` audit rows.
 - **Watchdog.** Reconnects dropped bots and, with `WATCHDOG_MEMORY_MB`, exits on
   an RSS ceiling so the container's `restart: unless-stopped` policy recovers it.
 - **Healthcheck.** The image probes `/api/health`.

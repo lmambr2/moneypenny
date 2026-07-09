@@ -8,6 +8,20 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Backlog ship: H6/G3–G4/R5/V2–V3 + audit hardening + recordings
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **H6:** `scope` config (channel hint / server label / virtual server id) + Live status
+- **G3:** Member read-only `/live` + `GET /api/bot/live` (now-playing, queue, radio hint)
+- **G4:** Rights-gated `!mute` / `!kick` (fail-open; music unaffected)
+- **R5:** `!ops members` / `!ops fleet` via ScOrgClient (fail-open)
+- **V3:** `!radio speak-status` / `announce` spoken radio status
+- **V2:** voice-backends STT ladder docs remain source of truth for editions
+- **Hardening leftovers:** LLM status admin-only; private-memory audit; ACE loopback publish;
+  `trustProxyHops` XFF rate-limit keys; harness intent dry-run + safer tool allowlist
+- **Recordings:** opt-in dashboard capture/upload under `data/recordings/` (`/recordings` UI)
+- **V4 / brain:** still plan-only (not implemented)
+
 ### Security audit + small P0 fixes
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
