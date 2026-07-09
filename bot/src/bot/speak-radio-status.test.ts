@@ -51,9 +51,8 @@ describe("BotInstance.speakRadioStatus (V3)", () => {
     expect(out).toMatch(/lobby/);
     expect(out).toMatch(/Next bumper in 2/);
     expect(cueSay).toHaveBeenCalledOnce();
-    const spoken = cueSay.mock.calls[0]![0] as string;
-    expect(spoken).toMatch(/Now playing Track A by Artist/);
-    expect(spoken).toMatch(/Radio is on, profile lobby/);
+    expect(cueSay).toHaveBeenCalledWith(expect.stringMatching(/Now playing Track A by Artist/));
+    expect(cueSay).toHaveBeenCalledWith(expect.stringMatching(/Radio is on, profile lobby/));
   });
 
   it("reports nothing playing and radio off; text-only when cueSay unavailable", async () => {
@@ -126,7 +125,8 @@ describe("!radio speak-status / announce (V3 command path)", () => {
       speakRadioStatus: deps.speakRadioStatus,
       radio: {
         cueSay: deps.cueSay ?? (async () => "played" as const),
-        skipBumper: () => "none" as const,
+        cueBumper: async () => "played" as const,
+        skipBumper: () => "cue" as const,
         onTrackBoundary: async () => "advanced" as const,
         status: () => status,
       },
