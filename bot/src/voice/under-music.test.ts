@@ -10,7 +10,7 @@ describe("voice under music (V1/H4)", () => {
   it("plans duck + listen window + text fallback", () => {
     const plan = planUnderMusicCapture(defaultUnderMusicConfig());
     expect(plan.duckActive).toBe(true);
-    expect(plan.duckLevel).toBe(25);
+    expect(plan.duckLevel).toBe(20);
     expect(plan.listenWindowMs).toBeGreaterThanOrEqual(15_000);
     expect(plan.progressiveWake).toBe("text-fallback");
     expect(plan.textFallbackAlwaysWorks).toBe(true);
@@ -40,8 +40,8 @@ describe("voice under music (V1/H4)", () => {
     expect(report.results.every((r) => r.pass)).toBe(true);
   });
 
-  it("legacy duck volume 2 migrates to soft 25 in defaults", () => {
-    const cfg = defaultUnderMusicConfig({ duckMusicVolume: 2 });
-    expect(cfg.duckMusicVolume).toBe(25);
+  it("legacy duck volumes 2 and 25 migrate to soft 20 in defaults", () => {
+    expect(defaultUnderMusicConfig({ duckMusicVolume: 2 }).duckMusicVolume).toBe(20);
+    expect(defaultUnderMusicConfig({ duckMusicVolume: 25 }).duckMusicVolume).toBe(20);
   });
 });

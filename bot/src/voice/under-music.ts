@@ -27,8 +27,10 @@ export function defaultUnderMusicConfig(partial?: Partial<UnderMusicConfig>): Un
   return {
     duckMusicOnSpeech: partial?.duckMusicOnSpeech !== false,
     duckMusicVolume: clamp(
-      partial?.duckMusicVolume === undefined || partial.duckMusicVolume === 2
-        ? 25
+      partial?.duckMusicVolume === undefined ||
+        partial.duckMusicVolume === 2 ||
+        partial.duckMusicVolume === 25
+        ? 20
         : partial.duckMusicVolume,
       0,
       100,

@@ -109,7 +109,7 @@ export class VoiceSession {
   // biome-ignore lint/correctness/noUnusedPrivateClassMembers: written on duck arm/clear; used for multi-speaker diagnostics
   private captureDuckClientId: number | null = null;
   private duckMusicOnSpeech = true;
-  private duckMusicVolume = 25;
+  private duckMusicVolume = 20;
   /** Whisper has no KWS — duck on speech energy so text wake can hear over music. */
   private textWakeFallback = false;
   /** Min post-wake window — must cover beat-then-command cadence (≥ sherpa command window). */
@@ -237,9 +237,9 @@ export class VoiceSession {
 
     this.voiceDecoder = createOpusEncoder(1);
     this.duckMusicOnSpeech = vc.duckMusicOnSpeech !== false;
-    // Legacy product default was 2 (near-mute) — treat as unset and use soft 25.
+    // Legacy defaults: 2 (near-mute) and 25 (prior soft) → current soft 20.
     const rawDuck = vc.duckMusicVolume;
-    const duck = rawDuck === undefined || rawDuck === 2 ? 25 : rawDuck;
+    const duck = rawDuck === undefined || rawDuck === 2 || rawDuck === 25 ? 20 : rawDuck;
     this.duckMusicVolume = Math.max(0, Math.min(100, duck));
     this.textWakeFallback = vc.textWakeFallback ?? false;
     this.listenWindowMs = Math.max(
@@ -394,7 +394,7 @@ export class VoiceSession {
     this.segmenterOpts = null;
     this.releaseCaptureDuck();
     this.duckMusicOnSpeech = true;
-    this.duckMusicVolume = 25;
+    this.duckMusicVolume = 20;
     this.textWakeFallback = false;
     this.clearAllArmTimers();
     this.cleanup();

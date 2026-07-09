@@ -16,10 +16,10 @@ describe("V-live substitute: voice command routing + duck defaults", () => {
     expect(voiceCommandShapeOk("play", "")).toBe(true);
   });
 
-  it("soft duck default is 25 not near-mute 2", () => {
+  it("soft duck default is 20 not near-mute 2", () => {
     const v = defaultVoiceConfig();
     expect(v.duckMusicOnSpeech).toBe(true);
-    expect(v.duckMusicVolume).toBe(25);
+    expect(v.duckMusicVolume).toBe(20);
   });
 
   it("SBC STT selection stays base + int8 RKNN", () => {
