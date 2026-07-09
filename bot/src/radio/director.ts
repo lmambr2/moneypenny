@@ -72,6 +72,9 @@ export class RadioDirector {
   private bumperTimes: number[] = [];
   private lastHumanCount = 0;
   private lastClients: unknown[] = [];
+  /** clid → last activity ms (voice/chat). Backup when clientlist channel filter fails. */
+  private activityClids = new Map<number, number>();
+  private static readonly ACTIVITY_TTL_MS = 3 * 60_000;
   private deadAirHandle: ReturnType<typeof setTimeout> | null = null;
   private clockCache: { sig: string; clock: FormatClock } | null = null;
   /** Operator cue (`!radio bumper` / `!radio say`, §6.4/§12): consumed at the
@@ -151,7 +154,9 @@ export class RadioDirector {
     if (!this.canBroadcast(cfg)) {
       this.deps.logger.info(
         {
-          humans: this.lastHumanCount,
+          humans: this.effectiveHumanCount(),
+          polledHumans: this.lastHumanCount,
+          activityHumans: this.activityClids.size,
           minPresent: cfg.minPresentToBroadcast,
           cooldownSec: cfg.cooldownSeconds,
           sinceLastBumperSec:
@@ -264,13 +269,33 @@ export class RadioDirector {
     this.lastHumanCount = humanCount;
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
+    const humans = this.effectiveHumanCount();
     if (
       this.deps.player.getState() === "idle" &&
-      humanCount >= cfg.minPresentToBroadcast &&
+      humans >= cfg.minPresentToBroadcast &&
       this.deadAirHandle == null
     ) {
       this.armDeadAir();
     }
+  }
+
+  /**
+   * Mark a human client as present (voice packet / chat / poke). Used when
+   * clientlist channel filtering undercounts (TS6 channelID map lag).
+   */
+  noteHumanActivity(clid: number): void {
+    if (!Number.isFinite(clid) || clid <= 0) return;
+    this.activityClids.set(clid, this.now());
+  }
+
+  /** Max of polled humans and recent voice/chat activity. */
+  effectiveHumanCount(): number {
+    const now = this.now();
+    const ttl = RadioDirector.ACTIVITY_TTL_MS;
+    for (const [id, t] of this.activityClids) {
+      if (now - t > ttl) this.activityClids.delete(id);
+    }
+    return Math.max(this.lastHumanCount, this.activityClids.size);
   }
 
   /** Advance the queue; if it's dry, arm the dead-air fill timer. */
@@ -380,7 +405,7 @@ export class RadioDirector {
   }
 
   private canBroadcast(cfg: RadioConfig): boolean {
-    if (this.lastHumanCount < cfg.minPresentToBroadcast) return false;
+    if (this.effectiveHumanCount() < cfg.minPresentToBroadcast) return false;
     if (isWithinQuietHours(new Date(this.now()), cfg.quietHours)) return false;
     const now = this.now();
     if (now - this.lastBumperAt < cfg.cooldownSeconds * 1000) return false;

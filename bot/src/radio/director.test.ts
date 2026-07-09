@@ -117,6 +117,16 @@ describe("RadioDirector", () => {
       expect(h.playNext).toHaveBeenCalledTimes(1);
     });
 
+    it("voice/chat activity counts as presence when clientlist undercounts", async () => {
+      h = harness({ clock: { wheel: [{ slot: "bumper" }] }, minPresentToBroadcast: 1 });
+      h.director.onPoll([], 0); // poll says empty (channelID bug)
+      h.director.noteHumanActivity(48); // but we heard voice from clid 48
+      h.director.noteHumanActivity(54);
+      expect(h.director.effectiveHumanCount()).toBe(2);
+      await h.director.onTrackBoundary();
+      expect(h.player.play).toHaveBeenCalledTimes(1);
+    });
+
     it("enforces the cooldown between bumpers", async () => {
       h = harness({
         clock: { wheel: [{ slot: "bumper" }] },

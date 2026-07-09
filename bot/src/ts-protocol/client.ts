@@ -20,6 +20,11 @@ import {
   type VoiceData,
 } from "@honeybbq/teamspeak-client";
 import type { Logger } from "../logger.js";
+import {
+  asChannelId,
+  filterClientsInChannel,
+  resolveOwnChannelId as resolveOwnChannelIdPure,
+} from "./channel-presence.js";
 import { HttpQueryError, TS6HttpQuery } from "./http-query.js";
 import {
   extractQueryRows,
@@ -496,15 +501,61 @@ export class TS3Client extends EventEmitter {
     if (!this.client) return [];
     try {
       const allClients = await listClients(this.client);
-      const myChannelId = this.client.channelID();
-      let inChannel = allClients.filter((c) => c.channelID === myChannelId);
-      if (this.httpQuery) {
+      const myChannelId = await this.resolveOwnChannelId(allClients);
+      let inChannel = filterClientsInChannel(allClients, myChannelId);
+      if (inChannel.length === 0 && allClients.length > 0) {
+        this.logger.warn(
+          {
+            allClients: allClients.length,
+            myChannelId: myChannelId.toString(),
+            selfClientId: this.clientId,
+            sample: allClients.slice(0, 5).map((c) => ({
+              id: c.id,
+              cid: String(c.channelID),
+              type: c.type,
+              nick: c.nickname?.slice(0, 24),
+            })),
+          },
+          "getClientsInChannel: empty after channel filter (presence may be wrong)",
+        );
+      }
+      if (this.httpQuery && inChannel.length > 0) {
         inChannel = await this.enrichClientServerGroups(inChannel);
       }
       return inChannel;
-    } catch {
+    } catch (err) {
+      this.logger.warn({ err }, "getClientsInChannel failed");
       return [];
     }
+  }
+
+  /**
+   * Resolve the bot's current channel id. Prefer clientlist self-row (authoritative),
+   * then the library in-memory map, then HTTP Query clientinfo. Avoids 0n when join
+   * reported "already member" without updating the library map (scheduled bumper bug).
+   */
+  private async resolveOwnChannelId(allClients?: ClientInfo[]): Promise<bigint> {
+    let httpChannelId: bigint | undefined;
+    const libCid = this.client?.channelID() ?? 0n;
+    // Only hit HTTP when list+library don't know us
+    const fromList =
+      this.clientId > 0 && allClients
+        ? allClients.find((c) => c.id === this.clientId)?.channelID
+        : undefined;
+    if (
+      (fromList == null || asChannelId(fromList) === 0n) &&
+      (libCid === 0n || libCid == null) &&
+      this.clientId > 0 &&
+      this.httpQuery
+    ) {
+      httpChannelId = (await this.getClientChannelId(this.clientId)) ?? undefined;
+    }
+    return resolveOwnChannelIdPure({
+      selfClientId: this.clientId,
+      libraryChannelId: libCid,
+      allClients,
+      httpChannelId,
+    });
   }
 
   /**
@@ -704,12 +755,16 @@ export class TS3Client extends EventEmitter {
    */
   async listClientsInCurrentChannel(): Promise<QueryClient[]> {
     if (!this.client) return [];
-    const myCid = Number(this.client.channelID());
     const myClid = this.clientId;
 
     try {
+      // Prefer full-client clientlist so we can resolve our channel from self-row.
+      const allClients = await listClients(this.client);
+      const myChannelId = await this.resolveOwnChannelId(allClients);
+      const myCidNum = Number(myChannelId);
+
       const httpQuery = this.httpQuery;
-      if (httpQuery) {
+      if (httpQuery && myCidNum > 0) {
         const res = await httpQuery.clientList();
         const rows = extractQueryRows(res.body);
         const out: QueryClient[] = [];
@@ -718,17 +773,15 @@ export class TS3Client extends EventEmitter {
           const cid = Number.parseInt(String(row.cid ?? ""), 10);
           const nickname = String(row.client_nickname ?? row.nickname ?? "").trim();
           if (!Number.isFinite(clid) || !Number.isFinite(cid) || !nickname) continue;
-          if (cid !== myCid || clid === myClid) continue;
+          if (cid !== myCidNum || clid === myClid) continue;
           out.push({ clid, nickname });
         }
-        return out;
+        if (out.length > 0 || myCidNum > 0) return out;
       }
 
-      const myChannelId = this.client.channelID();
-      const allClients = await listClients(this.client);
       return parseClientRows(
-        allClients
-          .filter((c) => c.channelID === myChannelId && c.id !== myClid)
+        filterClientsInChannel(allClients, myChannelId)
+          .filter((c) => c.id !== myClid)
           .map((c) => ({ clid: String(c.id), client_nickname: c.nickname })),
       );
     } catch (err) {

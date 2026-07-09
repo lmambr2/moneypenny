@@ -26,11 +26,20 @@ export class TextMessageHandler {
   async handle(msg: TS3TextMessage): Promise<void> {
     this.deps.roast.captureLine(msg);
 
+    const invokerClid = Number.parseInt(msg.invokerId, 10);
+    // Presence for radio: chat proves a human is here even if clientlist lags.
+    if (Number.isFinite(invokerClid) && invokerClid > 0) {
+      try {
+        this.deps.bot.noteRadioHumanActivity?.(invokerClid);
+      } catch {
+        /* optional on fakes */
+      }
+    }
+
     let canRun: ((commandName: string) => boolean) | undefined;
     let allowedClassifications: string[] | undefined;
     const engine = this.deps.rightsEngine();
     if (engine) {
-      const invokerClid = Number.parseInt(msg.invokerId, 10);
       const subject = await resolveSubject(
         msg.invokerUid,
         this.deps.tsClient,

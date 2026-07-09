@@ -422,6 +422,14 @@ export class BotInstance extends EventEmitter {
       },
     });
 
+    // Voice packets prove a human is in-channel (backup if clientlist channel filter fails).
+    this.tsClient.on("voiceData", (v: { clientId?: number }) => {
+      const clid = Number(v?.clientId);
+      if (Number.isFinite(clid) && clid > 0 && clid !== this.tsClient.getClientId()) {
+        this.radio.noteHumanActivity(clid);
+      }
+    });
+
     this.text = new TextMessageHandler({
       bot: this,
       config: this.config,
@@ -826,6 +834,11 @@ export class BotInstance extends EventEmitter {
    */
   prewarmRadioBumpers(opts?: { includeDoctrine?: boolean; hoursAhead?: number; lines?: string[] }) {
     return this.bumperFactory.prewarm(opts ?? {});
+  }
+
+  /** Chat/voice presence hint for radio minPresent gate. */
+  noteRadioHumanActivity(clid: number): void {
+    this.radio.noteHumanActivity(clid);
   }
 
   getRadioStatus() {
