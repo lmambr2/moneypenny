@@ -16,7 +16,9 @@ assistant** authored each batch of work, since not every commit carries a
   (`assertPublicPlaybackUrl` / `assertSafePlaybackTarget`)
 - **Medium:** extra compose host denylist; CSRF host compare case-insensitive
 - Refactor: session cookie parse via shared `extractSessionToken`
-- Tests: url-guard, stream, csrf, playback engine SSRF refusal
+- **Bugfix (non-security):** PlayQueue `forwardStack` rewrite on remove/addNext (stale
+  index → undefined next in random mode)
+- Tests: url-guard, stream, csrf, playback engine SSRF refusal, queue forwardStack
 
 ### Meta: Grok listed as a repo contributor
 **Author: Grok (xAI), driven by Lane Ambrose.**

@@ -67,6 +67,10 @@ export class PlayQueue {
     this.history = this.history.map((i) =>
       i > this.currentIndex ? i + 1 : i,
     );
+    // Keep prev→next resume indices valid after splice.
+    this.forwardStack = this.forwardStack.map((i) =>
+      i > this.currentIndex ? i + 1 : i,
+    );
   }
 
   remove(index: number): QueuedSong | null {
@@ -90,6 +94,12 @@ export class PlayQueue {
     // Same shift logic for history — drop entries pointing at the
     // removed song; shift entries > index down by 1.
     this.history = this.history
+      .filter((idx) => idx !== index)
+      .map((idx) => (idx > index ? idx - 1 : idx));
+
+    // forwardStack (prev→next resume) must shift the same way or next()
+    // can land on a stale index and return undefined.
+    this.forwardStack = this.forwardStack
       .filter((idx) => idx !== index)
       .map((idx) => (idx > index ? idx - 1 : idx));
 
@@ -145,15 +155,17 @@ export class PlayQueue {
       }
       case PlayMode.Random:
       case PlayMode.RandomLoop: {
-        // Prefer returning to the position recorded in the forward stack (prev song)
-        if (this.forwardStack.length > 0) {
+        // Prefer returning to the position recorded in the forward stack (prev song).
+        // Skip stale / OOB entries (defensive; remove/addNext also shift the stack).
+        while (this.forwardStack.length > 0) {
           const target = this.forwardStack.pop()!;
-          if (target !== this.currentIndex) {
-            this.pushHistory(this.currentIndex);
-            this.currentIndex = target;
-            this.playedIndices.add(target);
-            return this.songs[target];
+          if (target < 0 || target >= this.songs.length || target === this.currentIndex) {
+            continue;
           }
+          this.pushHistory(this.currentIndex);
+          this.currentIndex = target;
+          this.playedIndices.add(target);
+          return this.songs[target];
         }
 
         // Shuffle bag: pick uniformly from the songs not yet played this

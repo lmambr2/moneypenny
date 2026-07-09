@@ -112,6 +112,27 @@ describe("PlayQueue", () => {
     expect(queue.next()?.id).toBe("D");
   });
 
+  it("remove shifts forwardStack so random next() never returns undefined", () => {
+    queue.setMode(PlayMode.Random);
+    queue.add(makeSong("A"));
+    queue.add(makeSong("B"));
+    queue.add(makeSong("C"));
+    queue.playAt(0); // A
+    queue.playAt(1); // B — history [0]
+    queue.playAt(2); // C — history [0,1]
+    // Walk back twice: prev → B, prev → A; forwardStack = [2, 1]
+    expect(queue.prev()?.id).toBe("B");
+    expect(queue.prev()?.id).toBe("A");
+    // Remove C (was index 2, now only A,B) — stale forward entry 2 must drop/shift
+    queue.remove(2);
+    expect(queue.size()).toBe(2);
+    // next should resume to B (shifted), not undefined/stale index 2
+    const n = queue.next();
+    expect(n).not.toBeNull();
+    expect(n!.id).toBe("B");
+    expect(n!.id).toBeDefined();
+  });
+
   it("removing the only song clears the queue", () => {
     queue.add(makeSong("only"));
     queue.playAt(0);

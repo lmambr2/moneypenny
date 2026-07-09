@@ -102,9 +102,9 @@ plus `npm audit` on bot package.
 
 | Kind | Change |
 |------|--------|
-| **Bugfix** | Playback engine now fails closed on unsafe network URLs instead of handing them to ffmpeg (regression test). |
+| **Bugfix** | `PlayQueue.remove` / `addNext` did not rewrite `forwardStack` indices — after remove + prev/next in random mode, `next()` could return `undefined`. Shift/filter `forwardStack` like history; bounds-check on pop. |
 | **Refactor** | Session logout/change-password use shared `extractSessionToken` (safe URI decode) instead of a duplicate cookie parser that could throw on bad encoding. |
-| **API** | `assertSafePlaybackTarget` shared helper for “local path OR public network URL”. |
+| **API (security)** | `assertSafePlaybackTarget` shared helper for “local path OR public network URL” (H-2026-07-08-1). |
 
 ---
 
