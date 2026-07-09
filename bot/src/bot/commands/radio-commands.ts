@@ -35,6 +35,65 @@ export function parseTagFilters(
   };
 }
 
+/** Multi-hour mixes / full albums hog the channel — skip for seed auto-program. */
+export const RADIO_SEED_MAX_DURATION_SEC = 15 * 60;
+const SEED_SEARCH_LIMIT = 30;
+const SEED_POOL_CAP = 18;
+const RECENT_SEED_MEMORY = 16;
+
+/** True when a track is short enough (or duration unknown) and not an obvious mega-mix title. */
+export function isRadioSeedFriendlySong(
+  song: Pick<Song, "name" | "artist" | "duration">,
+  maxDurationSec = RADIO_SEED_MAX_DURATION_SEC,
+): boolean {
+  if (song.duration > 0 && song.duration > maxDurationSec) return false;
+  const n = `${song.name} ${song.artist}`.toLowerCase();
+  // "4 hours", "full album", "vol. 1" multi-hour livestream titles, etc.
+  if (/\b\d+\s*hours?\b/.test(n)) return false;
+  if (/\bfull\s+album\b/.test(n)) return false;
+  if (/\b\d+\s*hour\s+of\b/.test(n)) return false;
+  // Multi-hour / livestream mix titles (even when duration metadata is missing).
+  if (/\bmix\s+for\b/.test(n)) return false;
+  if (/\bsynthwave\s+mix\b/.test(n) || /\bstudy\s+music\b/.test(n)) {
+    if (song.duration === 0 || song.duration > 20 * 60) return false;
+  }
+  if (/\bvol\.?\s*\d+\b/.test(n) && (song.duration === 0 || song.duration > 30 * 60)) return false;
+  return true;
+}
+
+/** Fisher–Yates shuffle (mutates a copy). */
+export function shuffleSongs<T>(items: T[], rng: () => number = Math.random): T[] {
+  const out = items.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = out[i]!;
+    out[i] = out[j]!;
+    out[j] = tmp;
+  }
+  return out;
+}
+
+/**
+ * Order candidates for a seed pool: demote recently programmed ids, then shuffle
+ * within fresh/recent partitions so auto-DJ doesn't lock onto one hit forever.
+ */
+export function orderSeedCandidates<T extends { id: string }>(
+  candidates: T[],
+  recentIds: readonly string[],
+  opts: { cap?: number; shuffle?: boolean; rng?: () => number } = {},
+): T[] {
+  const cap = opts.cap ?? SEED_POOL_CAP;
+  const doShuffle = opts.shuffle !== false;
+  const rng = opts.rng ?? Math.random;
+  const recent = new Set(recentIds);
+  const fresh = candidates.filter((c) => !recent.has(c.id));
+  const stale = candidates.filter((c) => recent.has(c.id));
+  const ordered = doShuffle
+    ? [...shuffleSongs(fresh, rng), ...shuffleSongs(stale, rng)]
+    : [...fresh, ...stale];
+  return ordered.slice(0, Math.max(1, cap));
+}
+
 /**
  * Radio/DJ + rating command implementations (docs/radio.md §9/§12), extracted
  * from CommandExecutor so the transport/queue commands and the radio surface
@@ -42,6 +101,9 @@ export function parseTagFilters(
  * executor (shared with !playlist).
  */
 export class RadioCommands {
+  /** Soft anti-repeat for seed-built pools (song ids programmed recently). */
+  private recentSeedSongIds: string[] = [];
+
   constructor(
     private deps: CommandExecutorDeps,
     private resolvePlaylistSongs: (provider: MusicProvider, ref: string) => Promise<Song[]>,
@@ -246,21 +308,19 @@ export class RadioCommands {
       }
     }
     if (pool.length === 0) {
-      for (const seed of music.seedQueries ?? []) {
-        const hit = await this.deps.playback
-          .searchFirst(
-            { name: "play", args: seed, rawArgs: seed.split(/\s+/), flags: new Set() },
-            1,
-          )
-          .catch(() => null);
-        if (hit) pool.push({ ...hit.song, platform: hit.provider.platform });
-      }
+      // Seed queries: local-only multi-hit search + duration filter + shuffle.
+      // Never YouTube-fallback here — that re-saved multi-hour mixes every restock.
+      const seeded = await this.expandSeedQueries(music.seedQueries ?? [], music.shuffle !== false);
+      pool.push(...seeded);
     }
     if (pool.length === 0) {
       // No program → leave relay mode if we were on a timer.
       this.deps.onRelayChanged?.(null);
       return 0;
     }
+
+    // Remember seed-sourced ids so the next restock prefers other tracks.
+    this.noteSeedProgrammed(pool.map((s) => s.id));
 
     this.deps.queue.clear();
     for (const song of pool) this.deps.queue.add(song);
@@ -273,14 +333,90 @@ export class RadioCommands {
   }
 
   /**
-   * ACE-Step radio auto-fill (A4). Only when aceStepAutoFill is on and library
-   * selection produced nothing. Fail-open: never throws into the director.
+   * Expand profile seedQueries into a diverse local pool.
+   * - Local library only (no YouTube fallback → no re-download of mega-mixes)
+   * - Multiple hits per seed (not searchFirst limit 1)
+   * - Drop multi-hour / full-album titles and over-long durations
+   * - Soft anti-repeat of recently programmed ids + shuffle
+   * - If seeds match nothing usable, sample short local library tracks
+   */
+  private async expandSeedQueries(seeds: string[], shuffle: boolean): Promise<QueuedSong[]> {
+    const local = this.deps.getProvider(new Set(["l"]));
+    const byId = new Map<string, QueuedSong>();
+
+    const absorb = (songs: Song[]) => {
+      for (const song of songs) {
+        if (!isRadioSeedFriendlySong(song)) continue;
+        if (byId.has(song.id)) continue;
+        byId.set(song.id, { ...song, platform: "local" });
+      }
+    };
+
+    for (const seed of seeds) {
+      const q = seed.trim();
+      if (!q) continue;
+      try {
+        const result = await local.search(q, SEED_SEARCH_LIMIT);
+        absorb(result.songs ?? []);
+      } catch (err) {
+        this.deps.logger?.debug?.({ err, seed: q }, "radio: seed search failed");
+      }
+    }
+
+    // Seeds empty or only mega-mixes matched — sample the library instead of
+    // locking onto one YouTube "synthwave mix" forever.
+    if (byId.size === 0) {
+      try {
+        const browse = await local.search("", Math.max(SEED_SEARCH_LIMIT, 60));
+        absorb(browse.songs ?? []);
+      } catch (err) {
+        this.deps.logger?.debug?.({ err }, "radio: library sample for seeds failed");
+      }
+    }
+
+    const ordered = orderSeedCandidates([...byId.values()], this.recentSeedSongIds, {
+      cap: SEED_POOL_CAP,
+      shuffle,
+    });
+    if (ordered.length > 0) {
+      this.deps.logger?.info?.(
+        {
+          seeds,
+          candidates: byId.size,
+          queued: ordered.length,
+          sample: ordered.slice(0, 3).map((s) => s.name),
+        },
+        "radio: seed pool built",
+      );
+    }
+    return ordered;
+  }
+
+  private noteSeedProgrammed(ids: string[]): void {
+    for (const id of ids) {
+      if (!id) continue;
+      this.recentSeedSongIds = this.recentSeedSongIds.filter((x) => x !== id);
+      this.recentSeedSongIds.push(id);
+    }
+    while (this.recentSeedSongIds.length > RECENT_SEED_MEMORY) {
+      this.recentSeedSongIds.shift();
+    }
+  }
+
+  /**
+   * ACE-Step radio auto-fill (A4). Library/seed pool empty only.
+   * Gate: service configured + (profile.music.aceStepAutoFill === true OR global
+   * aceStepAutoFill with profile not explicitly false). Fail-open.
    */
   private async tryAceStepAutoFill(profile?: RadioProfile): Promise<boolean> {
     const cfg = this.deps.config;
-    if (!cfg.aceStepAutoFill) return false;
     const gen = this.deps.generateProvider;
     if (!gen?.isConfigured() || gen.isBusy()) return false;
+
+    const profileFlag = profile?.music?.aceStepAutoFill;
+    if (profileFlag === false) return false;
+    const allowed = profileFlag === true || !!cfg.aceStepAutoFill;
+    if (!allowed) return false;
 
     const prompt = buildRadioGenPrompt(profile, cfg.radio.activeProfile);
     try {

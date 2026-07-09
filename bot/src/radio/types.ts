@@ -53,6 +53,13 @@ export interface RadioProfile {
     relayBumperIntervalSec?: number;
     ratingMin?: number;
     harmonicSequencing?: boolean;
+    /**
+     * ACE-Step fill when this profile's library/seed pool is empty.
+     * - `true` — generate if ACE-Step is enabled + reachable (even when global radio auto-fill is off)
+     * - `false` — never ACE-fill for this profile
+     * - omit — follow global `aceStepAutoFill`
+     */
+    aceStepAutoFill?: boolean;
   };
   bumper?: {
     topics?: string[];

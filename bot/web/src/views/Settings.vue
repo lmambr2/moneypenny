@@ -635,11 +635,25 @@
                 <input type="checkbox" class="profile-toggle-switch" v-model="editedRadioProfile.shuffle" />
               </label>
             </div>
+            <div class="form-group" style="flex:0 0 auto;align-self:flex-end">
+              <label
+                class="profile-toggle"
+                style="margin:0"
+                title="If the library/seed pool is empty, generate a track with ACE-Step (must be enabled + reachable in Settings). Overrides global radio auto-fill when checked; uncheck and leave global off to never gen for this profile."
+              >
+                <span>ACE-Step if empty</span>
+                <input
+                  type="checkbox"
+                  class="profile-toggle-switch"
+                  v-model="editedRadioProfile.aceStepAutoFill"
+                />
+              </label>
+            </div>
           </div>
 
           <div class="form-group" style="margin:0 0 8px">
             <label
-              title="Free-text searches used when auto-programming (dead air / !radio ops). Local library first, then YouTube. One query per line."
+              title="Local-library searches for auto-program (dead air / !radio ops). No YouTube fallback. Multi-hit + shuffle; multi-hour mixes filtered out."
               >Music seed queries</label
             >
             <textarea
@@ -649,8 +663,9 @@
               placeholder="synthwave&#10;chill electronic&#10;retrowave"
             />
             <p class="profile-toggle-hint" style="margin:4px 0 0">
-              One search per line. Used when the profile has no tag select / playlist pool.
-              Prefer short-track terms over “4 hour mix”.
+              One search per line. <strong>Local library only</strong> (no YouTube re-download).
+              Builds a shuffled multi-track pool; drops multi-hour mixes / full albums.
+              Prefer short-track terms over “mix” / “hours”.
             </p>
           </div>
 
@@ -1708,6 +1723,8 @@ interface RadioProfileEdit {
   bumperTopicsText: string;
   bumperTone: string;
   shuffle: boolean;
+  /** When true, ACE-Step fill if pool empty and service available. */
+  aceStepAutoFill: boolean;
   playlistRefsText: string;
   /** Original profile blob minus fields we edit — re-merged on save so select/relay/weights survive. */
   extra: Record<string, unknown>;
@@ -1804,7 +1821,13 @@ function profileFromApi(key: string, raw: unknown): RadioProfileEdit {
       ? { ...(p.bumper as Record<string, unknown>) }
       : {};
   // Strip fields we edit so they don't double-write; keep select/relay/weights/etc.
-  const { seedQueries: _s, playlistRefs: _pl, shuffle: _sh, ...musicRest } = music;
+  const {
+    seedQueries: _s,
+    playlistRefs: _pl,
+    shuffle: _sh,
+    aceStepAutoFill: _ace,
+    ...musicRest
+  } = music;
   const { topics: _t, tone: _tone, ...bumperRest } = bumper;
   const { name: _n, music: _m, bumper: _b, ...topRest } = p;
   return {
@@ -1813,6 +1836,7 @@ function profileFromApi(key: string, raw: unknown): RadioProfileEdit {
     bumperTopicsText: linesToText(bumper.topics),
     bumperTone: typeof bumper.tone === 'string' ? bumper.tone : '',
     shuffle: music.shuffle !== false,
+    aceStepAutoFill: music.aceStepAutoFill === true,
     playlistRefsText: playlistRefsToText(music.playlistRefs),
     extra: {
       ...topRest,
@@ -1840,6 +1864,8 @@ function profileToApi(key: string, edit: RadioProfileEdit): Record<string, unkno
     ...extraMusic,
     shuffle: edit.shuffle,
   };
+  if (edit.aceStepAutoFill) music.aceStepAutoFill = true;
+  else delete music.aceStepAutoFill;
   if (seeds.length) music.seedQueries = seeds;
   else delete music.seedQueries;
   if (refs.length) music.playlistRefs = refs;
@@ -1922,6 +1948,7 @@ function addRadioProfile() {
     bumperTopicsText: '',
     bumperTone: '',
     shuffle: true,
+    aceStepAutoFill: false,
     playlistRefsText: '',
     extra: {},
   };

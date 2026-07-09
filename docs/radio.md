@@ -368,7 +368,8 @@ theming.
 Starter profiles: `combat`, `mining`, `salvage`, `hauling`, `lobby`/`idle`.
 
 **Selection precedence:** `music.select` (tag query, §9.4) + `playlistRefs`
-(expanded, §8.1) form the primary pool; `seedQueries` (free-text `play_music`) is the
+(expanded, §8.1) form the primary pool; `seedQueries` (local multi-hit search,
+duration/mega-mix filtered, shuffled, soft anti-repeat — **no YouTube fallback**) is the
 sparse-data fallback; `relayUrl` is last (hand off to a live stream). Dead-air
 auto-program uses the same selection.
 
