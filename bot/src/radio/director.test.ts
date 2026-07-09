@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { RadioDirector, type BuiltBumper } from "./director.js";
-import { defaultRadioConfig, type RadioConfig } from "./types.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlayerState } from "../audio/player.js";
+import { type BuiltBumper, RadioDirector } from "./director.js";
+import { defaultRadioConfig, type RadioConfig } from "./types.js";
 
 /** Test harness: mutable config + fakes for player, bumper factory, timers, clock. */
 function harness(cfgOverrides: Partial<RadioConfig> = {}) {
@@ -118,7 +118,11 @@ describe("RadioDirector", () => {
     });
 
     it("enforces the cooldown between bumpers", async () => {
-      h = harness({ clock: { wheel: [{ slot: "bumper" }] }, cooldownSeconds: 180, minPresentToBroadcast: 1 });
+      h = harness({
+        clock: { wheel: [{ slot: "bumper" }] },
+        cooldownSeconds: 180,
+        minPresentToBroadcast: 1,
+      });
       h.director.onPoll([], 1);
 
       await h.director.onTrackBoundary(); // bumper 1
@@ -169,10 +173,23 @@ describe("RadioDirector", () => {
   });
 
   describe("classification floor (§6.3)", () => {
-    function floorHarness(over: Partial<RadioConfig> = {}, resolveFloor?: (c: unknown[]) => string[]) {
-      const hh = harness({ clock: { wheel: [{ slot: "bumper" }] }, minPresentToBroadcast: 1, ...over });
+    function floorHarness(
+      over: Partial<RadioConfig> = {},
+      resolveFloor?: (c: unknown[]) => string[],
+    ) {
+      const hh = harness({
+        clock: { wheel: [{ slot: "bumper" }] },
+        minPresentToBroadcast: 1,
+        ...over,
+      });
       const director = new RadioDirector({
-        getConfig: () => ({ ...defaultRadioConfig(), enabled: true, clock: { wheel: [{ slot: "bumper" }] }, minPresentToBroadcast: 1, ...over }),
+        getConfig: () => ({
+          ...defaultRadioConfig(),
+          enabled: true,
+          clock: { wheel: [{ slot: "bumper" }] },
+          minPresentToBroadcast: 1,
+          ...over,
+        }),
         player: hh.player,
         bumperFactory: hh.bumperFactory,
         playNext: hh.playNext,
@@ -199,17 +216,19 @@ describe("RadioDirector", () => {
       await director.onTrackBoundary();
       expect(build).toHaveBeenCalledWith(expect.anything(), ["unclassified"]);
 
-      const { director: d2, build: b2 } = floorHarness({}, () => { throw new Error("ts down"); });
+      const { director: d2, build: b2 } = floorHarness({}, () => {
+        throw new Error("ts down");
+      });
       d2.onPoll([], 1);
       await d2.onTrackBoundary();
       expect(b2).toHaveBeenCalledWith(expect.anything(), ["unclassified"]);
     });
 
     it("config classificationFloor override wins over the resolver", async () => {
-      const { director, build } = floorHarness(
-        { classificationFloor: ["unclassified"] },
-        () => ["unclassified", "secret"],
-      );
+      const { director, build } = floorHarness({ classificationFloor: ["unclassified"] }, () => [
+        "unclassified",
+        "secret",
+      ]);
       director.onPoll([], 1);
       await director.onTrackBoundary();
       expect(build).toHaveBeenCalledWith(expect.anything(), ["unclassified"]);
@@ -371,7 +390,10 @@ describe("RadioDirector", () => {
     it("thenAutoProgram:false keeps the old bumper-only behavior", async () => {
       h = harness({
         minPresentToBroadcast: 5,
-        clock: { wheel: [{ slot: "song" }], deadAir: { afterSeconds: 25, fill: ["stationId"], thenAutoProgram: false } },
+        clock: {
+          wheel: [{ slot: "song" }],
+          deadAir: { afterSeconds: 25, fill: ["stationId"], thenAutoProgram: false },
+        },
       });
       h.director.onPoll([], 1);
       h.setQueueHasMore(false);

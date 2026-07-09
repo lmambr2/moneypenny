@@ -188,11 +188,17 @@ export function watchwordAliases(watchword: string): string[] {
   return [...aliases].sort((a, b) => b.length - a.length);
 }
 
-function stripWatchwordPrefix(norm: string, watchword: string): { stripped: boolean; rest: string } {
+function stripWatchwordPrefix(
+  norm: string,
+  watchword: string,
+): { stripped: boolean; rest: string } {
   for (const alias of watchwordAliases(watchword)) {
     const match = norm.match(aliasPrefixPattern(alias));
     if (!match) continue;
-    const rest = norm.slice(match[0].length).replace(/^[\s,;:]+/, "").trim();
+    const rest = norm
+      .slice(match[0].length)
+      .replace(/^[\s,;:]+/, "")
+      .trim();
     return { stripped: true, rest };
   }
   return { stripped: false, rest: "" };
@@ -223,9 +229,7 @@ function resolvePlaybackVerbToken(token: string): string | undefined {
  * No synonym table — only exact verb tokens.
  */
 function extractPlaybackVerb(tokens: string[]): string {
-  const cleaned = tokens
-    .map((t) => t.replace(/[.,!?;:'"]/g, "").toLowerCase())
-    .filter(Boolean);
+  const cleaned = tokens.map((t) => t.replace(/[.,!?;:'"]/g, "").toLowerCase()).filter(Boolean);
   if (!cleaned.length) return "";
 
   if (cleaned.length <= 5) {
@@ -275,7 +279,10 @@ export function extractCommandSegment(transcript: string, watchword: string): st
   for (const alias of watchwordAliases(watchword)) {
     const match = norm.match(aliasInfixPattern(alias));
     if (!match) continue;
-    const after = norm.slice((match.index ?? 0) + match[0].length).replace(/^[\s,;:]+/, "").trim();
+    const after = norm
+      .slice((match.index ?? 0) + match[0].length)
+      .replace(/^[\s,;:]+/, "")
+      .trim();
     if (after) {
       const verb = extractPlaybackVerb(after.split(/\s+/).filter(Boolean));
       if (verb && (verb === "play" || isActionableVoiceCommand(verb))) return verb;
@@ -309,9 +316,8 @@ export function extractWatchwordCommand(
   if (opts.kwsDetected || opts.textWakeFallback) {
     const { stripped, rest } = stripWatchwordPrefix(norm, watchword);
     if (stripped) {
-      const command = opts.kwsDetected || opts.armed
-        ? finalizeCommandSegment(rest)
-        : finalizeCommand(rest);
+      const command =
+        opts.kwsDetected || opts.armed ? finalizeCommandSegment(rest) : finalizeCommand(rest);
       return { matched: true, command };
     }
     if (opts.kwsDetected) {

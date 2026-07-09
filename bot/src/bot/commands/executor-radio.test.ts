@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
 import Database from "better-sqlite3";
+import { describe, expect, it, vi } from "vitest";
+import { defaultRadioConfig, type RadioConfig, TagStore } from "../../radio/index.js";
 import { CommandExecutor } from "./executor.js";
-import { defaultRadioConfig, TagStore, type RadioConfig } from "../../radio/index.js";
 
 function executor(radio: RadioConfig = defaultRadioConfig()) {
   const config = { commandPrefix: "!", radio } as never;
@@ -90,16 +90,44 @@ describe("cmdRadio ops (§8/§12)", () => {
     };
     const localProvider = {
       platform: "local",
-      getSongDetail: vi.fn(async (id: string) => ({ id, name: id, artist: "", album: "", duration: 1, coverUrl: "", platform: "local" })),
-      search: vi.fn(async () => ({ songs: [], playlists: [{ id: "pl1", name: "ops-mining" }], albums: [] })),
+      getSongDetail: vi.fn(async (id: string) => ({
+        id,
+        name: id,
+        artist: "",
+        album: "",
+        duration: 1,
+        coverUrl: "",
+        platform: "local",
+      })),
+      search: vi.fn(async () => ({
+        songs: [],
+        playlists: [{ id: "pl1", name: "ops-mining" }],
+        albums: [],
+      })),
       getPlaylistSongs: vi.fn(async () => [
-        { id: "m3u-1", name: "m3u-1", artist: "", album: "", duration: 1, coverUrl: "", platform: "local" },
+        {
+          id: "m3u-1",
+          name: "m3u-1",
+          artist: "",
+          album: "",
+          duration: 1,
+          coverUrl: "",
+          platform: "local",
+        },
       ]),
     };
     const streamProvider = {
       platform: "stream",
       getPlaylistSongs: vi.fn(async () => [
-        { id: "spotify:track:sp1", name: "Spot Track", artist: "S", album: "Spotify", duration: 1, coverUrl: "", platform: "stream" },
+        {
+          id: "spotify:track:sp1",
+          name: "Spot Track",
+          artist: "S",
+          album: "Spotify",
+          duration: 1,
+          coverUrl: "",
+          platform: "stream",
+        },
       ]),
     };
     const ex = new CommandExecutor({
@@ -108,7 +136,15 @@ describe("cmdRadio ops (§8/§12)", () => {
         extractId: (s: string) => s,
         searchFirst: vi.fn(async () => ({
           provider: { platform: "local" },
-          song: { id: "seed-1", name: "seed", artist: "", album: "", duration: 1, coverUrl: "", platform: "local" },
+          song: {
+            id: "seed-1",
+            name: "seed",
+            artist: "",
+            album: "",
+            duration: 1,
+            coverUrl: "",
+            platform: "local",
+          },
         })),
       } as never,
       player: { getState: () => "idle", resetFailures: vi.fn() } as never,
@@ -149,7 +185,10 @@ describe("cmdRadio ops (§8/§12)", () => {
     radio.profiles = {
       relay: {
         name: "relay",
-        music: { relayUrl: "https://icecast.example.org:8000/live.mp3", relayBumperIntervalSec: 60 },
+        music: {
+          relayUrl: "https://icecast.example.org:8000/live.mp3",
+          relayBumperIntervalSec: 60,
+        },
       },
       library: {
         name: "library",
@@ -162,11 +201,29 @@ describe("cmdRadio ops (§8/§12)", () => {
     const localProvider = {
       platform: "local",
       getSongDetail: vi.fn(async (id: string) => ({
-        id, name: id, artist: "", album: "", duration: 1, coverUrl: "", platform: "local",
+        id,
+        name: id,
+        artist: "",
+        album: "",
+        duration: 1,
+        coverUrl: "",
+        platform: "local",
       })),
-      search: vi.fn(async () => ({ songs: [], playlists: [{ id: "pl1", name: "ops-mining" }], albums: [] })),
+      search: vi.fn(async () => ({
+        songs: [],
+        playlists: [{ id: "pl1", name: "ops-mining" }],
+        albums: [],
+      })),
       getPlaylistSongs: vi.fn(async () => [
-        { id: "lib-1", name: "lib-1", artist: "", album: "", duration: 1, coverUrl: "", platform: "local" },
+        {
+          id: "lib-1",
+          name: "lib-1",
+          artist: "",
+          album: "",
+          duration: 1,
+          coverUrl: "",
+          platform: "local",
+        },
       ]),
     };
     const queue = {
@@ -238,7 +295,9 @@ describe("cmdRadio ops (§8/§12)", () => {
 describe("!skip routes through the radio director (skip = boundary)", () => {
   function skipHarness(result: "bumper" | "advanced") {
     const radio = {
-      cueBumper: vi.fn(), cueSay: vi.fn(), skipBumper: vi.fn(),
+      cueBumper: vi.fn(),
+      cueSay: vi.fn(),
+      skipBumper: vi.fn(),
       onTrackBoundary: vi.fn(async () => result),
       status: vi.fn(() => ({ songsUntilBumper: null, cuePending: false, skipNextPending: false })),
     };

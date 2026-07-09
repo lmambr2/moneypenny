@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import axios from "axios";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SherpaSttClient } from "./stt.js";
 
 vi.mock("axios", () => ({
@@ -7,7 +7,9 @@ vi.mock("axios", () => ({
     post: vi.fn(),
     delete: vi.fn(),
     isAxiosError: (err: unknown) =>
-      typeof err === "object" && err !== null && (err as { isAxiosError?: boolean }).isAxiosError === true,
+      typeof err === "object" &&
+      err !== null &&
+      (err as { isAxiosError?: boolean }).isAxiosError === true,
   },
 }));
 

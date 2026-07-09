@@ -9,7 +9,7 @@ export const SESSION_COOKIE_NAME = "moneypenny_session";
  */
 export function validateSessionFromHeaders(
   rawCookieHeader: string | undefined,
-  sessions: SessionStore
+  sessions: SessionStore,
 ): SessionValidation | null {
   if (!rawCookieHeader) return null;
   const token = parseCookie(rawCookieHeader, SESSION_COOKIE_NAME);

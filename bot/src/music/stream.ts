@@ -1,17 +1,15 @@
 import axios from "axios";
-import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
-import type {
-  MusicProvider,
-  Song,
-  Playlist,
-  Album,
-  SearchResult,
-  LyricLine,
-
-  AuthStatus,
-} from "./provider.js";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
+import type {
+  AuthStatus,
+  LyricLine,
+  MusicProvider,
+  Playlist,
+  SearchResult,
+  Song,
+} from "./provider.js";
+import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
 
 /**
  * StreamProvider (DESIGN §7.3) — plays an arbitrary HTTP/Icecast stream URL.
@@ -76,8 +74,11 @@ export function isStreamableUrl(input: string): boolean {
   if (!isPublicPlaybackUrl(input)) return false;
   const h = u.hostname;
   return (
-    !YOUTUBE_HOSTS.test(h) && !XTWITTER_HOSTS.test(h) && !BANDCAMP_HOSTS.test(h) &&
-    !TIDAL_HOSTS.test(h) && !SPOTIFY_HOSTS.test(h)
+    !YOUTUBE_HOSTS.test(h) &&
+    !XTWITTER_HOSTS.test(h) &&
+    !BANDCAMP_HOSTS.test(h) &&
+    !TIDAL_HOSTS.test(h) &&
+    !SPOTIFY_HOSTS.test(h)
   );
 }
 
@@ -86,7 +87,10 @@ export function isStreamableUrl(input: string): boolean {
  * scraping its OpenGraph tags. Used to play the song from the local library or
  * YouTube when no streaming bridge is configured. Best-effort — null on failure.
  */
-export async function resolveExternalTrackQuery(url: string, logger?: Logger): Promise<string | null> {
+export async function resolveExternalTrackQuery(
+  url: string,
+  logger?: Logger,
+): Promise<string | null> {
   if (!isPublicPlaybackUrl(url)) return null;
   try {
     const { data: html } = await axios.get<string>(url, {
@@ -96,15 +100,26 @@ export async function resolveExternalTrackQuery(url: string, logger?: Logger): P
     });
     const og = (prop: string): string | null => {
       const m =
-        html.match(new RegExp(`<meta[^>]+(?:property|name)=["']og:${prop}["'][^>]+content=["']([^"']+)["']`, "i")) ||
-        html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:${prop}["']`, "i"));
+        html.match(
+          new RegExp(
+            `<meta[^>]+(?:property|name)=["']og:${prop}["'][^>]+content=["']([^"']+)["']`,
+            "i",
+          ),
+        ) ||
+        html.match(
+          new RegExp(
+            `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:${prop}["']`,
+            "i",
+          ),
+        );
       return m ? decodeHtmlEntities(m[1]) : null;
     };
     const title = og("title");
     if (!title) return null;
     // Spotify desc: "Artist · Song · 2023" · Tidal: "Artist — ..." → take a leading artist if distinct.
     const artist = (og("description") || "").split(/[·|—-]/)[0].trim();
-    const q = artist && !title.toLowerCase().includes(artist.toLowerCase()) ? `${artist} ${title}` : title;
+    const q =
+      artist && !title.toLowerCase().includes(artist.toLowerCase()) ? `${artist} ${title}` : title;
     logger?.debug({ url, q }, "Resolved external (Spotify/Tidal) track to a search query");
     return q;
   } catch (err: unknown) {
@@ -115,8 +130,12 @@ export async function resolveExternalTrackQuery(url: string, logger?: Logger): P
 
 function decodeHtmlEntities(s: string): string {
   return s
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&#x27;/gi, "'");
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&#x27;/gi, "'");
 }
 
 export function isYouTubeUrl(input: string): boolean {
@@ -188,7 +207,9 @@ export class StreamProvider implements MusicProvider {
 
   /** Whether this provider can handle `query` (direct URL, or a bridged Spotify/Tidal ref). */
   canHandle(query: string): boolean {
-    return isStreamableUrl(query) || (!!this.bridgeUrl && (isSpotifyRef(query) || isTidalUrl(query)));
+    return (
+      isStreamableUrl(query) || (!!this.bridgeUrl && (isSpotifyRef(query) || isTidalUrl(query)))
+    );
   }
 
   private async resolveBridge(ref: string): Promise<BridgeResolved | null> {
@@ -201,7 +222,10 @@ export class StreamProvider implements MusicProvider {
       if (!data?.streamUrl) return null;
       // Never feed ffmpeg a private/literal or DNS-rebinding SSRF target.
       if (!(await assertPublicPlaybackUrl(data.streamUrl))) {
-        this.logger?.warn({ streamUrl: data.streamUrl.slice(0, 80) }, "Stream bridge returned non-public streamUrl — dropped");
+        this.logger?.warn(
+          { streamUrl: data.streamUrl.slice(0, 80) },
+          "Stream bridge returned non-public streamUrl — dropped",
+        );
         return null;
       }
       return data;

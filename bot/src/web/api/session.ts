@@ -1,11 +1,15 @@
+import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
-import type { Logger } from "../../logger.js";
-import type { UserStore } from "../../data/users.js";
-import type { SessionStore } from "../../data/sessions.js";
 import type { AuditStore } from "../../data/audit.js";
+import type { SessionStore } from "../../data/sessions.js";
 import { SESSION_TTL_MS } from "../../data/sessions.js";
-import { SESSION_COOKIE_NAME, validateSessionFromHeaders, extractSessionToken } from "../auth/validateSession.js";
+import type { UserStore } from "../../data/users.js";
+import type { Logger } from "../../logger.js";
+import {
+  extractSessionToken,
+  SESSION_COOKIE_NAME,
+  validateSessionFromHeaders,
+} from "../auth/validateSession.js";
 
 const FAILED_LOGIN_DELAY_MS = 250;
 
@@ -39,7 +43,7 @@ export function createSessionRouter(
   users: UserStore,
   sessions: SessionStore,
   audit: AuditStore,
-  logger: Logger
+  logger: Logger,
 ): Router {
   const router = Router();
 
@@ -80,8 +84,10 @@ export function createSessionRouter(
       setSessionCookie(res, token);
       try {
         audit.record({
-          actorId: user.id, actorUsername: user.username,
-          targetUserId: user.id, targetUsername: user.username,
+          actorId: user.id,
+          actorUsername: user.username,
+          targetUserId: user.id,
+          targetUsername: user.username,
           action: "admin.first_created",
         });
       } catch (auditErr) {
@@ -147,8 +153,10 @@ export function createSessionRouter(
     sessions.deleteAllForUser(u.id, currentToken ?? undefined);
     try {
       audit.record({
-        actorId: u.id, actorUsername: u.username,
-        targetUserId: u.id, targetUsername: u.username,
+        actorId: u.id,
+        actorUsername: u.username,
+        targetUserId: u.id,
+        targetUsername: u.username,
         action: "user.password_changed",
       });
     } catch (auditErr) {

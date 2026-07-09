@@ -40,10 +40,7 @@ export class VoiceConnection extends EventEmitter {
     });
   }
 
-  sendVoicePacket(
-    opusData: Buffer,
-    codec: number = CODEC_OPUS_MUSIC
-  ): void {
+  sendVoicePacket(opusData: Buffer, codec: number = CODEC_OPUS_MUSIC): void {
     if (!this.socket) return;
 
     const packetId = this.packetCounter++;

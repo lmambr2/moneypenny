@@ -1,6 +1,6 @@
-import type { TS3Client } from "../../ts-protocol/client.js";
 import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
+import type { TS3Client } from "../../ts-protocol/client.js";
 
 export type ChannelClient = Awaited<ReturnType<TS3Client["getClientsInChannel"]>>[number];
 
@@ -65,11 +65,17 @@ export class IdlePoller {
     if (this.idleTimer !== null) return;
     const minutes = this.deps.config.idleTimeoutMinutes ?? 0;
     if (!this.deps.isConnected() || minutes <= 0) return;
-    this.idleTimer = setTimeout(() => {
-      if (!this.deps.isConnected()) return;
-      this.deps.logger.info({ idleMinutes: minutes }, "Channel empty, disconnecting due to idle timeout");
-      this.deps.onDisconnect();
-    }, minutes * 60 * 1000);
+    this.idleTimer = setTimeout(
+      () => {
+        if (!this.deps.isConnected()) return;
+        this.deps.logger.info(
+          { idleMinutes: minutes },
+          "Channel empty, disconnecting due to idle timeout",
+        );
+        this.deps.onDisconnect();
+      },
+      minutes * 60 * 1000,
+    );
   }
 
   cancelIdleTimer(): void {

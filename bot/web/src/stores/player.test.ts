@@ -1,32 +1,32 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { setActivePinia, createPinia } from "pinia";
-import { usePlayerStore, type BotStatus } from "./player.js";
+import { createPinia, setActivePinia } from 'pinia';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type BotStatus, usePlayerStore } from './player.js';
 
 function sampleBot(overrides: Partial<BotStatus> = {}): BotStatus {
   return {
-    id: "bot-1",
-    name: "Test",
+    id: 'bot-1',
+    name: 'Test',
     connected: true,
     playing: true,
     paused: false,
     currentSong: {
-      id: "s1",
-      name: "Track",
-      artist: "Artist",
-      album: "",
+      id: 's1',
+      name: 'Track',
+      artist: 'Artist',
+      album: '',
       duration: 120,
-      coverUrl: "",
-      platform: "local",
+      coverUrl: '',
+      platform: 'local',
     },
     queueSize: 1,
     volume: 50,
-    playMode: "seq",
+    playMode: 'seq',
     elapsed: 10,
     ...overrides,
   };
 }
 
-describe("usePlayerStore", () => {
+describe('usePlayerStore', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setActivePinia(createPinia());
@@ -36,14 +36,14 @@ describe("usePlayerStore", () => {
     vi.useRealTimers();
   });
 
-  it("activeBot follows activeBotId", () => {
+  it('activeBot follows activeBotId', () => {
     const store = usePlayerStore();
-    store.bots = [sampleBot(), sampleBot({ id: "bot-2", name: "Other" })];
-    store.activeBotId = "bot-2";
-    expect(store.activeBot?.id).toBe("bot-2");
+    store.bots = [sampleBot(), sampleBot({ id: 'bot-2', name: 'Other' })];
+    store.activeBotId = 'bot-2';
+    expect(store.activeBot?.id).toBe('bot-2');
   });
 
-  it("elapsed interpolates forward while playing", () => {
+  it('elapsed interpolates forward while playing', () => {
     const store = usePlayerStore();
     const bot = sampleBot();
     store.bots = [bot];
@@ -54,7 +54,7 @@ describe("usePlayerStore", () => {
     expect(store.elapsed).toBeLessThan(13);
   });
 
-  it("_handlePlayerError sets rateLimitUntil on 429", () => {
+  it('_handlePlayerError sets rateLimitUntil on 429', () => {
     const store = usePlayerStore();
     const before = Date.now();
     store._handlePlayerError({
@@ -66,8 +66,8 @@ describe("usePlayerStore", () => {
     expect(store.isRateLimited).toBe(false);
   });
 
-  it("availableSources lists local, youtube, stream", () => {
+  it('availableSources lists local, youtube, stream', () => {
     const store = usePlayerStore();
-    expect(store.availableSources).toEqual(["local", "youtube", "stream"]);
+    expect(store.availableSources).toEqual(['local', 'youtube', 'stream']);
   });
 });

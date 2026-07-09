@@ -1,10 +1,10 @@
-import type { TS3Poke, TS3Client } from "../../ts-protocol/client.js";
+import type { ControlRouter, RouterContext } from "../../control/router.js";
 import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
 import type { RightsEngine } from "../../rights/index.js";
-import type { ControlRouter, RouterContext } from "../../control/router.js";
-import type { LlmRuntime } from "../llm/runtime.js";
+import type { TS3Client, TS3Poke } from "../../ts-protocol/client.js";
 import type { BotInstance } from "../instance.js";
+import type { LlmRuntime } from "../llm/runtime.js";
 import { resolveSubject } from "../rights/subject.js";
 
 export interface PokeHandlerDeps {
@@ -51,7 +51,10 @@ export class PokeHandler {
 
   async handle(poke: TS3Poke): Promise<void> {
     if (this.deps.config.pokeCommandsEnabled === false) {
-      this.deps.logger.debug({ from: poke.invokerName }, "Poke ignored (pokeCommandsEnabled=false)");
+      this.deps.logger.debug(
+        { from: poke.invokerName },
+        "Poke ignored (pokeCommandsEnabled=false)",
+      );
       return;
     }
 

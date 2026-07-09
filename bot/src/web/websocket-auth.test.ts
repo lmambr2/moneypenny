@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import express from "express";
 import http from "node:http";
+import type { AddressInfo } from "node:net";
+import express from "express";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocketServer, WebSocket as WSClient } from "ws";
-import { AddressInfo } from "node:net";
-import { createDatabase, type BotDatabase } from "../data/database.js";
-import { createUserStore } from "../data/users.js";
+import { type BotDatabase, createDatabase } from "../data/database.js";
 import { createSessionStore } from "../data/sessions.js";
-import { validateSessionFromHeaders, SESSION_COOKIE_NAME } from "./auth/validateSession.js";
+import { createUserStore } from "../data/users.js";
+import { SESSION_COOKIE_NAME, validateSessionFromHeaders } from "./auth/validateSession.js";
 
 function buildServer(sessions: ReturnType<typeof createSessionStore>) {
   const app = express();

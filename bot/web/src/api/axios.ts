@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { usePlayerStore } from '../stores/player.js';
 import router from '../router/index.js';
+import { usePlayerStore } from '../stores/player.js';
 
 const api = axios.create({ withCredentials: true });
 
@@ -17,7 +17,11 @@ function notifyFromPayload(
   const msg =
     (typeof data?.message === 'string' && data.message) ||
     (typeof data?.error === 'string' && data.error) ||
-    (status === 429 ? 'Rate limited. Please slow down.' : status === 403 ? 'Permission denied.' : 'Request failed');
+    (status === 429
+      ? 'Rate limited. Please slow down.'
+      : status === 403
+        ? 'Permission denied.'
+        : 'Request failed');
   const code = typeof data?.code === 'string' ? ` (code: ${data.code})` : '';
   const retryAfter = data?.retryAfter != null ? Number(data.retryAfter) : undefined;
   playerStore.notify(`${msg}${code}`, severity, retryAfter);

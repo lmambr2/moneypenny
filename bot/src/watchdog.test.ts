@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Watchdog, type WatchdogTarget } from "./watchdog.js";
 
 function fakeLogger(): any {
@@ -7,7 +7,11 @@ function fakeLogger(): any {
   return l;
 }
 
-function target(id: string, connected: boolean, reconnect = vi.fn().mockResolvedValue(undefined)): WatchdogTarget & { reconnect: any } {
+function target(
+  id: string,
+  connected: boolean,
+  reconnect = vi.fn().mockResolvedValue(undefined),
+): WatchdogTarget & { reconnect: any } {
   return { id, name: id, isConnected: () => connected, reconnect };
 }
 
@@ -48,14 +52,19 @@ describe("Watchdog — reconnection", () => {
     const reconnect = vi.fn().mockResolvedValue(undefined);
     const t: WatchdogTarget = { id: "a", isConnected: () => connected, reconnect };
     let clock = 0;
-    const wd = new Watchdog({ getTargets: () => [t], logger: fakeLogger(), reconnectCooldownMs: 60_000, now: () => clock });
+    const wd = new Watchdog({
+      getTargets: () => [t],
+      logger: fakeLogger(),
+      reconnectCooldownMs: 60_000,
+      now: () => clock,
+    });
 
-    await wd.tick();                 // disconnected → attempt 1
+    await wd.tick(); // disconnected → attempt 1
     connected = true;
-    await wd.tick();                 // healthy → backoff cleared
+    await wd.tick(); // healthy → backoff cleared
     connected = false;
     clock += 1; // well within cooldown, but backoff was reset
-    await wd.tick();                 // disconnected again → attempt immediately
+    await wd.tick(); // disconnected again → attempt immediately
     expect(reconnect).toHaveBeenCalledTimes(2);
   });
 
@@ -85,13 +94,19 @@ describe("Watchdog — memory ceiling", () => {
   it("does not fire below the limit or when disabled", async () => {
     const onMemoryExceeded = vi.fn();
     const under = new Watchdog({
-      getTargets: () => [], logger: fakeLogger(), memoryLimitMb: 100,
-      memoryUsage: () => 50 * 1024 * 1024, onMemoryExceeded,
+      getTargets: () => [],
+      logger: fakeLogger(),
+      memoryLimitMb: 100,
+      memoryUsage: () => 50 * 1024 * 1024,
+      onMemoryExceeded,
     });
     await under.tick();
     const disabled = new Watchdog({
-      getTargets: () => [], logger: fakeLogger(), memoryLimitMb: 0,
-      memoryUsage: () => 9_999 * 1024 * 1024, onMemoryExceeded,
+      getTargets: () => [],
+      logger: fakeLogger(),
+      memoryLimitMb: 0,
+      memoryUsage: () => 9_999 * 1024 * 1024,
+      onMemoryExceeded,
     });
     await disabled.tick();
     expect(onMemoryExceeded).not.toHaveBeenCalled();

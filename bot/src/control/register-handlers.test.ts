@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ControlRouter } from "./router.js";
-import { registerBotCommandHandlers, type CommandHandlerHost } from "./register-handlers.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedCommand } from "../bot/commands.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
+import { type CommandHandlerHost, registerBotCommandHandlers } from "./register-handlers.js";
+import { ControlRouter } from "./router.js";
 
 function fakeLogger(): any {
   const l: any = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -12,12 +12,17 @@ function fakeLogger(): any {
 
 function makeHost(overrides: Partial<CommandHandlerHost> = {}): CommandHandlerHost {
   return {
-    commands: { execute: vi.fn().mockResolvedValue("ok") } as unknown as CommandHandlerHost["commands"],
+    commands: {
+      execute: vi.fn().mockResolvedValue("ok"),
+    } as unknown as CommandHandlerHost["commands"],
     playback: {
       addResolvedItem: vi.fn(),
       playResolvedItem: vi.fn(),
     } as unknown as CommandHandlerHost["playback"],
-    roast: { handleCommand: vi.fn(), handleOptOut: vi.fn() } as unknown as CommandHandlerHost["roast"],
+    roast: {
+      handleCommand: vi.fn(),
+      handleOptOut: vi.fn(),
+    } as unknown as CommandHandlerHost["roast"],
     memory: {
       handleRemember: vi.fn(),
       handleRecall: vi.fn().mockResolvedValue(""),
@@ -55,7 +60,10 @@ describe("registerBotCommandHandlers", () => {
 
   it("delegates prev to executeCommand with the source message (vote/follow parity)", async () => {
     const msg = { invokerUid: "uid-1" } as TS3TextMessage;
-    const decision = await router.route("!prev", { bot: { isConnected: () => true } as any, logger: fakeLogger() });
+    const decision = await router.route("!prev", {
+      bot: { isConnected: () => true } as any,
+      logger: fakeLogger(),
+    });
     const out = await router.execute(decision, {
       bot: { isConnected: () => true } as any,
       logger: fakeLogger(),

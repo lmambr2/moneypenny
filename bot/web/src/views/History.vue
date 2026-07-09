@@ -28,11 +28,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
+import { onMounted, ref } from 'vue';
 import api from '../api/axios.js';
-import { usePlayerStore } from '../stores/player.js';
 import SongCard from '../components/SongCard.vue';
+import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
 
@@ -53,7 +53,8 @@ onMounted(async () => {
     } catch (err: any) {
       if (err?.response?.status !== 404) {
         const playerStore = usePlayerStore();
-        const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load history';
+        const msg =
+          err?.response?.data?.message || err?.response?.data?.error || 'Failed to load history';
         playerStore.notify(msg, 'error');
       }
     }

@@ -1,15 +1,25 @@
-import { describe, it, expect, vi } from "vitest";
+import Database from "better-sqlite3";
 import express from "express";
 import request from "supertest";
-import Database from "better-sqlite3";
-import { createMusicRouter } from "./music.js";
-import { TagStore } from "../../radio/index.js";
+import { describe, expect, it, vi } from "vitest";
 import type { MusicProvider } from "../../music/provider.js";
+import { TagStore } from "../../radio/index.js";
+import { createMusicRouter } from "./music.js";
 
 const stub = (platform: MusicProvider["platform"]): MusicProvider =>
-  ({ platform, search: vi.fn(), getSongUrl: vi.fn(), setQuality() {}, getQuality: () => "d",
-     getSongDetail: vi.fn(), getPlaylistSongs: vi.fn(), getRecommendPlaylists: vi.fn(),
-     getAlbumSongs: vi.fn(), getLyrics: vi.fn(), getAuthStatus: vi.fn() }) as unknown as MusicProvider;
+  ({
+    platform,
+    search: vi.fn(),
+    getSongUrl: vi.fn(),
+    setQuality() {},
+    getQuality: () => "d",
+    getSongDetail: vi.fn(),
+    getPlaylistSongs: vi.fn(),
+    getRecommendPlaylists: vi.fn(),
+    getAlbumSongs: vi.fn(),
+    getLyrics: vi.fn(),
+    getAuthStatus: vi.fn(),
+  }) as unknown as MusicProvider;
 
 function build(
   role: "admin" | "member" | null,
@@ -18,7 +28,11 @@ function build(
   const tagStore = new TagStore({ db: new Database(":memory:") });
   const app = express();
   app.use(express.json());
-  if (role) app.use((req, _res, next) => { req.user = { id: "u1", username: "u", role }; next(); });
+  if (role)
+    app.use((req, _res, next) => {
+      req.user = { id: "u1", username: "u", role };
+      next();
+    });
   app.use(
     createMusicRouter(stub("local"), stub("youtube"), stub("stream"), console as never, {
       tagStore,
@@ -47,7 +61,12 @@ describe("PATCH /tracks/:id/tags", () => {
       .patch("/tracks/abc/tags")
       .send({ genre: " synthwave ", bpm: "120", bumper: true, bumperKind: "id" });
     expect(res.status).toBe(200);
-    expect(tagStore.get("abc")).toMatchObject({ genre: "synthwave", bpm: 120, bumper: true, source: "manual" });
+    expect(tagStore.get("abc")).toMatchObject({
+      genre: "synthwave",
+      bpm: 120,
+      bumper: true,
+      source: "manual",
+    });
     expect(tagStore.isBumper("abc")).toBe(true);
   });
 
@@ -70,7 +89,9 @@ describe("PATCH /tracks/:id/tags", () => {
 
   it("ignores unknown/garbage fields", async () => {
     const { app, tagStore } = build("admin");
-    await request(app).patch("/tracks/abc/tags").send({ bpm: "not-a-number", evil: "x", genre: "ambient" });
+    await request(app)
+      .patch("/tracks/abc/tags")
+      .send({ bpm: "not-a-number", evil: "x", genre: "ambient" });
     expect(tagStore.get("abc")).toMatchObject({ genre: "ambient", bpm: undefined });
   });
 });

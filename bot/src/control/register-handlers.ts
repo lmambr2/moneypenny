@@ -1,13 +1,13 @@
+import type { CommandExecutor } from "../bot/commands/executor.js";
 import { commandsOfKind, type ParsedCommand } from "../bot/commands.js";
-import type { TS3TextMessage } from "../ts-protocol/client.js";
-import type { RoastService } from "../bot/community/roast.js";
-import type { MemoryService } from "../bot/community/memory.js";
 import type { KgService } from "../bot/community/kg.js";
+import type { MemoryService } from "../bot/community/memory.js";
+import type { RoastService } from "../bot/community/roast.js";
 import type { KnowledgeService } from "../bot/knowledge/service.js";
 import type { PlaybackEngine } from "../bot/playback/engine.js";
-import type { CommandExecutor } from "../bot/commands/executor.js";
+import { type EconomyCommand, handleEconomyCommand } from "../economy/service.js";
+import type { TS3TextMessage } from "../ts-protocol/client.js";
 import type { ControlRouter, RouterContext } from "./router.js";
-import { handleEconomyCommand, type EconomyCommand } from "../economy/service.js";
 
 /** Command execution surface wired into the ControlRouter. */
 export interface CommandHandlerHost {
@@ -43,9 +43,15 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
       execute: async (cmd, ctx, decision) => {
         if (decision.resolvedMusic) {
           if (name === "add") {
-            return host.playback.addResolvedItem(decision.resolvedMusic, decision.resolvedMusic.providerPlatform);
+            return host.playback.addResolvedItem(
+              decision.resolvedMusic,
+              decision.resolvedMusic.providerPlatform,
+            );
           }
-          return host.playback.playResolvedItem(decision.resolvedMusic, decision.resolvedMusic.providerPlatform);
+          return host.playback.playResolvedItem(
+            decision.resolvedMusic,
+            decision.resolvedMusic.providerPlatform,
+          );
         }
         return runCommand(cmd, ctx.message);
       },
@@ -59,7 +65,10 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     });
   }
 
-  const specialRunners: Record<string, (cmd: ParsedCommand, ctx: RouterContext) => Promise<string>> = {
+  const specialRunners: Record<
+    string,
+    (cmd: ParsedCommand, ctx: RouterContext) => Promise<string>
+  > = {
     roast: async () => host.roast.handleCommand(),
     roastout: async (_cmd, ctx) => host.roast.handleOptOut(ctx.invokerUid),
     roastin: async (_cmd, ctx) => host.roast.handleOptIn(ctx.invokerUid),
@@ -72,7 +81,8 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     refine: async (cmd) => handleEconomyCommand("refine" as EconomyCommand, cmd.args),
     craft: async (cmd) => handleEconomyCommand("craft" as EconomyCommand, cmd.args),
     econ: async (cmd) => handleEconomyCommand("econ" as EconomyCommand, cmd.args),
-    reindex: async (cmd) => host.knowledge.handleReindex(cmd.rawArgs.length ? cmd.rawArgs : undefined),
+    reindex: async (cmd) =>
+      host.knowledge.handleReindex(cmd.rawArgs.length ? cmd.rawArgs : undefined),
     ingeststatus: async () => host.knowledge.handleIngestStatus(),
     generate: async (cmd, ctx) => {
       if (!host.generate) {

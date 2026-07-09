@@ -9,8 +9,7 @@ export interface AnalystRequest {
 
 const DEFAULT_CLASSIFICATION = "restricted";
 
-export const ANALYST_USAGE =
-  "Usage: !analyst [-s] [class:<level>] <task>  (alias: !agent)";
+export const ANALYST_USAGE = "Usage: !analyst [-s] [class:<level>] <task>  (alias: !agent)";
 
 /** Parse `!analyst` / `!agent` args and flags. */
 export function parseAnalystCommand(

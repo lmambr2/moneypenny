@@ -83,7 +83,11 @@ function sizeChunks(text: string, maxChars: number, overlap: number): string[] {
     if (end < text.length) {
       // Prefer a clean break (paragraph > line > sentence) in the back half.
       const slice = text.slice(start, end);
-      const breakAt = Math.max(slice.lastIndexOf("\n\n"), slice.lastIndexOf("\n"), slice.lastIndexOf(". "));
+      const breakAt = Math.max(
+        slice.lastIndexOf("\n\n"),
+        slice.lastIndexOf("\n"),
+        slice.lastIndexOf(". "),
+      );
       if (breakAt > maxChars * 0.5) end = start + breakAt + 1;
     }
     out.push(text.slice(start, end));

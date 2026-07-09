@@ -1,9 +1,5 @@
-import { describe, it, expect } from "vitest";
-import {
-  detectServerProtocol,
-  type ServerProtocol,
-  type ProtocolDetectResult,
-} from "./protocol-detect.js";
+import { describe, expect, it } from "vitest";
+import { detectServerProtocol } from "./protocol-detect.js";
 
 describe("protocol-detect", () => {
   it("returns unknown for unreachable hosts", async () => {

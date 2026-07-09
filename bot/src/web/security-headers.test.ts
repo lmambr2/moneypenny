@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
 import express from "express";
 import request from "supertest";
+import { describe, expect, it } from "vitest";
 
 /**
  * The clickjacking-defence middleware is mounted at the top of

@@ -1,9 +1,9 @@
-import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { createRequire } from "node:module";
 import { accessSync, chmodSync, constants, rmSync } from "node:fs";
-import { createOpusEncoder, PCM_FRAME_BYTES, type Encoder } from "./encoder.js";
+import { createRequire } from "node:module";
 import type { Logger } from "../logger.js";
+import { createOpusEncoder, type Encoder, PCM_FRAME_BYTES } from "./encoder.js";
 
 const require = createRequire(import.meta.url);
 /** Optional dep — prefer system ffmpeg on the Pi; ffmpeg-static is a large fallback. */
@@ -46,7 +46,7 @@ const resolvedFfmpeg: string = (() => {
   if (ffmpegWorks("ffmpeg")) return "ffmpeg";
   const isWinPath = ffmpegPath ? /\\/.test(ffmpegPath) || ffmpegPath.endsWith(".exe") : false;
   const onWindows = process.platform === "win32";
-  if (ffmpegPath && (onWindows === isWinPath)) {
+  if (ffmpegPath && onWindows === isWinPath) {
     if (isExecutable(ffmpegPath) && ffmpegWorks(ffmpegPath)) return ffmpegPath;
   }
   return "ffmpeg";
@@ -70,11 +70,16 @@ export function buildFfmpegArgs(url: string, seekSeconds: number): string[] {
 
   if (isHttp) {
     args.push(
-      "-reconnect", "1",
-      "-reconnect_streamed", "1",
-      "-reconnect_delay_max", "30",
-      "-reconnect_on_network_error", "1",
-      "-reconnect_on_http_error", "4xx,5xx",
+      "-reconnect",
+      "1",
+      "-reconnect_streamed",
+      "1",
+      "-reconnect_delay_max",
+      "30",
+      "-reconnect_on_network_error",
+      "1",
+      "-reconnect_on_http_error",
+      "4xx,5xx",
     );
   }
   if (seekSeconds > 0) args.push("-ss", String(seekSeconds));
@@ -147,7 +152,7 @@ export class AudioPlayer extends EventEmitter {
     // for THIS playback only; cleared by stop()/the next play().
     this.playVolumeFloor = opts?.volumePctFloor ?? null;
 
-    const currentSessionId = this.sessionId; 
+    const currentSessionId = this.sessionId;
     this.currentUrl = url;
     this.seekOffset = seekSeconds;
     this.framesPlayed = 0;
@@ -168,7 +173,7 @@ export class AudioPlayer extends EventEmitter {
 
     const ffmpegBin = getFfmpegCommand();
     this.ffmpeg = spawn(ffmpegBin, args, { stdio: ["ignore", "pipe", "pipe"] });
-    
+
     const currentPid = this.ffmpeg.pid;
     if (currentPid) {
       globalActivePids.add(currentPid);
@@ -182,7 +187,11 @@ export class AudioPlayer extends EventEmitter {
       }
       this.pcmChunks.push(chunk);
       this.pcmBuffered += chunk.length;
-      if (this.pcmBuffered > AudioPlayer.BUFFER_HIGH_WATER && !this.ffmpegPaused && this.ffmpeg?.stdout) {
+      if (
+        this.pcmBuffered > AudioPlayer.BUFFER_HIGH_WATER &&
+        !this.ffmpegPaused &&
+        this.ffmpeg?.stdout
+      ) {
         this.ffmpeg.stdout.pause();
         this.ffmpegPaused = true;
       }
@@ -191,7 +200,7 @@ export class AudioPlayer extends EventEmitter {
     this.ffmpeg.on("exit", (code, signal) => {
       if (currentPid) globalActivePids.delete(currentPid);
       this.logger.info({ pid: currentPid, code, signal }, "FFmpeg exited");
-      
+
       // Only null out the field when the current session's process exits.
       if (this.sessionId === currentSessionId) {
         this.ffmpeg = null;
@@ -215,7 +224,7 @@ export class AudioPlayer extends EventEmitter {
     // 3. Incrementing the ID is the most effective logical "isolation wall".
     this.sessionId++;
     this.frameLoopRunning = false;
-    
+
     // Clear the buffer immediately so track switches are silent instantly.
     this.pcmChunks = [];
     this.pcmBuffered = 0;
@@ -233,7 +242,11 @@ export class AudioPlayer extends EventEmitter {
     if (this.downloader) {
       const ps = this.downloader;
       this.downloader = null;
-      try { ps.kill("SIGTERM"); } catch { /* already gone */ }
+      try {
+        ps.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
     }
 
     if (this.currentTempDir) {
@@ -256,13 +269,15 @@ export class AudioPlayer extends EventEmitter {
 
     try {
       proc.kill("SIGTERM");
-    } catch (e) { /* ignore */ }
+    } catch (_e) {
+      /* ignore */
+    }
 
     const killTimeout = setTimeout(() => {
       try {
-        process.kill(pid, 0); 
+        process.kill(pid, 0);
         process.kill(pid, "SIGKILL");
-      } catch (e) {
+      } catch (_e) {
       } finally {
         globalActivePids.delete(pid);
       }
@@ -300,23 +315,27 @@ export class AudioPlayer extends EventEmitter {
       //           has been unavailable for many consecutive iterations.
       //   Cond 2: playback time is near the end of the song (last 5s) or duration unknown.
       const elapsed = this.getElapsed();
-      const isNearEnd = this.currentSongDuration > 0
-        ? (this.currentSongDuration - elapsed) <= 5 // less than 5s from the end
-        : true; // be conservative when duration is unknown
-      
+      const isNearEnd =
+        this.currentSongDuration > 0
+          ? this.currentSongDuration - elapsed <= 5 // less than 5s from the end
+          : true; // be conservative when duration is unknown
+
       if (this.ffmpeg !== null && this.pcmBuffered < PCM_FRAME_BYTES) {
         this.emptyFrameAttempts++;
-        
+
         // Only treat playback as finished when BOTH hold: empty-frame threshold reached AND near the end.
         if (this.emptyFrameAttempts >= AudioPlayer.MAX_EMPTY_ATTEMPTS && isNearEnd) {
-          this.logger.info({ 
-            sessionId: this.sessionId,
-            emptyAttempts: this.emptyFrameAttempts,
-            bufferSize: this.pcmBuffered,
-            elapsed: Math.round(elapsed),
-            duration: this.currentSongDuration,
-            remaining: Math.round(this.currentSongDuration - elapsed)
-          }, "FFmpeg stopped outputting data near end, ending track");
+          this.logger.info(
+            {
+              sessionId: this.sessionId,
+              emptyAttempts: this.emptyFrameAttempts,
+              bufferSize: this.pcmBuffered,
+              elapsed: Math.round(elapsed),
+              duration: this.currentSongDuration,
+              remaining: Math.round(this.currentSongDuration - elapsed),
+            },
+            "FFmpeg stopped outputting data near end, ending track",
+          );
           this.frameLoopRunning = false;
           if (this.state !== "idle") {
             this.state = "idle";
@@ -377,7 +396,11 @@ export class AudioPlayer extends EventEmitter {
     const pcmFrame = this.takePcmFrame();
     if (!pcmFrame) return;
 
-    if (this.ffmpegPaused && this.pcmBuffered < AudioPlayer.BUFFER_LOW_WATER && this.ffmpeg?.stdout) {
+    if (
+      this.ffmpegPaused &&
+      this.pcmBuffered < AudioPlayer.BUFFER_LOW_WATER &&
+      this.ffmpeg?.stdout
+    ) {
       this.ffmpeg.stdout.resume();
       this.ffmpegPaused = false;
     }
@@ -427,19 +450,32 @@ export class AudioPlayer extends EventEmitter {
     return out;
   }
 
-  getElapsed(): number { return this.seekOffset + (this.framesPlayed * FRAME_DURATION_MS) / 1000; }
-  seek(seconds: number): void { 
+  getElapsed(): number {
+    return this.seekOffset + (this.framesPlayed * FRAME_DURATION_MS) / 1000;
+  }
+  seek(seconds: number): void {
     if (this.currentUrl && Number.isFinite(seconds) && seconds >= 0) {
       this.play(this.currentUrl, seconds, this.currentSongDuration);
     }
   }
-  pause(): void { if (this.state === "playing") this.state = "paused"; }
-  resume(): void { if (this.state === "paused") { this.state = "playing"; this.nextFrameTime = performance.now(); } }
-  resetFailures(): void { this.consecutiveFailures = 0; }
+  pause(): void {
+    if (this.state === "playing") this.state = "paused";
+  }
+  resume(): void {
+    if (this.state === "paused") {
+      this.state = "playing";
+      this.nextFrameTime = performance.now();
+    }
+  }
+  resetFailures(): void {
+    this.consecutiveFailures = 0;
+  }
   setVolume(vol: number): void {
     this.volume = Math.max(0, Math.min(100, vol));
   }
-  getVolume(): number { return this.volume; }
+  getVolume(): number {
+    return this.volume;
+  }
 
   /** Attenuate output while voice capture runs; restores on {@link restoreFromSttDuck}. */
   duckForStt(duckLevel: number): boolean {
@@ -459,5 +495,7 @@ export class AudioPlayer extends EventEmitter {
     return this.sttDuckActive;
   }
 
-  getState(): PlayerState { return this.state; }
+  getState(): PlayerState {
+    return this.state;
+  }
 }

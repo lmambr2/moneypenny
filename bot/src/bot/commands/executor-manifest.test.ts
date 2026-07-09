@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { CommandExecutor } from "./executor.js";
-import { commandsOfKind } from "../commands.js";
+import { describe, expect, it, vi } from "vitest";
 import { defaultRadioConfig } from "../../radio/index.js";
+import { commandsOfKind } from "../commands.js";
+import { CommandExecutor } from "./executor.js";
 
 /**
  * Manifest ↔ executor-switch parity: every `delegated` (and `resolved`)
@@ -26,16 +26,16 @@ describe("command manifest ↔ executor parity", () => {
       getProvider: vi.fn(),
     });
 
-  it.each([...commandsOfKind("delegated"), ...commandsOfKind("resolved")])(
-    "executor implements '%s'",
-    async (name) => {
-      try {
-        const out = await executor().execute({ name, args: "", rawArgs: [], flags: new Set() });
-        expect(out ?? "").not.toMatch(/^Unknown command/);
-      } catch {
-        // Threw inside its case on stub deps — the case exists, which is all
-        // this parity test asserts.
-      }
-    },
-  );
+  it.each([
+    ...commandsOfKind("delegated"),
+    ...commandsOfKind("resolved"),
+  ])("executor implements '%s'", async (name) => {
+    try {
+      const out = await executor().execute({ name, args: "", rawArgs: [], flags: new Set() });
+      expect(out ?? "").not.toMatch(/^Unknown command/);
+    } catch {
+      // Threw inside its case on stub deps — the case exists, which is all
+      // this parity test asserts.
+    }
+  });
 });

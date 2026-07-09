@@ -1,6 +1,6 @@
-import pino from "pino";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import pino from "pino";
 
 export type Logger = pino.Logger;
 

@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isUnderBumperDir, pinBumperToPool } from "./pin.js";
 
 describe("pinBumperToPool", () => {
@@ -19,12 +19,19 @@ describe("pinBumperToPool", () => {
   });
 
   it("rejects when nothing played yet", () => {
-    expect(pinBumperToPool(null, bumperDir)).toEqual({ ok: false, error: "no bumper has been played yet" });
+    expect(pinBumperToPool(null, bumperDir)).toEqual({
+      ok: false,
+      error: "no bumper has been played yet",
+    });
   });
 
   it("copies last bumper into the pool", () => {
     const src = join(dir, "gen.wav");
-    const out = pinBumperToPool({ path: src, label: "doctrine" }, bumperDir, () => 1_700_000_000_000);
+    const out = pinBumperToPool(
+      { path: src, label: "doctrine" },
+      bumperDir,
+      () => 1_700_000_000_000,
+    );
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(existsSync(out.dest)).toBe(true);

@@ -64,13 +64,9 @@ export class PlayQueue {
     }
     this.playedIndices = shifted;
 
-    this.history = this.history.map((i) =>
-      i > this.currentIndex ? i + 1 : i,
-    );
+    this.history = this.history.map((i) => (i > this.currentIndex ? i + 1 : i));
     // Keep prev→next resume indices valid after splice.
-    this.forwardStack = this.forwardStack.map((i) =>
-      i > this.currentIndex ? i + 1 : i,
-    );
+    this.forwardStack = this.forwardStack.map((i) => (i > this.currentIndex ? i + 1 : i));
   }
 
   remove(index: number): QueuedSong | null {
@@ -197,8 +193,7 @@ export class PlayQueue {
           }
         }
 
-        const nextIndex =
-          unplayed[Math.floor(Math.random() * unplayed.length)];
+        const nextIndex = unplayed[Math.floor(Math.random() * unplayed.length)];
         this.pushHistory(this.currentIndex);
         this.currentIndex = nextIndex;
         this.playedIndices.add(nextIndex);
@@ -245,8 +240,7 @@ export class PlayQueue {
   }
 
   current(): QueuedSong | null {
-    if (this.currentIndex < 0 || this.currentIndex >= this.songs.length)
-      return null;
+    if (this.currentIndex < 0 || this.currentIndex >= this.songs.length) return null;
     return this.songs[this.currentIndex];
   }
 

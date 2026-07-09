@@ -11,10 +11,7 @@ export const MUSIC_SEARCH_COMMANDS = new Set([
   "album",
 ]);
 
-export function musicSearchCommandName(
-  name: string,
-  aliases: Record<string, string> = {},
-): string {
+export function musicSearchCommandName(name: string, aliases: Record<string, string> = {}): string {
   const parsed = parseCommand(`!${name}`, "!", aliases);
   if (!parsed) return name;
   return parsed.name.replace(/[.,!?;:]+$/u, "");

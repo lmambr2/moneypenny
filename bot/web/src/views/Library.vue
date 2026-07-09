@@ -462,17 +462,17 @@ Body markdown…</pre>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Icon } from '@iconify/vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../api/axios.js';
-import { usePlayerStore, type Song, type Source } from '../stores/player.js';
-import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
-import { renderMarkdownPreview } from '../utils/markdownPreview.js';
 import CoverArt from '../components/CoverArt.vue';
 import SongCard from '../components/SongCard.vue';
-import StarRating from '../components/StarRating.vue';
 import SourceTabs from '../components/SourceTabs.vue';
+import StarRating from '../components/StarRating.vue';
 import { useSession } from '../composables/useSession.js';
+import { type Song, type Source, usePlayerStore } from '../stores/player.js';
+import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
+import { renderMarkdownPreview } from '../utils/markdownPreview.js';
 
 const store = usePlayerStore();
 const session = useSession();
@@ -489,7 +489,9 @@ interface TrackTagRow {
   loaded: boolean;
 }
 const trackTags = ref<Record<string, TrackTagRow>>({});
-const analyzerStatus = ref<{ enabled: boolean; available: boolean; onIngest?: boolean } | null>(null);
+const analyzerStatus = ref<{ enabled: boolean; available: boolean; onIngest?: boolean } | null>(
+  null,
+);
 const analyzerBusy = ref(false);
 const analyzerMsg = ref('');
 
@@ -520,9 +522,7 @@ async function runGenerate() {
   } catch (err: any) {
     genErr.value = true;
     genMsg.value =
-      err?.response?.data?.message ||
-      err?.response?.data?.error ||
-      'Generation failed';
+      err?.response?.data?.message || err?.response?.data?.error || 'Generation failed';
   } finally {
     genBusy.value = false;
   }
@@ -563,7 +563,11 @@ async function loadLibraryTracks() {
 
 async function deleteLibraryTrack(song: Song) {
   if (!session.isAdmin.value) return;
-  if (!confirm(`Delete “${song.name}” from the library?\n\nThis removes the file from disk under MUSIC_DIR.`)) {
+  if (
+    !confirm(
+      `Delete “${song.name}” from the library?\n\nThis removes the file from disk under MUSIC_DIR.`,
+    )
+  ) {
     return;
   }
   try {
@@ -580,7 +584,14 @@ async function deleteLibraryTrack(song: Song) {
 
 // Doctrine knowledge base (ROADMAP Phase 6). Admin-only API; non-admins / RAG-off
 // simply get an empty list.
-interface DoctrineDoc { source: string; classification: string; tags: string[]; chunks: number; bytes: number; updatedAt: number; }
+interface DoctrineDoc {
+  source: string;
+  classification: string;
+  tags: string[];
+  chunks: number;
+  bytes: number;
+  updatedAt: number;
+}
 const doctrine = ref<DoctrineDoc[]>([]);
 const doctrineBusy = ref(false);
 const doctrineMsg = ref('');
@@ -679,7 +690,9 @@ async function loadDoctrine() {
   try {
     const res = await api.get('/api/rag/doctrine');
     doctrine.value = res.data.docs ?? [];
-  } catch { /* RAG off or not admin — leave empty */ }
+  } catch {
+    /* RAG off or not admin — leave empty */
+  }
 }
 
 async function loadExportCapabilities() {
@@ -702,7 +715,8 @@ async function exportDoctrineDoc(source: string, format: 'docx' | 'pdf' = 'docx'
     const disposition = res.headers['content-disposition'] as string | undefined;
     const match = disposition?.match(/filename="([^"]+)"/);
     const filename = match?.[1] ?? source.replace(/\.(md|markdown)$/i, `.${format}`);
-    const mime = typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : undefined;
+    const mime =
+      typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : undefined;
     const blob = new Blob([res.data], { type: mime });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -733,17 +747,23 @@ async function onDoctrineUpload(e: Event) {
   if (!files.length) return;
   const fd = new FormData();
   for (const f of files) fd.append('files', f);
-  doctrineBusy.value = true; doctrineMsg.value = '';
+  doctrineBusy.value = true;
+  doctrineMsg.value = '';
   try {
-    const res = await api.post('/api/rag/doctrine', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    const res = await api.post('/api/rag/doctrine', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     const ok = res.data.ingested?.length ?? 0;
     const bad = res.data.failed?.length ?? 0;
-    doctrineMsg.value = `Ingested ${ok} doc(s)` + (bad ? `, ${bad} failed` : '') + '.';
+    doctrineMsg.value = `Ingested ${ok} doc(s)${bad ? `, ${bad} failed` : ''}.`;
     await loadDoctrine();
   } catch (err: any) {
-    doctrineMsg.value = err?.response?.data?.error ?? 'Upload failed — is the knowledge base enabled and are you an admin?';
+    doctrineMsg.value =
+      err?.response?.data?.error ??
+      'Upload failed — is the knowledge base enabled and are you an admin?';
   } finally {
-    doctrineBusy.value = false; input.value = '';
+    doctrineBusy.value = false;
+    input.value = '';
   }
 }
 async function deleteDoctrine(source: string) {
@@ -807,7 +827,8 @@ async function saveDoctrineEdit() {
   }
 }
 async function reindexDoctrine() {
-  doctrineBusy.value = true; doctrineMsg.value = '';
+  doctrineBusy.value = true;
+  doctrineMsg.value = '';
   try {
     const res = await api.post('/api/rag/doctrine/reindex');
     doctrineMsg.value = `Re-indexed ${res.data.reindexed} doc(s).`;
@@ -821,11 +842,13 @@ async function reindexDoctrine() {
 // Upload progress + cancel state
 const uploading = ref(false);
 const uploadProgress = ref(0);
-const currentUploadFiles = ref<Array<{
-  name: string;
-  status: 'pending' | 'uploading' | 'done' | 'failed' | 'cancelled';
-  error?: string;
-}>>([]);
+const currentUploadFiles = ref<
+  Array<{
+    name: string;
+    status: 'pending' | 'uploading' | 'done' | 'failed' | 'cancelled';
+    error?: string;
+  }>
+>([]);
 const abortController = ref<AbortController | null>(null);
 
 const userAvailable = computed<Source[]>(() => store.availableSources);
@@ -854,7 +877,8 @@ onMounted(async () => {
     } catch (err: any) {
       if (err?.response?.status !== 404) {
         const playerStore = usePlayerStore();
-        const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load history';
+        const msg =
+          err?.response?.data?.message || err?.response?.data?.error || 'Failed to load history';
         playerStore.notify(msg, 'error');
       }
     }
@@ -899,7 +923,9 @@ async function loadTrackTagsForRecent() {
       const r = res.data?.rating;
       if (r?.avg != null && r.count) row.ratingLabel = `${r.avg.toFixed(1)}★ (${r.count})`;
       row.loaded = true;
-    } catch { /* tag overlay optional */ }
+    } catch {
+      /* tag overlay optional */
+    }
   }
 }
 
@@ -978,7 +1004,7 @@ async function onUpload(e: Event) {
   if (!fileList || fileList.length === 0) return;
 
   // Start fresh progress UI for this batch
-  currentUploadFiles.value = Array.from(fileList).map(f => ({
+  currentUploadFiles.value = Array.from(fileList).map((f) => ({
     name: f.name,
     status: 'uploading' as const,
   }));
@@ -1010,7 +1036,12 @@ async function onUpload(e: Event) {
 
     // Update per-file statuses from server response
     for (const f of currentUploadFiles.value) {
-      const wasUploaded = uploaded.some((u: Song) => u.name === f.name || f.name.includes(u.name) || u.name.includes(f.name.replace(/\.[^.]+$/, '')));
+      const wasUploaded = uploaded.some(
+        (u: Song) =>
+          u.name === f.name ||
+          f.name.includes(u.name) ||
+          u.name.includes(f.name.replace(/\.[^.]+$/, '')),
+      );
       const failInfo = failed.find((x: any) => x.name === f.name);
       if (wasUploaded) {
         f.status = 'done';
@@ -1037,7 +1068,10 @@ async function onUpload(e: Event) {
 
     if (failed.length > 0) {
       const firstFail = failed[0];
-      store.notify(`Failed to upload ${failed.length} file(s). First: ${firstFail.name} — ${firstFail.error}`, 'error');
+      store.notify(
+        `Failed to upload ${failed.length} file(s). First: ${firstFail.name} — ${firstFail.error}`,
+        'error',
+      );
     }
 
     // Re-fetch to keep Home / Library / counts in sync with the fresh index.
@@ -1045,10 +1079,11 @@ async function onUpload(e: Event) {
     await loadLibraryTracks();
     void loadTrackTagsForRecent();
   } catch (err: any) {
-    const isCancel = err?.code === 'ERR_CANCELED' ||
-                     err?.name === 'CanceledError' ||
-                     err?.message?.toLowerCase?.().includes('cancel') ||
-                     err?.name === 'AbortError';
+    const isCancel =
+      err?.code === 'ERR_CANCELED' ||
+      err?.name === 'CanceledError' ||
+      err?.message?.toLowerCase?.().includes('cancel') ||
+      err?.name === 'AbortError';
 
     if (isCancel) {
       store.notify('Upload cancelled', 'info');

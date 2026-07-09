@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { migrateRightsConfig, CURRENT_RIGHTS_VERSION } from "./migrations.js";
+import { describe, expect, it } from "vitest";
 import type { RightsConfig } from "./index.js";
+import { CURRENT_RIGHTS_VERSION, migrateRightsConfig } from "./migrations.js";
 
 /** A frozen June-era ruleset shaped like the real one that broke !radio. */
 const frozen = (): RightsConfig => ({
@@ -38,7 +38,9 @@ describe("migrateRightsConfig", () => {
   it("applies exactly once: a later admin removal is never re-added", () => {
     const first = migrateRightsConfig(frozen(), 0);
     // Admin deliberately strips radio.say from @dj afterwards.
-    first.rights!.commandGroups!.dj = first.rights!.commandGroups!.dj.filter((t) => t !== "radio.say");
+    first.rights!.commandGroups!.dj = first.rights!.commandGroups!.dj.filter(
+      (t) => t !== "radio.say",
+    );
     const second = migrateRightsConfig(first.rights, first.version);
     expect(second.applied).toEqual([]);
     expect(second.rights!.commandGroups!.dj).not.toContain("radio.say");

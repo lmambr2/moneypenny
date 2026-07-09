@@ -1,5 +1,5 @@
-import net from "node:net";
 import http from "node:http";
+import net from "node:net";
 
 export type ServerProtocol = "ts3" | "ts6" | "unknown";
 

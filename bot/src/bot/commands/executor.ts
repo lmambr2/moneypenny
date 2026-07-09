@@ -1,17 +1,16 @@
-import type { TS3TextMessage } from "../../ts-protocol/client.js";
-import type { TS3Client } from "../../ts-protocol/client.js";
 import type { AudioPlayer } from "../../audio/player.js";
-import { PlayMode, type PlayQueue, type QueuedSong } from "../../audio/queue.js";
+import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
-import type { TagStore } from "../../radio/index.js";
-import { RadioCommands } from "./radio-commands.js";
-import { AUDIO_COMMANDS, type ParsedCommand } from "../commands.js";
-import type { BotProfileManager } from "../profile.js";
 import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
-import type { PlaybackEngine } from "../playback/engine.js";
+import type { TagStore } from "../../radio/index.js";
+import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
+import { AUDIO_COMMANDS, type ParsedCommand } from "../commands.js";
 import { MoveAllPendingStore } from "../control/move-all-pending.js";
 import { MoveClientRateLimiter } from "../control/move-rate.js";
+import type { PlaybackEngine } from "../playback/engine.js";
+import type { BotProfileManager } from "../profile.js";
+import { RadioCommands } from "./radio-commands.js";
 
 export interface CommandExecutorDeps {
   playback: PlaybackEngine;
@@ -50,7 +49,9 @@ export interface CommandExecutorDeps {
   generateProvider?: {
     isConfigured(): boolean;
     isBusy(): boolean;
-    generateAndIngest(prompt: string): Promise<
+    generateAndIngest(
+      prompt: string,
+    ): Promise<
       | { ok: true; song: import("../../music/provider.js").Song; relPath: string; jobId: string }
       | { ok: false; error: string }
     >;
@@ -81,7 +82,9 @@ export class CommandExecutor {
   private radioCommands: RadioCommands;
 
   constructor(private deps: CommandExecutorDeps) {
-    this.radioCommands = new RadioCommands(deps, (provider, ref) => this.resolvePlaylistSongs(provider, ref));
+    this.radioCommands = new RadioCommands(deps, (provider, ref) =>
+      this.resolvePlaylistSongs(provider, ref),
+    );
   }
 
   /** Dead-air auto-program hook for the RadioDirector (docs/radio.md §7). */
@@ -94,39 +97,69 @@ export class CommandExecutor {
       throw new Error("Bot is not connected to TeamSpeak");
     }
     switch (cmd.name) {
-      case "play": return this.cmdPlay(cmd);
-      case "chevron7": return this.cmdChevron7();
-      case "radio": return this.radioCommands.radio(cmd);
-      case "rate": return this.radioCommands.rate(cmd, msg);
-      case "unrate": return this.radioCommands.unrate(msg);
-      case "selecttracks": return this.radioCommands.selectTracks(cmd);
-      case "add": return this.cmdAdd(cmd);
+      case "play":
+        return this.cmdPlay(cmd);
+      case "chevron7":
+        return this.cmdChevron7();
+      case "radio":
+        return this.radioCommands.radio(cmd);
+      case "rate":
+        return this.radioCommands.rate(cmd, msg);
+      case "unrate":
+        return this.radioCommands.unrate(msg);
+      case "selecttracks":
+        return this.radioCommands.selectTracks(cmd);
+      case "add":
+        return this.cmdAdd(cmd);
       case "playnext":
-      case "pn": return this.cmdPlayNext(cmd);
-      case "pause": return this.cmdPause();
-      case "resume": return this.cmdResume();
-      case "stop": return this.cmdStop();
+      case "pn":
+        return this.cmdPlayNext(cmd);
+      case "pause":
+        return this.cmdPause();
+      case "resume":
+        return this.cmdResume();
+      case "stop":
+        return this.cmdStop();
       case "next":
-      case "skip": return this.cmdNext();
-      case "prev": return this.cmdPrev();
-      case "vol": return this.cmdVol(cmd);
-      case "now": return this.cmdNow();
+      case "skip":
+        return this.cmdNext();
+      case "prev":
+        return this.cmdPrev();
+      case "vol":
+        return this.cmdVol(cmd);
+      case "now":
+        return this.cmdNow();
       case "queue":
-      case "list": return this.cmdQueue();
-      case "clear": return this.cmdClear();
-      case "remove": return this.cmdRemove(cmd);
-      case "mode": return this.cmdMode(cmd);
-      case "playlist": return this.cmdPlaylist(cmd);
-      case "album": return this.cmdAlbum(cmd);
-      case "artist": return this.cmdArtist(cmd);
-      case "vote": return this.cmdVote(msg);
-      case "lyrics": return this.cmdLyrics();
-      case "move": return this.cmdMove(cmd);
-      case "moveclient": return this.cmdMoveClient(cmd);
-      case "moveall": return this.cmdMoveAll(cmd, msg);
-      case "follow": return this.cmdFollow(msg);
-      case "help": return this.cmdHelp();
-      case "test": return this.cmdTest();
+      case "list":
+        return this.cmdQueue();
+      case "clear":
+        return this.cmdClear();
+      case "remove":
+        return this.cmdRemove(cmd);
+      case "mode":
+        return this.cmdMode(cmd);
+      case "playlist":
+        return this.cmdPlaylist(cmd);
+      case "album":
+        return this.cmdAlbum(cmd);
+      case "artist":
+        return this.cmdArtist(cmd);
+      case "vote":
+        return this.cmdVote(msg);
+      case "lyrics":
+        return this.cmdLyrics();
+      case "move":
+        return this.cmdMove(cmd);
+      case "moveclient":
+        return this.cmdMoveClient(cmd);
+      case "moveall":
+        return this.cmdMoveAll(cmd, msg);
+      case "follow":
+        return this.cmdFollow(msg);
+      case "help":
+        return this.cmdHelp();
+      case "test":
+        return this.cmdTest();
       default:
         return `Unknown command: ${cmd.name}. Type ${this.deps.config.commandPrefix}help for help.`;
     }
@@ -259,7 +292,7 @@ export class CommandExecutor {
 
   private cmdVol(cmd: ParsedCommand): string {
     const vol = parseInt(cmd.args, 10);
-    if (isNaN(vol) || vol < 0 || vol > 100) return "Usage: !vol <0-100>";
+    if (Number.isNaN(vol) || vol < 0 || vol > 100) return "Usage: !vol <0-100>";
     this.deps.player.setVolume(vol);
     return `Volume set to ${vol}%`;
   }
@@ -290,7 +323,7 @@ export class CommandExecutor {
 
   private cmdRemove(cmd: ParsedCommand): string {
     const index = parseInt(cmd.args, 10) - 1;
-    if (isNaN(index) || index < 0) return "Usage: !remove <number>";
+    if (Number.isNaN(index) || index < 0) return "Usage: !remove <number>";
     const removed = this.deps.queue.remove(index);
     if (!removed) return "Invalid position";
     return `Removed: ${removed.name}`;
@@ -326,7 +359,9 @@ export class CommandExecutor {
           const query = ref.toLowerCase();
           const matched = userPlaylists.filter((p) => p.name.toLowerCase().includes(query));
           playlists = [...playlists, ...matched];
-        } catch { /* continue */ }
+        } catch {
+          /* continue */
+        }
       }
       if (playlists.length === 0) return [];
       playlistId = playlists[0].id;

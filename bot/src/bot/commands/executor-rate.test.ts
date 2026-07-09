@@ -1,13 +1,18 @@
-import { describe, it, expect, vi } from "vitest";
 import Database from "better-sqlite3";
-import { CommandExecutor } from "./executor.js";
+import { describe, expect, it, vi } from "vitest";
 import { TagStore } from "../../radio/index.js";
+import { CommandExecutor } from "./executor.js";
 
-function executor(current: { id: string; name: string } | null, searchHit?: { id: string; name: string }) {
+function executor(
+  current: { id: string; name: string } | null,
+  searchHit?: { id: string; name: string },
+) {
   const tagStore = new TagStore({ db: new Database(":memory:") });
   const ex = new CommandExecutor({
     playback: {
-      searchFirst: vi.fn(async () => (searchHit ? { provider: { platform: "local" }, song: searchHit } : null)),
+      searchFirst: vi.fn(async () =>
+        searchHit ? { provider: { platform: "local" }, song: searchHit } : null,
+      ),
     } as never,
     player: {} as never,
     queue: { current: () => current } as never,
@@ -24,7 +29,10 @@ function executor(current: { id: string; name: string } | null, searchHit?: { id
 
 const msg = { invokerUid: "uid-1" } as never;
 const run = (ex: CommandExecutor, args: string[]) =>
-  ex.execute({ name: args[0], args: args.slice(1).join(" "), rawArgs: args.slice(1), flags: new Set() }, msg);
+  ex.execute(
+    { name: args[0], args: args.slice(1).join(" "), rawArgs: args.slice(1), flags: new Set() },
+    msg,
+  );
 
 describe("cmdRate / cmdUnrate", () => {
   it("rates the now-playing track for the invoking user", async () => {

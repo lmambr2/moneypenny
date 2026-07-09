@@ -1,17 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotInstance } from "../bot/instance.js";
 import type { Logger } from "../logger.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
+import { registerBotCommandHandlers } from "./register-handlers.js";
 import {
   ControlRouter,
   invokerFields,
-  toolCallToCommand,
   type LlmAssist,
   type RouterContext,
+  toolCallToCommand,
 } from "./router.js";
-import { registerBotCommandHandlers } from "./register-handlers.js";
 
-type RouterBotStub = Pick<BotInstance, "isConnected" | "resolveLocalMusic"> & Record<string, unknown>;
+type RouterBotStub = Pick<BotInstance, "isConnected" | "resolveLocalMusic"> &
+  Record<string, unknown>;
 
 function fakeLogger(): Logger {
   const l = {
@@ -39,7 +40,10 @@ function makeContext(bot: BotInstance): RouterContext {
 
 describe("toolCallToCommand", () => {
   it("maps play_music with auto source to a flagless play command", () => {
-    const cmd = toolCallToCommand({ name: "play_music", arguments: { query: "bohemian rhapsody" } });
+    const cmd = toolCallToCommand({
+      name: "play_music",
+      arguments: { query: "bohemian rhapsody" },
+    });
     expect(cmd).not.toBeNull();
     expect(cmd!.name).toBe("play");
     expect(cmd!.args).toBe("bohemian rhapsody");
@@ -47,8 +51,18 @@ describe("toolCallToCommand", () => {
   });
 
   it("maps play_music source preferences to provider flags", () => {
-    expect(toolCallToCommand({ name: "play_music", arguments: { query: "x", source: "youtube" } })!.flags.has("y")).toBe(true);
-    expect(toolCallToCommand({ name: "play_music", arguments: { query: "x", source: "local" } })!.flags.has("l")).toBe(true);
+    expect(
+      toolCallToCommand({
+        name: "play_music",
+        arguments: { query: "x", source: "youtube" },
+      })!.flags.has("y"),
+    ).toBe(true);
+    expect(
+      toolCallToCommand({
+        name: "play_music",
+        arguments: { query: "x", source: "local" },
+      })!.flags.has("l"),
+    ).toBe(true);
   });
 
   it("maps queue() to add", () => {
@@ -137,7 +151,11 @@ describe("ControlRouter — deterministic routing", () => {
     const bot = fakeBot({ resolveLocalMusic: resolve });
     const d = await router.route("!play something", makeContext(bot), "!");
     expect(resolve).toHaveBeenCalledWith("something");
-    expect(d.resolvedMusic).toEqual({ type: "song", item: { id: "1", name: "Song" }, providerPlatform: "local" });
+    expect(d.resolvedMusic).toEqual({
+      type: "song",
+      item: { id: "1", name: "Song" },
+      providerPlatform: "local",
+    });
   });
 
   it("logs invoker identity on deterministic command match", async () => {
@@ -148,7 +166,13 @@ describe("ControlRouter — deterministic routing", () => {
       invokerUid: "uid-angelsfear",
       invokerName: "Angelsfear",
     } as TS3TextMessage;
-    const ctx: RouterContext = { bot: fakeBot(), logger, invokerUid: msg.invokerUid, invokerName: msg.invokerName, message: msg };
+    const ctx: RouterContext = {
+      bot: fakeBot(),
+      logger,
+      invokerUid: msg.invokerUid,
+      invokerName: msg.invokerName,
+      message: msg,
+    };
     await invokerRouter.route("!play africa", ctx, "!");
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -185,7 +209,10 @@ describe("ControlRouter — LLM routing", () => {
     };
     const router = new ControlRouter(fakeLogger(), llm);
     const d = await router.route("!ask what is the meaning of life", makeContext(fakeBot()), "!");
-    expect(d).toEqual({ type: "llm", llmIntent: { mode: "ask", text: "what is the meaning of life" } });
+    expect(d).toEqual({
+      type: "llm",
+      llmIntent: { mode: "ask", text: "what is the meaning of life" },
+    });
 
     const out = await router.execute(d, makeContext(fakeBot()));
     expect(llm.ask).toHaveBeenCalledWith("what is the meaning of life", undefined, {
@@ -196,7 +223,11 @@ describe("ControlRouter — LLM routing", () => {
   });
 
   it("routes unrecognized prefixed input to fuzzy intent (prefix stripped)", async () => {
-    const router = new ControlRouter(fakeLogger(), { ask: vi.fn(), chatForIntent: vi.fn(), delegate: vi.fn() });
+    const router = new ControlRouter(fakeLogger(), {
+      ask: vi.fn(),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn(),
+    });
     const d = await router.route("!I want some chill jazz", makeContext(fakeBot()), "!");
     expect(d.type).toBe("llm");
     expect(d.llmIntent).toEqual({ mode: "intent", text: "I want some chill jazz" });
@@ -215,7 +246,13 @@ describe("ControlRouter — LLM routing", () => {
     };
     const router = new ControlRouter(fakeLogger(), llm);
     // Register the same skip handler BotInstance registers.
-    router.registerHandler({ name: "skip", execute: async () => { await bot.skipNext(); return "Skipped to next."; } });
+    router.registerHandler({
+      name: "skip",
+      execute: async () => {
+        await bot.skipNext();
+        return "Skipped to next.";
+      },
+    });
 
     const d = await router.route("!gimme the next track", makeContext(bot), "!");
     expect(d.type).toBe("llm");
@@ -274,7 +311,9 @@ describe("ControlRouter — LLM routing", () => {
 
     const intentDecision = await router.route("!some vibe", ctx, "!");
     await router.execute(intentDecision, ctx);
-    expect(llm.chatForIntent).toHaveBeenCalledWith("some vibe", "room-7", { moveClientEnabled: true });
+    expect(llm.chatForIntent).toHaveBeenCalledWith("some vibe", "room-7", {
+      moveClientEnabled: true,
+    });
   });
 
   it("executes move_client tool calls as moveclient (R4)", async () => {
@@ -287,7 +326,9 @@ describe("ControlRouter — LLM routing", () => {
       ask: vi.fn(),
       chatForIntent: vi.fn().mockResolvedValue({
         content: null,
-        toolCalls: [{ name: "move_client", arguments: { client: "Bond", channel: "Briefing Room" } }],
+        toolCalls: [
+          { name: "move_client", arguments: { client: "Bond", channel: "Briefing Room" } },
+        ],
       }),
       delegate: vi.fn(),
     };
@@ -325,7 +366,11 @@ describe("ControlRouter — LLM routing", () => {
       isDelegateConfigured: () => true,
     };
     const router = new ControlRouter(fakeLogger(), llm);
-    const d = await router.route("!analyst summarise recruitment doctrine", makeContext(fakeBot()), "!");
+    const d = await router.route(
+      "!analyst summarise recruitment doctrine",
+      makeContext(fakeBot()),
+      "!",
+    );
     expect(d.type).toBe("llm");
     expect(d.llmIntent).toMatchObject({ mode: "delegate", text: "summarise recruitment doctrine" });
     const out = await router.execute(d, makeContext(fakeBot()));
@@ -337,7 +382,9 @@ describe("ControlRouter — LLM routing", () => {
   });
 
   it("!analyst -s saves delegate output to doctrine (sync)", async () => {
-    const saveAnalystDoc = vi.fn().mockResolvedValue({ ok: true, source: "reports/analyst-2026-06-22.md" });
+    const saveAnalystDoc = vi
+      .fn()
+      .mockResolvedValue({ ok: true, source: "reports/analyst-2026-06-22.md" });
     const llm: LlmAssist = {
       ask: vi.fn(),
       chatForIntent: vi.fn(),
@@ -345,7 +392,11 @@ describe("ControlRouter — LLM routing", () => {
       isDelegateConfigured: () => true,
     };
     const router = new ControlRouter(fakeLogger(), llm);
-    const d = await router.route("!analyst -s class:secret draft brief", makeContext(fakeBot({ saveAnalystDoc })), "!");
+    const d = await router.route(
+      "!analyst -s class:secret draft brief",
+      makeContext(fakeBot({ saveAnalystDoc })),
+      "!",
+    );
     const out = await router.execute(d, makeContext(fakeBot({ saveAnalystDoc })));
     expect(saveAnalystDoc).toHaveBeenCalledWith("# Brief\nOps summary.", "secret");
     expect(out).toContain("Saved to knowledge base");
@@ -355,7 +406,9 @@ describe("ControlRouter — LLM routing", () => {
     const llm: LlmAssist = {
       ask: vi.fn(),
       chatForIntent: vi.fn(),
-      delegate: vi.fn().mockImplementation(() => new Promise((r) => setTimeout(() => r("INTSUM draft"), 20))),
+      delegate: vi
+        .fn()
+        .mockImplementation(() => new Promise((r) => setTimeout(() => r("INTSUM draft"), 20))),
       isDelegateConfigured: () => true,
     };
     const router = new ControlRouter(fakeLogger(), llm);
@@ -364,7 +417,9 @@ describe("ControlRouter — LLM routing", () => {
     const ctx = {
       ...makeContext(fakeBot()),
       invokerName: "Bond",
-      postFollowUp: async (text: string) => { posts.push(text); },
+      postFollowUp: async (text: string) => {
+        posts.push(text);
+      },
     };
     const out = await router.execute(d, ctx);
     expect(out).toMatch(/Analyst on it/i);
@@ -380,7 +435,12 @@ describe("ControlRouter — LLM routing", () => {
       ask: vi.fn(),
       chatForIntent: vi.fn().mockResolvedValue({
         content: null,
-        toolCalls: [{ name: "delegate_to_agent", arguments: { task: "write INTSUM", context: "ops last week" } }],
+        toolCalls: [
+          {
+            name: "delegate_to_agent",
+            arguments: { task: "write INTSUM", context: "ops last week" },
+          },
+        ],
       }),
       delegate: vi.fn().mockResolvedValue("Done."),
     };
@@ -483,7 +543,11 @@ describe("ControlRouter — voice routing", () => {
   });
 
   it("routes unknown speech to the LLM intent path (covers fuzzy music + Q&A)", async () => {
-    const router = new ControlRouter(fakeLogger(), { ask: vi.fn(), chatForIntent: vi.fn(), delegate: vi.fn() });
+    const router = new ControlRouter(fakeLogger(), {
+      ask: vi.fn(),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn(),
+    });
     const d = await router.routeVoice("what is the capital of france", makeContext(fakeBot()));
     expect(d.type).toBe("llm");
     expect(d.llmIntent).toEqual({ mode: "intent", text: "what is the capital of france" });
@@ -510,7 +574,13 @@ describe("ControlRouter — rank gating", () => {
   it("denies a typed command the invoker lacks permission for", async () => {
     const skip = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "stop", execute: async () => { skip(); return "stopped"; } });
+    router.registerHandler({
+      name: "stop",
+      execute: async () => {
+        skip();
+        return "stopped";
+      },
+    });
 
     const ctx = ctxWithRights(fakeBot(), new Set(["play"])); // no "stop"
     const d = await router.route("!stop", ctx, "!");
@@ -531,11 +601,19 @@ describe("ControlRouter — rank gating", () => {
     const stopHandler = vi.fn();
     const llm: LlmAssist = {
       ask: vi.fn(),
-      chatForIntent: vi.fn().mockResolvedValue({ content: null, toolCalls: [{ name: "stop", arguments: {} }] }),
+      chatForIntent: vi
+        .fn()
+        .mockResolvedValue({ content: null, toolCalls: [{ name: "stop", arguments: {} }] }),
       delegate: vi.fn(),
     };
     const router = new ControlRouter(fakeLogger(), llm);
-    router.registerHandler({ name: "stop", execute: async () => { stopHandler(); return "stopped"; } });
+    router.registerHandler({
+      name: "stop",
+      execute: async () => {
+        stopHandler();
+        return "stopped";
+      },
+    });
 
     const ctx = ctxWithRights(fakeBot(), new Set(["play"])); // not allowed to stop
     const d = await router.route("!shut it all down", ctx, "!");
@@ -545,7 +623,11 @@ describe("ControlRouter — rank gating", () => {
   });
 
   it("gates !ask itself", async () => {
-    const llm: LlmAssist = { ask: vi.fn().mockResolvedValue("hi"), chatForIntent: vi.fn(), delegate: vi.fn() };
+    const llm: LlmAssist = {
+      ask: vi.fn().mockResolvedValue("hi"),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn(),
+    };
     const router = new ControlRouter(fakeLogger(), llm);
     const ctx = ctxWithRights(fakeBot(), new Set(["play"])); // no "ask"
     const d = await router.route("!ask anything", ctx, "!");
@@ -576,7 +658,9 @@ describe("ControlRouter — radio.power gating", () => {
     const canRun = (c: string) => c !== "radio.ops";
 
     const setOps = await router.route("!radio ops mining", makeContext(fakeBot()), "!");
-    expect(await router.execute(setOps, { ...makeContext(fakeBot()), canRun })).toMatch(/permission/i);
+    expect(await router.execute(setOps, { ...makeContext(fakeBot()), canRun })).toMatch(
+      /permission/i,
+    );
     expect(handler).not.toHaveBeenCalled();
 
     const list = await router.route("!radio ops list", makeContext(fakeBot()), "!");

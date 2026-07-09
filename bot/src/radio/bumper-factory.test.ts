@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { RadioBumperFactory, type NowPlayingInfo } from "./bumper-factory.js";
+import { describe, expect, it, vi } from "vitest";
+import { type NowPlayingInfo, RadioBumperFactory } from "./bumper-factory.js";
 import type { PrerecordedPool } from "./prerecorded.js";
 import type { SpeechSink } from "./speech.js";
-import { defaultRadioConfig, type BumperSource, type RadioConfig } from "./types.js";
+import { type BumperSource, defaultRadioConfig, type RadioConfig } from "./types.js";
 
 function harness(opts: {
   sources?: BumperSource[];
@@ -23,7 +23,9 @@ function harness(opts: {
     activeProfile: "ops",
     profiles: { ops: { name: "ops", bumper: opts.profile ?? { topics: ["refinery yields"] } } },
   };
-  const prerecorded = { pick: vi.fn(() => opts.prerecordedPick ?? null) } as unknown as PrerecordedPool;
+  const prerecorded = {
+    pick: vi.fn(() => opts.prerecordedPick ?? null),
+  } as unknown as PrerecordedPool;
   const renderFn = vi.fn(opts.render ?? (async (t: string) => `/cache/${t.length}.wav`));
   const speech = { render: renderFn } as unknown as SpeechSink;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
@@ -113,7 +115,9 @@ describe("RadioBumperFactory", () => {
       prerecordedPick: null,
       nowPlaying: {},
     });
-    expect(await factory.build({ slot: "bumper", sources: ["prerecorded", "nowPlaying"] })).toBeNull();
+    expect(
+      await factory.build({ slot: "bumper", sources: ["prerecorded", "nowPlaying"] }),
+    ).toBeNull();
   });
 
   it("memory resolves to null when opt-in is off (OQ1)", async () => {
@@ -151,7 +155,11 @@ describe("say (§12 operator liner)", () => {
     const long = Array.from({ length: 200 }, (_, i) => `w${i}`).join(" ");
     const b = await factory.say(long);
     expect(b?.label).toBe("say");
-    const [text, source, opts] = renderFn.mock.calls[0] as unknown as [string, string, { floor: string[] }];
+    const [text, source, opts] = renderFn.mock.calls[0] as unknown as [
+      string,
+      string,
+      { floor: string[] },
+    ];
     expect(text.split(/\s+/).length).toBeLessThanOrEqual(75); // 30s cap
     expect(source).toBe("say");
     expect(opts.floor).toContain("operator"); // never enters the persistent cache
@@ -202,14 +210,22 @@ describe("doctrine source (§6.1/§6.2/§6.3)", () => {
       retrieval: null, // RAG off
       llm: llm("never used"),
     });
-    const b = await factory.build({ slot: "bumper", sources: ["doctrine", "stationId"] }, ["unclassified"]);
+    const b = await factory.build({ slot: "bumper", sources: ["doctrine", "stationId"] }, [
+      "unclassified",
+    ]);
     expect(b?.label).toBe("stationId"); // music/canned never blocked by a dead substrate
     expect(renderFn).toHaveBeenCalledWith("This is Moneypenny Radio.", "stationId");
   });
 
   it("no retrieved material → null (invent nothing)", async () => {
-    const { factory } = harness({ sources: ["doctrine"], retrieval: retrieval(null), llm: llm("made up") });
-    expect(await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"])).toBeNull();
+    const { factory } = harness({
+      sources: ["doctrine"],
+      retrieval: retrieval(null),
+      llm: llm("made up"),
+    });
+    expect(
+      await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]),
+    ).toBeNull();
   });
 
   it("no curated topics → null (nothing to talk about)", async () => {
@@ -219,6 +235,8 @@ describe("doctrine source (§6.1/§6.2/§6.3)", () => {
       llm: llm("y"),
       profile: { topics: [] },
     });
-    expect(await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"])).toBeNull();
+    expect(
+      await factory.build({ slot: "bumper", sources: ["doctrine"] }, ["unclassified"]),
+    ).toBeNull();
   });
 });

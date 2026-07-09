@@ -8,8 +8,8 @@
  */
 
 import type { Logger } from "../logger.js";
-import { isPublicPlaybackUrl } from "../music/url-guard.js";
 import { isStreamableUrl } from "../music/stream.js";
+import { isPublicPlaybackUrl } from "../music/url-guard.js";
 
 export interface RelayConfig {
   /** Live stream URL (http/https Icecast/SC). */
@@ -18,10 +18,12 @@ export interface RelayConfig {
   bumperIntervalSec: number;
 }
 
-export function resolveRelayFromProfile(music?: {
-  relayUrl?: string | null;
-  relayBumperIntervalSec?: number;
-} | null): RelayConfig | null {
+export function resolveRelayFromProfile(
+  music?: {
+    relayUrl?: string | null;
+    relayBumperIntervalSec?: number;
+  } | null,
+): RelayConfig | null {
   const url = (music?.relayUrl ?? "").trim();
   if (!url) return null;
   if (!isStreamableUrl(url) && !isPublicPlaybackUrl(url)) return null;

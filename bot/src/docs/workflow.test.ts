@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   buildWorkflowTask,
   parseWorkflowCommand,
-  workflowSavePath,
   WORKFLOW_USAGE,
+  workflowSavePath,
 } from "./workflow.js";
 
 describe("parseWorkflowCommand", () => {
@@ -56,7 +56,11 @@ describe("buildWorkflowTask", () => {
 
 describe("workflowSavePath", () => {
   it("namespaced by kind and date", () => {
-    expect(workflowSavePath("intsum", new Date("2026-06-21T12:00:00Z"))).toBe("intel/intsum-2026-06-21.md");
-    expect(workflowSavePath("aar", new Date("2026-06-21T12:00:00Z"))).toBe("reports/aar-2026-06-21.md");
+    expect(workflowSavePath("intsum", new Date("2026-06-21T12:00:00Z"))).toBe(
+      "intel/intsum-2026-06-21.md",
+    );
+    expect(workflowSavePath("aar", new Date("2026-06-21T12:00:00Z"))).toBe(
+      "reports/aar-2026-06-21.md",
+    );
   });
 });

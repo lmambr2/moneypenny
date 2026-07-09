@@ -13,7 +13,11 @@ export async function probeHttpHealth(baseUrl: string, timeoutMs = 5000): Promis
 }
 
 /** Probe Kokoro TTS with a one-word synthesis request. */
-export async function probeKokoroTts(baseUrl: string, voice: string, timeoutMs = 15000): Promise<boolean> {
+export async function probeKokoroTts(
+  baseUrl: string,
+  voice: string,
+  timeoutMs = 15000,
+): Promise<boolean> {
   try {
     const client = new KokoroTtsClient({ url: baseUrl, voice, timeoutMs });
     const { audio } = await client.synthesize("ok");

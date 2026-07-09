@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CommandExecutor } from "./executor.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotConfig } from "../../data/config.js";
+import { CommandExecutor } from "./executor.js";
 
 function makeExecutor(opts?: {
   getClientChannelId?: (clid: number) => Promise<bigint | null>;
@@ -53,7 +53,13 @@ describe("CommandExecutor — follow", () => {
     const ex = makeExecutor({ getChannelId: () => 42n });
     const out = await ex.execute(
       { name: "follow", args: "", rawArgs: [], flags: new Set() },
-      { invokerName: "Alice", invokerId: "110", invokerUid: "uid-alice", message: "!follow", targetMode: 2 },
+      {
+        invokerName: "Alice",
+        invokerId: "110",
+        invokerUid: "uid-alice",
+        message: "!follow",
+        targetMode: 2,
+      },
     );
     expect(out).toContain("Already in your channel");
   });

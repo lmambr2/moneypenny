@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { FallbackLlmClient, isRetryableLlmError } from "./fallback-client.js";
-import type { ChatCompletionResponse } from "./client.js";
 import axios from "axios";
+import { describe, expect, it, vi } from "vitest";
+import type { ChatCompletionResponse } from "./client.js";
+import { FallbackLlmClient, isRetryableLlmError } from "./fallback-client.js";
 
 function okResp(text: string): ChatCompletionResponse {
   return {

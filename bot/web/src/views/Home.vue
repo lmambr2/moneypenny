@@ -100,13 +100,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../api/axios.js';
-import { usePlayerStore, type Song, type Source } from '../stores/player.js';
-import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
 import CoverArt from '../components/CoverArt.vue';
 import SourceTabs from '../components/SourceTabs.vue';
+import { type Song, type Source, usePlayerStore } from '../stores/player.js';
+import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
 
 const store = usePlayerStore();
 const USER_PLAYLIST_LIMIT = 20;
@@ -115,8 +115,8 @@ const userPlaylistsExpanded = ref(false);
 // For the new Local/YouTube/Stream world, we keep simple source selection
 // but default heavily to local.
 const userAvailable = computed<Source[]>(() => store.availableSources);
-const userSource      = ref<Source>(loadTabSource('home.user'));
-watch(userSource,  (v) => saveTabSource('home.user',  v));
+const userSource = ref<Source>(loadTabSource('home.user'));
+watch(userSource, (v) => saveTabSource('home.user', v));
 
 // For now, user playlists in home are stubbed (real implementation would
 // come from LocalProvider playlists or YouTube playlists via future bridge).
@@ -124,7 +124,7 @@ const currentUserPlaylists = computed(() => [] as any[]);
 const visibleUserPlaylists = computed(() =>
   userPlaylistsExpanded.value
     ? currentUserPlaylists.value
-    : currentUserPlaylists.value.slice(0, USER_PLAYLIST_LIMIT)
+    : currentUserPlaylists.value.slice(0, USER_PLAYLIST_LIMIT),
 );
 
 onMounted(() => {

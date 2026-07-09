@@ -1,6 +1,6 @@
 /** Promote a generated bumper into the prerecorded pool (docs/radio.md §6.5). */
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { extname, join } from "node:path";
 
 export interface LastPlayedBumper {
   path: string;
@@ -21,7 +21,8 @@ export function pinBumperToPool(
   if (!AUDIO_EXT.has(ext)) return { ok: false, error: "last bumper is not a supported audio file" };
 
   mkdirSync(bumperDir, { recursive: true });
-  const slug = (last.label ?? "bumper").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "bumper";
+  const slug =
+    (last.label ?? "bumper").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "bumper";
   const base = `${slug}-${now()}`;
   let dest = join(bumperDir, `${base}${ext}`);
   let n = 0;

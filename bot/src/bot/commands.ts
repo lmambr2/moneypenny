@@ -96,9 +96,7 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
 /** Rights tokens that are gated but not typed commands themselves. */
 const ADMIN_TOKENS = ["radio.power"] as const;
 
-export const PUBLIC_COMMANDS = new Set(
-  COMMAND_MANIFEST.filter((c) => !c.admin).map((c) => c.name),
-);
+export const PUBLIC_COMMANDS = new Set(COMMAND_MANIFEST.filter((c) => !c.admin).map((c) => c.name));
 
 export const ADMIN_COMMANDS = new Set([
   ...COMMAND_MANIFEST.filter((c) => c.admin).map((c) => c.name),
@@ -106,9 +104,7 @@ export const ADMIN_COMMANDS = new Set([
 ]);
 
 /** Commands that require a live TS connection (router + executor guard). */
-export const AUDIO_COMMANDS = new Set(
-  COMMAND_MANIFEST.filter((c) => c.audio).map((c) => c.name),
-);
+export const AUDIO_COMMANDS = new Set(COMMAND_MANIFEST.filter((c) => c.audio).map((c) => c.name));
 
 /** Names of a given kind, for register-handlers' generated lists. */
 export function commandsOfKind(kind: CommandKind): string[] {
@@ -147,11 +143,7 @@ export function parseCommand(
   const argParts: string[] = [];
 
   for (let i = 1; i < parts.length; i++) {
-    if (
-      parts[i].startsWith("-") &&
-      parts[i].length === 2 &&
-      /[a-zA-Z]/.test(parts[i][1])
-    ) {
+    if (parts[i].startsWith("-") && parts[i].length === 2 && /[a-zA-Z]/.test(parts[i][1])) {
       flags.add(parts[i][1].toLowerCase());
     } else {
       argParts.push(parts[i]);

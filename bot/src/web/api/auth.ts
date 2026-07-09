@@ -1,12 +1,9 @@
 import { Router } from "express";
-import type { MusicProvider } from "../../music/provider.js";
 import type { Logger } from "../../logger.js";
+import type { MusicProvider } from "../../music/provider.js";
 
 /** YouTube provider auth/availability status for the web UI. */
-export function createAuthRouter(
-  youtubeProvider: MusicProvider,
-  logger: Logger,
-): Router {
+export function createAuthRouter(youtubeProvider: MusicProvider, logger: Logger): Router {
   const router = Router();
 
   router.get("/status", async (req, res) => {

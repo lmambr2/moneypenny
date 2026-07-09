@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import express from "express";
 import cookieParser from "cookie-parser";
-import request from "supertest";
+import express from "express";
 import pino from "pino";
-import { createDatabase, type BotDatabase } from "../../data/database.js";
-import { createUserStore, type UserStore } from "../../data/users.js";
-import { createSessionStore, type SessionStore } from "../../data/sessions.js";
+import request from "supertest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuditStore } from "../../data/audit.js";
-import { createSessionRouter } from "./session.js";
+import { type BotDatabase, createDatabase } from "../../data/database.js";
+import { createSessionStore, type SessionStore } from "../../data/sessions.js";
+import { createUserStore, type UserStore } from "../../data/users.js";
 import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
+import { createSessionRouter } from "./session.js";
 
 function makeApp(botDb: BotDatabase, users: UserStore, sessions: SessionStore) {
   const app = express();
@@ -122,10 +122,14 @@ describe("session router", () => {
   it("POST /change-password requires old password and invalidates other sessions", async () => {
     const u = await users.createUser("alice", "old-pw-pw", "admin");
     const cookieA = extractCookie(
-      await request(app).post("/api/session/login").send({ username: "alice", password: "old-pw-pw" })
+      await request(app)
+        .post("/api/session/login")
+        .send({ username: "alice", password: "old-pw-pw" }),
     );
     const cookieB = extractCookie(
-      await request(app).post("/api/session/login").send({ username: "alice", password: "old-pw-pw" })
+      await request(app)
+        .post("/api/session/login")
+        .send({ username: "alice", password: "old-pw-pw" }),
     );
 
     const wrongOld = await request(app)

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseFtFileList, extractFileRows } from "./client.js";
+import { describe, expect, it } from "vitest";
+import { extractFileRows, parseFtFileList } from "./client.js";
 
 describe("parseFtFileList", () => {
   it("coerces TS3 string rows into typed entries", () => {
@@ -55,7 +55,9 @@ describe("extractFileRows (TS6 HTTP-query envelope)", () => {
   });
 
   it("returns [] for an error envelope / non-list body", () => {
-    expect(extractFileRows({ status: { code: 1281, message: "database empty result set" } })).toEqual([]);
+    expect(
+      extractFileRows({ status: { code: 1281, message: "database empty result set" } }),
+    ).toEqual([]);
     expect(extractFileRows("nope")).toEqual([]);
     expect(extractFileRows(null)).toEqual([]);
   });

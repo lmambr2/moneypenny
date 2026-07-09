@@ -1,17 +1,18 @@
 /**
  * TeamSpeak-friendly formatting for economy orders (compact, no markdown tables).
  */
-import type { CraftOrder, MineOrder, RefineOrder } from "./orders.js";
-import type { UexPriceSnapshot } from "./uex.js";
+
 import {
-  CRAFT_RECIPES,
-  ORES,
-  REFINE_METHODS,
   CATALOG_DISCLAIMER,
+  CRAFT_RECIPES,
   findOre,
   findRecipe,
   findRefineMethod,
+  ORES,
+  REFINE_METHODS,
 } from "./catalog.js";
+import type { CraftOrder, MineOrder, RefineOrder } from "./orders.js";
+import type { UexPriceSnapshot } from "./uex.js";
 
 export function formatMineOrder(o: MineOrder): string {
   const stats: string[] = [];
@@ -89,8 +90,7 @@ export function formatEconHelp(prefix = "!"): string {
 export function formatOreList(): string {
   const rows = ORES.map((o) => {
     const clock = o.refineWithinMin != null ? ` ≤${o.refineWithinMin}m` : "";
-    const val =
-      o.valueScuApprox != null ? ` ~${Math.round(o.valueScuApprox / 1000)}k` : "";
+    const val = o.valueScuApprox != null ? ` ~${Math.round(o.valueScuApprox / 1000)}k` : "";
     return `  ${o.id.padEnd(16)} ${o.mode.padEnd(5)} ${o.rarity.padEnd(10)} ${o.stability.padEnd(9)}${clock}${val}`;
   });
   return [
@@ -182,7 +182,10 @@ export function formatPriceSnapshot(snap: UexPriceSnapshot, query: string): stri
   const flagLine = flags.length ? `Flags: ${flags.join(", ")}` : "";
   const alts =
     snap.matches.length > 1
-      ? `Matches: ${snap.matches.map((m) => m.name).slice(0, 6).join("; ")}`
+      ? `Matches: ${snap.matches
+          .map((m) => m.name)
+          .slice(0, 6)
+          .join("; ")}`
       : "";
   return [
     `💰 UEX price — ${snap.commodity.name} (query: ${query})`,

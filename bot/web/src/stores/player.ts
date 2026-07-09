@@ -40,7 +40,7 @@ interface TimingState {
   wasPlaying: boolean;
 }
 
-const HOME_CACHE_TTL = 5 * 60 * 1000;
+const _HOME_CACHE_TTL = 5 * 60 * 1000;
 
 function defaultTiming(): TimingState {
   return { serverElapsed: 0, serverSyncTime: 0, wasPlaying: false };
@@ -65,7 +65,12 @@ export const usePlayerStore = defineStore('player', {
 
     // Transient notification for surfacing failures (e.g., "song not playable")
     // to a global Toast. Bumped `id` triggers re-render of the same message.
-    notification: null as { id: number; message: string; type: 'error' | 'info'; retryAfter?: number } | null,
+    notification: null as {
+      id: number;
+      message: string;
+      type: 'error' | 'info';
+      retryAfter?: number;
+    } | null,
 
     // Track rate limiting for player actions (from 429 responses)
     rateLimitUntil: null as number | null,
@@ -96,9 +101,13 @@ export const usePlayerStore = defineStore('player', {
       if (!botId || !this.activeBot?.currentSong) return 0;
       const timing = this.timings[botId] ?? defaultTiming();
       const maxDuration = this.activeBot.currentSong.duration || Infinity;
-      if (!timing.wasPlaying || timing.serverSyncTime === 0) return Math.min(timing.serverElapsed, maxDuration);
+      if (!timing.wasPlaying || timing.serverSyncTime === 0)
+        return Math.min(timing.serverElapsed, maxDuration);
       if (this.isPaused) return Math.min(timing.serverElapsed, maxDuration);
-      return Math.min(timing.serverElapsed + (Date.now() - timing.serverSyncTime) / 1000, maxDuration);
+      return Math.min(
+        timing.serverElapsed + (Date.now() - timing.serverSyncTime) / 1000,
+        maxDuration,
+      );
     },
     /** Currently available sources. Local is primary. */
     availableSources(): Source[] {
@@ -373,7 +382,10 @@ export const usePlayerStore = defineStore('player', {
     async playPlaylist(playlistId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
       try {
-        const res = await api.post(`/api/player/${this.activeBotId}/play-playlist`, { playlistId, platform });
+        const res = await api.post(`/api/player/${this.activeBotId}/play-playlist`, {
+          playlistId,
+          platform,
+        });
         if (res.data?.message) {
           this.notify(res.data.message, res.data.ok === false ? 'error' : 'info');
         }
@@ -387,7 +399,10 @@ export const usePlayerStore = defineStore('player', {
     async playAlbum(albumId: string, platform: Source = 'local') {
       if (!this.activeBotId) return;
       try {
-        const res = await api.post(`/api/player/${this.activeBotId}/play-album`, { albumId, platform });
+        const res = await api.post(`/api/player/${this.activeBotId}/play-album`, {
+          albumId,
+          platform,
+        });
         if (res.data?.message) {
           this.notify(res.data.message, res.data.ok === false ? 'error' : 'info');
         }

@@ -123,12 +123,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, nextTick, reactive } from 'vue';
-import { useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
-import { usePlayerStore } from '../stores/player.js';
-import { useSession } from '../composables/useSession.js';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../api/axios.js';
+import { useSession } from '../composables/useSession.js';
+import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
 const session = useSession();

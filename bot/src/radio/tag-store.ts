@@ -111,7 +111,9 @@ export class TagStore {
       `INSERT INTO track_ratings (track_key, rater, stars, updated_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(track_key, rater) DO UPDATE SET stars = excluded.stars, updated_at = excluded.updated_at`,
     );
-    this.unrateStmt = this.db.prepare(`DELETE FROM track_ratings WHERE track_key = ? AND rater = ?`);
+    this.unrateStmt = this.db.prepare(
+      `DELETE FROM track_ratings WHERE track_key = ? AND rater = ?`,
+    );
     this.selectRowStmt = this.db.prepare(`SELECT * FROM track_tags WHERE track_key = ?`);
     this.globalMeanStmt = this.db.prepare(`SELECT AVG(stars) avg FROM track_ratings`);
     this.ratingAggStmt = this.db.prepare(
@@ -195,7 +197,8 @@ export class TagStore {
 
     if (!existing) {
       const t: TrackTags = {};
-      for (const f of TAG_FIELDS) if (tags[f] !== undefined) (t as Record<string, unknown>)[f] = tags[f];
+      for (const f of TAG_FIELDS)
+        if (tags[f] !== undefined) (t as Record<string, unknown>)[f] = tags[f];
       this.insertRow(trackKey, t, source, now);
       return;
     }
@@ -213,13 +216,17 @@ export class TagStore {
       }
     }
     if (!changed) return;
-    const nextSource: TagSource = incomingRank >= existingRank ? source : ((existing.source as TagSource) ?? source);
+    const nextSource: TagSource =
+      incomingRank >= existingRank ? source : ((existing.source as TagSource) ?? source);
     this.writeTagFields(trackKey, cur, nextSource, now);
   }
 
   /** Set (or clear) the bumper-eligible flag (§9.2). Orthogonal to tag
    *  precedence — never touches `source`, so it can't freeze analyzer tags. */
-  setBumper(trackKey: string, opts: { bumper: boolean; bumperKind?: string; opsScope?: string }): void {
+  setBumper(
+    trackKey: string,
+    opts: { bumper: boolean; bumperKind?: string; opsScope?: string },
+  ): void {
     const now = this.nowFn();
     const exists = this.selectRow(trackKey);
     if (exists) {
@@ -238,21 +245,31 @@ export class TagStore {
   }
 
   isBumper(trackKey: string): boolean {
-    const row = this.db.prepare(`SELECT bumper FROM track_tags WHERE track_key = ?`).get(trackKey) as
-      | { bumper: number }
-      | undefined;
+    const row = this.db
+      .prepare(`SELECT bumper FROM track_tags WHERE track_key = ?`)
+      .get(trackKey) as { bumper: number } | undefined;
     return row?.bumper === 1;
   }
 
   /** All track keys flagged as bumper-eligible, optionally scoped to an ops
    *  profile (opsScope is a CSV; a null scope matches every profile). */
   bumperKeys(opsScope?: string): string[] {
-    const rows = this.db.prepare(`SELECT track_key, ops_scope FROM track_tags WHERE bumper = 1`).all() as {
+    const rows = this.db
+      .prepare(`SELECT track_key, ops_scope FROM track_tags WHERE bumper = 1`)
+      .all() as {
       track_key: string;
       ops_scope: string | null;
     }[];
     return rows
-      .filter((r) => !opsScope || !r.ops_scope || r.ops_scope.split(",").map((s) => s.trim()).includes(opsScope))
+      .filter(
+        (r) =>
+          !opsScope ||
+          !r.ops_scope ||
+          r.ops_scope
+            .split(",")
+            .map((s) => s.trim())
+            .includes(opsScope),
+      )
       .map((r) => r.track_key);
   }
 
@@ -286,11 +303,26 @@ export class TagStore {
     anyOf("mood", f.mood);
     anyOf("genre", f.genreAny);
     anyOf("subgenre", f.subgenreAny);
-    if (f.bpmMin != null) { where.push("bpm >= ?"); params.push(f.bpmMin); }
-    if (f.bpmMax != null) { where.push("bpm <= ?"); params.push(f.bpmMax); }
-    if (f.musicalKey) { where.push("LOWER(musical_key) = ?"); params.push(f.musicalKey.toLowerCase()); }
-    if (f.energyMin != null) { where.push("energy >= ?"); params.push(f.energyMin); }
-    if (f.energyMax != null) { where.push("energy <= ?"); params.push(f.energyMax); }
+    if (f.bpmMin != null) {
+      where.push("bpm >= ?");
+      params.push(f.bpmMin);
+    }
+    if (f.bpmMax != null) {
+      where.push("bpm <= ?");
+      params.push(f.bpmMax);
+    }
+    if (f.musicalKey) {
+      where.push("LOWER(musical_key) = ?");
+      params.push(f.musicalKey.toLowerCase());
+    }
+    if (f.energyMin != null) {
+      where.push("energy >= ?");
+      params.push(f.energyMin);
+    }
+    if (f.energyMax != null) {
+      where.push("energy <= ?");
+      params.push(f.energyMax);
+    }
 
     const rows = this.db
       .prepare(`SELECT track_key FROM track_tags WHERE ${where.join(" AND ")}`)

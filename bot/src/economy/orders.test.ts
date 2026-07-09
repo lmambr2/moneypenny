@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { buildMineOrder, buildRefineOrder, buildCraftOrder, isOrderError } from "./orders.js";
+import { describe, expect, it } from "vitest";
 import { findOre } from "./catalog.js";
+import { buildCraftOrder, buildMineOrder, buildRefineOrder, isOrderError } from "./orders.js";
 
 describe("economy orders", () => {
   it("builds a quantainium mine order with critical clock", () => {

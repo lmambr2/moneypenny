@@ -1,9 +1,8 @@
-import type { TS3TextMessage } from "../../ts-protocol/client.js";
-import type { TS3Client } from "../../ts-protocol/client.js";
 import type { BotConfig } from "../../data/config.js";
 import type { RoastQuote, RoastStore } from "../../data/roast.js";
-import type { Logger } from "../../logger.js";
 import type { LlmModule } from "../../llm/index.js";
+import type { Logger } from "../../logger.js";
+import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
 
 export const ROAST_REEL_SIZE = 5;
 export const ROAST_MIN_GRADED_FOR_AUTO = 3;
@@ -33,7 +32,7 @@ export function selectReelQuotes(
   const maxPerUser = opts.maxPerUser ?? ROAST_MAX_PER_USER;
   const sorted = quotes
     .filter((q) => q.score != null && q.score >= minScore)
-    .sort((a, b) => (b.score! - a.score!) || (b.createdAt - a.createdAt));
+    .sort((a, b) => b.score! - a.score! || b.createdAt - a.createdAt);
 
   const picked: RoastQuote[] = [];
   const perUser = new Map<string, number>();
@@ -51,8 +50,7 @@ export function formatRoastReel(quotes: RoastQuote[]): string | null {
   if (quotes.length === 0) return null;
   const lines = quotes.map(
     (q, i) =>
-      `${i + 1}. ${q.userName} (${q.score}/10): "${q.text}"` +
-      (q.reason ? ` — ${q.reason}` : ""),
+      `${i + 1}. ${q.userName} (${q.score}/10): "${q.text}"${q.reason ? ` — ${q.reason}` : ""}`,
   );
   return `🔥 Roast reel — today's greatest hits 🔥\n${lines.join("\n")}`;
 }
@@ -155,7 +153,10 @@ export class RoastService {
       );
     }
 
-    const remain = roastCooldownRemainingMs(this.lastRoastAt, this.deps.config.roastCooldownMinutes);
+    const remain = roastCooldownRemainingMs(
+      this.lastRoastAt,
+      this.deps.config.roastCooldownMinutes,
+    );
     if (remain > 0) {
       const mins = Math.ceil(remain / 60_000);
       return `No reel ready (need score ≥${minScore}). Next auto reel in ~${mins} min.`;
@@ -213,7 +214,10 @@ export class RoastService {
     const minScore = this.deps.config.roastMinScore ?? 4;
     if (this.deps.store.gradedCount(minScore) < ROAST_MIN_GRADED_FOR_AUTO) return;
 
-    const remain = roastCooldownRemainingMs(this.lastRoastAt, this.deps.config.roastCooldownMinutes);
+    const remain = roastCooldownRemainingMs(
+      this.lastRoastAt,
+      this.deps.config.roastCooldownMinutes,
+    );
     if (remain > 0) return;
 
     const picks = selectReelQuotes(this.deps.store.top(40), {

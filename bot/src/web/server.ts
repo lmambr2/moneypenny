@@ -1,34 +1,35 @@
-import express from "express";
 import http from "node:http";
 import path from "node:path";
 import cookieParser from "cookie-parser";
+import express from "express";
 import { WebSocketServer } from "ws";
 import type { BotManager } from "../bot/manager.js";
-import type { MusicProvider } from "../music/provider.js";
-import type { BotDatabase } from "../data/database.js";
-import type { BotConfig } from "../data/config.js";
-import type { Logger } from "../logger.js";
+import { createAuditStore } from "../data/audit.js";
 import type { AvatarStore } from "../data/avatars.js";
+import type { BotConfig } from "../data/config.js";
+import type { BotDatabase } from "../data/database.js";
+import type { DoctrineStore } from "../data/doctrine.js";
+import { createSessionStore } from "../data/sessions.js";
+import { createUserStore } from "../data/users.js";
+import type { Logger } from "../logger.js";
+import type { MusicProvider } from "../music/provider.js";
+import type { RadioAnalyzer, TagStore } from "../radio/index.js";
+import type { RetrievalStore } from "../rag/index.js";
+import { createAuditRouter } from "./api/audit.js";
+import { createAuthRouter } from "./api/auth.js";
 import { createBotRouter } from "./api/bot.js";
 import { createMusicRouter } from "./api/music.js";
 import { createPlayerRouter } from "./api/player.js";
-import { createAuthRouter } from "./api/auth.js";
+import { createRagRouter } from "./api/rag.js";
 import { createSessionRouter } from "./api/session.js";
 import { createUsersRouter } from "./api/users.js";
-import { createAuditStore } from "../data/audit.js";
-import { createAuditRouter } from "./api/audit.js";
-import { createRagRouter } from "./api/rag.js";
-import type { RetrievalStore } from "../rag/index.js";
-import type { DoctrineStore } from "../data/doctrine.js";
-import type { RadioAnalyzer, TagStore } from "../radio/index.js";
-import { setupWebSocket } from "./websocket.js";
-import { createUserStore } from "../data/users.js";
-import { createSessionStore } from "../data/sessions.js";
-import { createRequireAuth } from "./middleware/requireAuth.js";
-import { requireAdmin } from "./middleware/requireAdmin.js";
+import { validateSessionFromHeaders } from "./auth/validateSession.js";
 import { csrfOriginCheck } from "./middleware/csrf.js";
 import { createRateLimit } from "./middleware/rateLimit.js";
-import { validateSessionFromHeaders } from "./auth/validateSession.js";
+import { requireAdmin } from "./middleware/requireAdmin.js";
+import { createRequireAuth } from "./middleware/requireAuth.js";
+import { setupWebSocket } from "./websocket.js";
+
 // Music-provider cookie auth was removed; /api/auth is YouTube status only.
 
 const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -134,27 +135,30 @@ export function createWebServer(options: WebServerOptions): WebServer {
       logger,
       options.database,
       options.avatarStore,
-    )
+    ),
   );
   app.use(
     "/api/music",
-    createMusicRouter(options.localProvider, options.youtubeProvider, options.streamProvider, logger, {
-      tagStore: options.tagStore,
-      radioAnalyzer: options.radioAnalyzer,
-      getRadioConfig: () => options.config.radio,
-      // @dj web parity: radio.tags token (admin always passes inside the middleware).
-      canEditTags: async (user) => {
-        const bot = options.botManager.getAllBots()[0];
-        if (!bot) return false;
-        return bot.canWebUserRunCommand(user, "radio.tags");
+    createMusicRouter(
+      options.localProvider,
+      options.youtubeProvider,
+      options.streamProvider,
+      logger,
+      {
+        tagStore: options.tagStore,
+        radioAnalyzer: options.radioAnalyzer,
+        getRadioConfig: () => options.config.radio,
+        // @dj web parity: radio.tags token (admin always passes inside the middleware).
+        canEditTags: async (user) => {
+          const bot = options.botManager.getAllBots()[0];
+          if (!bot) return false;
+          return bot.canWebUserRunCommand(user, "radio.tags");
+        },
       },
-    })
+    ),
   );
   app.use("/api/player", createPlayerRouter(options.botManager, logger, options.database));
-  app.use(
-    "/api/auth",
-    createAuthRouter(options.youtubeProvider, logger)
-  );
+  app.use("/api/auth", createAuthRouter(options.youtubeProvider, logger));
   // admin-only routes
   app.use("/api/users", requireAdmin, createUsersRouter(users, sessions, audit, logger));
   app.use("/api/audit", requireAdmin, createAuditRouter(audit));

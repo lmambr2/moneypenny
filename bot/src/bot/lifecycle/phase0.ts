@@ -44,7 +44,9 @@ export function schedulePhase0AutoPlay(deps: Phase0ConnectDeps): void {
   setTimeout(async () => {
     deps.logger.info(
       { track: validationMode ? testTrack : "!test", autoTest, validationMode },
-      validationMode ? "Phase 0: Attempting automatic test playback" : "Startup: running auto !test",
+      validationMode
+        ? "Phase 0: Attempting automatic test playback"
+        : "Startup: running auto !test",
     );
     try {
       const isDefaultDemo =
@@ -79,7 +81,11 @@ export function schedulePhase0AutoPlay(deps: Phase0ConnectDeps): void {
             : "Startup: auto !test did not start playback.",
         );
         deps.logger.error(`Test track: ${validationMode ? testTrack : "!test"}`);
-        deps.logger.error(typeof result === "string" ? `Command result: ${result}` : "Command returned no success message.");
+        deps.logger.error(
+          typeof result === "string"
+            ? `Command result: ${result}`
+            : "Command returned no success message.",
+        );
         deps.logger.error("Check MUSIC_DIR, network access (YouTube), and TS channel permissions.");
         deps.logger.error("═══════════════════════════════════════════════════════════════");
       }
@@ -87,7 +93,9 @@ export function schedulePhase0AutoPlay(deps: Phase0ConnectDeps): void {
       deps.logger.error({ err: e, track: testTrack }, "Startup auto-play failed");
       deps.logger.error("═══════════════════════════════════════════════════════════════");
       deps.logger.error(
-        validationMode ? "PHASE 0 FAILURE: Test playback threw an error." : "Startup: auto !test threw an error.",
+        validationMode
+          ? "PHASE 0 FAILURE: Test playback threw an error."
+          : "Startup: auto !test threw an error.",
       );
       deps.logger.error(`Test track: ${validationMode ? testTrack : "!test"}`);
       deps.logger.error("═══════════════════════════════════════════════════════════════");

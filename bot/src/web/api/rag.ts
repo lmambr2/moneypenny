@@ -1,24 +1,24 @@
+import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
-import path from "node:path";
-import type { RetrievalStore } from "../../rag/index.js";
 import type { DoctrineStore } from "../../data/doctrine.js";
 import {
+  ExportError,
+  exportContentType,
+  exportFilename,
+  exportMarkdown,
+  isPandocAvailable,
+  parseExportFormat,
+} from "../../docs/export.js";
+import type { Logger } from "../../logger.js";
+import {
+  type IngestedDoc,
   ingestDoctrineDoc,
   MAX_DOCTRINE_FILE_BYTES,
   reindexDoctrine,
   reindexDoctrineSources,
-  type IngestedDoc,
 } from "../../rag/doctrine-ingest.js";
-import type { Logger } from "../../logger.js";
-import {
-  exportContentType,
-  exportFilename,
-  exportMarkdown,
-  ExportError,
-  isPandocAvailable,
-  parseExportFormat,
-} from "../../docs/export.js";
+import type { RetrievalStore } from "../../rag/index.js";
 import { errorMessage } from "../../util/error.js";
 import { multerArray, uploadedFiles } from "./upload.js";
 
@@ -28,7 +28,11 @@ import { multerArray, uploadedFiles } from "./upload.js";
  * upload `.md` (frontmatter → classification/tags metadata), list, delete, and
  * reindex. Mounted admin-only (see web/server.ts).
  */
-export function createRagRouter(retrieval: RetrievalStore, doctrine: DoctrineStore, logger: Logger): Router {
+export function createRagRouter(
+  retrieval: RetrievalStore,
+  doctrine: DoctrineStore,
+  logger: Logger,
+): Router {
   const router = Router();
 
   // ─── Raw primitives ───────────────────────────────────────────────────────
@@ -56,7 +60,13 @@ export function createRagRouter(retrieval: RetrievalStore, doctrine: DoctrineSto
     }
     const topK = Number.isInteger(req.body?.topK) ? req.body.topK : undefined;
     try {
-      const chunks = await retrieval.query(q, topK, Array.isArray(req.body?.allowedClassifications) ? req.body.allowedClassifications : undefined);
+      const chunks = await retrieval.query(
+        q,
+        topK,
+        Array.isArray(req.body?.allowedClassifications)
+          ? req.body.allowedClassifications
+          : undefined,
+      );
       res.json({ q, chunks });
     } catch (err: unknown) {
       logger.error({ err }, "RAG query failed");
@@ -65,7 +75,8 @@ export function createRagRouter(retrieval: RetrievalStore, doctrine: DoctrineSto
   });
 
   // ─── Doctrine corpus (Phase 6) ────────────────────────────────────────────
-  const ingestDoc = (source: string, content: string) => ingestDoctrineDoc(retrieval, doctrine, source, content);
+  const ingestDoc = (source: string, content: string) =>
+    ingestDoctrineDoc(retrieval, doctrine, source, content);
 
   const doctrineLimitLabel = "15 MiB";
 
@@ -89,7 +100,9 @@ Body markdown…
 `;
 
   const normalizeDoctrineSource = (input: string): string | null => {
-    const raw = String(input || "").replace(/\\/g, "/").trim();
+    const raw = String(input || "")
+      .replace(/\\/g, "/")
+      .trim();
     if (!raw) return null;
     const withExt = /\.(md|markdown)$/i.test(raw) ? raw : `${raw}.md`;
     return doctrine.safeName(withExt);
@@ -127,8 +140,7 @@ Body markdown…
       res.send(buffer);
     } catch (err: unknown) {
       if (err instanceof ExportError) {
-        const status =
-          err.code === "PANDOC_UNAVAILABLE" ? 503 : err.code === "EMPTY" ? 400 : 502;
+        const status = err.code === "PANDOC_UNAVAILABLE" ? 503 : err.code === "EMPTY" ? 400 : 502;
         res.status(status).json({ error: err.message, code: err.code });
         return;
       }
@@ -138,9 +150,14 @@ Body markdown…
   });
 
   router.post("/doctrine/new", async (req, res) => {
-    const source = normalizeDoctrineSource(typeof req.body?.source === "string" ? req.body.source : "");
+    const source = normalizeDoctrineSource(
+      typeof req.body?.source === "string" ? req.body.source : "",
+    );
     if (!source) {
-      res.status(400).json({ error: "invalid doctrine source path (must end in .md)", code: "VALIDATION_ERROR" });
+      res.status(400).json({
+        error: "invalid doctrine source path (must end in .md)",
+        code: "VALIDATION_ERROR",
+      });
       return;
     }
     if (doctrine.readFile(source) != null) {
@@ -152,7 +169,9 @@ Body markdown…
         ? req.body.content
         : DEFAULT_DOCTRINE_TEMPLATE;
     if (Buffer.byteLength(content) > MAX_DOCTRINE_FILE_BYTES) {
-      res.status(413).json({ error: `content too large (max ${doctrineLimitLabel})`, code: "VALIDATION_ERROR" });
+      res
+        .status(413)
+        .json({ error: `content too large (max ${doctrineLimitLabel})`, code: "VALIDATION_ERROR" });
       return;
     }
     try {
@@ -190,7 +209,9 @@ Body markdown…
       return;
     }
     if (Buffer.byteLength(content) > MAX_DOCTRINE_FILE_BYTES) {
-      res.status(413).json({ error: `content too large (max ${doctrineLimitLabel})`, code: "VALIDATION_ERROR" });
+      res
+        .status(413)
+        .json({ error: `content too large (max ${doctrineLimitLabel})`, code: "VALIDATION_ERROR" });
       return;
     }
     try {
@@ -204,7 +225,9 @@ Body markdown…
 
   router.post(
     "/doctrine",
-    multerArray(upload, "files", 20, { fileSizeMessage: `File too large (max ${doctrineLimitLabel})` }),
+    multerArray(upload, "files", 20, {
+      fileSizeMessage: `File too large (max ${doctrineLimitLabel})`,
+    }),
     async (req, res) => {
       const files = uploadedFiles(req);
       if (files.length === 0) {
@@ -242,7 +265,9 @@ Body markdown…
 
   router.post("/doctrine/reindex", async (req, res) => {
     const sources = Array.isArray(req.body?.sources)
-      ? req.body.sources.filter((s: unknown): s is string => typeof s === "string" && s.trim().length > 0)
+      ? req.body.sources.filter(
+          (s: unknown): s is string => typeof s === "string" && s.trim().length > 0,
+        )
       : undefined;
     const force = req.body?.force === true;
     try {
@@ -250,7 +275,12 @@ Body markdown…
         sources && sources.length > 0
           ? await reindexDoctrineSources(retrieval, doctrine, sources, { force: force !== false })
           : await reindexDoctrine(retrieval, doctrine);
-      res.json({ ok: true, reindexed: results.length, docs: results, selective: !!(sources && sources.length > 0) });
+      res.json({
+        ok: true,
+        reindexed: results.length,
+        docs: results,
+        selective: !!(sources && sources.length > 0),
+      });
     } catch (err: unknown) {
       logger.error({ err }, "Doctrine reindex failed");
       res.status(502).json({ error: errorMessage(err, "reindex failed"), code: "RAG_ERROR" });

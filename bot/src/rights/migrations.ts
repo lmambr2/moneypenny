@@ -35,8 +35,15 @@ const DELTAS: readonly RightsDelta[] = [
     // that predated them but never reached frozen rulesets.
     version: 1,
     defaultAllow: [
-      "radio", "rate", "unrate", "selecttracks",
-      "playnext", "pn", "chevron7", "kg", "diary",
+      "radio",
+      "rate",
+      "unrate",
+      "selecttracks",
+      "playnext",
+      "pn",
+      "chevron7",
+      "kg",
+      "diary",
     ],
     groups: {
       dj: ["radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags"],

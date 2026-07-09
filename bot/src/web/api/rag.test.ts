@@ -1,13 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import express from "express";
-import request from "supertest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { createRagRouter } from "./rag.js";
+import express from "express";
+import request from "supertest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DoctrineStore } from "../../data/doctrine.js";
 import * as exportMod from "../../docs/export.js";
+import { createRagRouter } from "./rag.js";
 
 describe("rag router", () => {
   let dir: string;
@@ -73,17 +73,17 @@ describe("rag router", () => {
   });
 
   it("GET /doctrine/:source/export returns docx attachment", async () => {
-    doctrine.saveFile("reports/aar-2026-06-21.md", "---\nclassification: unclassified\n---\n\n# AAR");
+    doctrine.saveFile(
+      "reports/aar-2026-06-21.md",
+      "---\nclassification: unclassified\n---\n\n# AAR",
+    );
     vi.spyOn(exportMod, "exportMarkdown").mockResolvedValue(Buffer.from("PK"));
     const { app: a } = app();
     const res = await request(a).get("/doctrine/reports%2Faar-2026-06-21.md/export?format=docx");
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("wordprocessingml");
     expect(res.headers["content-disposition"]).toContain("aar-2026-06-21.docx");
-    expect(exportMod.exportMarkdown).toHaveBeenCalledWith(
-      expect.stringContaining("# AAR"),
-      "docx",
-    );
+    expect(exportMod.exportMarkdown).toHaveBeenCalledWith(expect.stringContaining("# AAR"), "docx");
   });
 
   it("GET /doctrine/:source/export returns 503 when pandoc is missing", async () => {

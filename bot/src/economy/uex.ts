@@ -184,8 +184,7 @@ export class UexClient {
     }, null);
 
     const primary =
-      pool.find((m) => (m.price_sell ?? 0) === bestSell && (m.price_sell ?? 0) > 0) ??
-      pool[0]!;
+      pool.find((m) => (m.price_sell ?? 0) === bestSell && (m.price_sell ?? 0) > 0) ?? pool[0]!;
 
     return {
       commodity: primary,

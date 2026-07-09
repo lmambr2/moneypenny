@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CommandExecutor } from "./executor.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotConfig } from "../../data/config.js";
+import { CommandExecutor } from "./executor.js";
 
-function makeExecutor(moveClientToChannel = vi.fn().mockResolvedValue("Moved Bond → Briefing Room.")) {
+function makeExecutor(
+  moveClientToChannel = vi.fn().mockResolvedValue("Moved Bond → Briefing Room."),
+) {
   const config = { commandPrefix: "!" } as BotConfig;
   return new CommandExecutor({
     playback: {} as any,

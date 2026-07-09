@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AudioPlayer, buildFfmpegArgs, cleanupTempDir } from "./player.js";
-import { PCM_FRAME_BYTES } from "./encoder.js";
+import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../logger.js";
+import { PCM_FRAME_BYTES } from "./encoder.js";
+import { AudioPlayer, buildFfmpegArgs, cleanupTempDir } from "./player.js";
 
 const silentLogger = {
   info: () => {},
@@ -167,7 +167,8 @@ describe("speech floor vs STT courtesy duck", () => {
 
     const pcm = Buffer.alloc(4);
     pcm.writeInt16LE(10000, 0);
-    const apply = (b: Buffer) => (player as unknown as { applyVolume(x: Buffer): Buffer }).applyVolume(b);
+    const apply = (b: Buffer) =>
+      (player as unknown as { applyVolume(x: Buffer): Buffer }).applyVolume(b);
 
     const ducked = apply(pcm).readInt16LE(0); // music under duck: factor 0.004
     (player as unknown as { playVolumeFloor: number | null }).playVolumeFloor = 85;

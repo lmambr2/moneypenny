@@ -1,7 +1,7 @@
 import axios from "axios";
 import type { Logger } from "../logger.js";
-import type { TtsProvider } from "./types.js";
 import { normalizeLoudness } from "./loudness.js";
+import type { TtsProvider } from "./types.js";
 
 /**
  * Text-to-speech client for OpenAI-compatible `/v1/audio/speech` (DESIGN §10).

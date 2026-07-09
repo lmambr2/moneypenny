@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeFileSync, rmSync, mkdtempSync, mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
-import { YtLibrary, findSavedOnDisk, parseSavedFilename, sanitizeBase } from "./ytlibrary.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { extractVideoId } from "./youtube.js";
+import { findSavedOnDisk, parseSavedFilename, sanitizeBase, YtLibrary } from "./ytlibrary.js";
 
 const flush = () => new Promise((r) => setTimeout(r, 20));
 
@@ -14,7 +14,9 @@ describe("extractVideoId", () => {
     expect(extractVideoId("https://youtu.be/hLOheGDwD_0?t=42")).toBe("hLOheGDwD_0");
     expect(extractVideoId("https://www.youtube.com/embed/hLOheGDwD_0")).toBe("hLOheGDwD_0");
     expect(extractVideoId("https://www.youtube.com/shorts/hLOheGDwD_0")).toBe("hLOheGDwD_0");
-    expect(extractVideoId("https://www.youtube.com/watch?v=hLOheGDwD_0&list=PLxxx")).toBe("hLOheGDwD_0");
+    expect(extractVideoId("https://www.youtube.com/watch?v=hLOheGDwD_0&list=PLxxx")).toBe(
+      "hLOheGDwD_0",
+    );
     expect(extractVideoId("hLOheGDwD_0")).toBe("hLOheGDwD_0"); // bare id
   });
   it("returns null for non-YouTube input", () => {
@@ -25,7 +27,9 @@ describe("extractVideoId", () => {
 
 describe("parseSavedFilename", () => {
   it("extracts artist and title from saved filenames", () => {
-    expect(parseSavedFilename("Ella Langley - Choosin Texas [hLOheGDwD_0].mp3", "hLOheGDwD_0")).toEqual({
+    expect(
+      parseSavedFilename("Ella Langley - Choosin Texas [hLOheGDwD_0].mp3", "hLOheGDwD_0"),
+    ).toEqual({
       artist: "Ella Langley",
       title: "Choosin Texas",
     });
@@ -36,7 +40,7 @@ describe("sanitizeBase", () => {
   it("strips path-unsafe chars and appends [videoId]", () => {
     const b = sanitizeBase({ name: 'Song: "X"/Y?', artist: "Artist|Z" }, "hLOheGDwD_0");
     expect(b).toBe("ArtistZ - Song XY [hLOheGDwD_0]");
-    expect(b).not.toMatch(/[\/\\?%*:|"<>]/);
+    expect(b).not.toMatch(/[/\\?%*:|"<>]/);
   });
   it("falls back to the video id when metadata is empty", () => {
     expect(sanitizeBase({ name: "", artist: "" }, "abc12345678")).toBe("abc12345678 [abc12345678]");
@@ -81,7 +85,11 @@ describe("YtLibrary", () => {
   });
 
   it("saveInBackground downloads, records, re-indexes — then lookup hits", async () => {
-    lib.saveInBackground("hLOheGDwD_0", { name: "Choosin Texas", artist: "Ella Langley", duration: 200 });
+    lib.saveInBackground("hLOheGDwD_0", {
+      name: "Choosin Texas",
+      artist: "Ella Langley",
+      duration: 200,
+    });
     await flush();
     expect(download).toHaveBeenCalledTimes(1);
     const [id, outDir, base] = download.mock.calls[0];

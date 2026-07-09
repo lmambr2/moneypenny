@@ -19,8 +19,8 @@
 import type { AudioPlayer } from "../audio/player.js";
 import type { Logger } from "../logger.js";
 import { FormatClock, isWithinQuietHours } from "./clock.js";
-import type { RadioConfig, WheelSlot } from "./types.js";
 import type { LastPlayedBumper } from "./pin.js";
+import type { RadioConfig, WheelSlot } from "./types.js";
 
 /** A built bumper ready to play: an absolute audio path + an optional label. */
 export interface BuiltBumper {
@@ -200,7 +200,7 @@ export class RadioDirector {
     if (!cue) return false;
     try {
       const bumper = cue.sayText
-        ? await this.deps.bumperFactory.say?.(cue.sayText) ?? null
+        ? ((await this.deps.bumperFactory.say?.(cue.sayText)) ?? null)
         : await this.deps.bumperFactory.build(cue.slot!, this.currentFloor(cfg));
       if (!bumper) return false;
       this.recordBumper(); // still counts against the hourly window
@@ -208,7 +208,10 @@ export class RadioDirector {
       this.deps.player.resetFailures();
       this.markPlayed(bumper);
       this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
-      this.deps.logger.info({ path: bumper.path, label: bumper.label, forced: true }, "radio: forced bumper");
+      this.deps.logger.info(
+        { path: bumper.path, label: bumper.label, forced: true },
+        "radio: forced bumper",
+      );
       return true;
     } catch (err) {
       this.deps.logger.warn({ err }, "radio: forced bumper failed");
@@ -251,7 +254,8 @@ export class RadioDirector {
    *  injected resolver over present members; any uncertainty → unclassified-only
    *  (§14). One uncleared listener floors the whole window. */
   private currentFloor(cfg: RadioConfig): string[] {
-    if (cfg.classificationFloor && cfg.classificationFloor.length > 0) return cfg.classificationFloor;
+    if (cfg.classificationFloor && cfg.classificationFloor.length > 0)
+      return cfg.classificationFloor;
     if (!this.deps.resolveFloor) return ["unclassified"];
     try {
       const floor = this.deps.resolveFloor(this.lastClients);
@@ -266,7 +270,10 @@ export class RadioDirector {
     if (this.bumperInFlight) return false;
     this.bumperInFlight = true;
     try {
-      const bumper = await this.deps.bumperFactory.build(this.resolveSources(cfg, slot), this.currentFloor(cfg));
+      const bumper = await this.deps.bumperFactory.build(
+        this.resolveSources(cfg, slot),
+        this.currentFloor(cfg),
+      );
       if (!bumper) return false; // §14: not ready → caller advances (music first)
       this.recordBumper();
       this.pendingAfterBumper = true;

@@ -15,8 +15,8 @@
  */
 import { execFile } from "node:child_process";
 import type { Logger } from "../logger.js";
-import type { RadioConfig } from "./types.js";
 import type { TagStore } from "./tag-store.js";
+import type { RadioConfig } from "./types.js";
 
 export interface RunResult {
   stdout: string;
@@ -69,14 +69,19 @@ export class RadioAnalyzer {
     ]);
     this.availability = k.found && a.found;
     if (!this.availability) {
-      this.deps.logger.info("radio analyzer: keyfinder-cli/aubio not found — key/BPM analysis disabled (install to enable)");
+      this.deps.logger.info(
+        "radio analyzer: keyfinder-cli/aubio not found — key/BPM analysis disabled (install to enable)",
+      );
     }
     return this.availability;
   }
 
   /** Analyze one track, writing key/BPM to the overlay. Returns what it found,
    *  or null if it was skipped (already analyzed / unavailable / failed). */
-  async analyzeTrack(t: AnalyzeTrack, opts: { force?: boolean } = {}): Promise<{ musicalKey?: string; bpm?: number } | null> {
+  async analyzeTrack(
+    t: AnalyzeTrack,
+    opts: { force?: boolean } = {},
+  ): Promise<{ musicalKey?: string; bpm?: number } | null> {
     if (!(await this.available())) return null;
     if (!opts.force) {
       const cur = this.deps.tags.get(t.trackKey);
@@ -100,7 +105,10 @@ export class RadioAnalyzer {
 
   /** Sequentially analyze a set of tracks (concurrency 1 — the RK3588 is busy).
    *  Never throws; returns a small tally. */
-  async analyzeAll(tracks: AnalyzeTrack[], opts: { force?: boolean } = {}): Promise<{ analyzed: number; skipped: number }> {
+  async analyzeAll(
+    tracks: AnalyzeTrack[],
+    opts: { force?: boolean } = {},
+  ): Promise<{ analyzed: number; skipped: number }> {
     let analyzed = 0;
     let skipped = 0;
     if (!(await this.available())) return { analyzed: 0, skipped: tracks.length };

@@ -38,12 +38,14 @@ export interface SttModelSelection {
   rknnDecoder?: string;
 }
 
-const DEFAULTS: Record<SttEdition, { model: WhisperModelId; backend: SttModelSelection["backend"]; quant: SttQuantType }> =
-  {
-    sbc: { model: "base", backend: "rknn", quant: "int8" },
-    server: { model: "medium", backend: "whisper-cpp", quant: "float16" },
-    dev: { model: "tiny", backend: "faster-whisper", quant: "int8" },
-  };
+const DEFAULTS: Record<
+  SttEdition,
+  { model: WhisperModelId; backend: SttModelSelection["backend"]; quant: SttQuantType }
+> = {
+  sbc: { model: "base", backend: "rknn", quant: "int8" },
+  server: { model: "medium", backend: "whisper-cpp", quant: "float16" },
+  dev: { model: "tiny", backend: "faster-whisper", quant: "int8" },
+};
 
 export function isWhisperModelId(v: string): v is WhisperModelId {
   return (WHISPER_MODEL_IDS as readonly string[]).includes(v);
@@ -85,7 +87,8 @@ export function resolveSttModelSelection(opts: {
   const b = (opts.backend || "").trim().toLowerCase();
   if (b === "rknn" || b === "rknpu" || b === "npu") backend = "rknn";
   else if (b === "whisper-cpp" || b === "whisper_cpp" || b === "cpp") backend = "whisper-cpp";
-  else if (b === "faster-whisper" || b === "faster_whisper" || b === "cpu") backend = "faster-whisper";
+  else if (b === "faster-whisper" || b === "faster_whisper" || b === "cpu")
+    backend = "faster-whisper";
 
   let quant: SttQuantType = base.quant;
   if (opts.quant && isSttQuantType(opts.quant.trim().toLowerCase())) {

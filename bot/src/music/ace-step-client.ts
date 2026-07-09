@@ -179,7 +179,10 @@ function normalizeJob(raw: unknown): AceStepJob {
   if (!id) throw new Error("job missing id");
   const statusRaw = String(o.status ?? "queued").toLowerCase();
   const status: AceStepJobStatus =
-    statusRaw === "running" || statusRaw === "done" || statusRaw === "error" || statusRaw === "queued"
+    statusRaw === "running" ||
+    statusRaw === "done" ||
+    statusRaw === "error" ||
+    statusRaw === "queued"
       ? statusRaw
       : "queued";
   return {

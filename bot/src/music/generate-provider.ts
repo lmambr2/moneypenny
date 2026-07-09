@@ -6,10 +6,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { BotConfig } from "../data/config.js";
 import type { Logger } from "../logger.js";
-import type { Song } from "./provider.js";
-import type { LocalProvider } from "./local.js";
-import { AceStepClient } from "./ace-step-client.js";
 import type { TagStore } from "../radio/tag-store.js";
+import type { AceStepClient } from "./ace-step-client.js";
+import type { LocalProvider } from "./local.js";
+import type { Song } from "./provider.js";
 
 const MAX_CONCURRENT = 1;
 const RATE_WINDOW_MS = 60 * 60_000;
@@ -262,7 +262,7 @@ export class GenerateProvider {
       }
     }
 
-    let entries: { name: string; full: string; mtime: number }[] = [];
+    const entries: { name: string; full: string; mtime: number }[] = [];
     try {
       const names = await fs.readdir(realOut);
       for (const name of names) {

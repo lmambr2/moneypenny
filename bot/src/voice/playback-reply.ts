@@ -24,12 +24,7 @@ export function voicePlayPendingAck(): string {
 export function isPlaybackControlReply(reply: string | null): boolean {
   if (!reply) return false;
   const r = reply.toLowerCase();
-  return (
-    r === "paused" ||
-    r === "resumed" ||
-    r.startsWith("stopped") ||
-    r.startsWith("skipped")
-  );
+  return r === "paused" || r === "resumed" || r.startsWith("stopped") || r.startsWith("skipped");
 }
 
 /** Short phrase Kokoro speaks for transport acks (not the full executor string). */

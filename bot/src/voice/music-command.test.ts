@@ -11,7 +11,12 @@ describe("music voice commands", () => {
   it("requests pending ack for deterministic play", async () => {
     const decision = {
       type: "deterministic" as const,
-      command: { name: "play", args: "toto africa", rawArgs: ["toto", "africa"], flags: new Set<string>() },
+      command: {
+        name: "play",
+        args: "toto africa",
+        rawArgs: ["toto", "africa"],
+        flags: new Set<string>(),
+      },
     };
     expect(voiceRouteNeedsPendingAck(decision, "play toto africa")).toBe(true);
   });

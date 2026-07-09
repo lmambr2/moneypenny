@@ -33,7 +33,11 @@ export class FormatClock {
 
   /** Resolve the effective clock for a config: a custom wheel if present,
    *  otherwise the every-N shortcut. */
-  static forConfig(everyNSongs: number, spec?: FormatClockSpec, sources?: WheelSlot["sources"]): FormatClock {
+  static forConfig(
+    everyNSongs: number,
+    spec?: FormatClockSpec,
+    sources?: WheelSlot["sources"],
+  ): FormatClock {
     if (spec?.wheel && spec.wheel.length > 0) return new FormatClock(spec.wheel);
     return FormatClock.fromEveryN(everyNSongs, sources);
   }
@@ -77,19 +81,14 @@ export class FormatClock {
  * (e.g. 22:00→06:00). Malformed entries are ignored (fail open — quiet hours
  * must never be the reason music stops).
  */
-export function isWithinQuietHours(
-  now: Date,
-  windows: { from: string; to: string }[],
-): boolean {
+export function isWithinQuietHours(now: Date, windows: { from: string; to: string }[]): boolean {
   const minutes = now.getHours() * 60 + now.getMinutes();
   for (const w of windows) {
     const from = parseHHMM(w.from);
     const to = parseHHMM(w.to);
     if (from == null || to == null) continue;
     if (from === to) continue; // zero-width window
-    const inWindow = from < to
-      ? minutes >= from && minutes < to
-      : minutes >= from || minutes < to; // wraps midnight
+    const inWindow = from < to ? minutes >= from && minutes < to : minutes >= from || minutes < to; // wraps midnight
     if (inWindow) return true;
   }
   return false;

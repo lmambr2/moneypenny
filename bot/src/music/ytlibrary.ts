@@ -1,6 +1,6 @@
-import type Database from "better-sqlite3";
-import path from "node:path";
 import { existsSync, readdirSync } from "node:fs";
+import path from "node:path";
+import type Database from "better-sqlite3";
 import type { Logger } from "../logger.js";
 
 export interface SongMeta {
@@ -110,7 +110,14 @@ export class YtLibrary {
       try {
         this.logger?.info({ videoId, title: meta.name }, "YT save: downloading");
         const savedPath = await this.download(videoId, outDir, base);
-        this.addStmt.run(videoId, savedPath, meta.name || videoId, meta.artist || "YouTube", meta.duration ?? 0, Date.now());
+        this.addStmt.run(
+          videoId,
+          savedPath,
+          meta.name || videoId,
+          meta.artist || "YouTube",
+          meta.duration ?? 0,
+          Date.now(),
+        );
         await this.refresh();
         this.logger?.info({ videoId, path: savedPath }, "YT save: saved to library");
       } catch (err) {
@@ -143,7 +150,10 @@ export function findSavedOnDisk(musicDir: string, videoId: string): string | nul
 }
 
 /** Parse `<artist> - <title> [videoId].mp3` written by {@link sanitizeBase}. */
-export function parseSavedFilename(basename: string, videoId: string): { title: string; artist: string } {
+export function parseSavedFilename(
+  basename: string,
+  videoId: string,
+): { title: string; artist: string } {
   const escaped = videoId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const m = basename.match(new RegExp(`^(.+?) - (.+) \\[${escaped}\\]\\.mp3$`, "i"));
   if (m) {
@@ -155,6 +165,10 @@ export function parseSavedFilename(basename: string, videoId: string): { title: 
 /** Build a filesystem-safe base name: `<artist> - <title> [videoId]`. */
 export function sanitizeBase(meta: SongMeta, videoId: string): string {
   const raw = [meta.artist, meta.name].filter(Boolean).join(" - ") || videoId;
-  const safe = raw.replace(/[\/\\?%*:|"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 150);
+  const safe = raw
+    .replace(/[/\\?%*:|"<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 150);
   return `${safe || videoId} [${videoId}]`;
 }

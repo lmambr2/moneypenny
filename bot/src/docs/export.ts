@@ -19,10 +19,7 @@ export class ExportError extends Error {
   }
 }
 
-const FORMAT_META: Record<
-  ExportFormat,
-  { ext: string; mime: string; pandocArgs: string[] }
-> = {
+const FORMAT_META: Record<ExportFormat, { ext: string; mime: string; pandocArgs: string[] }> = {
   docx: {
     ext: ".docx",
     mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

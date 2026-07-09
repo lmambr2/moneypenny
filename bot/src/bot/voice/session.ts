@@ -1,36 +1,31 @@
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TS3Client, TS3VoiceData } from "../../ts-protocol/client.js";
-import { CODEC_OPUS_VOICE } from "../../ts-protocol/voice.js";
+import { createOpusEncoder, type Encoder } from "../../audio/encoder.js";
+import { decodeVoiceOpusPacket } from "../../audio/opus-voice.js";
 import type { AudioPlayer } from "../../audio/player.js";
 import type { PlayQueue, QueuedSong } from "../../audio/queue.js";
+import type { ControlRouter, RouterContext } from "../../control/router.js";
 import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
-import type { RightsEngine } from "../../rights/index.js";
-import type { Subject } from "../../rights/index.js";
+import type { RightsEngine, Subject } from "../../rights/index.js";
+import type { TS3Client, TS3VoiceData } from "../../ts-protocol/client.js";
+import { CODEC_OPUS_VOICE } from "../../ts-protocol/voice.js";
 import {
-  allowedClassificationsFor,
-  resolveSubject as resolveRightsSubject,
-} from "../rights/subject.js";
-import type { ControlRouter, RouterContext } from "../../control/router.js";
-import { createOpusEncoder, type Encoder } from "../../audio/encoder.js";
-import { decodeVoiceOpusPacket } from "../../audio/opus-voice.js";
-import {
-  VoicePipeline,
-  SherpaSttClient,
-  KokoroTtsClient,
   defaultVoiceConfig,
   isPlaybackControlReply,
   isPlaybackStartReply,
-  voiceReplyClearsSavedMusic,
-  type TtsProvider,
-  type VoiceOutput,
+  KokoroTtsClient,
+  SherpaSttClient,
   type StreamSttResult,
+  type TtsProvider,
   type Utterance,
+  type VoiceOutput,
+  VoicePipeline,
+  voiceReplyClearsSavedMusic,
 } from "../../voice/index.js";
-import { probeKokoroTts, probeSherpaStt } from "../../voice/probe.js";
+import { isMusicSearchRouteText } from "../../voice/music-command.js";
 import {
   isPcmClipped,
   MIN_PCM_BOOST_PEAK,
@@ -38,7 +33,7 @@ import {
   peakAmplitude16,
   STT_TARGET_PEAK,
 } from "../../voice/pcm.js";
-import { isMusicSearchRouteText } from "../../voice/music-command.js";
+import { probeKokoroTts, probeSherpaStt } from "../../voice/probe.js";
 import {
   extractCommandSegment,
   extractWatchwordCommand,
@@ -47,6 +42,10 @@ import {
   partialMentionsCommand,
 } from "../../voice/watchword.js";
 import type { BotInstance } from "../instance.js";
+import {
+  allowedClassificationsFor,
+  resolveSubject as resolveRightsSubject,
+} from "../rights/subject.js";
 
 export interface VoiceSessionDeps {
   config: BotConfig;
@@ -59,7 +58,9 @@ export interface VoiceSessionDeps {
   rightsEngine: () => RightsEngine | null;
   getProviderFor: (platform: "local" | "youtube" | "stream") => MusicProvider;
   isConnected: () => boolean;
-  onClientList: (clients: Array<{ id: number; uid: string; serverGroups: string[]; nickname: string }>) => void;
+  onClientList: (
+    clients: Array<{ id: number; uid: string; serverGroups: string[]; nickname: string }>,
+  ) => void;
 }
 
 /** Voice loop: inbound Opus → STT → ControlRouter → TTS (DESIGN §10). */
@@ -98,12 +99,14 @@ export class VoiceSession {
   private readonly duckWatchdogMs = 18_000;
   /** After voice pause/stop, TTS trackEnd must not advance the music queue. */
   private suppressNextTrackAdvance = false;
-  private segmenterOpts: { sampleRate: number; channels: number; energyThreshold: number } | null = null;
+  private segmenterOpts: { sampleRate: number; channels: number; energyThreshold: number } | null =
+    null;
   private tempDir: string | null = null;
   private savedMusic: { song: QueuedSong; elapsed: number } | null = null;
   /** Music volume-ducked at speech onset so bot output does not drown STT. */
   private captureDuck: { song: QueuedSong; elapsed: number } | null = null;
-  /** Client whose wake word triggered captureDuck. */
+  /** Client whose wake word triggered captureDuck (for multi-speaker duck ownership). */
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: written on duck arm/clear; used for multi-speaker diagnostics
   private captureDuckClientId: number | null = null;
   private duckMusicOnSpeech = true;
   private duckMusicVolume = 25;
@@ -136,7 +139,10 @@ export class VoiceSession {
   private passiveKwsEligible = new Set<number>();
   private passiveKwsMaxSpeakers = 2;
   private static readonly PASSIVE_ENERGY_DECAY_MS = 3000;
-  private clientInfoCache = new Map<number, { uid: string; serverGroups: string[]; nickname: string }>();
+  private clientInfoCache = new Map<
+    number,
+    { uid: string; serverGroups: string[]; nickname: string }
+  >();
   /** Cached ranked passive KWS speakers; refreshed on score touch / prune. */
   private rankedPassiveCache: number[] = [];
   private rankedPassiveCacheAt = 0;
@@ -347,13 +353,18 @@ export class VoiceSession {
    * Admin smoke test: feed a transcript directly (skips STT + Opus decode).
    * Does not play into the TS channel when `speak` is false.
    */
-  async runSyntheticTurn(transcript: string, opts: { speak?: boolean } = {}): Promise<{
+  async runSyntheticTurn(
+    transcript: string,
+    opts: { speak?: boolean } = {},
+  ): Promise<{
     transcript: string;
     reply: string | null;
     ttsBytes: number;
   }> {
     if (!this.pipeline) {
-      throw new Error("Voice pipeline is not active — enable voice in Settings and ensure STT URL is set");
+      throw new Error(
+        "Voice pipeline is not active — enable voice in Settings and ensure STT URL is set",
+      );
     }
     const utterance: Utterance = {
       speakerClientId: 0,
@@ -445,7 +456,9 @@ export class VoiceSession {
     if (this.tempDir) {
       try {
         rmSync(this.tempDir, { recursive: true, force: true });
-      } catch { /* best effort */ }
+      } catch {
+        /* best effort */
+      }
       this.tempDir = null;
     }
   }
@@ -493,9 +506,7 @@ export class VoiceSession {
       if (keep.has(clientId)) continue;
       const buf = this.streamBuffers.get(clientId);
       const inCapture =
-        this.isArmed(clientId) ||
-        buf?.listening === "command" ||
-        !!this.captureDuck;
+        this.isArmed(clientId) || buf?.listening === "command" || !!this.captureDuck;
       if (!inCapture) this.syncPassiveKwsEligibility(clientId, false);
     }
   }
@@ -548,9 +559,7 @@ export class VoiceSession {
 
     let buf = this.streamBuffers.get(v.clientId);
     const inCapture =
-      this.isArmed(v.clientId) ||
-      buf?.listening === "command" ||
-      !!this.captureDuck;
+      this.isArmed(v.clientId) || buf?.listening === "command" || !!this.captureDuck;
 
     const channels = 1;
     const decoded = decodeVoiceOpusPacket(this.voiceDecoder, v.data);
@@ -740,29 +749,35 @@ export class VoiceSession {
     }
 
     // Loud music still streaming — don't pollute command capture until ducked.
-    if (
-      inCommand &&
-      this.deps.player.getState() === "playing" &&
-      !this.deps.player.isSttDucked()
-    ) {
-      this.deps.logger.debug(
-        { clientId },
-        "Voice: STT flush held — music not ducked yet",
-      );
+    if (inCommand && this.deps.player.getState() === "playing" && !this.deps.player.isSttDucked()) {
+      this.deps.logger.debug({ clientId }, "Voice: STT flush held — music not ducked yet");
       return;
     }
 
     const rawPeakForNorm = peakAmplitude16(pcm);
-    const pcmForStt = normalizePcmForStt(pcm, STT_TARGET_PEAK, 120, MIN_PCM_BOOST_PEAK, rawPeakForNorm);
+    const pcmForStt = normalizePcmForStt(
+      pcm,
+      STT_TARGET_PEAK,
+      120,
+      MIN_PCM_BOOST_PEAK,
+      rawPeakForNorm,
+    );
     const peak = rawPeakForNorm < MIN_PCM_BOOST_PEAK ? rawPeakForNorm : peakAmplitude16(pcmForStt);
     buf.utterancePeak = Math.max(buf.utterancePeak, peak);
 
     const out = await this.sttClient.feedStream(clientId, pcmForStt, 48_000, channels);
     if (this.isArmed(clientId) && rawPeak >= VoiceSession.MIN_SPEECH_PEAK) {
       this.touchArmedWindow(clientId);
-      this.deps.logger.debug({ clientId, peak, rawPeak, listening: out.listening }, "Voice: command capture audio");
+      this.deps.logger.debug(
+        { clientId, peak, rawPeak, listening: out.listening },
+        "Voice: command capture audio",
+      );
     }
-    this.applyStreamResult(clientId, out, { peak: buf.utterancePeak, pcmBytes: pcm.length, channels });
+    this.applyStreamResult(clientId, out, {
+      peak: buf.utterancePeak,
+      pcmBytes: pcm.length,
+      channels,
+    });
   }
 
   private applyStreamResult(
@@ -776,7 +791,10 @@ export class VoiceSession {
     if (!buf) return;
 
     if (out.error && this.captureDuck && !this.isArmed(clientId) && !this.anySpeakerArmed()) {
-      this.deps.logger.warn({ clientId, detail: out.error }, "Voice: STT failed — restoring music volume");
+      this.deps.logger.warn(
+        { clientId, detail: out.error },
+        "Voice: STT failed — restoring music volume",
+      );
       this.abandonCaptureDuck(clientId);
       return;
     }
@@ -798,7 +816,10 @@ export class VoiceSession {
       if (this.isArmed(clientId) && this.captureDuck) this.touchArmedWindow(clientId);
       else this.armSpeaker(clientId);
       if (!out.commandFinal || !out.final) {
-        this.deps.logger.info({ clientId, windowMs: this.listenWindowMs }, "Voice: wake only — waiting for command");
+        this.deps.logger.info(
+          { clientId, windowMs: this.listenWindowMs },
+          "Voice: wake only — waiting for command",
+        );
       }
     }
     // Do NOT arm on listening==="command" alone. Whisper sidecars used to report
@@ -819,7 +840,10 @@ export class VoiceSession {
 
     if (out.partial) {
       const level = this.isArmed(clientId) ? "info" : "debug";
-      this.deps.logger[level]({ clientId, partial: out.partial, peak: meta.peak, listening }, "Voice: STT partial");
+      this.deps.logger[level](
+        { clientId, partial: out.partial, peak: meta.peak, listening },
+        "Voice: STT partial",
+      );
       if (
         this.isArmed(clientId) &&
         listening === "command" &&
@@ -838,7 +862,10 @@ export class VoiceSession {
         !this.isArmed(clientId) &&
         !this.anySpeakerArmed()
       ) {
-        this.deps.logger.info({ clientId, peak: meta.peak }, "Voice: command capture ended — restoring music volume");
+        this.deps.logger.info(
+          { clientId, peak: meta.peak },
+          "Voice: command capture ended — restoring music volume",
+        );
         this.abandonCaptureDuck(clientId);
       }
       return;
@@ -1006,9 +1033,8 @@ export class VoiceSession {
     meta: { peak: number; pcmBytes: number; channels: number },
   ): boolean {
     const ww = extractWatchwordCommand(partial, this.watchword, { armed: true });
-    const candidate = ww.matched && ww.command
-      ? ww.command
-      : extractCommandSegment(partial, this.watchword);
+    const candidate =
+      ww.matched && ww.command ? ww.command : extractCommandSegment(partial, this.watchword);
     if (!isPartialSafeVoiceCommand(candidate, this.deps.config.commandAliases)) return false;
     if (this.partialRoutedCommand.get(clientId) === candidate) return false;
     if (!partialMentionsCommand(partial, candidate)) return false;
@@ -1177,7 +1203,10 @@ export class VoiceSession {
     if (!currentSong) return;
 
     if (this.captureDuck && !this.deps.player.isSttDucked()) {
-      this.deps.logger.warn({ clientId }, "Voice: stale captureDuck without active duck — re-applying");
+      this.deps.logger.warn(
+        { clientId },
+        "Voice: stale captureDuck without active duck — re-applying",
+      );
     }
 
     if (!this.deps.player.duckForStt(this.duckMusicVolume)) {
@@ -1277,7 +1306,10 @@ export class VoiceSession {
       this.disarmSpeaker(clientId);
       this.releaseCaptureDuck(clientId);
       void this.sttClient?.resetStream(clientId);
-      this.deps.logger.info({ clientId, reply }, "Voice: playback started — disarmed for next wake");
+      this.deps.logger.info(
+        { clientId, reply },
+        "Voice: playback started — disarmed for next wake",
+      );
       return;
     }
 
@@ -1288,7 +1320,10 @@ export class VoiceSession {
       this.disarmSpeaker(clientId);
       this.releaseCaptureDuck(clientId);
       void this.sttClient?.resetStream(clientId);
-      this.deps.logger.info({ clientId, reply }, "Voice: playback command done — disarmed for next wake");
+      this.deps.logger.info(
+        { clientId, reply },
+        "Voice: playback command done — disarmed for next wake",
+      );
       if (voiceReplyClearsSavedMusic(reply)) {
         this.savedMusic = null;
         this.suppressNextTrackAdvance = true;
@@ -1306,7 +1341,10 @@ export class VoiceSession {
 
     // STT miss or non-pause command while still armed — keep music ducked for retry.
     if (this.isArmed(clientId)) {
-      this.deps.logger.info({ clientId }, "Voice: follow-up inconclusive — keeping music ducked while armed");
+      this.deps.logger.info(
+        { clientId },
+        "Voice: follow-up inconclusive — keeping music ducked while armed",
+      );
       return;
     }
 
@@ -1422,7 +1460,11 @@ export class VoiceSession {
         this.deps.player.resetFailures();
         this.deps.player.play(file);
         setTimeout(() => {
-          try { rmSync(file, { force: true }); } catch { /* ignore */ }
+          try {
+            rmSync(file, { force: true });
+          } catch {
+            /* ignore */
+          }
         }, 3000);
       },
     };

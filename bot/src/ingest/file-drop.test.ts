@@ -1,18 +1,26 @@
-import { describe, it, expect, vi } from "vitest";
-import { Writable } from "node:stream";
-import { scanDropChannel, type FileDropDeps } from "./file-drop.js";
+import type { Writable } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
 import type { ChannelFile } from "../ts-protocol/client.js";
+import { type FileDropDeps, scanDropChannel } from "./file-drop.js";
 
 function file(name: string, extra: Partial<ChannelFile> = {}): ChannelFile {
   return { name, size: 10n, datetime: 1000, type: 1, ...extra };
 }
 
-function makeDeps(opts: { files: ChannelFile[]; content?: string; ragEnabled?: boolean; seeded?: string[] }) {
+function makeDeps(opts: {
+  files: ChannelFile[];
+  content?: string;
+  ragEnabled?: boolean;
+  seeded?: string[];
+}) {
   const recorded: Array<{ key: string; name: string; kind: string; result: string }> = [];
   const seen = new Set<string>(opts.seeded ?? []);
   const store = {
     seen: (k: string) => seen.has(k),
-    record: (e: any) => { recorded.push(e); seen.add(e.key); },
+    record: (e: any) => {
+      recorded.push(e);
+      seen.add(e.key);
+    },
   };
   const uploadSong = vi.fn().mockResolvedValue({ name: "Track", artist: "Artist" });
   const retrieval = { ingest: vi.fn().mockResolvedValue(3), purge: vi.fn() };
@@ -23,8 +31,17 @@ function makeDeps(opts: { files: ChannelFile[]; content?: string; ragEnabled?: b
   const tsClient = {
     resolveChannelIdByName: vi.fn().mockResolvedValue(5n),
     listChannelFiles: vi.fn().mockResolvedValue(opts.files),
-    fileTransferInitDownload: vi.fn().mockResolvedValue({ size: BigInt(content.length || 4), fileTransferKey: "k", clientFileTransferID: 1, serverFileTransferID: 1, port: 1 }),
-    downloadFileData: vi.fn(async (_host: string, _info: unknown, dest: Writable) => { dest.write(Buffer.from(content)); dest.end(); }),
+    fileTransferInitDownload: vi.fn().mockResolvedValue({
+      size: BigInt(content.length || 4),
+      fileTransferKey: "k",
+      clientFileTransferID: 1,
+      serverFileTransferID: 1,
+      port: 1,
+    }),
+    downloadFileData: vi.fn(async (_host: string, _info: unknown, dest: Writable) => {
+      dest.write(Buffer.from(content));
+      dest.end();
+    }),
     getHost: () => "host",
     sendChannelMessage,
   };
@@ -35,7 +52,11 @@ function makeDeps(opts: { files: ChannelFile[]; content?: string; ragEnabled?: b
     retrieval: retrieval as any,
     doctrine: doctrine as any,
     store: store as any,
-    config: { ragEnabled: opts.ragEnabled ?? true, fileDropEnabled: true, fileDropPollSec: 30 } as any,
+    config: {
+      ragEnabled: opts.ragEnabled ?? true,
+      fileDropEnabled: true,
+      fileDropPollSec: 30,
+    } as any,
     isConnected: () => true,
   } as unknown as FileDropDeps;
 
@@ -49,7 +70,10 @@ describe("scanDropChannel routing", () => {
     expect(t.retrieval.ingest).toHaveBeenCalledTimes(1);
     expect(t.uploadSong).not.toHaveBeenCalled();
     expect(t.recorded[0]).toMatchObject({ name: "intsum.md", kind: "doctrine" });
-    expect(t.sendChannelMessage).toHaveBeenCalledWith(5n, expect.stringContaining("classification: secret"));
+    expect(t.sendChannelMessage).toHaveBeenCalledWith(
+      5n,
+      expect.stringContaining("classification: secret"),
+    );
   });
 
   it("routes audio into the music library (not RAG)", async () => {
@@ -59,13 +83,16 @@ describe("scanDropChannel routing", () => {
     expect(t.uploadSong.mock.calls[0][0]).toBe("banger.mp3");
     expect(t.retrieval.ingest).not.toHaveBeenCalled();
     expect(t.recorded[0]).toMatchObject({ name: "banger.mp3", kind: "music" });
-    expect(t.sendChannelMessage).toHaveBeenCalledWith(5n, '🎵 Added "Track — Artist" to the library.');
+    expect(t.sendChannelMessage).toHaveBeenCalledWith(
+      5n,
+      '🎵 Added "Track — Artist" to the library.',
+    );
   });
 
   it("skips unsupported types without downloading", async () => {
     const t = makeDeps({ files: [file("notes.txt")] });
     await scanDropChannel(t.deps, 5n);
-    expect((t.deps.tsClient.fileTransferInitDownload as any)).not.toHaveBeenCalled();
+    expect(t.deps.tsClient.fileTransferInitDownload as any).not.toHaveBeenCalled();
     expect(t.recorded[0]).toMatchObject({ kind: "skipped", result: "unsupported type" });
   });
 
@@ -94,15 +121,19 @@ describe("scanDropChannel routing", () => {
 describe("scanDropChannel hardening", () => {
   it("recurses into subdirectories and downloads via the full nested path", async () => {
     const t = makeDeps({ files: [] });
-    (t.deps.tsClient.listChannelFiles as any).mockImplementation(async (_cid: bigint, dir: string) => {
-      if (dir === "/") return [file("sub", { type: 0 })];
-      if (dir === "/sub") return [file("nested.md")];
-      return [];
-    });
+    (t.deps.tsClient.listChannelFiles as any).mockImplementation(
+      async (_cid: bigint, dir: string) => {
+        if (dir === "/") return [file("sub", { type: 0 })];
+        if (dir === "/sub") return [file("nested.md")];
+        return [];
+      },
+    );
     await scanDropChannel(t.deps, 5n);
     expect(t.retrieval.ingest).toHaveBeenCalledTimes(1);
     expect(t.recorded[0]).toMatchObject({ name: "nested.md", kind: "doctrine" });
-    expect((t.deps.tsClient.fileTransferInitDownload as any).mock.calls[0][1]).toBe("/sub/nested.md");
+    expect((t.deps.tsClient.fileTransferInitDownload as any).mock.calls[0][1]).toBe(
+      "/sub/nested.md",
+    );
   });
 
   it("retries a transient download failure (not recorded), then gives up after the cap", async () => {

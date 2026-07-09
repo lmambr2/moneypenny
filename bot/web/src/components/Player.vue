@@ -75,8 +75,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { Icon } from '@iconify/vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { usePlayerStore } from '../stores/player.js';
 import CoverArt from './CoverArt.vue';
@@ -130,9 +130,7 @@ function updateProgress() {
   currentElapsed.value = store.elapsed;
 
   const duration = currentSong.value?.duration ?? 0;
-  progressPercent.value = duration > 0
-    ? Math.min((currentElapsed.value / duration) * 100, 100)
-    : 0;
+  progressPercent.value = duration > 0 ? Math.min((currentElapsed.value / duration) * 100, 100) : 0;
 
   rafId = requestAnimationFrame(updateProgress);
 }
@@ -176,7 +174,7 @@ function togglePlay() {
 
 function onVolumeChange(e: Event) {
   const target = e.target as HTMLInputElement;
-  store.setVolume(parseInt(target.value));
+  store.setVolume(parseInt(target.value, 10));
 }
 
 const modeOrder = ['seq', 'loop', 'random', 'rloop'] as const;
@@ -198,7 +196,7 @@ const modeIcon = computed(() => modeIcons[currentMode.value] ?? modeIcons.seq);
 const modeLabel = computed(() => modeLabels[currentMode.value] ?? modeLabels.seq);
 
 function cycleMode() {
-  const idx = modeOrder.indexOf(currentMode.value as typeof modeOrder[number]);
+  const idx = modeOrder.indexOf(currentMode.value as (typeof modeOrder)[number]);
   const next = modeOrder[(idx + 1) % modeOrder.length];
   store.setMode(next);
 }

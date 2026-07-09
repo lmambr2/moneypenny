@@ -1,5 +1,5 @@
-import { ref, computed, readonly } from "vue";
-import api from "../api/axios.js";
+import { computed, readonly, ref } from 'vue';
+import api from '../api/axios.js';
 
 interface User {
   id: string;
@@ -36,7 +36,7 @@ async function refreshNeedsSetup(): Promise<void> {
   const delayMs = 300;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const res = await api.get<{ needsSetup: boolean }>("/api/session/needs-setup");
+      const res = await api.get<{ needsSetup: boolean }>('/api/session/needs-setup');
       needsSetup.value = Boolean(res.data.needsSetup);
       return;
     } catch {
@@ -48,12 +48,14 @@ async function refreshNeedsSetup(): Promise<void> {
   }
   // final failure: leave as null; guard treats it as "not first-run" (server is source of truth)
   // eslint-disable-next-line no-console
-  console.warn("[useSession] Failed to determine needs-setup state after retries (check server logs /api/health)");
+  console.warn(
+    '[useSession] Failed to determine needs-setup state after retries (check server logs /api/health)',
+  );
 }
 
 async function refreshMe(): Promise<void> {
   try {
-    const res = await api.get<User>("/api/session/me");
+    const res = await api.get<User>('/api/session/me');
     currentUser.value = res.data;
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status;
@@ -78,29 +80,29 @@ async function refresh(): Promise<void> {
 
 async function login(username: string, password: string): Promise<void> {
   try {
-    const res = await api.post<User>("/api/session/login", { username, password });
+    const res = await api.post<User>('/api/session/login', { username, password });
     currentUser.value = res.data;
   } catch (err: unknown) {
     const data = (err as { response?: { data?: { error?: string }; status?: number } })?.response;
-    throw new Error(data?.data?.error ?? `login failed (${data?.status ?? "unknown"})`);
+    throw new Error(data?.data?.error ?? `login failed (${data?.status ?? 'unknown'})`);
   }
 }
 
 async function setup(username: string, password: string): Promise<void> {
   try {
-    const res = await api.post<User>("/api/session/setup", { username, password });
+    const res = await api.post<User>('/api/session/setup', { username, password });
     currentUser.value = res.data;
     needsSetup.value = false;
   } catch (err: unknown) {
     const data = (err as { response?: { data?: { error?: string }; status?: number } })?.response;
-    throw new Error(data?.data?.error ?? `setup failed (${data?.status ?? "unknown"})`);
+    throw new Error(data?.data?.error ?? `setup failed (${data?.status ?? 'unknown'})`);
   }
 }
 
 async function logout(): Promise<void> {
   stopPoll();
   try {
-    await api.post("/api/session/logout");
+    await api.post('/api/session/logout');
   } catch {
     // still clear local state
   }

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { verdictForTally, type TagScanTally } from "./library-tag-scan.js";
+import { describe, expect, it } from "vitest";
+import { type TagScanTally, verdictForTally } from "./library-tag-scan.js";
 
 function tally(overrides: Partial<TagScanTally>): TagScanTally {
   return {
@@ -22,20 +22,16 @@ describe("library-tag-scan verdict", () => {
   });
 
   it("defers analyzer when key and bpm are high", () => {
-    expect(
-      verdictForTally(tally({ parsed: 100, key: 70, bpm: 65, genre: 10 })),
-    ).toMatch(/HIGH/);
+    expect(verdictForTally(tally({ parsed: 100, key: 70, bpm: 65, genre: 10 }))).toMatch(/HIGH/);
   });
 
   it("recommends keyfinder when genre-rich but key/bpm sparse", () => {
-    expect(
-      verdictForTally(tally({ parsed: 100, key: 5, bpm: 4, genre: 80 })),
-    ).toMatch(/keyfinder\+aubio/);
+    expect(verdictForTally(tally({ parsed: 100, key: 5, bpm: 4, genre: 80 }))).toMatch(
+      /keyfinder\+aubio/,
+    );
   });
 
   it("recommends full analyzer when coverage is sparse", () => {
-    expect(
-      verdictForTally(tally({ parsed: 100, key: 5, bpm: 4, genre: 20 })),
-    ).toMatch(/SPARSE/);
+    expect(verdictForTally(tally({ parsed: 100, key: 5, bpm: 4, genre: 20 }))).toMatch(/SPARSE/);
   });
 });

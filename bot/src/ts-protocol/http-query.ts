@@ -32,12 +32,10 @@ export class HttpQueryError extends Error {
     const bodySnippet = (() => {
       if (body == null) return "";
       const s = typeof body === "string" ? body : JSON.stringify(body);
-      return s.length > 200 ? s.slice(0, 200) + "\u2026" : s;
+      return s.length > 200 ? `${s.slice(0, 200)}\u2026` : s;
     })();
     super(
-      `TS6 HTTP Query ${path} failed: status=${status}${
-        bodySnippet ? ` body=${bodySnippet}` : ""
-      }`,
+      `TS6 HTTP Query ${path} failed: status=${status}${bodySnippet ? ` body=${bodySnippet}` : ""}`,
     );
     this.name = "HttpQueryError";
     this.status = status;
@@ -226,12 +224,7 @@ export class TS6HttpQuery {
   }
 
   /** Move a client to a channel. Throws HttpQueryError on non-2xx. */
-  async clientMove(
-    clid: number,
-    cid: number,
-    cpw?: string,
-    sid = 1,
-  ): Promise<HttpQueryResult> {
+  async clientMove(clid: number, cid: number, cpw?: string, sid = 1): Promise<HttpQueryResult> {
     const path = `/1/clientmove?sid=${sid}`;
     const body: Record<string, unknown> = { clid, cid };
     if (cpw) body.cpw = cpw;

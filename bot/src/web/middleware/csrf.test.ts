@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { csrfOriginCheck } from "./csrf.js";
 
 describe("csrfOriginCheck middleware", () => {
@@ -71,10 +71,7 @@ describe("csrfOriginCheck middleware", () => {
   // pins the gate behavior so the interaction stays understood. See
   // src/web/referrer-policy.test.ts.
   it('rejects POST with the literal Origin: "null" (no-referrer downgrade)', async () => {
-    const res = await request(app)
-      .post("/")
-      .set("Host", "example.com")
-      .set("Origin", "null");
+    const res = await request(app).post("/").set("Host", "example.com").set("Origin", "null");
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ error: "bad origin" });
   });

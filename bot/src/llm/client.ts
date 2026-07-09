@@ -75,7 +75,10 @@ export class LlmClient {
   private axiosInstance: ReturnType<typeof axios.create>;
 
   constructor(options: LlmClientOptions = {}) {
-    this.baseUrl = (options.baseUrl || process.env.RKLLAMA_URL || "http://localhost:8080").replace(/\/$/, "");
+    this.baseUrl = (options.baseUrl || process.env.RKLLAMA_URL || "http://localhost:8080").replace(
+      /\/$/,
+      "",
+    );
     this.model = options.model || process.env.RKLLAMA_MODEL || DEFAULT_CHAT_MODEL;
     // 180s: on the Pi, !ask chains embed (embeddinggemma) then chat (Gemma).
     // Cold load + ~10 tok/s decode can exceed 120s when both models contend.
@@ -108,12 +111,17 @@ export class LlmClient {
     };
 
     try {
-      const { data } = await this.axiosInstance.post<ChatCompletionResponse>("/v1/chat/completions", payload);
+      const { data } = await this.axiosInstance.post<ChatCompletionResponse>(
+        "/v1/chat/completions",
+        payload,
+      );
       return data;
     } catch (err: unknown) {
-      this.logger?.warn({ err: errorMessage(err), baseUrl: this.baseUrl }, "LLM chat request failed");
+      this.logger?.warn(
+        { err: errorMessage(err), baseUrl: this.baseUrl },
+        "LLM chat request failed",
+      );
       throw new Error(`LLM request failed: ${errorMessage(err)}`);
     }
   }
-
 }

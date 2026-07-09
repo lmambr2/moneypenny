@@ -1,13 +1,12 @@
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
-import { LlmClient, type ChatMessage } from "./client.js";
+import { type ChatMessage, LlmClient } from "./client.js";
 import { probeLlmEndpoint } from "./probe.js";
 
 export const DELEGATE_TOOL_NAME = "delegate_to_agent" as const;
 
 /** Immediate ack while the heavy model runs (DESIGN §R1b). */
-export const DELEGATE_ACK_MESSAGE =
-  "Analyst on it — I'll post the result here when ready.";
+export const DELEGATE_ACK_MESSAGE = "Analyst on it — I'll post the result here when ready.";
 
 /** Prefix for the async follow-up posted to the channel. */
 export function formatDelegateFollowUp(result: string, invokerName?: string): string {

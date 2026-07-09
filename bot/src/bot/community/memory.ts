@@ -1,7 +1,7 @@
 import type { BotConfig } from "../../data/config.js";
 import type { MemoryStore } from "../../data/memory.js";
-import type { MemPalaceClient } from "../../memory/mempalace-client.js";
 import type { Logger } from "../../logger.js";
+import type { MemPalaceClient } from "../../memory/mempalace-client.js";
 
 export interface MemoryServiceDeps {
   store: MemoryStore;
@@ -98,9 +98,7 @@ export class MemoryService {
           mpNote = " (MemPalace may still have copies — re-run Sync or forget again)";
         }
       }
-      return n > 0
-        ? `Forgotten ${n} fact${n === 1 ? "" : "s"}.${mpNote}`
-        : "Nothing to forget.";
+      return n > 0 ? `Forgotten ${n} fact${n === 1 ? "" : "s"}.${mpNote}` : "Nothing to forget.";
     }
 
     const index = Number.parseInt(trimmed, 10);
@@ -155,6 +153,6 @@ export class MemoryService {
   }
 
   private formatRecall(facts: string[]): string {
-    return "What I remember about you:\n" + facts.map((f, i) => `${i + 1}. ${f}`).join("\n");
+    return `What I remember about you:\n${facts.map((f, i) => `${i + 1}. ${f}`).join("\n")}`;
   }
 }

@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import express from "express";
 import cookieParser from "cookie-parser";
+import express from "express";
 import request from "supertest";
-import { createDatabase, type BotDatabase } from "../../data/database.js";
-import { createUserStore } from "../../data/users.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type BotDatabase, createDatabase } from "../../data/database.js";
 import { createSessionStore } from "../../data/sessions.js";
-import { createRequireAuth } from "./requireAuth.js";
+import { createUserStore } from "../../data/users.js";
 import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
+import { createRequireAuth } from "./requireAuth.js";
 
 describe("requireAuth middleware", () => {
   let botDb: BotDatabase;
@@ -61,7 +61,11 @@ describe("requireAuth middleware", () => {
       .set("Cookie", `${SESSION_COOKIE_NAME}=${validToken}`);
     expect(res.status).toBe(200);
     const setCookieHeaders = res.headers["set-cookie"];
-    const arr = Array.isArray(setCookieHeaders) ? setCookieHeaders : setCookieHeaders ? [setCookieHeaders] : [];
+    const arr = Array.isArray(setCookieHeaders)
+      ? setCookieHeaders
+      : setCookieHeaders
+        ? [setCookieHeaders]
+        : [];
     const refreshed = arr.find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`));
     expect(refreshed).toBeDefined();
     expect(refreshed!).toMatch(/Max-Age=\d+/);

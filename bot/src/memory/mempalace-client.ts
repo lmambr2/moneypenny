@@ -125,7 +125,13 @@ export class MemPalaceClient {
       );
       if (!data?.ok || !Array.isArray(data.results)) return [];
       return data.results.map(
-        (row: { drawerId?: string; fact: string; score?: number; diary?: string; subject?: string }) => ({
+        (row: {
+          drawerId?: string;
+          fact: string;
+          score?: number;
+          diary?: string;
+          subject?: string;
+        }) => ({
           drawerId: row.drawerId,
           fact: row.fact,
           score: row.score,

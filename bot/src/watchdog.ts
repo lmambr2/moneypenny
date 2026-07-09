@@ -66,7 +66,10 @@ export class Watchdog {
     }, this.intervalMs);
     // Don't keep the event loop alive solely for the watchdog.
     this.timer.unref?.();
-    this.logger.info({ intervalMs: this.intervalMs, memoryLimitMb: this.memoryLimitMb }, "Watchdog started");
+    this.logger.info(
+      { intervalMs: this.intervalMs, memoryLimitMb: this.memoryLimitMb },
+      "Watchdog started",
+    );
   }
 
   stop(): void {
@@ -92,7 +95,10 @@ export class Watchdog {
     if (this.memoryLimitMb <= 0) return;
     const rssMb = this.memoryUsage() / (1024 * 1024);
     if (rssMb > this.memoryLimitMb) {
-      this.logger.error({ rssMb: Math.round(rssMb), limitMb: this.memoryLimitMb }, "Memory ceiling exceeded");
+      this.logger.error(
+        { rssMb: Math.round(rssMb), limitMb: this.memoryLimitMb },
+        "Memory ceiling exceeded",
+      );
       this.opts.onMemoryExceeded?.(rssMb);
     }
   }
@@ -113,7 +119,10 @@ export class Watchdog {
         await t.reconnect();
         this.logger.info({ botId: t.id, name: t.name }, "Watchdog reconnect succeeded");
       } catch (err) {
-        this.logger.error({ err, botId: t.id }, "Watchdog reconnect failed (will retry after cooldown)");
+        this.logger.error(
+          { err, botId: t.id },
+          "Watchdog reconnect failed (will retry after cooldown)",
+        );
       }
     }
   }

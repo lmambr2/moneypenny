@@ -1,66 +1,62 @@
+import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import {
-  TS3Client,
-  type TS3ClientOptions,
-  type TS3TextMessage,
-} from "../ts-protocol/client.js";
+import { dirname, isAbsolute, join } from "node:path";
 import { AudioPlayer } from "../audio/player.js";
-import { PlayQueue, PlayMode, type QueuedSong } from "../audio/queue.js";
-import type { MusicProvider } from "../music/provider.js";
-import { StreamProvider } from "../music/stream.js";
-import type { ParsedCommand } from "./commands.js";
-import type { Logger } from "../logger.js";
-import type { BotDatabase } from "../data/database.js";
-import type { BotConfig } from "../data/config.js";
-import { BotProfileManager } from "./profile.js";
-import type { AvatarStore } from "../data/avatars.js";
-import { RoastStore } from "../data/roast.js";
-import { ControlRouter } from "../control/router.js";
+import { type PlayMode, PlayQueue, type QueuedSong } from "../audio/queue.js";
 import { registerBotCommandHandlers } from "../control/register-handlers.js";
-import type { RetrievalStore } from "../rag/index.js";
-import { MemoryStore } from "../data/memory.js";
+import { ControlRouter } from "../control/router.js";
+import type { AvatarStore } from "../data/avatars.js";
+import type { BotConfig } from "../data/config.js";
+import type { BotDatabase } from "../data/database.js";
+import type { DoctrineStore } from "../data/doctrine.js";
+import type { FileDropStore } from "../data/file-drop.js";
 import { KgStore } from "../data/kg.js";
+import { MemoryStore } from "../data/memory.js";
+import { RoastStore } from "../data/roast.js";
+import type { WorkflowKind } from "../docs/workflow.js";
+import type { Logger } from "../logger.js";
 import { MemPalaceClient } from "../memory/mempalace-client.js";
 import { AceStepClient } from "../music/ace-step-client.js";
 import { GenerateProvider } from "../music/generate-provider.js";
-import { LocalProvider } from "../music/local.js";
-import type { DoctrineStore } from "../data/doctrine.js";
-import type { FileDropStore } from "../data/file-drop.js";
-import type { RightsConfig, Subject } from "../rights/index.js";
-import { PlaybackEngine } from "./playback/engine.js";
-import { CommandExecutor } from "./commands/executor.js";
-import { RoastService } from "./community/roast.js";
-import { MemoryService } from "./community/memory.js";
-import { KgService } from "./community/kg.js";
-import { VoiceSession } from "./voice/session.js";
-import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
-import { KokoroTtsClient, type TtsProvider } from "../voice/index.js";
+import type { LocalProvider } from "../music/local.js";
+import type { MusicProvider } from "../music/provider.js";
+import { StreamProvider } from "../music/stream.js";
 import {
-  RadioDirector,
-  RadioBumperFactory,
-  SpeechSink,
-  PrerecordedPool,
   BumperCache,
-  TagStore,
   floorFromMembers,
   IcecastTee,
-  RelayScheduler,
+  PrerecordedPool,
   type PresentMember,
+  RadioBumperFactory,
+  RadioDirector,
+  RelayScheduler,
+  SpeechSink,
+  TagStore,
 } from "../radio/index.js";
-import { spawn as nodeSpawn } from "node:child_process";
-import { dirname, isAbsolute, join } from "node:path";
-import { LlmRuntime } from "./llm/runtime.js";
-import type { WorkflowKind } from "../docs/workflow.js";
+import type { RetrievalStore } from "../rag/index.js";
+import type { RightsConfig } from "../rights/index.js";
+import { TS3Client, type TS3ClientOptions, type TS3TextMessage } from "../ts-protocol/client.js";
+import { KokoroTtsClient, type TtsProvider } from "../voice/index.js";
+import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
+import { CommandExecutor } from "./commands/executor.js";
+import type { ParsedCommand } from "./commands.js";
+import { KgService } from "./community/kg.js";
+import { MemoryService } from "./community/memory.js";
+import { RoastService } from "./community/roast.js";
+import { PokeHandler } from "./control/poke-handler.js";
+import { RoutedCommandExecutor } from "./control/routed-executor.js";
+import { TextMessageHandler } from "./control/text-handler.js";
+import { createYtLibrary } from "./factory/yt-library.js";
 import { KnowledgeService } from "./knowledge/service.js";
+import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
 import { IdlePoller } from "./lifecycle/idle-poller.js";
 import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
-import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
-import { TextMessageHandler } from "./control/text-handler.js";
-import { PokeHandler } from "./control/poke-handler.js";
+import { LlmRuntime } from "./llm/runtime.js";
+import { PlaybackEngine } from "./playback/engine.js";
+import { BotProfileManager } from "./profile.js";
 import { RightsRuntime } from "./rights/runtime.js";
 import { allowedClassificationsFor } from "./rights/subject.js";
-import { RoutedCommandExecutor } from "./control/routed-executor.js";
-import { createYtLibrary } from "./factory/yt-library.js";
+import { VoiceSession } from "./voice/session.js";
 
 export interface BotInstanceOptions {
   id: string;
@@ -194,7 +190,7 @@ export class BotInstance extends EventEmitter {
         this.playback.playResolvedItem({ type: "song", item: song }, "local"),
       getPlayingPath: async () => {
         const cur = this.queue.current();
-        if (!cur || cur.platform !== "local") return null;
+        if (cur?.platform !== "local") return null;
         try {
           return (await (this.localProvider as LocalProvider).pathForId(cur.id)) ?? null;
         } catch {
@@ -237,7 +233,9 @@ export class BotInstance extends EventEmitter {
       events: this,
       isConnected: () => this.connected,
       isAdvancing: () => this.isAdvancing,
-      setAdvancing: (v) => { this.isAdvancing = v; },
+      setAdvancing: (v) => {
+        this.isAdvancing = v;
+      },
     });
 
     this.icecastTee = new IcecastTee({
@@ -329,7 +327,11 @@ export class BotInstance extends EventEmitter {
     const radioBumperDir = this.resolveBumperDir(dataDir);
     const radioTtsVoice = this.config.radio.ttsVoice ?? this.config.voice.ttsVoice;
     const radioTts: TtsProvider = this.config.voice.ttsUrl
-      ? new KokoroTtsClient({ url: this.config.voice.ttsUrl, voice: radioTtsVoice, logger: this.logger })
+      ? new KokoroTtsClient({
+          url: this.config.voice.ttsUrl,
+          voice: radioTtsVoice,
+          logger: this.logger,
+        })
       : { synthesize: () => Promise.reject(new Error("TTS not configured")) };
     const bumperCache = new BumperCache({
       db: this.database.db,
@@ -500,9 +502,13 @@ export class BotInstance extends EventEmitter {
       player: this.player,
       voice: this.voice,
       logger: this.logger,
-      setConnected: (v) => { this.connected = v; },
+      setConnected: (v) => {
+        this.connected = v;
+      },
       isDisconnectEmitted: () => this.disconnectEmitted,
-      setDisconnectEmitted: (v) => { this.disconnectEmitted = v; },
+      setDisconnectEmitted: (v) => {
+        this.disconnectEmitted = v;
+      },
       emitDisconnected: () => this.emit("disconnected"),
     });
   }
@@ -555,8 +561,15 @@ export class BotInstance extends EventEmitter {
     delegateModel?: string,
   ): void {
     this.llm.updateLlm(
-      enabled, url, model, systemPrompt, temperature,
-      fallbackUrl, fallbackModel, delegateUrl, delegateModel,
+      enabled,
+      url,
+      model,
+      systemPrompt,
+      temperature,
+      fallbackUrl,
+      fallbackModel,
+      delegateUrl,
+      delegateModel,
     );
   }
 
@@ -589,11 +602,7 @@ export class BotInstance extends EventEmitter {
     return this.knowledge.getRagStatus();
   }
 
-  queryRag(
-    question: string,
-    topK?: number,
-    allowedClassifications?: string[],
-  ) {
+  queryRag(question: string, topK?: number, allowedClassifications?: string[]) {
     return this.knowledge.queryRag(question, topK, allowedClassifications);
   }
 
@@ -641,7 +650,13 @@ export class BotInstance extends EventEmitter {
     url: string;
     memoryEnabled: boolean;
     kgEnabled: boolean;
-    lastUserSync: { synced: number; failed: number; skipped: boolean; total?: number; at: number } | null;
+    lastUserSync: {
+      synced: number;
+      failed: number;
+      skipped: boolean;
+      total?: number;
+      at: number;
+    } | null;
   }> {
     const envUrl = (process.env.MEMPALACE_URL || "").trim();
     const url = (this.config.mempalaceUrl || envUrl || "").trim();
@@ -650,9 +665,7 @@ export class BotInstance extends EventEmitter {
       url,
       memoryEnabled: !!this.config.memoryEnabled,
       kgEnabled: !!this.config.kgEnabled,
-      lastUserSync: last
-        ? { ...last.result, at: last.at }
-        : null,
+      lastUserSync: last ? { ...last.result, at: last.at } : null,
     };
     if (!this.config.mempalaceEnabled || !url) {
       return { configured: false, available: false, ...base };
@@ -663,9 +676,7 @@ export class BotInstance extends EventEmitter {
 
   private createMemPalaceClient(): MemPalaceClient | null {
     if (!this.config.mempalaceEnabled) return null;
-    const url =
-      this.config.mempalaceUrl?.trim() ||
-      (process.env.MEMPALACE_URL || "").trim();
+    const url = this.config.mempalaceUrl?.trim() || (process.env.MEMPALACE_URL || "").trim();
     if (!url) return null;
     if (!this.config.mempalaceUrl?.trim() && url) {
       this.config.mempalaceUrl = url;
@@ -675,9 +686,7 @@ export class BotInstance extends EventEmitter {
 
   private createAceStepClient(): AceStepClient | null {
     if (!this.config.aceStepEnabled) return null;
-    const url =
-      this.config.aceStepUrl?.trim() ||
-      (process.env.ACE_STEP_URL || "").trim();
+    const url = this.config.aceStepUrl?.trim() || (process.env.ACE_STEP_URL || "").trim();
     if (!url) return null;
     if (!this.config.aceStepUrl?.trim() && url) {
       this.config.aceStepUrl = url;
@@ -716,8 +725,7 @@ export class BotInstance extends EventEmitter {
     busy?: boolean;
     error?: string;
   }> {
-    const url =
-      (this.config.aceStepUrl || process.env.ACE_STEP_URL || "").trim();
+    const url = (this.config.aceStepUrl || process.env.ACE_STEP_URL || "").trim();
     const configured = !!this.config.aceStepEnabled && !!url;
     if (!configured) {
       return {
@@ -814,7 +822,9 @@ export class BotInstance extends EventEmitter {
   }
 
   /** Hot-apply radio.icecast tee settings (Settings save). */
-  applyIcecastTee(partial?: { enabled?: boolean; mountUrl?: string; format?: "mp3" | "ogg" | "opus" } | null) {
+  applyIcecastTee(
+    partial?: { enabled?: boolean; mountUrl?: string; format?: "mp3" | "ogg" | "opus" } | null,
+  ) {
     return this.icecastTee.apply(partial ?? this.config.radio?.icecast ?? null);
   }
 
@@ -844,7 +854,10 @@ export class BotInstance extends EventEmitter {
 
   executeRoutedCommand(
     cmd: ParsedCommand,
-    opts?: { webUser?: { id: string; username: string; role: "admin" | "member" }; message?: TS3TextMessage },
+    opts?: {
+      webUser?: { id: string; username: string; role: "admin" | "member" };
+      message?: TS3TextMessage;
+    },
   ) {
     return this.routed.executeRoutedCommand(cmd, opts);
   }

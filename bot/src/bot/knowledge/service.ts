@@ -1,16 +1,20 @@
-import type { TS3Client } from "../../ts-protocol/client.js";
 import type { BotConfig } from "../../data/config.js";
 import type { DoctrineStore } from "../../data/doctrine.js";
 import type { FileDropStore } from "../../data/file-drop.js";
-import type { Logger } from "../../logger.js";
-import type { MusicProvider } from "../../music/provider.js";
-import { startFileDropWatcher, FILE_DROP_CHANNEL_NAME } from "../../ingest/file-drop.js";
-import type { RetrievalStore } from "../../rag/index.js";
-import type { WorkflowKind } from "../../docs/workflow.js";
 import { analystSavePath } from "../../docs/analyst.js";
 import { stripSourcesFooter } from "../../docs/export.js";
+import type { WorkflowKind } from "../../docs/workflow.js";
 import { workflowSavePath } from "../../docs/workflow.js";
-import { ingestDoctrineDoc, reindexDoctrine, reindexDoctrineSources } from "../../rag/doctrine-ingest.js";
+import { FILE_DROP_CHANNEL_NAME, startFileDropWatcher } from "../../ingest/file-drop.js";
+import type { Logger } from "../../logger.js";
+import type { MusicProvider } from "../../music/provider.js";
+import {
+  ingestDoctrineDoc,
+  reindexDoctrine,
+  reindexDoctrineSources,
+} from "../../rag/doctrine-ingest.js";
+import type { RetrievalStore } from "../../rag/index.js";
+import type { TS3Client } from "../../ts-protocol/client.js";
 
 export interface KnowledgeServiceDeps {
   config: BotConfig;
@@ -103,7 +107,9 @@ export class KnowledgeService {
           ? `${docs.length} of ${selective.length} requested doc${selective.length === 1 ? "" : "s"}`
           : `${docs.length} doctrine doc${docs.length === 1 ? "" : "s"}`;
       const skippedNote =
-        selective.length === 0 && docs.length === 0 ? " (corpus unchanged — all files already indexed)" : "";
+        selective.length === 0 && docs.length === 0
+          ? " (corpus unchanged — all files already indexed)"
+          : "";
       return `Re-indexed ${scope} (${chunks} chunks)${skippedNote}.`;
     } catch (err) {
       this.deps.logger.warn({ err }, "Doctrine reindex failed");
@@ -158,11 +164,7 @@ export class KnowledgeService {
   }
 
   /** Admin RAG query — throws when the substrate is down (unlike !ask's soft-fail). */
-  async queryRag(
-    question: string,
-    topK?: number,
-    allowedClassifications?: string[],
-  ) {
+  async queryRag(question: string, topK?: number, allowedClassifications?: string[]) {
     if (!this.deps.config.ragEnabled || !this.retrieval) return null;
     return this.retrieval.queryStrict(question, topK, allowedClassifications);
   }

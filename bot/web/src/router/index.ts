@@ -26,8 +26,18 @@ const router = createRouter({
     { path: '/bot/:id', name: 'bot', component: () => import('../views/BotRedirect.vue') },
 
     // Auth views
-    { path: '/login', name: 'login', component: () => import('../views/Login.vue'), meta: { public: true } },
-    { path: '/first-run', name: 'first-run', component: () => import('../views/FirstRunSetup.vue'), meta: { public: true } },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/Login.vue'),
+      meta: { public: true },
+    },
+    {
+      path: '/first-run',
+      name: 'first-run',
+      component: () => import('../views/FirstRunSetup.vue'),
+      meta: { public: true },
+    },
   ],
 });
 

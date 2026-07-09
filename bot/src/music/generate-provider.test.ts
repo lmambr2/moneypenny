@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { GenerateProvider, tagsFromPrompt } from "./generate-provider.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AceStepClient } from "./ace-step-client.js";
+import { GenerateProvider, tagsFromPrompt } from "./generate-provider.js";
 import type { LocalProvider } from "./local.js";
 import type { Song } from "./provider.js";
 
@@ -35,11 +35,13 @@ describe("GenerateProvider", () => {
     }
   });
 
-  function harness(overrides: {
-    client?: Partial<AceStepClient>;
-    resolveSong?: Song | null;
-    enabled?: boolean;
-  } = {}) {
+  function harness(
+    overrides: {
+      client?: Partial<AceStepClient>;
+      resolveSong?: Song | null;
+      enabled?: boolean;
+    } = {},
+  ) {
     const song: Song = {
       id: "song1",
       name: "Generated Track",
@@ -194,7 +196,7 @@ describe("GenerateProvider", () => {
     const { provider } = harness();
     // Force fast success
     for (let i = 0; i < 3; i++) {
-      const r = await provider.handleGenerate("prompt " + i, "user-a");
+      const r = await provider.handleGenerate(`prompt ${i}`, "user-a");
       expect(r).toMatch(/Generated|queued|failed|indexed/i);
     }
     const limited = await provider.handleGenerate("prompt 4", "user-a");

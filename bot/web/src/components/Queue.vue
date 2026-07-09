@@ -43,8 +43,8 @@
 </template>
 
 <script setup lang="ts">
-import { watch, computed } from 'vue';
 import { Icon } from '@iconify/vue';
+import { computed, watch } from 'vue';
 import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import CoverArt from './CoverArt.vue';
@@ -61,9 +61,12 @@ const store = usePlayerStore();
 const botQueue = computed(() => store.queue);
 
 // Fetch queue when panel opens
-watch(() => props.open, (isOpen) => {
-  if (isOpen) store.fetchQueue();
-});
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) store.fetchQueue();
+  },
+);
 
 async function playAtIndex(index: number) {
   await store.playAtIndex(index);
@@ -76,7 +79,8 @@ async function removeSong(index: number) {
     await api.delete(`/api/player/${store.activeBotId}/queue/${index + 1}`);
     await store.fetchQueue();
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to remove song';
+    const msg =
+      err?.response?.data?.message || err?.response?.data?.error || 'Failed to remove song';
     store.notify(msg, 'error');
   }
 }
@@ -86,7 +90,8 @@ async function clearAndStop() {
     await store.stop();
     await store.fetchQueue();
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to clear queue';
+    const msg =
+      err?.response?.data?.message || err?.response?.data?.error || 'Failed to clear queue';
     store.notify(msg, 'error');
   }
 }

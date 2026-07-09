@@ -14,6 +14,7 @@
 #   2  doctrine sync test failed
 #   3  voice smoke failed
 #   4  phase0 live validation failed / timed out
+#   5  biome lint or tsc failed
 
 set -euo pipefail
 
@@ -73,6 +74,18 @@ fail_live=0
 
 echo "=== Moneypenny CI Validate ==="
 echo
+
+# Lint/format/types gate (fast; always when not a single-purpose flag run)
+if [ "$run_all" -eq 1 ]; then
+  echo "--- Biome + typecheck ---"
+  if (cd "$ROOT/bot" && npx biome check . && npx tsc --noEmit); then
+    echo "OK: biome + tsc"
+  else
+    echo "FAIL: biome or tsc" >&2
+    exit 5
+  fi
+  echo
+fi
 
 if [ "$run_all" -eq 1 ] || [ "$PHASE0_ONLY" -eq 1 ]; then
   echo "--- Phase 0 preflight ---"

@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import express from "express";
 import cookieParser from "cookie-parser";
-import request from "supertest";
+import express from "express";
 import pino from "pino";
-import { createDatabase, type BotDatabase } from "../../data/database.js";
-import { createUserStore, type UserStore } from "../../data/users.js";
-import { createSessionStore, type SessionStore } from "../../data/sessions.js";
+import request from "supertest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuditStore } from "../../data/audit.js";
+import { type BotDatabase, createDatabase } from "../../data/database.js";
+import { createSessionStore, type SessionStore } from "../../data/sessions.js";
+import { createUserStore, type UserStore } from "../../data/users.js";
+import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
 import { createRequireAuth } from "../middleware/requireAuth.js";
 import { createUsersRouter } from "./users.js";
-import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
 
 function makeApp(botDb: BotDatabase, users: UserStore, sessions: SessionStore) {
   const app = express();
@@ -47,7 +47,9 @@ describe("users router", () => {
 
   it("requires auth for all routes", async () => {
     expect((await request(app).get("/api/users")).status).toBe(401);
-    expect((await request(app).post("/api/users").send({ username: "x", password: "yyyyyyyy" })).status).toBe(401);
+    expect(
+      (await request(app).post("/api/users").send({ username: "x", password: "yyyyyyyy" })).status,
+    ).toBe(401);
     expect((await request(app).delete(`/api/users/${bobId}`)).status).toBe(401);
   });
 
@@ -141,7 +143,9 @@ describe("users router", () => {
   it("returns 201 even if audit insert fails (POST /api/users)", async () => {
     // Build a broken audit store that throws on record()
     const brokenAudit = {
-      record: () => { throw new Error("simulated disk-full"); },
+      record: () => {
+        throw new Error("simulated disk-full");
+      },
       list: () => [],
     };
     // Reassemble app with the broken audit
@@ -151,7 +155,7 @@ describe("users router", () => {
     localApp.use("/api", createRequireAuth(sessions));
     localApp.use(
       "/api/users",
-      createUsersRouter(users, sessions, brokenAudit, pino({ level: "silent" }))
+      createUsersRouter(users, sessions, brokenAudit, pino({ level: "silent" })),
     );
     const res = await request(localApp)
       .post("/api/users")

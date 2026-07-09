@@ -25,8 +25,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
+import { ref, watch } from 'vue';
 
 const props = defineProps<{ modelValue: string | null }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>();
@@ -35,7 +35,12 @@ const previewUrl = ref<string | null>(props.modelValue);
 const error = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 
-watch(() => props.modelValue, (v) => { previewUrl.value = v; });
+watch(
+  () => props.modelValue,
+  (v) => {
+    previewUrl.value = v;
+  },
+);
 
 function onFile(ev: Event) {
   const file = (ev.target as HTMLInputElement).files?.[0];

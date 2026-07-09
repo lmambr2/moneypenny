@@ -1,23 +1,23 @@
-import path from "node:path";
 import { existsSync, renameSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, saveConfig } from "./data/config.js";
-import { migrateRightsConfig } from "./rights/migrations.js";
-import { createDatabase } from "./data/database.js";
-import { createLogger } from "./logger.js";
-import { YouTubeProvider } from "./music/youtube.js";
-import { LocalProvider } from "./music/local.js";
-import { TagStore, RadioAnalyzer } from "./radio/index.js";
-import { StreamProvider } from "./music/stream.js";
-import { Watchdog } from "./watchdog.js";
-import { createAvatarStore } from "./data/avatars.js";
 import { BotManager } from "./bot/manager.js";
-import { createWebServer } from "./web/server.js";
-import { RetrievalStore, EmbeddingsClient, QdrantClient } from "./rag/index.js";
-import { warmLlmModels } from "./llm/warmup.js";
+import { createAvatarStore } from "./data/avatars.js";
+import { loadConfig, saveConfig } from "./data/config.js";
+import { createDatabase } from "./data/database.js";
 import { DoctrineStore } from "./data/doctrine.js";
 import { FileDropStore } from "./data/file-drop.js";
+import { warmLlmModels } from "./llm/warmup.js";
+import { createLogger } from "./logger.js";
+import { LocalProvider } from "./music/local.js";
+import { StreamProvider } from "./music/stream.js";
+import { YouTubeProvider } from "./music/youtube.js";
+import { RadioAnalyzer, TagStore } from "./radio/index.js";
 import { reindexDoctrine, watchDoctrineDir } from "./rag/doctrine-ingest.js";
+import { EmbeddingsClient, QdrantClient, RetrievalStore } from "./rag/index.js";
+import { migrateRightsConfig } from "./rights/migrations.js";
+import { Watchdog } from "./watchdog.js";
+import { createWebServer } from "./web/server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -54,7 +54,9 @@ if (!existsSync(DB_PATH) && existsSync(LEGACY_DB_PATH)) {
       }
     }
     // eslint-disable-next-line no-console
-    console.log("Migrated legacy tsmusicbot.db -> moneypenny.db (bots, history, and first-run user state preserved)");
+    console.log(
+      "Migrated legacy tsmusicbot.db -> moneypenny.db (bots, history, and first-run user state preserved)",
+    );
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error("Failed to auto-migrate legacy DB file; a fresh moneypenny.db will be used:", e);
@@ -106,7 +108,11 @@ async function main() {
   // the library's key/BPM in the background at startup — never blocks boot, and
   // skip-already-analyzed keeps later starts cheap (only new tracks). No-ops if
   // keyfinder-cli/aubio aren't installed.
-  const radioAnalyzer = new RadioAnalyzer({ tags: tagStore, getConfig: () => config.radio, logger });
+  const radioAnalyzer = new RadioAnalyzer({
+    tags: tagStore,
+    getConfig: () => config.radio,
+    logger,
+  });
   if (config.radio.analyzer?.enabled) {
     void (async () => {
       try {
@@ -151,7 +157,9 @@ async function main() {
     retrieval
       .init()
       .then(() => reindexDoctrine(retrieval!, dd))
-      .then((docs) => { if (docs.length) logger.info({ docs: docs.length }, "Doctrine synced at startup"); })
+      .then((docs) => {
+        if (docs.length) logger.info({ docs: docs.length }, "Doctrine synced at startup");
+      })
       .catch((err) => logger.warn({ err }, "Doctrine startup sync skipped"));
     stopDoctrineWatch = watchDoctrineDir(retrieval, doctrine, logger);
     logger.info(
@@ -180,7 +188,7 @@ async function main() {
     fileDropStore,
     tsFilesDir,
     tsVirtualServerId,
-    tagStore
+    tagStore,
   );
   await botManager.loadSavedBots();
 
@@ -206,10 +214,18 @@ async function main() {
         serverPassword: process.env.TS6_SERVER_PASSWORD || process.env.TS_SERVER_PASSWORD,
         autoStart: true,
       });
-      logger.info({ botId: bot.id }, "Phase 0: Auto-created first bot from TS6_* environment variables");
-      logger.info(`Phase 0: Will attempt connection to ${tsHost}:${process.env.TS6_PORT || process.env.TS_PORT || "9987"}`);
+      logger.info(
+        { botId: bot.id },
+        "Phase 0: Auto-created first bot from TS6_* environment variables",
+      );
+      logger.info(
+        `Phase 0: Will attempt connection to ${tsHost}:${process.env.TS6_PORT || process.env.TS_PORT || "9987"}`,
+      );
     } catch (err) {
-      logger.error({ err }, "Phase 0: Failed to auto-create bot from environment. Check TS6_HOST, TS6_API_KEY, ports, and reachability from this container/host.");
+      logger.error(
+        { err },
+        "Phase 0: Failed to auto-create bot from environment. Check TS6_HOST, TS6_API_KEY, ports, and reachability from this container/host.",
+      );
     }
   }
 
@@ -253,9 +269,7 @@ async function main() {
 
   logger.info({ webPort: config.webPort }, "Moneypenny started");
   const publicUrl = (config.publicUrl ?? "").trim().replace(/\/+$/, "");
-  logger.info(
-    `WebUI: ${publicUrl || `http://localhost:${config.webPort}`}`
-  );
+  logger.info(`WebUI: ${publicUrl || `http://localhost:${config.webPort}`}`);
 
   const shutdown = () => {
     logger.info("Shutting down...");

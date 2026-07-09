@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
 import express from "express";
 import multer from "multer";
 import request from "supertest";
+import { describe, expect, it } from "vitest";
 import { multerArray, uploadedFiles } from "./upload.js";
 
 describe("uploadedFiles", () => {

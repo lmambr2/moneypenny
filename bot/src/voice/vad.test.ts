@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { SilenceSegmenter, rms16 } from "./vad.js";
+import { describe, expect, it } from "vitest";
+import { rms16, SilenceSegmenter } from "./vad.js";
 
 const SR = 16_000;
 // 20ms mono frame at 16kHz = 320 samples = 640 bytes.
@@ -23,7 +23,14 @@ describe("rms16", () => {
 });
 
 describe("SilenceSegmenter", () => {
-  const opts = { sampleRate: SR, channels: 1, energyThreshold: 500, hangoverMs: 40, minSpeechMs: 40, maxUtteranceMs: 200 };
+  const opts = {
+    sampleRate: SR,
+    channels: 1,
+    energyThreshold: 500,
+    hangoverMs: 40,
+    minSpeechMs: 40,
+    maxUtteranceMs: 200,
+  };
 
   it("drops pre-speech silence and emits after the hangover", () => {
     const seg = new SilenceSegmenter(opts);
@@ -43,7 +50,8 @@ describe("SilenceSegmenter", () => {
     expect(seg.push(silence())).toBeNull();
     expect(seg.push(silence())).toBeNull(); // hangover reached, but too short → discard
     // A subsequent real utterance still works (state was reset).
-    seg.push(speech()); seg.push(speech());
+    seg.push(speech());
+    seg.push(speech());
     seg.push(silence());
     expect(seg.push(silence())).not.toBeNull();
   });
@@ -59,7 +67,8 @@ describe("SilenceSegmenter", () => {
 
   it("flush() emits buffered speech and resets", () => {
     const seg = new SilenceSegmenter(opts);
-    seg.push(speech()); seg.push(speech());
+    seg.push(speech());
+    seg.push(speech());
     const out = seg.flush();
     expect(out).not.toBeNull();
     expect(seg.flush()).toBeNull(); // nothing left after reset

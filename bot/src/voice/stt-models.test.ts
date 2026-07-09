@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  isWhisperModelId,
   resolveSttModelSelection,
   sttSelectionToEnv,
-  isWhisperModelId,
   WHISPER_MODEL_IDS,
 } from "./stt-models.js";
 

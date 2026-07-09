@@ -1124,13 +1124,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import api from '../api/axios.js';
 import AvatarUpload from '../components/AvatarUpload.vue';
 import CustomAvatarRow from '../components/CustomAvatarRow.vue';
-import { usePlayerStore } from '../stores/player.js';
 import { useSession } from '../composables/useSession.js';
+import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
 
@@ -1187,7 +1187,8 @@ async function createBot() {
         await api.put(`/api/bot/${res.data.id}/avatar`, { dataUrl: newBotAvatar.value });
       } catch (err: any) {
         const playerStore = usePlayerStore();
-        const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to set avatar';
+        const msg =
+          err?.response?.data?.message || err?.response?.data?.error || 'Failed to set avatar';
         playerStore.notify(msg, 'error');
       }
     }
@@ -1239,7 +1240,8 @@ async function openEditBot(bot: any) {
     // Config not found — use defaults
     if (err?.response?.status !== 404) {
       const playerStore = usePlayerStore();
-      const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load bot config';
+      const msg =
+        err?.response?.data?.message || err?.response?.data?.error || 'Failed to load bot config';
       playerStore.notify(msg, 'error');
     }
     editForm.serverAddress = '';
@@ -1290,29 +1292,50 @@ async function loadIdleTimeout() {
   try {
     const res = await api.get('/api/bot/settings');
     idleTimeout.value = res.data.idleTimeoutMinutes ?? 0;
-  } catch (e) { console.error('Settings load/save failed', e); }
+  } catch (e) {
+    console.error('Settings load/save failed', e);
+  }
 }
 
 async function saveIdleTimeout() {
   try {
     await api.post('/api/bot/settings', { idleTimeoutMinutes: idleTimeout.value });
-  } catch (e) { console.error('Settings load/save failed', e); }
+  } catch (e) {
+    console.error('Settings load/save failed', e);
+  }
 }
 
 // --- AI & Permissions (admin only) ---
-type LlmPresetId = 'custom' | 'local_ollama' | 'local_rkllama' | 'remote_chat_local_embed' | 'remote_gpu';
+type LlmPresetId =
+  | 'custom'
+  | 'local_ollama'
+  | 'local_rkllama'
+  | 'remote_chat_local_embed'
+  | 'remote_gpu';
 
-const LLM_PRESETS: Record<LlmPresetId, {
-  llmUrl: string;
-  llmModel: string;
-  llmFallbackUrl: string;
-  llmFallbackModel: string;
-  llmDelegateUrl: string;
-  llmDelegateModel: string;
-  embeddingUrl: string;
-  embeddingModel: string;
-}> = {
-  custom: { llmUrl: '', llmModel: '', llmFallbackUrl: '', llmFallbackModel: '', llmDelegateUrl: '', llmDelegateModel: '', embeddingUrl: '', embeddingModel: '' },
+const LLM_PRESETS: Record<
+  LlmPresetId,
+  {
+    llmUrl: string;
+    llmModel: string;
+    llmFallbackUrl: string;
+    llmFallbackModel: string;
+    llmDelegateUrl: string;
+    llmDelegateModel: string;
+    embeddingUrl: string;
+    embeddingModel: string;
+  }
+> = {
+  custom: {
+    llmUrl: '',
+    llmModel: '',
+    llmFallbackUrl: '',
+    llmFallbackModel: '',
+    llmDelegateUrl: '',
+    llmDelegateModel: '',
+    embeddingUrl: '',
+    embeddingModel: '',
+  },
   local_ollama: {
     llmUrl: 'http://ollama:11434',
     llmModel: 'hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL',
@@ -1598,7 +1621,9 @@ async function loadAiSettings() {
           ? ['prerecorded', 'stationId', 'timeCheck', 'nowPlaying'].includes(opt.id)
           : srcSet.has(opt.id);
     }
-  } catch (e) { console.error('Settings load/save failed', e); }
+  } catch (e) {
+    console.error('Settings load/save failed', e);
+  }
   if (ai.llmEnabled) refreshLlmStatus();
   if (ai.ragEnabled) refreshRagStatus();
   if (ai.streamBridgeUrl.trim()) refreshBridgeStatus();
@@ -1609,17 +1634,20 @@ async function loadAiSettings() {
 }
 
 function detectLlmPreset(): LlmPresetId {
-  for (const [id, preset] of Object.entries(LLM_PRESETS) as [LlmPresetId, typeof LLM_PRESETS.custom][]) {
+  for (const [id, preset] of Object.entries(LLM_PRESETS) as [
+    LlmPresetId,
+    typeof LLM_PRESETS.custom,
+  ][]) {
     if (id === 'custom') continue;
     if (
-      ai.llmUrl === preset.llmUrl
-      && ai.llmModel === preset.llmModel
-      && ai.llmFallbackUrl === preset.llmFallbackUrl
-      && ai.llmFallbackModel === preset.llmFallbackModel
-      && ai.llmDelegateUrl === preset.llmDelegateUrl
-      && ai.llmDelegateModel === preset.llmDelegateModel
-      && (ai.embeddingUrl || ai.llmUrl) === (preset.embeddingUrl || preset.llmUrl)
-      && ai.embeddingModel === preset.embeddingModel
+      ai.llmUrl === preset.llmUrl &&
+      ai.llmModel === preset.llmModel &&
+      ai.llmFallbackUrl === preset.llmFallbackUrl &&
+      ai.llmFallbackModel === preset.llmFallbackModel &&
+      ai.llmDelegateUrl === preset.llmDelegateUrl &&
+      ai.llmDelegateModel === preset.llmDelegateModel &&
+      (ai.embeddingUrl || ai.llmUrl) === (preset.embeddingUrl || preset.llmUrl) &&
+      ai.embeddingModel === preset.embeddingModel
     ) {
       return id;
     }
@@ -1701,15 +1729,24 @@ async function testRagQuery() {
 }
 
 function resetRightsTemplate() {
-  ai.rightsJson = JSON.stringify({
-    defaultAllow: ['play', 'skip', 'pause', 'resume', 'now', 'ask', 'add'],
-    commandGroups: { admin: ['stop', 'clear', 'vol', 'mode', 'remove', 'move', 'follow'] },
-    superAdminUids: [],
-    rules: [
-      { name: 'admins', match: { serverGroups: ['105'] }, allow: ['@admin'] },
-      { name: 'voice-stop-officers', match: { serverGroups: ['106'] }, allow: ['stop'], scope: 'voice' },
-    ],
-  }, null, 2);
+  ai.rightsJson = JSON.stringify(
+    {
+      defaultAllow: ['play', 'skip', 'pause', 'resume', 'now', 'ask', 'add'],
+      commandGroups: { admin: ['stop', 'clear', 'vol', 'mode', 'remove', 'move', 'follow'] },
+      superAdminUids: [],
+      rules: [
+        { name: 'admins', match: { serverGroups: ['105'] }, allow: ['@admin'] },
+        {
+          name: 'voice-stop-officers',
+          match: { serverGroups: ['106'] },
+          allow: ['stop'],
+          scope: 'voice',
+        },
+      ],
+    },
+    null,
+    2,
+  );
 }
 
 async function runRightsDebug() {
@@ -1801,9 +1838,7 @@ async function syncMemPalace() {
           (um.total != null ? ` (${um.total} total)` : ''),
       ];
       if (kg && !kg.skipped) {
-        parts.push(
-          `KG: ${kg.synced ?? 0} ok` + (kg.failed ? `, ${kg.failed} failed` : ''),
-        );
+        parts.push(`KG: ${kg.synced ?? 0} ok${kg.failed ? `, ${kg.failed} failed` : ''}`);
       }
       memPalace.syncMsg = parts.join(' · ');
     }
@@ -1913,7 +1948,8 @@ const llmStatusLabel = computed(() => {
   }
   if (llm.available) return 'Reachable';
   if (llm.fallbackConfigured && llm.fallbackAvailable) return 'Primary down — fallback only';
-  if (llm.delegateConfigured && !llm.delegateAvailable) return 'Primary OK — analyst node unreachable';
+  if (llm.delegateConfigured && !llm.delegateAvailable)
+    return 'Primary OK — analyst node unreachable';
   if (llm.delegateConfigured && llm.delegateAvailable) return 'Primary + analyst reachable';
   return 'Configured but unreachable';
 });
@@ -1957,7 +1993,10 @@ async function testAsk() {
 }
 
 function parseAdminGroups(text: string): number[] | null {
-  const parts = text.split(',').map((s) => s.trim()).filter(Boolean);
+  const parts = text
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const nums: number[] = [];
   for (const p of parts) {
     const n = Number(p);
@@ -1983,7 +2022,7 @@ async function saveAiSettings() {
     adminGroups = parsed ?? [];
   }
 
-  let rightsPayload: object | null | undefined = undefined;
+  let rightsPayload: object | null | undefined;
   if (ai.rightsEnabled) {
     if (ai.rightsMode === 'advanced') {
       try {
@@ -2029,7 +2068,8 @@ async function saveAiSettings() {
       aceStepUrl: ai.aceStepUrl.trim(),
       aceStepAutoFill: ai.aceStepAutoFill,
       aceStepTimeoutMs: Math.max(10000, Number(ai.aceStepTimeoutMs) || 300000),
-      aceStepOutputDir: (ai.aceStepOutputDir || 'generated/ace-step').trim() || 'generated/ace-step',
+      aceStepOutputDir:
+        (ai.aceStepOutputDir || 'generated/ace-step').trim() || 'generated/ace-step',
       aceStepMaxFiles: Math.max(0, Math.min(500, Number(ai.aceStepMaxFiles) || 40)),
       fileDropEnabled: ai.fileDropEnabled,
       fileDropPollSec: ai.fileDropPollSec,
@@ -2049,7 +2089,10 @@ async function saveAiSettings() {
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
         duckMusicVolume: Math.max(0, Math.min(100, Number(ai.voiceDuckMusicVolume) || 25)),
-        listenWindowMs: Math.max(5000, Math.min(60_000, (Number(ai.voiceListenWindowSec) || 15) * 1000)),
+        listenWindowMs: Math.max(
+          5000,
+          Math.min(60_000, (Number(ai.voiceListenWindowSec) || 15) * 1000),
+        ),
       },
       radio: {
         enabled: ai.radioEnabled,
@@ -2059,7 +2102,11 @@ async function saveAiSettings() {
         speechVolumePct: ai.radioSpeechVolumePct,
         activeProfile: ai.radioActiveProfile,
         ratingWeight: { enabled: ai.radioRatingWeight, exponent: 1, maxRatio: 3 },
-        analyzer: { enabled: ai.radioAnalyzerEnabled, tool: 'keyfinder', onIngest: ai.radioAnalyzerEnabled },
+        analyzer: {
+          enabled: ai.radioAnalyzerEnabled,
+          tool: 'keyfinder',
+          onIngest: ai.radioAnalyzerEnabled,
+        },
         memoryBroadcastOptIn: ai.radioMemoryBroadcastOptIn,
         sources: RADIO_SOURCE_OPTIONS.filter((s) => ai.radioSources[s.id]).map((s) => s.id),
         icecast: {
@@ -2098,12 +2145,42 @@ const PROFILE_TOGGLES: ReadonlyArray<{
   hint: string;
   warning: string | null;
 }> = [
-  { key: 'avatarEnabled',       label: 'Sync Avatar',           hint: 'Use the current album cover as the bot\'s avatar', warning: null },
-  { key: 'descriptionEnabled',  label: 'Sync Description',      hint: 'Show the currently playing song in the bot\'s description', warning: null },
-  { key: 'nicknameEnabled',     label: 'Sync Nickname',         hint: 'Update the bot\'s nickname to the song title', warning: null },
-  { key: 'awayStatusEnabled',   label: 'Away Status',           hint: 'Set bot to "Away" when playback stops', warning: null },
-  { key: 'channelDescEnabled',  label: 'Update Channel Description', hint: 'Write "Now Playing" info into the channel description', warning: 'Triggers edit notification sound for everyone' },
-  { key: 'nowPlayingMsgEnabled',label: 'Post Now-Playing Message', hint: 'Send a text message in the channel when the song changes', warning: 'Triggers new message notification sound' },
+  {
+    key: 'avatarEnabled',
+    label: 'Sync Avatar',
+    hint: "Use the current album cover as the bot's avatar",
+    warning: null,
+  },
+  {
+    key: 'descriptionEnabled',
+    label: 'Sync Description',
+    hint: "Show the currently playing song in the bot's description",
+    warning: null,
+  },
+  {
+    key: 'nicknameEnabled',
+    label: 'Sync Nickname',
+    hint: "Update the bot's nickname to the song title",
+    warning: null,
+  },
+  {
+    key: 'awayStatusEnabled',
+    label: 'Away Status',
+    hint: 'Set bot to "Away" when playback stops',
+    warning: null,
+  },
+  {
+    key: 'channelDescEnabled',
+    label: 'Update Channel Description',
+    hint: 'Write "Now Playing" info into the channel description',
+    warning: 'Triggers edit notification sound for everyone',
+  },
+  {
+    key: 'nowPlayingMsgEnabled',
+    label: 'Post Now-Playing Message',
+    hint: 'Send a text message in the channel when the song changes',
+    warning: 'Triggers new message notification sound',
+  },
 ];
 
 const profileConfigs = reactive<Record<string, ProfileConfig>>({});
@@ -2124,9 +2201,8 @@ async function loadProfileConfig(botId: string) {
     }
     profileConfigs[botId] = res.data;
   } catch (err: any) {
-    profileLoadError[botId] = err?.response?.status === 404
-      ? 'Bot not loaded'
-      : 'Failed to load, please retry';
+    profileLoadError[botId] =
+      err?.response?.status === 404 ? 'Bot not loaded' : 'Failed to load, please retry';
   }
 }
 
@@ -2145,7 +2221,8 @@ async function updateProfile(botId: string, key: keyof ProfileConfig, value: boo
     profileConfigs[botId] = res.data;
   } catch (err: any) {
     const playerStore = usePlayerStore();
-    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to update profile';
+    const msg =
+      err?.response?.data?.message || err?.response?.data?.error || 'Failed to update profile';
     playerStore.notify(msg, 'error');
     cfg[key] = prev; // revert
   }
@@ -2190,7 +2267,12 @@ async function onChangeOwnPassword() {
   }
 }
 
-interface UserListEntry { id: string; username: string; createdAt: number; role: 'admin' | 'member' }
+interface UserListEntry {
+  id: string;
+  username: string;
+  createdAt: number;
+  role: 'admin' | 'member';
+}
 const userList = ref<UserListEntry[]>([]);
 const userLoadError = ref('');
 const userMutationError = ref('');
@@ -2338,19 +2420,27 @@ function formatDateTime(ms: number): string {
 function describeAction(e: AuditEntry): string {
   const target = e.targetUsername ?? e.targetUserId ?? '—';
   switch (e.action) {
-    case 'admin.first_created':     return `First admin created: ${target}`;
-    case 'user.created':            return `User created: ${target}`;
-    case 'user.deleted':            return `User deleted: ${target}`;
-    case 'user.password_reset':     return `Password reset for ${target}`;
-    case 'user.password_changed':   return `Own password changed`;
-    case 'user.role_changed':       return `Role changed for ${target}`;
-    default:                        return `${e.action} → ${target}`;
+    case 'admin.first_created':
+      return `First admin created: ${target}`;
+    case 'user.created':
+      return `User created: ${target}`;
+    case 'user.deleted':
+      return `User deleted: ${target}`;
+    case 'user.password_reset':
+      return `Password reset for ${target}`;
+    case 'user.password_changed':
+      return `Own password changed`;
+    case 'user.role_changed':
+      return `Role changed for ${target}`;
+    default:
+      return `${e.action} → ${target}`;
   }
 }
 
 function auditActionClass(action: string): string {
   if (action === 'user.deleted') return 'audit-action-danger';
-  if (action === 'user.password_reset' || action === 'user.password_changed') return 'audit-action-warn';
+  if (action === 'user.password_reset' || action === 'user.password_changed')
+    return 'audit-action-warn';
   return 'audit-action-ok';
 }
 

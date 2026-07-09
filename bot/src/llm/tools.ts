@@ -19,13 +19,15 @@ export const MUSIC_CONTROL_TOOLS = [
     type: "function",
     function: {
       name: "play_music",
-      description: "Play or queue music from Local library (primary) or YouTube. Use for natural language requests like 'play something chill' or 'play bohemian rhapsody'.",
+      description:
+        "Play or queue music from Local library (primary) or YouTube. Use for natural language requests like 'play something chill' or 'play bohemian rhapsody'.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Song title, artist, album, or free-text description. Can be a YouTube URL.",
+            description:
+              "Song title, artist, album, or free-text description. Can be a YouTube URL.",
           },
           source: {
             type: "string",
@@ -46,15 +48,30 @@ export const MUSIC_CONTROL_TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          mood: { type: "array", items: { type: "string" }, description: "Moods to match (any of)." },
-          genreAny: { type: "array", items: { type: "string" }, description: "Genres to match (any of)." },
-          subgenreAny: { type: "array", items: { type: "string" }, description: "Sub-genres to match (any of)." },
+          mood: {
+            type: "array",
+            items: { type: "string" },
+            description: "Moods to match (any of).",
+          },
+          genreAny: {
+            type: "array",
+            items: { type: "string" },
+            description: "Genres to match (any of).",
+          },
+          subgenreAny: {
+            type: "array",
+            items: { type: "string" },
+            description: "Sub-genres to match (any of).",
+          },
           bpmMin: { type: "number" },
           bpmMax: { type: "number" },
           musicalKey: { type: "string", description: "Exact musical key (e.g. 8A, Am)." },
           energyMin: { type: "number" },
           energyMax: { type: "number" },
-          ratingMin: { type: "number", description: "Minimum star rating 1-5 (smoothed aggregate)." },
+          ratingMin: {
+            type: "number",
+            description: "Minimum star rating 1-5 (smoothed aggregate).",
+          },
           limit: { type: "number", description: "Max tracks to queue (default 25)." },
         },
       },

@@ -1,12 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { RightsEngine } from "../../rights/index.js";
 import {
-  conversationKey,
   allowedClassificationsFor,
+  conversationKey,
   nicknameMatchesUsername,
   resolveSubject,
   resolveWebSubject,
 } from "./subject.js";
-import { RightsEngine } from "../../rights/index.js";
 
 describe("rights/subject", () => {
   it("conversationKey scopes private messages per user", () => {
@@ -30,7 +30,14 @@ describe("rights/subject", () => {
   it("resolveSubject falls back to HTTP server groups by clid", async () => {
     const tsClient = {
       getClientsInChannel: vi.fn(async () => [
-        { id: 110, uid: "alice-uid", nickname: "Alice Field", serverGroups: [], channelID: 1n, type: 0 },
+        {
+          id: 110,
+          uid: "alice-uid",
+          nickname: "Alice Field",
+          serverGroups: [],
+          channelID: 1n,
+          type: 0,
+        },
       ]),
       getServerGroupsForClient: vi.fn(async () => ["105", "106", "107", "108"]),
     };
@@ -72,7 +79,12 @@ describe("rights/subject", () => {
 
   it("allowedClassificationsFor always includes unclassified", () => {
     const engine = new RightsEngine({
-      rules: [{ match: { serverGroups: ["officer"] }, allow: ["doctrine:secret", "doctrine:confidential"] }],
+      rules: [
+        {
+          match: { serverGroups: ["officer"] },
+          allow: ["doctrine:secret", "doctrine:confidential"],
+        },
+      ],
     });
     const levels = allowedClassificationsFor({ uid: "u", serverGroups: ["officer"] }, engine)!;
     expect(levels).toContain("unclassified");

@@ -11,7 +11,7 @@
  * voice session's captureDuck/savedMusic state. Voice can adopt this later.
  */
 import { createHash } from "node:crypto";
-import { writeFileSync, rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AudioPlayer } from "../audio/player.js";
@@ -37,12 +37,18 @@ export class SpeechSink {
    *  cache audit trail. §6.5 rule: only unclassified-floor renders are cached —
    *  a higher floor (cleared-audience material, `opts.floor` beyond
    *  ["unclassified"]) goes to an ephemeral temp file and is never persisted. */
-  async render(text: string, source = "speech", opts: { floor?: string[] } = {}): Promise<string | null> {
+  async render(
+    text: string,
+    source = "speech",
+    opts: { floor?: string[] } = {},
+  ): Promise<string | null> {
     const clean = text.trim();
     if (!clean) return null;
     const floor = opts.floor ?? ["unclassified"];
     const cacheable = floor.length === 1 && floor[0] === "unclassified";
-    const hash = createHash("sha1").update(`${this.deps.voice ?? ""}:${clean}`).digest("hex");
+    const hash = createHash("sha1")
+      .update(`${this.deps.voice ?? ""}:${clean}`)
+      .digest("hex");
     if (cacheable) {
       const cached = this.deps.cache.get(hash);
       if (cached) return cached.path;
@@ -50,13 +56,21 @@ export class SpeechSink {
     try {
       const { audio, format } = await this.deps.tts.synthesize(clean);
       if (cacheable) {
-        return this.deps.cache.put(hash, audio, format, { text: clean, source, voice: this.deps.voice });
+        return this.deps.cache.put(hash, audio, format, {
+          text: clean,
+          source,
+          voice: this.deps.voice,
+        });
       }
       const ext = format.replace(/[^a-z0-9]/gi, "").toLowerCase() || "wav";
       const path = join(tmpdir(), `moneypenny-bumper-${hash}.${ext}`);
       writeFileSync(path, audio);
       setTimeout(() => {
-        try { rmSync(path, { force: true }); } catch { /* ignore */ }
+        try {
+          rmSync(path, { force: true });
+        } catch {
+          /* ignore */
+        }
       }, 10 * 60_000).unref?.();
       return path;
     } catch (err) {

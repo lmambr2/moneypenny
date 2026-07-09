@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LlmRuntime } from "./runtime.js";
 
 describe("LlmRuntime", () => {
@@ -21,16 +21,13 @@ describe("LlmRuntime", () => {
 
   it("retrieve hook merges MemPalace hits with non-duplicate SQLite facts", async () => {
     const search = vi.fn().mockResolvedValue([{ fact: "likes tea", score: 1.2 }]);
-    const recall = vi.fn().mockReturnValue([
-      { fact: "likes tea" },
-      { fact: "hates coffee" },
-    ]);
+    const recall = vi.fn().mockReturnValue([{ fact: "likes tea" }, { fact: "hates coffee" }]);
     const runtime = new LlmRuntime({
       config: { ragEnabled: false, memoryEnabled: true, mempalaceEnabled: true } as any,
       logger: { info: vi.fn() } as any,
       memoryStore: { recall } as any,
       getKg: () => null,
-      getMemPalace: () => ({ search } as any),
+      getMemPalace: () => ({ search }) as any,
       getRetrieval: () => undefined,
       getRightsEngine: () => null,
       onModuleChange: vi.fn(),
@@ -52,7 +49,7 @@ describe("LlmRuntime", () => {
       memoryStore: { recall } as any,
       getKg: () => null,
       getMemPalace: () => null,
-      getRetrieval: () => ({ query } as any),
+      getRetrieval: () => ({ query }) as any,
       getRightsEngine: () => null,
       onModuleChange: vi.fn(),
     });
@@ -66,13 +63,16 @@ describe("LlmRuntime", () => {
 
   it("retrieve hook injects org KG facts when kgEnabled", async () => {
     const recallForQuestion = vi.fn().mockResolvedValue([
-      { text: "Graf Cyril was Fleet Commander (from 2024-01-01, until 2025-06-30)", source: "org knowledge graph" },
+      {
+        text: "Graf Cyril was Fleet Commander (from 2024-01-01, until 2025-06-30)",
+        source: "org knowledge graph",
+      },
     ]);
     const runtime = new LlmRuntime({
       config: { ragEnabled: false, memoryEnabled: false, kgEnabled: true } as any,
       logger: { info: vi.fn() } as any,
       memoryStore: { recall: vi.fn() } as any,
-      getKg: () => ({ recallForQuestion } as any),
+      getKg: () => ({ recallForQuestion }) as any,
       getMemPalace: () => null,
       getRetrieval: () => undefined,
       getRightsEngine: () => null,

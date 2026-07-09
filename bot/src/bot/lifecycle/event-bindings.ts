@@ -1,13 +1,12 @@
 import type { AudioPlayer } from "../../audio/player.js";
-import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
 import type { Logger } from "../../logger.js";
-import type { KnowledgeService } from "../knowledge/service.js";
-import type { IdlePoller } from "./idle-poller.js";
-import type { TextMessageHandler } from "../control/text-handler.js";
-import type { PokeHandler } from "../control/poke-handler.js";
-import type { VoiceSession } from "../voice/session.js";
 import type { RadioDirector } from "../../radio/index.js";
-import type { TS3Poke } from "../../ts-protocol/client.js";
+import type { TS3Client, TS3Poke, TS3TextMessage } from "../../ts-protocol/client.js";
+import type { PokeHandler } from "../control/poke-handler.js";
+import type { TextMessageHandler } from "../control/text-handler.js";
+import type { KnowledgeService } from "../knowledge/service.js";
+import type { VoiceSession } from "../voice/session.js";
+import type { IdlePoller } from "./idle-poller.js";
 
 export interface PlayerEventBindings {
   player: AudioPlayer;
@@ -43,13 +42,15 @@ export function bindPlayerEvents(deps: PlayerEventBindings): void {
     // the radio director decides — inject a bumper or advance the queue. While
     // radio is disabled onTrackBoundary() just calls playNext(), byte-identical
     // to the previous bare-playNext path (docs/radio.md §5.1).
-    void deps.voice.handleTrackEnd(() => deps.playNext()).then((resumed) => {
-      if (resumed) return;
-      deps.logger.debug("Track ended, advancing queue");
-      deps.radio.onTrackBoundary().catch((err) => {
-        deps.logger.error({ err }, "radio.onTrackBoundary failed after trackEnd");
+    void deps.voice
+      .handleTrackEnd(() => deps.playNext())
+      .then((resumed) => {
+        if (resumed) return;
+        deps.logger.debug("Track ended, advancing queue");
+        deps.radio.onTrackBoundary().catch((err) => {
+          deps.logger.error({ err }, "radio.onTrackBoundary failed after trackEnd");
+        });
       });
-    });
   });
 
   deps.player.on("error", (err: Error) => {

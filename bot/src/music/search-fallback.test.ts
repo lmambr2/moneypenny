@@ -1,9 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
-import { searchFirstWithFallback } from "./search-fallback.js";
+import { describe, expect, it, vi } from "vitest";
 import type { MusicProvider, Song } from "./provider.js";
+import { searchFirstWithFallback } from "./search-fallback.js";
 
 const song = (id: string, platform: Song["platform"]): Song => ({
-  id, name: id, artist: "a", album: "", duration: 1, coverUrl: "", platform,
+  id,
+  name: id,
+  artist: "a",
+  album: "",
+  duration: 1,
+  coverUrl: "",
+  platform,
 });
 
 function provider(songs: Song[]): MusicProvider {

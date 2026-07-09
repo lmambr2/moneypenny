@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
-import { AceStepClient } from "./ace-step-client.js";
 import type { AxiosInstance } from "axios";
+import { describe, expect, it, vi } from "vitest";
+import { AceStepClient } from "./ace-step-client.js";
 
 function mockHttp(handlers: {
   get?: (url: string) => { status: number; data: unknown };
@@ -8,7 +8,9 @@ function mockHttp(handlers: {
 }): AxiosInstance {
   return {
     get: vi.fn(async (url: string) => handlers.get?.(url) ?? { status: 404, data: {} }),
-    post: vi.fn(async (url: string, body: unknown) => handlers.post?.(url, body) ?? { status: 404, data: {} }),
+    post: vi.fn(
+      async (url: string, body: unknown) => handlers.post?.(url, body) ?? { status: 404, data: {} },
+    ),
   } as unknown as AxiosInstance;
 }
 
@@ -30,7 +32,11 @@ describe("AceStepClient", () => {
   it("health fails closed on network/HTTP errors", async () => {
     const client = new AceStepClient({
       url: "http://ace:7865",
-      http: mockHttp({ get: () => { throw new Error("ECONNREFUSED"); } }),
+      http: mockHttp({
+        get: () => {
+          throw new Error("ECONNREFUSED");
+        },
+      }),
     });
     const h = await client.health();
     expect(h.ok).toBe(false);
@@ -47,7 +53,13 @@ describe("AceStepClient", () => {
       http: mockHttp({ post: (u, b) => post(u, b) }),
     });
     const job = await client.generate({ prompt: "focus ambient 110bpm", durationSec: 90 });
-    expect(job).toEqual({ id: "job-1", status: "queued", path: null, error: null, progress: undefined });
+    expect(job).toEqual({
+      id: "job-1",
+      status: "queued",
+      path: null,
+      error: null,
+      progress: undefined,
+    });
     expect(post).toHaveBeenCalled();
   });
 

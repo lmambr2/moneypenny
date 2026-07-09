@@ -7,8 +7,8 @@ import {
   isIsoDate,
   parseKgFlags,
 } from "../../data/kg-parse.js";
-import type { MemPalaceClient } from "../../memory/mempalace-client.js";
 import type { Logger } from "../../logger.js";
+import type { MemPalaceClient } from "../../memory/mempalace-client.js";
 
 export interface KgServiceDeps {
   store: KgStore;
@@ -33,11 +33,7 @@ export class KgService {
     return !!this.deps.config.mempalaceEnabled && !!this.deps.mempalace;
   }
 
-  handleKg(
-    args: string,
-    invokerUid?: string,
-    canRun?: (commandName: string) => boolean,
-  ): string {
+  handleKg(args: string, invokerUid?: string, canRun?: (commandName: string) => boolean): string {
     const trimmed = args.trim();
     if (!trimmed) return KgService.USAGE;
 
@@ -69,7 +65,8 @@ export class KgService {
     }
     const trimmed = args.trim();
     const space = trimmed.indexOf(" ");
-    if (space < 0) return "Usage: !diary <intel|logistics> <fact> [from:YYYY-MM-DD] [until:YYYY-MM-DD]";
+    if (space < 0)
+      return "Usage: !diary <intel|logistics> <fact> [from:YYYY-MM-DD] [until:YYYY-MM-DD]";
     const diary = trimmed.slice(0, space).toLowerCase();
     if (diary !== "intel" && diary !== "logistics") {
       return "Usage: !diary <intel|logistics> <fact> [from:YYYY-MM-DD] [until:YYYY-MM-DD]";
@@ -120,14 +117,20 @@ export class KgService {
         validUntil: row.validUntil,
         diary: row.diary,
       });
-      void this.deps.mempalace!.kgRemember(line, {
-        validFrom: row.validFrom,
-        validUntil: row.validUntil,
-        diary: row.diary,
-        subject: row.subject,
-      }).then((ok) => {
-        if (!ok) this.deps.logger?.warn({ subject: row.subject }, "MemPalace KG sync failed — SQLite kept");
-      });
+      void this.deps
+        .mempalace!.kgRemember(line, {
+          validFrom: row.validFrom,
+          validUntil: row.validUntil,
+          diary: row.diary,
+          subject: row.subject,
+        })
+        .then((ok) => {
+          if (!ok)
+            this.deps.logger?.warn(
+              { subject: row.subject },
+              "MemPalace KG sync failed — SQLite kept",
+            );
+        });
     }
 
     const label = diaryTag ? `${diaryTag} diary` : "org KG";
@@ -178,7 +181,9 @@ export class KgService {
     if (!Number.isFinite(index) || index < 1) {
       return "Usage: !kg forget <number> (from !kg list) or !kg forget all";
     }
-    return this.deps.store.forgetAtIndex(index) ? "Forgotten." : "No fact at that number — run !kg list.";
+    return this.deps.store.forgetAtIndex(index)
+      ? "Forgotten."
+      : "No fact at that number — run !kg list.";
   }
 
   /** Facts to inject into !ask / delegate retrieval. */

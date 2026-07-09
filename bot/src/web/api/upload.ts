@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction, RequestHandler } from "express";
+import type { Request, RequestHandler } from "express";
 import type multer from "multer";
 
 /** Normalized multer file list from `upload.array()` middleware. */
@@ -26,7 +26,8 @@ export function multerArray(
   opts: MulterArrayOptions = {},
 ): RequestHandler {
   const fileSizeMessage = opts.fileSizeMessage ?? "File too large";
-  const unexpectedFileMessage = opts.unexpectedFileMessage ?? `Too many files (max ${maxCount} per upload)`;
+  const unexpectedFileMessage =
+    opts.unexpectedFileMessage ?? `Too many files (max ${maxCount} per upload)`;
 
   return (req, res, next) => {
     uploader.array(field, maxCount)(req, res, (err: unknown) => {

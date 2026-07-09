@@ -71,7 +71,7 @@ export interface MusicProvider {
   getAuthStatus(): Promise<AuthStatus>;
 
   /** Optional: certainty-based resolution (implemented by LocalProvider) */
-  resolve?(input: string): Promise<{ type: 'song' | 'playlist'; item: Song | Playlist } | null>;
+  resolve?(input: string): Promise<{ type: "song" | "playlist"; item: Song | Playlist } | null>;
 
   /** Optional: force re-index after external file changes or host-side adds (LocalProvider). Returns the new track count. */
   refresh?(): Promise<number>;

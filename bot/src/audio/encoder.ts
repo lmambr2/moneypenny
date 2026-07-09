@@ -1,4 +1,5 @@
 import opusModule from "@discordjs/opus";
+
 const { OpusEncoder } = opusModule;
 
 const SAMPLE_RATE = 48000;

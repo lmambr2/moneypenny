@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { normalizeLoudness } from "./loudness.js";
 
 /** Minimal 16-bit PCM mono WAV with a quiet sine (peak ~6% of full scale). */
@@ -9,10 +9,19 @@ function quietWav(seconds = 1, sr = 16000): Buffer {
     data.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 220 * i) / sr) * 2000), i * 2);
   }
   const h = Buffer.alloc(44);
-  h.write("RIFF", 0); h.writeUInt32LE(36 + data.length, 4); h.write("WAVE", 8);
-  h.write("fmt ", 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
-  h.writeUInt32LE(sr, 24); h.writeUInt32LE(sr * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
-  h.write("data", 36); h.writeUInt32LE(data.length, 40);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write("WAVE", 8);
+  h.write("fmt ", 12);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(sr, 24);
+  h.writeUInt32LE(sr * 2, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(data.length, 40);
   return Buffer.concat([h, data]);
 }
 

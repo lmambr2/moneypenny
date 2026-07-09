@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { buildRadioGenPrompt, RadioCommands } from "./radio-commands.js";
-import type { CommandExecutorDeps } from "./executor.js";
+import { describe, expect, it, vi } from "vitest";
 import type { RadioProfile } from "../../radio/types.js";
+import type { CommandExecutorDeps } from "./executor.js";
+import { buildRadioGenPrompt, RadioCommands } from "./radio-commands.js";
 
 describe("buildRadioGenPrompt", () => {
   it("includes profile tone topics and seeds", () => {
@@ -25,11 +25,7 @@ describe("buildRadioGenPrompt", () => {
 });
 
 describe("RadioCommands autoProgram ACE-Step fill", () => {
-  function harness(opts: {
-    autoFill?: boolean;
-    genOk?: boolean;
-    programPool?: boolean;
-  }) {
+  function harness(opts: { autoFill?: boolean; genOk?: boolean; programPool?: boolean }) {
     const song = {
       id: "g1",
       name: "Gen Track",
@@ -41,8 +37,8 @@ describe("RadioCommands autoProgram ACE-Step fill", () => {
     };
     const generateAndIngest = vi.fn(async () =>
       opts.genOk === false
-        ? ({ ok: false as const, error: "down" })
-        : ({ ok: true as const, song, relPath: "generated/ace-step/x.mp3", jobId: "j1" }),
+        ? { ok: false as const, error: "down" }
+        : { ok: true as const, song, relPath: "generated/ace-step/x.mp3", jobId: "j1" },
     );
     const queue = {
       clear: vi.fn(),

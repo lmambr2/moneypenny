@@ -1,6 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import axios from "axios";
-import { StreamProvider, isStreamableUrl, isSpotifyRef, isXTwitterUrl, isBandcampUrl, isTidalUrl } from "./stream.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  isBandcampUrl,
+  isSpotifyRef,
+  isStreamableUrl,
+  isTidalUrl,
+  isXTwitterUrl,
+  StreamProvider,
+} from "./stream.js";
 
 vi.mock("axios");
 
@@ -121,13 +128,21 @@ describe("StreamProvider — Spotify bridge", () => {
     expect(provider.canHandle("spotify:track:abc")).toBe(true);
 
     const res = await provider.search("spotify:track:abc");
-    expect(res.songs[0]).toMatchObject({ name: "Song X", artist: "Artist Y", duration: 200, platform: "stream" });
+    expect(res.songs[0]).toMatchObject({
+      name: "Song X",
+      artist: "Artist Y",
+      duration: 200,
+      platform: "stream",
+    });
     // id stays the spotify ref, re-resolved at play time
     expect(res.songs[0].id).toBe("spotify:track:abc");
 
     const url = await provider.getSongUrl("spotify:track:abc");
     expect(url).toBe(publicStream);
-    expect(mockedGet).toHaveBeenLastCalledWith("http://bridge.local/resolve", expect.objectContaining({ params: { uri: "spotify:track:abc" } }));
+    expect(mockedGet).toHaveBeenLastCalledWith(
+      "http://bridge.local/resolve",
+      expect.objectContaining({ params: { uri: "spotify:track:abc" } }),
+    );
   });
 
   it("drops bridge streamUrl that points at private/reserved targets", async () => {
@@ -149,7 +164,9 @@ describe("StreamProvider — Spotify bridge", () => {
 
   it("reports bridge availability via auth status", async () => {
     expect((await new StreamProvider().getAuthStatus()).loggedIn).toBe(false);
-    expect((await new StreamProvider({ bridgeUrl: "http://b" }).getAuthStatus()).loggedIn).toBe(true);
+    expect((await new StreamProvider({ bridgeUrl: "http://b" }).getAuthStatus()).loggedIn).toBe(
+      true,
+    );
   });
 
   it("expands a Spotify playlist via GET /playlist on the real provider", async () => {

@@ -1,43 +1,40 @@
 import { EventEmitter } from "node:events";
-import { Readable, Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import {
-  Client as TS3FullClient,
+  type ClientInfo,
+  clientMove,
+  downloadFileData,
+  type FileDownloadInfo,
+  type FileUploadInfo,
+  fileTransferDeleteFile,
   generateIdentity as genTS3Identity,
+  type Identity,
   identityFromString,
-  sendTextMessage,
   listChannels,
   listClients,
-  clientMove,
-  poke as tsPoke,
-  fileTransferDeleteFile,
-  downloadFileData,
-  type Identity,
-  type TextMessage,
-  type ClientInfo,
-  type FileUploadInfo,
-  type FileDownloadInfo,
-  type VoiceData,
   type PokeEvent,
+  sendTextMessage,
+  type TextMessage,
+  Client as TS3FullClient,
+  poke as tsPoke,
+  type VoiceData,
 } from "@honeybbq/teamspeak-client";
 import type { Logger } from "../logger.js";
-import {
-  detectServerProtocol,
-  type ServerProtocol,
-} from "./protocol-detect.js";
 import { HttpQueryError, TS6HttpQuery } from "./http-query.js";
 import {
   extractQueryRows,
   parseChannelRows,
   parseClientRows,
+  type QueryClient,
   resolveChannelQuery,
   resolveClientQuery,
   serverGroupsByClidFromRows,
-  type QueryClient,
 } from "./move-resolver.js";
+import { detectServerProtocol, type ServerProtocol } from "./protocol-detect.js";
 
-export { CODEC_OPUS_MUSIC } from "./voice.js";
-export type { ServerProtocol } from "./protocol-detect.js";
 export type { FileUploadInfo } from "@honeybbq/teamspeak-client";
+export type { ServerProtocol } from "./protocol-detect.js";
+export { CODEC_OPUS_MUSIC } from "./voice.js";
 
 /** TS error 770 — clientMove to the channel we're already in. */
 function isAlreadyInChannelError(err: unknown): boolean {
@@ -69,7 +66,11 @@ export function parseFtFileList(rows: Record<string, unknown>[]): ChannelFile[] 
     const rawName = r?.name;
     if (rawName == null || rawName === "") continue;
     let size = 0n;
-    try { size = BigInt(String(r.size ?? "0")); } catch { size = 0n; }
+    try {
+      size = BigInt(String(r.size ?? "0"));
+    } catch {
+      size = 0n;
+    }
     out.push({
       name: String(rawName),
       size,
@@ -161,7 +162,10 @@ export class TS3Client extends EventEmitter {
   private libraryVoiceBridge: ((v: VoiceData) => void) | null = null;
   private inboundVoicePackets = 0;
 
-  constructor(private options: TS3ClientOptions, logger: Logger) {
+  constructor(
+    private options: TS3ClientOptions,
+    logger: Logger,
+  ) {
     super();
     this.logger = logger;
 
@@ -239,18 +243,13 @@ export class TS3Client extends EventEmitter {
     // Detect or use forced protocol
     if (this.options.serverProtocol && this.options.serverProtocol !== "unknown") {
       this.detectedProtocol = this.options.serverProtocol;
-      this.logger.info(
-        { addr, protocol: this.detectedProtocol },
-        "Using forced server protocol",
-      );
+      this.logger.info({ addr, protocol: this.detectedProtocol }, "Using forced server protocol");
     } else {
       this.logger.info({ addr }, "Detecting server protocol (TS3/TS6)...");
-      const detection = await detectServerProtocol(
-        this.options.host,
-        this.options.port,
-        3000,
-        { ts3QueryPort: 10011, ts6HttpPort: 10080 },
-      );
+      const detection = await detectServerProtocol(this.options.host, this.options.port, 3000, {
+        ts3QueryPort: 10011,
+        ts6HttpPort: 10080,
+      });
       this.detectedProtocol = detection.protocol;
       if (this.detectedProtocol === "unknown") {
         this.logger.warn(
@@ -306,7 +305,9 @@ export class TS3Client extends EventEmitter {
           if (this.udpErrorTimer) clearTimeout(this.udpErrorTimer);
           this.udpErrorTimer = setTimeout(() => {
             if (udpErrorCount > 1) {
-              this.logger.warn(`udp send error (repeated ${udpErrorCount} times, connection may be lost)`);
+              this.logger.warn(
+                `udp send error (repeated ${udpErrorCount} times, connection may be lost)`,
+              );
             }
             udpErrorCount = 0;
             this.udpErrorTimer = null;
@@ -359,10 +360,7 @@ export class TS3Client extends EventEmitter {
     });
 
     this.client.on("clientEnter", (info: ClientInfo) => {
-      this.logger.debug(
-        { nickname: info.nickname, id: info.id },
-        "Client entered"
-      );
+      this.logger.debug({ nickname: info.nickname, id: info.id }, "Client entered");
       this.emit("clientEnter", info);
     });
 
@@ -388,10 +386,7 @@ export class TS3Client extends EventEmitter {
 
     // Join default channel if specified
     if (this.options.defaultChannel) {
-      await this.joinChannel(
-        this.options.defaultChannel,
-        this.options.channelPassword
-      );
+      await this.joinChannel(this.options.defaultChannel, this.options.channelPassword);
     }
 
     this.emit("connected");
@@ -405,7 +400,12 @@ export class TS3Client extends EventEmitter {
       const res = await this.httpQuery.clientInfo(clid, sid);
       const row = extractQueryRows(res.body)[0];
       const raw = String(row?.client_servergroups ?? "");
-      return raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+      return raw
+        ? raw
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
     } catch (err) {
       this.logger.warn({ err, clid }, "Failed to load server groups for client");
       return [];
@@ -457,25 +457,14 @@ export class TS3Client extends EventEmitter {
         return;
       }
 
-      await clientMove(
-        this.client,
-        this.clientId,
-        channel.id,
-        password
-      );
-      this.logger.info(
-        { channelName, cid: channel.id.toString() },
-        "Joined channel"
-      );
+      await clientMove(this.client, this.clientId, channel.id, password);
+      this.logger.info({ channelName, cid: channel.id.toString() }, "Joined channel");
     } catch (err) {
       this.logger.error({ err, channelName }, "Failed to join channel");
     }
   }
 
-  async sendTextMessage(
-    message: string,
-    targetMode: number = 2
-  ): Promise<void> {
+  async sendTextMessage(message: string, targetMode: number = 2): Promise<void> {
     if (!this.client) return;
     // targetMode 2 = channel, target 0 = current channel
     const target = targetMode === 2 ? BigInt(0) : BigInt(this.clientId);
@@ -576,7 +565,11 @@ export class TS3Client extends EventEmitter {
     await fileTransferDeleteFile(this.client, channelID, paths);
   }
 
-  async fileTransferInitDownload(channelID: bigint, path: string, password = ""): Promise<FileDownloadInfo> {
+  async fileTransferInitDownload(
+    channelID: bigint,
+    path: string,
+    password = "",
+  ): Promise<FileDownloadInfo> {
     if (!this.client) throw new Error("Not connected");
     return this.client.fileTransferInitDownload(channelID, path, password);
   }
@@ -602,18 +595,30 @@ export class TS3Client extends EventEmitter {
   async listChannelFiles(channelID: bigint, path = "/"): Promise<ChannelFile[]> {
     const q = this.httpQuery;
     if (!q) {
-      this.logger.warn({ cid: String(channelID) }, "listChannelFiles: TS6 HTTP Query unavailable — file-drop requires a TS6 server");
+      this.logger.warn(
+        { cid: String(channelID) },
+        "listChannelFiles: TS6 HTTP Query unavailable — file-drop requires a TS6 server",
+      );
       return [];
     }
     try {
-      const res = await q.request("GET", `/1/ftgetfilelist?sid=1&cid=${channelID}&cpw=&path=${encodeURIComponent(path)}`);
+      const res = await q.request(
+        "GET",
+        `/1/ftgetfilelist?sid=1&cid=${channelID}&cpw=&path=${encodeURIComponent(path)}`,
+      );
       const files = parseFtFileList(extractFileRows(res.body));
-      this.logger.debug({ cid: String(channelID), path, count: files.length }, "ftgetfilelist (http query)");
+      this.logger.debug(
+        { cid: String(channelID), path, count: files.length },
+        "ftgetfilelist (http query)",
+      );
       return files;
     } catch (err) {
       // An empty dir / no-such-path comes back as a query error — treat as "no
       // files"; debug-level so a genuinely empty channel isn't noisy.
-      this.logger.debug({ err, cid: String(channelID), path }, "ftgetfilelist (http query) empty/failed");
+      this.logger.debug(
+        { err, cid: String(channelID), path },
+        "ftgetfilelist (http query) empty/failed",
+      );
       return [];
     }
   }
@@ -678,12 +683,7 @@ export class TS3Client extends EventEmitter {
       const channel = resolveChannelQuery(channelQuery, channels);
       if (!channel.ok) return channel.error;
 
-      await clientMove(
-        this.client,
-        target.value.clid,
-        BigInt(channel.value.cid),
-        channelPassword,
-      );
+      await clientMove(this.client, target.value.clid, BigInt(channel.value.cid), channelPassword);
       return `Moved ${target.value.nickname} → ${channel.value.name}.`;
     } catch (err) {
       if (err instanceof HttpQueryError) {
@@ -756,7 +756,10 @@ export class TS3Client extends EventEmitter {
       this.client.sendVoice(opusFrame, 5);
       this.voiceFramesSent++;
       if (this.voiceFramesSent === 1) {
-        this.logger.info({ opusBytes: opusFrame.length, clientId: this.clientId }, "First voice packet sent to TeamSpeak");
+        this.logger.info(
+          { opusBytes: opusFrame.length, clientId: this.clientId },
+          "First voice packet sent to TeamSpeak",
+        );
       }
     } catch (err) {
       if (this.voiceFramesSent === 0) {
@@ -779,12 +782,15 @@ export class TS3Client extends EventEmitter {
     if (this.client && !this.disconnecting) {
       this.disconnecting = true;
       const client = this.client;
-      client.disconnect().catch(() => {}).finally(() => {
-        if (this.client === client) {
-          this.client = null;
-        }
-        this.disconnecting = false;
-      });
+      client
+        .disconnect()
+        .catch(() => {})
+        .finally(() => {
+          if (this.client === client) {
+            this.client = null;
+          }
+          this.disconnecting = false;
+        });
     }
     this.clientId = 0;
     this.httpQuery = null;

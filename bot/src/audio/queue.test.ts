@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { PlayQueue, type QueuedSong, PlayMode } from "./queue.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import { PlayMode, PlayQueue, type QueuedSong } from "./queue.js";
 
 function makeSong(id: string, name: string = id): QueuedSong {
   return {
@@ -384,8 +384,8 @@ describe("PlayQueue", () => {
       queue.playAt(0);
       queue.playAt(1);
       queue.playAt(2); // history: [0, 1]
-      queue.prev();    // pops 1, history: [0]
-      queue.prev();    // pops 0, history: []
+      queue.prev(); // pops 1, history: [0]
+      queue.prev(); // pops 0, history: []
       expect(queue.prev()).toBeNull(); // no fallback target in random mode
     });
 
@@ -432,8 +432,8 @@ describe("PlayQueue", () => {
       queue.add(makeSong("b"));
       queue.add(makeSong("c"));
       queue.add(makeSong("d"));
-      queue.play();      // current = 0 (a)
-      queue.next();      // current = 1 (b)
+      queue.play(); // current = 0 (a)
+      queue.next(); // current = 1 (b)
       queue.addNext(makeSong("x"));
       expect(queue.list().map((s) => s.id)).toEqual(["a", "b", "x", "c", "d"]);
       expect(queue.current()?.id).toBe("b"); // current unchanged
@@ -443,7 +443,7 @@ describe("PlayQueue", () => {
       queue.setMode(PlayMode.Sequential);
       queue.add(makeSong("a"));
       queue.add(makeSong("b"));
-      queue.play();      // current = 0 (a)
+      queue.play(); // current = 0 (a)
       queue.addNext(makeSong("x"));
       expect(queue.next()?.id).toBe("x");
     });
@@ -493,8 +493,8 @@ describe("PlayQueue", () => {
       queue.add(makeSong("b"));
       queue.add(makeSong("c"));
       queue.add(makeSong("d"));
-      queue.play();      // current = 0 (a)
-      queue.next();      // current = 1 (b)
+      queue.play(); // current = 0 (a)
+      queue.next(); // current = 1 (b)
       // Simulate idle-with-stale-currentIndex: the player has gone idle
       // but queue still points at b.
       // Caller pre-captures insertedAt:

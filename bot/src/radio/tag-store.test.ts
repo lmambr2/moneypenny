@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
+import { beforeEach, describe, expect, it } from "vitest";
 import { TagStore } from "./tag-store.js";
 
 describe("TagStore", () => {
@@ -15,7 +15,12 @@ describe("TagStore", () => {
     it("a higher-precedence source overwrites; analyzer refines embedded BPM/key", () => {
       store.upsert("k", { genre: "ambient", bpm: 90 }, "embedded");
       store.upsert("k", { bpm: 92, musicalKey: "8A" }, "analyzer");
-      expect(store.get("k")).toMatchObject({ genre: "ambient", bpm: 92, musicalKey: "8A", source: "analyzer" });
+      expect(store.get("k")).toMatchObject({
+        genre: "ambient",
+        bpm: 92,
+        musicalKey: "8A",
+        source: "analyzer",
+      });
     });
 
     it("a lower-precedence re-index fills gaps but never clobbers", () => {

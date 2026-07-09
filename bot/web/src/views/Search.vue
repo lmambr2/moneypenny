@@ -117,14 +117,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios.js';
-import { usePlayerStore } from '../stores/player.js';
-import type { Song } from '../stores/player.js';
-import SongCard from '../components/SongCard.vue';
 import CoverArt from '../components/CoverArt.vue';
+import SongCard from '../components/SongCard.vue';
+import type { Song } from '../stores/player.js';
+import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
 const route = useRoute();
@@ -136,7 +136,9 @@ function loadSource(): 'local' | 'youtube' | 'stream' {
   try {
     const stored = localStorage.getItem(SOURCE_STORAGE_KEY);
     if (stored === 'local' || stored === 'youtube' || stored === 'stream') return stored as any;
-  } catch { /* localStorage blocked */ }
+  } catch {
+    /* localStorage blocked */
+  }
   return 'local';
 }
 
@@ -144,8 +146,21 @@ const query = ref((route.query.q as string) || '');
 const activeTab = ref<'songs' | 'albums' | 'playlists'>('songs');
 const selectedSource = ref<'local' | 'youtube' | 'stream'>(loadSource());
 
-interface Album { id: string; name: string; artist: string; coverUrl: string; songCount?: number; platform: string; }
-interface Playlist { id: string; name: string; coverUrl: string; songCount?: number; platform: string; }
+interface Album {
+  id: string;
+  name: string;
+  artist: string;
+  coverUrl: string;
+  songCount?: number;
+  platform: string;
+}
+interface Playlist {
+  id: string;
+  name: string;
+  coverUrl: string;
+  songCount?: number;
+  platform: string;
+}
 
 const allSongs = ref<Song[]>([]);
 const allAlbums = ref<Album[]>([]);
@@ -154,20 +169,24 @@ const loading = ref(false);
 const searched = ref(false);
 
 const filteredSongs = computed(() =>
-  allSongs.value.filter((s) => s.platform === selectedSource.value)
+  allSongs.value.filter((s) => s.platform === selectedSource.value),
 );
 
 const filteredAlbums = computed(() =>
-  allAlbums.value.filter((a) => a.platform === selectedSource.value)
+  allAlbums.value.filter((a) => a.platform === selectedSource.value),
 );
 
 const filteredPlaylists = computed(() =>
-  allPlaylists.value.filter((p) => p.platform === selectedSource.value)
+  allPlaylists.value.filter((p) => p.platform === selectedSource.value),
 );
 
 // Persist source preference
 watch(selectedSource, (src) => {
-  try { localStorage.setItem(SOURCE_STORAGE_KEY, src); } catch (e) { console.warn('Failed to save source', e); }
+  try {
+    localStorage.setItem(SOURCE_STORAGE_KEY, src);
+  } catch (e) {
+    console.warn('Failed to save source', e);
+  }
 });
 
 watch(selectedSource, (src) => {
@@ -191,7 +210,9 @@ async function doSearch() {
     const playerStore = usePlayerStore();
     const msg = err?.response?.data?.message || err?.response?.data?.error || 'Search failed';
     playerStore.notify(msg, 'error');
-    allSongs.value = []; allAlbums.value = []; allPlaylists.value = [];
+    allSongs.value = [];
+    allAlbums.value = [];
+    allPlaylists.value = [];
   } finally {
     loading.value = false;
   }

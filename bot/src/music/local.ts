@@ -1,18 +1,15 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
 import * as musicMetadata from "music-metadata";
 import type {
-  MusicProvider,
-  Song,
-  SongWithUrl,
-  Playlist,
-  PlaylistDetail,
-  Album,
-  SearchResult,
-  LyricLine,
   AuthStatus,
+  LyricLine,
+  MusicProvider,
+  Playlist,
+  SearchResult,
+  Song,
 } from "./provider.js";
 
 export interface LocalProviderOptions {
@@ -48,7 +45,9 @@ export class LocalProvider implements MusicProvider {
     this.musicDir = path.resolve(options.musicDir);
     this.excludedIds = options.excludedIds;
     this.supportedExtensions = new Set(
-      (options.extensions ?? [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"]).map(e => e.toLowerCase())
+      (
+        options.extensions ?? [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"]
+      ).map((e) => e.toLowerCase()),
     );
   }
 
@@ -59,7 +58,7 @@ export class LocalProvider implements MusicProvider {
   private visibleSongs(): IndexedSong[] {
     const excluded = this.excludedIds?.();
     if (!excluded || excluded.size === 0) return this.songs;
-    return this.songs.filter(s => !excluded.has(s.id));
+    return this.songs.filter((s) => !excluded.has(s.id));
   }
 
   /** Stable, opaque public ID for a path — never expose the path itself (F-2). */
@@ -142,7 +141,7 @@ export class LocalProvider implements MusicProvider {
     const ext = path.extname(fullPath).toLowerCase();
     if (this.supportedExtensions.has(ext)) {
       await this.indexFile(fullPath);
-    } else if (ext === '.m3u' || ext === '.m3u8') {
+    } else if (ext === ".m3u" || ext === ".m3u8") {
       await this.indexM3uFile(fullPath);
     }
   }
@@ -180,7 +179,7 @@ export class LocalProvider implements MusicProvider {
       };
 
       this.songs.push(song);
-    } catch (err) {
+    } catch (_err) {
       // Skip unreadable or non-audio files silently in production
       // console.debug(`[LocalProvider] Could not parse ${absolutePath}:`, err);
     }
@@ -216,16 +215,15 @@ export class LocalProvider implements MusicProvider {
       // Order is walk order (fs readdir); uploads appear after refresh.
       matches = this.visibleSongs();
     } else {
-      matches = this.visibleSongs().filter(song =>
-        song.name.toLowerCase().includes(q) ||
-        song.artist.toLowerCase().includes(q) ||
-        song.album.toLowerCase().includes(q)
+      matches = this.visibleSongs().filter(
+        (song) =>
+          song.name.toLowerCase().includes(q) ||
+          song.artist.toLowerCase().includes(q) ||
+          song.album.toLowerCase().includes(q),
       );
     }
 
-    const sliced = matches
-      .slice(0, limit)
-      .map(({ absolutePath, ...song }) => song); // Don't leak absolutePath to callers
+    const sliced = matches.slice(0, limit).map(({ absolutePath, ...song }) => song); // Don't leak absolutePath to callers
 
     return {
       songs: sliced,
@@ -246,7 +244,7 @@ export class LocalProvider implements MusicProvider {
 
   async getSongDetail(songId: string): Promise<Song | null> {
     await this.ensureIndexed();
-    const found = this.songs.find(s => s.id === songId);
+    const found = this.songs.find((s) => s.id === songId);
     if (!found) return null;
     const { absolutePath, ...song } = found;
     return song;
@@ -267,7 +265,7 @@ export class LocalProvider implements MusicProvider {
   async getAlbumSongs(albumId: string): Promise<Song[]> {
     await this.ensureIndexed();
     return this.visibleSongs()
-      .filter(s => s.album.toLowerCase() === albumId.toLowerCase())
+      .filter((s) => s.album.toLowerCase() === albumId.toLowerCase())
       .map(({ absolutePath, ...song }) => song);
   }
 
@@ -313,7 +311,7 @@ export class LocalProvider implements MusicProvider {
       const realDir = await fs.realpath(this.musicDir);
       if (!realPath.startsWith(realDir + path.sep) && realPath !== realDir) return;
 
-      const content = await fs.readFile(realPath, 'utf-8');
+      const content = await fs.readFile(realPath, "utf-8");
       const songs = this.parseM3u(content, path.dirname(realPath));
 
       if (songs.length === 0) return;
@@ -324,9 +322,9 @@ export class LocalProvider implements MusicProvider {
       const playlist: Playlist = {
         id, // opaque (F-2)
         name,
-        coverUrl: '',
+        coverUrl: "",
         songCount: songs.length,
-        platform: 'local',
+        platform: "local",
       };
 
       // Internal maps stay keyed by real path (resolve() looks up by path).
@@ -340,30 +338,30 @@ export class LocalProvider implements MusicProvider {
   private parseM3u(content: string, baseDir: string): Song[] {
     const lines = content.split(/\r?\n/);
     const songs: Song[] = [];
-    let currentName = '';
-    let currentArtist = '';
+    let currentName = "";
+    let currentArtist = "";
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#EXTM3U')) continue;
+      if (!trimmed || trimmed.startsWith("#EXTM3U")) continue;
 
-      if (trimmed.startsWith('#EXTINF:')) {
+      if (trimmed.startsWith("#EXTINF:")) {
         // #EXTINF:duration,Artist - Title or just Title
         const info = trimmed.substring(8);
-        const commaIdx = info.indexOf(',');
+        const commaIdx = info.indexOf(",");
         const afterComma = commaIdx >= 0 ? info.substring(commaIdx + 1) : info;
-        const dashIdx = afterComma.indexOf(' - ');
+        const dashIdx = afterComma.indexOf(" - ");
         if (dashIdx >= 0) {
           currentArtist = afterComma.substring(0, dashIdx).trim();
           currentName = afterComma.substring(dashIdx + 3).trim();
         } else {
           currentName = afterComma.trim();
-          currentArtist = 'Unknown';
+          currentArtist = "Unknown";
         }
         continue;
       }
 
-      if (trimmed.startsWith('#')) continue;
+      if (trimmed.startsWith("#")) continue;
 
       // This is a file path (relative or absolute)
       const filePath = path.resolve(baseDir, trimmed);
@@ -372,8 +370,8 @@ export class LocalProvider implements MusicProvider {
       // absolute paths) into the listing. getSongUrl still runs the
       // authoritative realpath check at play time; IDs are opaque (F-2).
       if (filePath !== this.musicDir && !filePath.startsWith(this.musicDir + path.sep)) {
-        currentName = '';
-        currentArtist = '';
+        currentName = "";
+        currentArtist = "";
         continue;
       }
       const id = this.opaqueId(filePath);
@@ -382,14 +380,14 @@ export class LocalProvider implements MusicProvider {
         id,
         name: currentName || path.basename(trimmed, path.extname(trimmed)),
         artist: currentArtist,
-        album: 'Playlist',
+        album: "Playlist",
         duration: 0,
-        coverUrl: '',
-        platform: 'local',
+        coverUrl: "",
+        platform: "local",
       });
 
-      currentName = '';
-      currentArtist = '';
+      currentName = "";
+      currentArtist = "";
     }
 
     return songs;
@@ -408,7 +406,9 @@ export class LocalProvider implements MusicProvider {
    * High certainty for anything that looks like a path inside the music dir.
    * Returns the first strong match or null (caller can fall back to YouTube etc).
    */
-  async resolve(input: string): Promise<{ type: 'song' | 'playlist'; item: Song | Playlist } | null> {
+  async resolve(
+    input: string,
+  ): Promise<{ type: "song" | "playlist"; item: Song | Playlist } | null> {
     const trimmed = input.trim();
     if (!trimmed) return null;
 
@@ -418,15 +418,15 @@ export class LocalProvider implements MusicProvider {
     const safePath = await this.safeResolve(trimmed);
     if (safePath) {
       // Check if it's one of our indexed songs
-      const song = this.songs.find(s => s.absolutePath === safePath);
+      const song = this.songs.find((s) => s.absolutePath === safePath);
       if (song) {
         const { absolutePath, ...clean } = song;
-        return { type: 'song', item: clean };
+        return { type: "song", item: clean };
       }
 
       // Check if it's an M3U
       if (this.m3uPlaylists.has(safePath)) {
-        return { type: 'playlist', item: this.m3uPlaylists.get(safePath)! };
+        return { type: "playlist", item: this.m3uPlaylists.get(safePath)! };
       }
 
       // It's a valid in-dir file. F-3: only treat it as a playable song if it's
@@ -438,15 +438,15 @@ export class LocalProvider implements MusicProvider {
         const id = this.opaqueId(safePath);
         this.idToPath.set(id, safePath);
         return {
-          type: 'song',
+          type: "song",
           item: {
             id,
             name,
-            artist: 'Unknown',
-            album: 'Unknown',
+            artist: "Unknown",
+            album: "Unknown",
             duration: 0,
-            coverUrl: '',
-            platform: 'local',
+            coverUrl: "",
+            platform: "local",
           },
         };
       }
@@ -454,12 +454,12 @@ export class LocalProvider implements MusicProvider {
 
     // Medium certainty: filename match among indexed songs
     const lower = trimmed.toLowerCase();
-    const filenameMatch = this.songs.find(s =>
-      path.basename(s.absolutePath).toLowerCase().includes(lower)
+    const filenameMatch = this.songs.find((s) =>
+      path.basename(s.absolutePath).toLowerCase().includes(lower),
     );
     if (filenameMatch) {
       const { absolutePath, ...clean } = filenameMatch;
-      return { type: 'song', item: clean };
+      return { type: "song", item: clean };
     }
 
     return null;
@@ -558,7 +558,8 @@ export class LocalProvider implements MusicProvider {
     try {
       await fs.unlink(real);
     } catch (e: unknown) {
-      const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
+      const code =
+        e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
       if (code === "ENOENT") {
         // Already gone — still re-index so the UI clears the ghost entry.
       } else {
@@ -591,11 +592,17 @@ export class LocalProvider implements MusicProvider {
     // Sanitize to a safe basename only
     let base = path.basename(originalFilename || "upload.bin");
     // Remove directory separators and most dangerous chars for cross-fs safety
-    base = base.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim().slice(0, 200);
+    base = base
+      .replace(/[\\/:*?"<>|]/g, "-")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 200);
     if (!base) base = "upload.mp3";
     const ext = path.extname(base).toLowerCase();
     if (!this.supportedExtensions.has(ext)) {
-      throw new Error("Unsupported audio format. Allowed: " + Array.from(this.supportedExtensions).join(", "));
+      throw new Error(
+        `Unsupported audio format. Allowed: ${Array.from(this.supportedExtensions).join(", ")}`,
+      );
     }
 
     // Uploads go into a dedicated subdir so we can "secure that mfer"
@@ -621,13 +628,15 @@ export class LocalProvider implements MusicProvider {
     }
 
     // Write to .tmp then rename (best-effort atomic on same volume)
-    const tmpPath = target + ".uploading";
+    const tmpPath = `${target}.uploading`;
     try {
       await fs.writeFile(tmpPath, data);
       await fs.rename(tmpPath, target);
     } catch (e) {
       // cleanup partial
-      try { await fs.unlink(tmpPath); } catch {}
+      try {
+        await fs.unlink(tmpPath);
+      } catch {}
       throw e;
     }
 

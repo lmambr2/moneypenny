@@ -1,6 +1,6 @@
+import type Database from "better-sqlite3";
 import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
-import type Database from "better-sqlite3";
 import {
   YtLibrary,
   type YtLibraryLocalSource,

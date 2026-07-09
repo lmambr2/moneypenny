@@ -1,10 +1,5 @@
-import { describe, it, expect } from "vitest";
-import {
-  isPcmClipped,
-  normalizePcmForStt,
-  peakAmplitude16,
-  STT_TARGET_PEAK,
-} from "./pcm.js";
+import { describe, expect, it } from "vitest";
+import { isPcmClipped, normalizePcmForStt, peakAmplitude16, STT_TARGET_PEAK } from "./pcm.js";
 
 describe("normalizePcmForStt", () => {
   it("boosts quiet PCM toward the target peak", () => {

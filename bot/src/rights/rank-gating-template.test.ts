@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { isRightsConfig } from "./index.js";
+import { describe, expect, it } from "vitest";
 import { PUBLIC_COMMANDS } from "../bot/commands.js";
+import { isRightsConfig } from "./index.js";
 
 /**
  * Public commands deliberately NOT in the template's defaultAllow — granted

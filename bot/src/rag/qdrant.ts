@@ -32,7 +32,10 @@ export class QdrantClient {
   private http: ReturnType<typeof axios.create>;
 
   constructor(options: QdrantClientOptions = {}) {
-    this.baseUrl = (options.baseUrl || process.env.VECTOR_DB_URL || "http://qdrant:6333").replace(/\/$/, "");
+    this.baseUrl = (options.baseUrl || process.env.VECTOR_DB_URL || "http://qdrant:6333").replace(
+      /\/$/,
+      "",
+    );
     this.logger = options.logger;
     this.http = axios.create({
       baseURL: this.baseUrl,
@@ -55,7 +58,10 @@ export class QdrantClient {
       return;
     } catch (err: unknown) {
       if (httpStatus(err) !== 404) {
-        this.logger?.debug({ err: errorMessage(err) }, "Qdrant collection probe failed; attempting create");
+        this.logger?.debug(
+          { err: errorMessage(err) },
+          "Qdrant collection probe failed; attempting create",
+        );
       }
     }
     await this.http.put(`/collections/${name}`, { vectors: { size: dim, distance: "Cosine" } });
@@ -67,7 +73,12 @@ export class QdrantClient {
     await this.http.put(`/collections/${name}/points?wait=true`, { points });
   }
 
-  async search(name: string, vector: number[], topK: number, filter?: unknown): Promise<QdrantHit[]> {
+  async search(
+    name: string,
+    vector: number[],
+    topK: number,
+    filter?: unknown,
+  ): Promise<QdrantHit[]> {
     const { data } = await this.http.post(`/collections/${name}/points/search`, {
       vector,
       limit: topK,

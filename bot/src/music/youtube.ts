@@ -1,22 +1,20 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type {
-  MusicProvider,
-  Song,
-  SongWithUrl,
-  Playlist,
-  Album,
-  SearchResult,
-  LyricLine,
-  AuthStatus,
-} from "./provider.js";
-import { isYouTubeUrl, isXTwitterUrl, isBandcampUrl } from "./stream.js";
-import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import axios from "axios";
 import { errorMessage } from "../util/error.js";
+import type {
+  AuthStatus,
+  LyricLine,
+  MusicProvider,
+  Playlist,
+  SearchResult,
+  Song,
+} from "./provider.js";
+import { isBandcampUrl, isXTwitterUrl, isYouTubeUrl } from "./stream.js";
+import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
 
 /**
  * Only allow yt-dlp to fetch known media hosts (or a bare video/playlist id we
@@ -173,12 +171,13 @@ function sourceLabelFor(webUrl: string, extractor?: string): string {
 
 function entryToSong(entry: YtDlpEntry): Song {
   const webUrl = entry.webpage_url ?? "";
-  const isYt = /youtube|youtu\.be/i.test(entry.extractor ?? "") || /youtube\.com|youtu\.be/i.test(webUrl);
+  const isYt =
+    /youtube|youtu\.be/i.test(entry.extractor ?? "") || /youtube\.com|youtu\.be/i.test(webUrl);
   const label = isYt ? "YouTube" : sourceLabelFor(webUrl, entry.extractor);
   return {
     // For non-YouTube (X/Twitter/…) keep the full page URL as the id — there's no
     // youtube-style ?v= id for getSongUrl to rebuild from, so it re-resolves the URL.
-    id: isYt ? (entry.id ?? "") : (webUrl || entry.id || ""),
+    id: isYt ? (entry.id ?? "") : webUrl || entry.id || "",
     name: entry.title ?? "Unknown",
     artist: entry.uploader ?? entry.channel ?? label,
     album: label,
@@ -206,18 +205,16 @@ export class YouTubeProvider implements MusicProvider {
         if (!safe) return { songs: [], playlists: [], albums: [] };
         const videoId = extractVideoId(query) ?? "";
         try {
-          raw = await runYtDlp([
-            safe,
-            "--dump-json",
-            "--no-warnings",
-            "--quiet",
-          ]);
+          raw = await runYtDlp([safe, "--dump-json", "--no-warnings", "--quiet"]);
           const entry = JSON.parse(raw.trim()) as YtDlpEntry;
           const songs = [entryToSong(entry)];
           return { songs, playlists: [], albums: [] };
         } catch (err: unknown) {
           const msg = errorMessage(err, "");
-          if (videoId && (msg.includes("age") || msg.includes("Sign in") || msg.includes("confirm your age"))) {
+          if (
+            videoId &&
+            (msg.includes("age") || msg.includes("Sign in") || msg.includes("confirm your age"))
+          ) {
             const oembed = await getOEmbedEntry(videoId);
             if (oembed) {
               return { songs: [entryToSong(oembed)], playlists: [], albums: [] };
@@ -256,14 +253,17 @@ export class YouTubeProvider implements MusicProvider {
         url = `https://www.youtube.com/watch?v=${songId}`;
         if (!isPublicPlaybackUrl(url)) return null;
       }
-      const raw = await runYtDlp([
-        url,
-        "--get-url",
-        "-f",
-        "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
-        "--no-warnings",
-        "--quiet",
-      ], 45_000);
+      const raw = await runYtDlp(
+        [
+          url,
+          "--get-url",
+          "-f",
+          "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
+          "--no-warnings",
+          "--quiet",
+        ],
+        45_000,
+      );
       const audioUrl = raw.trim().split("\n")[0];
       // CDN hop from yt-dlp — reject private literals AND private DNS resolution.
       if (audioUrl && !(await assertPublicPlaybackUrl(audioUrl))) return null;
@@ -293,10 +293,18 @@ export class YouTubeProvider implements MusicProvider {
     await runYtDlp(
       [
         url,
-        "-x", "--audio-format", "mp3", "--audio-quality", "0",
-        "--embed-metadata", "--embed-thumbnail",
-        "--no-playlist", "--no-warnings", "--quiet",
-        "-o", outTemplate,
+        "-x",
+        "--audio-format",
+        "mp3",
+        "--audio-quality",
+        "0",
+        "--embed-metadata",
+        "--embed-thumbnail",
+        "--no-playlist",
+        "--no-warnings",
+        "--quiet",
+        "-o",
+        outTemplate,
       ],
       300_000,
     );
@@ -350,13 +358,10 @@ export class YouTubeProvider implements MusicProvider {
         if (!/^[A-Za-z0-9_-]+$/.test(playlistId)) return [];
         url = `https://www.youtube.com/playlist?list=${playlistId}`;
       }
-      const raw = await runYtDlp([
-        url,
-        "--dump-json",
-        "--flat-playlist",
-        "--no-warnings",
-        "--quiet",
-      ], 60_000);
+      const raw = await runYtDlp(
+        [url, "--dump-json", "--flat-playlist", "--no-warnings", "--quiet"],
+        60_000,
+      );
       const lines = raw.trim().split("\n").filter(Boolean);
       return lines.map((line) => entryToSong(JSON.parse(line) as YtDlpEntry));
     } catch {

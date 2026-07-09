@@ -27,7 +27,10 @@ export function serverGroupsByClidFromRows(rows: Record<string, unknown>[]): Map
     out.set(
       clid,
       raw
-        ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+        ? raw
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
         : [],
     );
   }
@@ -81,7 +84,10 @@ export function parseChannelRows(rows: Record<string, unknown>[]): QueryChannel[
 }
 
 /** Resolve a client by numeric clid, exact nickname, or unique nickname prefix. */
-export function resolveClientQuery(query: string, clients: QueryClient[]): ResolveResult<QueryClient> {
+export function resolveClientQuery(
+  query: string,
+  clients: QueryClient[],
+): ResolveResult<QueryClient> {
   const q = query.trim();
   if (!q) return { ok: false, error: "Client name or ID required." };
 
@@ -103,14 +109,20 @@ export function resolveClientQuery(query: string, clients: QueryClient[]): Resol
   if (prefix.length === 1) return { ok: true, value: prefix[0]! };
   if (prefix.length > 1) {
     const names = prefix.map((c) => c.nickname).join(", ");
-    return { ok: false, error: `Ambiguous client "${q}" (${names}) — be more specific or use a client ID.` };
+    return {
+      ok: false,
+      error: `Ambiguous client "${q}" (${names}) — be more specific or use a client ID.`,
+    };
   }
 
   return { ok: false, error: `No client matching "${q}".` };
 }
 
 /** Resolve a channel by numeric cid or exact / unique-prefix channel name. */
-export function resolveChannelQuery(query: string, channels: QueryChannel[]): ResolveResult<QueryChannel> {
+export function resolveChannelQuery(
+  query: string,
+  channels: QueryChannel[],
+): ResolveResult<QueryChannel> {
   const q = query.trim();
   if (!q) return { ok: false, error: "Channel name or ID required." };
 
@@ -132,7 +144,10 @@ export function resolveChannelQuery(query: string, channels: QueryChannel[]): Re
   if (prefix.length === 1) return { ok: true, value: prefix[0]! };
   if (prefix.length > 1) {
     const names = prefix.map((c) => c.name).join(", ");
-    return { ok: false, error: `Ambiguous channel "${q}" (${names}) — be more specific or use a channel ID.` };
+    return {
+      ok: false,
+      error: `Ambiguous channel "${q}" (${names}) — be more specific or use a channel ID.`,
+    };
   }
 
   return { ok: false, error: `Channel not found: ${q}` };

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { chunkMarkdown, chunkId } from "./chunk.js";
+import { describe, expect, it } from "vitest";
+import { chunkId, chunkMarkdown } from "./chunk.js";
 
 describe("chunkId", () => {
   it("is deterministic and UUID-shaped (Qdrant point id)", () => {
@@ -32,7 +32,7 @@ describe("chunkMarkdown", () => {
   });
 
   it("size-splits a section larger than maxChars", () => {
-    const big = "## Big\n" + "word ".repeat(200); // ~1000+ chars under one heading
+    const big = `## Big\n${"word ".repeat(200)}`; // ~1000+ chars under one heading
     const chunks = chunkMarkdown("big.md", big, { maxChars: 300, overlap: 30 });
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks.every((c) => c.text.length <= 300 + 1)).toBe(true);

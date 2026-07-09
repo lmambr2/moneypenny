@@ -1,16 +1,16 @@
-import { Router } from "express";
 import axios from "axios";
+import { Router } from "express";
 import type { BotManager } from "../../bot/manager.js";
-import type { BotConfig } from "../../data/config.js";
-import { redactBotInstanceSecrets } from "../../data/bot-secrets.js";
-import { saveConfig } from "../../data/config.js";
-import type { Logger } from "../../logger.js";
-import type { BotDatabase } from "../../data/database.js";
 import type { AvatarStore } from "../../data/avatars.js";
-import { isRightsConfig, type RightsConfig } from "../../rights/index.js";
-import { defaultVoiceConfig, type VoiceConfig } from "../../voice/types.js";
+import { redactBotInstanceSecrets } from "../../data/bot-secrets.js";
+import type { BotConfig } from "../../data/config.js";
+import { saveConfig } from "../../data/config.js";
+import type { BotDatabase } from "../../data/database.js";
+import type { Logger } from "../../logger.js";
 import { defaultRadioConfig, type RadioConfig } from "../../radio/index.js";
+import { isRightsConfig } from "../../rights/index.js";
 import { errorMessage } from "../../util/error.js";
+import { defaultVoiceConfig, type VoiceConfig } from "../../voice/types.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 
 export function createBotRouter(
@@ -114,11 +114,25 @@ export function createBotRouter(
       { key: "llmDelegateUrl", type: "string", touch: "llm" },
       { key: "llmDelegateModel", type: "string", touch: "llm" },
       { key: "llmSystemPrompt", type: "string", touch: "llm" },
-      { key: "llmTemperature", type: "number", min: 0, max: 2, touch: "llm", msg: "llmTemperature must be a number between 0 and 2" },
+      {
+        key: "llmTemperature",
+        type: "number",
+        min: 0,
+        max: 2,
+        touch: "llm",
+        msg: "llmTemperature must be a number between 0 and 2",
+      },
       { key: "roastEnabled", type: "boolean", touch: "roast" },
       { key: "roastMinPresent", type: "int", min: 1, touch: "roast" },
       { key: "roastCooldownMinutes", type: "number", min: 0, touch: "roast" },
-      { key: "roastMinScore", type: "int", min: 0, max: 10, touch: "roast", msg: "roastMinScore must be an integer 0\u201310" },
+      {
+        key: "roastMinScore",
+        type: "int",
+        min: 0,
+        max: 10,
+        touch: "roast",
+        msg: "roastMinScore must be an integer 0\u201310",
+      },
       // youtubeSaveEnabled is read live from the shared config — no re-apply.
       { key: "youtubeSaveEnabled", type: "boolean" },
       { key: "ragEnabled", type: "boolean", touch: "rag" },
@@ -151,18 +165,33 @@ export function createBotRouter(
       const v = body[spec.key];
       const fail = (msg: string) => res.status(400).json({ error: msg, code: "VALIDATION_ERROR" });
       if (spec.type === "boolean") {
-        if (typeof v !== "boolean") { fail(spec.msg ?? `${spec.key} must be a boolean`); return; }
+        if (typeof v !== "boolean") {
+          fail(spec.msg ?? `${spec.key} must be a boolean`);
+          return;
+        }
         cfg[spec.key] = v;
       } else if (spec.type === "string") {
-        if (typeof v !== "string") { fail(spec.msg ?? `${spec.key} must be a string`); return; }
+        if (typeof v !== "string") {
+          fail(spec.msg ?? `${spec.key} must be a string`);
+          return;
+        }
         cfg[spec.key] = v.trim();
       } else {
         const isInt = spec.type === "int";
-        const ok = typeof v === "number" && Number.isFinite(v) && (!isInt || Number.isInteger(v)) &&
-          (spec.min === undefined || v >= spec.min) && (spec.max === undefined || v <= spec.max);
+        const ok =
+          typeof v === "number" &&
+          Number.isFinite(v) &&
+          (!isInt || Number.isInteger(v)) &&
+          (spec.min === undefined || v >= spec.min) &&
+          (spec.max === undefined || v <= spec.max);
         if (!ok) {
           const bound = spec.min !== undefined && spec.min > 0 ? ` >= ${spec.min}` : "";
-          fail(spec.msg ?? (isInt ? `${spec.key} must be an integer${bound}` : `${spec.key} must be a non-negative number`));
+          fail(
+            spec.msg ??
+              (isInt
+                ? `${spec.key} must be an integer${bound}`
+                : `${spec.key} must be a non-negative number`),
+          );
           return;
         }
         cfg[spec.key] = v;
@@ -172,7 +201,10 @@ export function createBotRouter(
 
     if ("adminGroups" in body) {
       const v = body.adminGroups;
-      if (!Array.isArray(v) || !v.every((n: unknown) => typeof n === "number" && Number.isInteger(n) && n >= 0)) {
+      if (
+        !Array.isArray(v) ||
+        !v.every((n: unknown) => typeof n === "number" && Number.isInteger(n) && n >= 0)
+      ) {
         res.status(400).json({ error: "adminGroups must be an array of non-negative integers" });
         return;
       }
@@ -185,7 +217,10 @@ export function createBotRouter(
         config.rights = undefined;
         touched.rights = true;
       } else if (!isRightsConfig(v)) {
-        res.status(400).json({ error: "rights must be a valid RightsConfig object or null", code: "VALIDATION_ERROR" });
+        res.status(400).json({
+          error: "rights must be a valid RightsConfig object or null",
+          code: "VALIDATION_ERROR",
+        });
         return;
       } else {
         config.rights = v;
@@ -201,25 +236,35 @@ export function createBotRouter(
       }
       const patch = v as Partial<VoiceConfig>;
       if ("enabled" in patch && typeof patch.enabled !== "boolean") {
-        res.status(400).json({ error: "voice.enabled must be a boolean", code: "VALIDATION_ERROR" });
+        res
+          .status(400)
+          .json({ error: "voice.enabled must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
       if ("respondWithVoice" in patch && typeof patch.respondWithVoice !== "boolean") {
-        res.status(400).json({ error: "voice.respondWithVoice must be a boolean", code: "VALIDATION_ERROR" });
+        res
+          .status(400)
+          .json({ error: "voice.respondWithVoice must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
       for (const key of ["sttUrl", "ttsUrl", "ttsVoice", "watchword"] as const) {
         if (key in patch && typeof patch[key] !== "string") {
-          res.status(400).json({ error: `voice.${key} must be a string`, code: "VALIDATION_ERROR" });
+          res
+            .status(400)
+            .json({ error: `voice.${key} must be a string`, code: "VALIDATION_ERROR" });
           return;
         }
       }
       if ("requireWatchword" in patch && typeof patch.requireWatchword !== "boolean") {
-        res.status(400).json({ error: "voice.requireWatchword must be a boolean", code: "VALIDATION_ERROR" });
+        res
+          .status(400)
+          .json({ error: "voice.requireWatchword must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
       if ("duckMusicOnSpeech" in patch && typeof patch.duckMusicOnSpeech !== "boolean") {
-        res.status(400).json({ error: "voice.duckMusicOnSpeech must be a boolean", code: "VALIDATION_ERROR" });
+        res
+          .status(400)
+          .json({ error: "voice.duckMusicOnSpeech must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
       if ("duckMusicVolume" in patch) {
@@ -243,7 +288,9 @@ export function createBotRouter(
         }
       }
       if ("energyThreshold" in patch && typeof patch.energyThreshold !== "number") {
-        res.status(400).json({ error: "voice.energyThreshold must be a number", code: "VALIDATION_ERROR" });
+        res
+          .status(400)
+          .json({ error: "voice.energyThreshold must be a number", code: "VALIDATION_ERROR" });
         return;
       }
       config.voice = { ...defaultVoiceConfig(), ...config.voice, ...patch };
@@ -259,65 +306,116 @@ export function createBotRouter(
       const patch = r as Partial<RadioConfig>;
       for (const key of ["enabled", "memoryBroadcastOptIn"] as const) {
         if (key in patch && typeof patch[key] !== "boolean") {
-          res.status(400).json({ error: `radio.${key} must be a boolean`, code: "VALIDATION_ERROR" });
+          res
+            .status(400)
+            .json({ error: `radio.${key} must be a boolean`, code: "VALIDATION_ERROR" });
           return;
         }
       }
       for (const key of [
-        "everyNSongs", "deadAirSeconds", "maxBumperSeconds", "speechVolumePct",
-        "minPresentToBroadcast", "cooldownSeconds", "maxBumpersPerHour",
+        "everyNSongs",
+        "deadAirSeconds",
+        "maxBumperSeconds",
+        "speechVolumePct",
+        "minPresentToBroadcast",
+        "cooldownSeconds",
+        "maxBumpersPerHour",
       ] as const) {
         const v = patch[key];
         if (key in patch && (typeof v !== "number" || !Number.isFinite(v) || v < 0)) {
-          res.status(400).json({ error: `radio.${key} must be a non-negative number`, code: "VALIDATION_ERROR" });
+          res.status(400).json({
+            error: `radio.${key} must be a non-negative number`,
+            code: "VALIDATION_ERROR",
+          });
           return;
         }
       }
       if ("sources" in patch) {
-        const valid = new Set(["prerecorded", "stationId", "timeCheck", "nowPlaying", "doctrine", "memory"]);
-        if (!Array.isArray(patch.sources) || !patch.sources.every((s) => typeof s === "string" && valid.has(s))) {
-          res.status(400).json({ error: "radio.sources must be an array of known source names", code: "VALIDATION_ERROR" });
+        const valid = new Set([
+          "prerecorded",
+          "stationId",
+          "timeCheck",
+          "nowPlaying",
+          "doctrine",
+          "memory",
+        ]);
+        if (
+          !Array.isArray(patch.sources) ||
+          !patch.sources.every((s) => typeof s === "string" && valid.has(s))
+        ) {
+          res.status(400).json({
+            error: "radio.sources must be an array of known source names",
+            code: "VALIDATION_ERROR",
+          });
           return;
         }
       }
       if ("quietHours" in patch) {
-        const ok = Array.isArray(patch.quietHours) &&
-          patch.quietHours.every((w) => w && typeof w.from === "string" && typeof w.to === "string");
+        const ok =
+          Array.isArray(patch.quietHours) &&
+          patch.quietHours.every(
+            (w) => w && typeof w.from === "string" && typeof w.to === "string",
+          );
         if (!ok) {
-          res.status(400).json({ error: "radio.quietHours must be [{from,to}] of HH:MM strings", code: "VALIDATION_ERROR" });
+          res.status(400).json({
+            error: "radio.quietHours must be [{from,to}] of HH:MM strings",
+            code: "VALIDATION_ERROR",
+          });
           return;
         }
       }
       for (const key of ["activeProfile", "ttsVoice", "bumperDir"] as const) {
         if (key in patch && typeof patch[key] !== "string") {
-          res.status(400).json({ error: `radio.${key} must be a string`, code: "VALIDATION_ERROR" });
+          res
+            .status(400)
+            .json({ error: `radio.${key} must be a string`, code: "VALIDATION_ERROR" });
           return;
         }
       }
       if ("profiles" in patch) {
         const p = patch.profiles;
-        const ok = typeof p === "object" && p !== null && !Array.isArray(p) &&
-          Object.values(p).every((prof) => typeof prof === "object" && prof !== null && !Array.isArray(prof));
+        const ok =
+          typeof p === "object" &&
+          p !== null &&
+          !Array.isArray(p) &&
+          Object.values(p).every(
+            (prof) => typeof prof === "object" && prof !== null && !Array.isArray(prof),
+          );
         if (!ok) {
-          res.status(400).json({ error: "radio.profiles must be an object of profile objects", code: "VALIDATION_ERROR" });
+          res.status(400).json({
+            error: "radio.profiles must be an object of profile objects",
+            code: "VALIDATION_ERROR",
+          });
           return;
         }
       }
       if ("clock" in patch) {
         const c = patch.clock;
-        const ok = typeof c === "object" && c !== null && Array.isArray((c as { wheel?: unknown }).wheel) &&
-          ((c as { wheel: unknown[] }).wheel).every(
-            (s) => s !== null && typeof s === "object" && typeof (s as { slot?: unknown }).slot === "string",
+        const ok =
+          typeof c === "object" &&
+          c !== null &&
+          Array.isArray((c as { wheel?: unknown }).wheel) &&
+          (c as { wheel: unknown[] }).wheel.every(
+            (s) =>
+              s !== null &&
+              typeof s === "object" &&
+              typeof (s as { slot?: unknown }).slot === "string",
           );
         if (!ok) {
-          res.status(400).json({ error: "radio.clock must have a wheel of {slot} entries", code: "VALIDATION_ERROR" });
+          res.status(400).json({
+            error: "radio.clock must have a wheel of {slot} entries",
+            code: "VALIDATION_ERROR",
+          });
           return;
         }
       }
       if ("classificationFloor" in patch) {
         const f = patch.classificationFloor;
         if (!Array.isArray(f) || !f.every((x) => typeof x === "string")) {
-          res.status(400).json({ error: "radio.classificationFloor must be an array of strings", code: "VALIDATION_ERROR" });
+          res.status(400).json({
+            error: "radio.classificationFloor must be an array of strings",
+            code: "VALIDATION_ERROR",
+          });
           return;
         }
         // §6.3: this overrides the presence-based broadcast floor — loud trail.
@@ -326,15 +424,34 @@ export function createBotRouter(
       // S1: only known RadioConfig keys pass — an unexpected key is rejected,
       // not silently spread into config.
       const KNOWN_RADIO_KEYS = new Set([
-        "enabled", "everyNSongs", "deadAirSeconds", "maxBumperSeconds", "speechVolumePct",
-        "minPresentToBroadcast", "cooldownSeconds", "maxBumpersPerHour",
-        "quietHours", "sources", "memoryBroadcastOptIn", "classificationFloor",
-        "activeProfile", "profiles", "clock", "ttsVoice", "bumperDir",
-        "analyzer", "ratingWeight", "harmonicSequencing", "icecast",
+        "enabled",
+        "everyNSongs",
+        "deadAirSeconds",
+        "maxBumperSeconds",
+        "speechVolumePct",
+        "minPresentToBroadcast",
+        "cooldownSeconds",
+        "maxBumpersPerHour",
+        "quietHours",
+        "sources",
+        "memoryBroadcastOptIn",
+        "classificationFloor",
+        "activeProfile",
+        "profiles",
+        "clock",
+        "ttsVoice",
+        "bumperDir",
+        "analyzer",
+        "ratingWeight",
+        "harmonicSequencing",
+        "icecast",
       ]);
       const unknown = Object.keys(patch).filter((k) => !KNOWN_RADIO_KEYS.has(k));
       if (unknown.length > 0) {
-        res.status(400).json({ error: `unknown radio settings: ${unknown.join(", ")}`, code: "VALIDATION_ERROR" });
+        res.status(400).json({
+          error: `unknown radio settings: ${unknown.join(", ")}`,
+          code: "VALIDATION_ERROR",
+        });
         return;
       }
       // The director reads config.radio live at every boundary, so replacing
@@ -379,7 +496,8 @@ export function createBotRouter(
         );
       }
       if (touched.rag) bot.updateRag(config.ragEnabled ?? false, config.ragTopK);
-      if (touched.fileDrop) bot.updateFileDrop(config.fileDropEnabled ?? false, config.fileDropPollSec);
+      if (touched.fileDrop)
+        bot.updateFileDrop(config.fileDropEnabled ?? false, config.fileDropPollSec);
       if (touched.memory) bot.updateMemory(config.memoryEnabled ?? false);
       if (touched.kg) bot.updateKg(config.kgEnabled ?? false);
       if (touched.mempalace) {
@@ -438,7 +556,9 @@ export function createBotRouter(
       const result = await bot.testVoiceTurn(transcript, { speak });
       res.json(result);
     } catch (err: unknown) {
-      res.status(409).json({ error: errorMessage(err, "voice test failed"), code: "VOICE_UNAVAILABLE" });
+      res
+        .status(409)
+        .json({ error: errorMessage(err, "voice test failed"), code: "VOICE_UNAVAILABLE" });
     }
   });
 
@@ -454,7 +574,9 @@ export function createBotRouter(
       const kg = await bot.syncKgToMemPalace();
       res.json({ ok: true, userMemory, kg });
     } catch (err: unknown) {
-      res.status(502).json({ error: errorMessage(err, "memory sync failed"), code: "MEMORY_ERROR" });
+      res
+        .status(502)
+        .json({ error: errorMessage(err, "memory sync failed"), code: "MEMORY_ERROR" });
     }
   });
 
@@ -540,7 +662,9 @@ export function createBotRouter(
       return;
     }
     if (!(config.radio?.enabled ?? false)) {
-      res.status(409).json({ error: "Radio mode is off — enable it in Settings first", code: "RADIO_OFF" });
+      res
+        .status(409)
+        .json({ error: "Radio mode is off — enable it in Settings first", code: "RADIO_OFF" });
       return;
     }
     const topic = typeof req.body?.topic === "string" ? req.body.topic.trim() : undefined;
@@ -584,7 +708,9 @@ export function createBotRouter(
       : undefined;
 
     if (!(config.ragEnabled ?? false)) {
-      res.status(409).json({ error: "Knowledge base is disabled in settings", code: "RAG_DISABLED" });
+      res
+        .status(409)
+        .json({ error: "Knowledge base is disabled in settings", code: "RAG_DISABLED" });
       return;
     }
 
@@ -601,7 +727,8 @@ export function createBotRouter(
       const chunks = await bot.queryRag(q, topK, allowedClassifications);
       if (chunks === null) {
         res.status(409).json({
-          error: "RAG substrate not initialized — enable knowledge base and restart with --profile rag",
+          error:
+            "RAG substrate not initialized — enable knowledge base and restart with --profile rag",
           code: "RAG_UNAVAILABLE",
         });
         return;
@@ -654,7 +781,12 @@ export function createBotRouter(
     }
     const uid = typeof req.query.uid === "string" ? req.query.uid : undefined;
     const groupsRaw = typeof req.query.groups === "string" ? req.query.groups.trim() : "";
-    const serverGroups = groupsRaw ? groupsRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const serverGroups = groupsRaw
+      ? groupsRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
     res.json(await bot.getEffectiveRights({ uid, serverGroups }));
   });
 
@@ -716,11 +848,7 @@ export function createBotRouter(
       return;
     }
     const ext = path.split(".").pop() ?? "";
-    const mime = ext === "png"
-      ? "image/png"
-      : ext === "webp"
-        ? "image/webp"
-        : "image/jpeg";
+    const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
     res.set("Content-Type", mime);
     res.set("Cache-Control", "no-cache");
     res.send(buf);
@@ -728,9 +856,7 @@ export function createBotRouter(
 
   router.put("/:id/avatar", requireAdmin, (req, res) => {
     const id = req.params.id as string;
-    const exists =
-      botManager.getBot(id) ||
-      botDb.getBotInstances().some((b) => b.id === id);
+    const exists = botManager.getBot(id) || botDb.getBotInstances().some((b) => b.id === id);
     if (!exists) {
       res.status(404).json({ error: "Bot not found" });
       return;
@@ -783,9 +909,7 @@ export function createBotRouter(
         autoStart,
       } = req.body;
       if (!name || !serverAddress || !nickname) {
-        res
-          .status(400)
-          .json({ error: "name, serverAddress, and nickname are required" });
+        res.status(400).json({ error: "name, serverAddress, and nickname are required" });
         return;
       }
       const bot = await botManager.createBot({
@@ -814,10 +938,24 @@ export function createBotRouter(
         res.status(404).json({ error: "Bot not found" });
         return;
       }
-      const { name, serverAddress, serverPort, nickname, defaultChannel, channelPassword, serverPassword } = req.body;
+      const {
+        name,
+        serverAddress,
+        serverPort,
+        nickname,
+        defaultChannel,
+        channelPassword,
+        serverPassword,
+      } = req.body;
       // Update in database
       botManager.updateBot(id, {
-        name, serverAddress, serverPort, nickname, defaultChannel, channelPassword, serverPassword,
+        name,
+        serverAddress,
+        serverPort,
+        nickname,
+        defaultChannel,
+        channelPassword,
+        serverPassword,
       });
       res.json({ success: true });
     } catch (err) {

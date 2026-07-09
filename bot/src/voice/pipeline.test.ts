@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ControlRouter, type LlmAssist } from "../control/router.js";
 import { VoicePipeline } from "./pipeline.js";
-import type { Utterance, SttProvider, TtsProvider, VoiceOutput } from "./types.js";
-import { ControlRouter, type LlmAssist, type RouterContext } from "../control/router.js";
+import type { SttProvider, TtsProvider, Utterance, VoiceOutput } from "./types.js";
 
 function fakeLogger(): any {
   const l: any = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -10,7 +10,14 @@ function fakeLogger(): any {
 }
 
 function utterance(id = 1): Utterance {
-  return { speakerClientId: id, speakerUid: "u-1", pcm: Buffer.alloc(4), sampleRate: 16000, channels: 1, durationMs: 100 };
+  return {
+    speakerClientId: id,
+    speakerUid: "u-1",
+    pcm: Buffer.alloc(4),
+    sampleRate: 16000,
+    channels: 1,
+    durationMs: 100,
+  };
 }
 
 const fakeBot = { isConnected: () => true, localProvider: undefined } as any;
@@ -34,9 +41,17 @@ describe("VoicePipeline", () => {
   it("dispatches a spoken known command after the watchword", async () => {
     const skip = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "skip", execute: async () => { skip(); return "Skipped to next."; } });
+    router.registerHandler({
+      name: "skip",
+      execute: async () => {
+        skip();
+        return "Skipped to next.";
+      },
+    });
 
-    const tts: TtsProvider = { synthesize: vi.fn().mockResolvedValue({ audio: Buffer.from("a"), format: "wav" }) };
+    const tts: TtsProvider = {
+      synthesize: vi.fn().mockResolvedValue({ audio: Buffer.from("a"), format: "wav" }),
+    };
     const output: VoiceOutput = { speak: vi.fn().mockResolvedValue(undefined) };
 
     const pipeline = new VoicePipeline({
@@ -59,7 +74,13 @@ describe("VoicePipeline", () => {
   it("routes STT filler resume (Money, Penny, a resume.) deterministically", async () => {
     const resume = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "resume", execute: async () => { resume(); return "Playback resumed."; } });
+    router.registerHandler({
+      name: "resume",
+      execute: async () => {
+        resume();
+        return "Playback resumed.";
+      },
+    });
 
     const pipeline = new VoicePipeline({
       ...pipelineOpts(),
@@ -76,7 +97,13 @@ describe("VoicePipeline", () => {
   it("ignores commands spoken without the watchword", async () => {
     const skip = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "skip", execute: async () => { skip(); return "Skipped to next."; } });
+    router.registerHandler({
+      name: "skip",
+      execute: async () => {
+        skip();
+        return "Skipped to next.";
+      },
+    });
     const route = vi.spyOn(router, "routeVoice");
 
     const pipeline = new VoicePipeline({
@@ -109,7 +136,13 @@ describe("VoicePipeline", () => {
   it("accepts a follow-up command while armed", async () => {
     const pause = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "pause", execute: async () => { pause(); return "Paused"; } });
+    router.registerHandler({
+      name: "pause",
+      execute: async () => {
+        pause();
+        return "Paused";
+      },
+    });
     const pipeline = new VoicePipeline({
       ...pipelineOpts({ isArmed: () => true }),
       router,
@@ -123,7 +156,13 @@ describe("VoicePipeline", () => {
   it("ignores banter without KWS or text wake fallback", async () => {
     const pause = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "pause", execute: async () => { pause(); return "Paused"; } });
+    router.registerHandler({
+      name: "pause",
+      execute: async () => {
+        pause();
+        return "Paused";
+      },
+    });
     const pipeline = new VoicePipeline({
       ...pipelineOpts({ textWakeFallback: false }),
       router,
@@ -147,7 +186,9 @@ describe("VoicePipeline", () => {
       stt: sttReturning("Moneypenny what's up"),
     });
     const turn = await pipeline.handleUtterance(utterance());
-    expect(llm.chatForIntent).toHaveBeenCalledWith("what's up", undefined, { moveClientEnabled: true });
+    expect(llm.chatForIntent).toHaveBeenCalledWith("what's up", undefined, {
+      moveClientEnabled: true,
+    });
     expect(turn.reply).toBe("Not much.");
   });
 
@@ -173,7 +214,13 @@ describe("VoicePipeline", () => {
   it("respects rank gating on voice commands", async () => {
     const skip = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "stop", execute: async () => { skip(); return "stopped"; } });
+    router.registerHandler({
+      name: "stop",
+      execute: async () => {
+        skip();
+        return "stopped";
+      },
+    });
     const pipeline = new VoicePipeline({
       ...pipelineOpts(),
       router,
@@ -296,7 +343,13 @@ describe("VoicePipeline", () => {
   it("routes without a watchword when requireWatchword is false", async () => {
     const skip = vi.fn();
     const router = new ControlRouter(fakeLogger());
-    router.registerHandler({ name: "skip", execute: async () => { skip(); return "ok"; } });
+    router.registerHandler({
+      name: "skip",
+      execute: async () => {
+        skip();
+        return "ok";
+      },
+    });
     const pipeline = new VoicePipeline({
       ...pipelineOpts({ requireWatchword: false }),
       router,

@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import axios from "axios";
-import { TS3Client, escapeTS3 } from "../ts-protocol/client.js";
-import { HttpQueryError } from "../ts-protocol/http-query.js";
-import type { ProfileConfig } from "../data/database.js";
 import type { QueuedSong } from "../audio/queue.js";
+import type { ProfileConfig } from "../data/database.js";
 import type { Logger } from "../logger.js";
+import { escapeTS3, type TS3Client } from "../ts-protocol/client.js";
+import { HttpQueryError } from "../ts-protocol/http-query.js";
 
 const TS3_NICKNAME_MAX = 30;
 /** Avatar size for TS profile upload (server typically enforces ~300-500 KB).
@@ -53,12 +53,7 @@ export class BotProfileManager {
    */
   private generation = 0;
 
-  constructor(
-    tsClient: TS3Client,
-    logger: Logger,
-    config: ProfileConfig,
-    defaultNickname: string,
-  ) {
+  constructor(tsClient: TS3Client, logger: Logger, config: ProfileConfig, defaultNickname: string) {
     this.tsClient = tsClient;
     this.logger = logger.child({ component: "profile" });
     this.config = { ...config };
@@ -198,7 +193,11 @@ export class BotProfileManager {
     const host = this.tsClient.getHost();
     this.logger.debug({ bytes: imageBuffer.length, host }, "Avatar: init file transfer");
     const info = await this.tsClient.fileTransferInitUpload(
-      0n, "/avatar", "", BigInt(imageBuffer.length), true,
+      0n,
+      "/avatar",
+      "",
+      BigInt(imageBuffer.length),
+      true,
     );
     this.logger.debug({ bytes: imageBuffer.length }, "Avatar: uploading file data");
     await this.tsClient.uploadFileData(host, info, Readable.from(imageBuffer));
@@ -234,7 +233,7 @@ export class BotProfileManager {
     if (this.customAvatar.length > AVATAR_MAX_BYTES) {
       this.logger.warn(
         { bytes: this.customAvatar.length, max: AVATAR_MAX_BYTES },
-        "Custom avatar too large for TS profile — skipping TS upload (web UI avatar will still display at full size)"
+        "Custom avatar too large for TS profile — skipping TS upload (web UI avatar will still display at full size)",
       );
       return;
     }
@@ -250,9 +249,7 @@ export class BotProfileManager {
   private async updateDescription(song: QueuedSong | null): Promise<void> {
     if (!this.config.descriptionEnabled || this.permDenied.description) return;
     try {
-      const text = song
-        ? `${song.name} - ${song.artist} [${song.album}]`
-        : "";
+      const text = song ? `${song.name} - ${song.artist} [${song.album}]` : "";
       const httpQuery = this.tsClient.getHttpQuery();
       if (httpQuery) {
         // TS6 HTTP API: send the raw (unescaped) text. clientUpdate
@@ -402,9 +399,7 @@ export class BotProfileManager {
       if (channelId === 0n) return; // unknown channel
 
       if (!song) {
-        await this.tsClient.sendCommandNoWait(
-          `channeledit cid=${channelId} channel_description=`,
-        );
+        await this.tsClient.sendCommandNoWait(`channeledit cid=${channelId} channel_description=`);
         return;
       }
 
@@ -466,10 +461,7 @@ export class BotProfileManager {
     ]);
   }
 
-  private handleFeatureError(
-    feature: keyof typeof this.permDenied,
-    err: unknown,
-  ): void {
+  private handleFeatureError(feature: keyof typeof this.permDenied, err: unknown): void {
     const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
     const status = err instanceof HttpQueryError ? err.status : undefined;
     const body = err instanceof HttpQueryError ? err.body : undefined;

@@ -1,8 +1,8 @@
 import { watch } from "node:fs";
-import type { RetrievalStore } from "./index.js";
 import type { DoctrineStore } from "../data/doctrine.js";
-import { parseFrontmatter, metadataMatchesRegistry } from "./frontmatter.js";
 import type { Logger } from "../logger.js";
+import { metadataMatchesRegistry, parseFrontmatter } from "./frontmatter.js";
+import type { RetrievalStore } from "./index.js";
 
 /** Max size for a single doctrine `.md` file (web upload + TS file-browser drop). */
 export const MAX_DOCTRINE_FILE_BYTES = 15 * 1024 * 1024;
@@ -51,7 +51,10 @@ export async function ingestDoctrineDoc(
 }
 
 /** Drop vector chunks + registry rows for docs removed from disk (git rm, rsync --delete). */
-export async function purgeOrphanedDoctrine(retrieval: RetrievalStore, doctrine: DoctrineStore): Promise<void> {
+export async function purgeOrphanedDoctrine(
+  retrieval: RetrievalStore,
+  doctrine: DoctrineStore,
+): Promise<void> {
   const onDisk = new Set(doctrine.files());
   for (const doc of doctrine.list()) {
     if (!onDisk.has(doc.source)) {
@@ -115,7 +118,10 @@ export async function reindexDoctrineSources(
  * skip byte-identical docs, and purge any previously-ingested doc whose file is
  * gone (so a `git rm` / deleted `.md` drops out of the knowledge base).
  */
-export async function reindexDoctrine(retrieval: RetrievalStore, doctrine: DoctrineStore): Promise<IngestedDoc[]> {
+export async function reindexDoctrine(
+  retrieval: RetrievalStore,
+  doctrine: DoctrineStore,
+): Promise<IngestedDoc[]> {
   await purgeOrphanedDoctrine(retrieval, doctrine);
   const out: IngestedDoc[] = [];
   for (const source of doctrine.files()) {
@@ -213,14 +219,25 @@ export function watchDoctrineDir(
     watcher = watch(doctrine.dir, { persistent: false, recursive: true }, (_event, filename) => {
       onFsEvent(filename);
     });
-    logger?.info({ dir: doctrine.dir }, "Watching doctrine dir (recursive) — git push / scp / manual edits auto-reindex");
+    logger?.info(
+      { dir: doctrine.dir },
+      "Watching doctrine dir (recursive) — git push / scp / manual edits auto-reindex",
+    );
   } catch (err) {
-    logger?.warn({ err, dir: doctrine.dir }, "Recursive watch unavailable — falling back to top-level watch");
+    logger?.warn(
+      { err, dir: doctrine.dir },
+      "Recursive watch unavailable — falling back to top-level watch",
+    );
     try {
-      watcher = watch(doctrine.dir, { persistent: false }, (_event, filename) => onFsEvent(filename));
+      watcher = watch(doctrine.dir, { persistent: false }, (_event, filename) =>
+        onFsEvent(filename),
+      );
       logger?.info({ dir: doctrine.dir }, "Watching doctrine dir (top-level only)");
     } catch (err2) {
-      logger?.warn({ err: err2, dir: doctrine.dir }, "Could not watch doctrine dir; auto-reindex disabled");
+      logger?.warn(
+        { err: err2, dir: doctrine.dir },
+        "Could not watch doctrine dir; auto-reindex disabled",
+      );
     }
   }
   return () => {

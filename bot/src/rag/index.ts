@@ -1,8 +1,8 @@
-import { EmbeddingsClient } from "./embeddings.js";
-import { QdrantClient, type QdrantPoint } from "./qdrant.js";
-import { chunkMarkdown } from "./chunk.js";
-import { isDoctrineExpired } from "./validity.js";
 import type { Logger } from "../logger.js";
+import { chunkMarkdown } from "./chunk.js";
+import type { EmbeddingsClient } from "./embeddings.js";
+import type { QdrantClient, QdrantPoint } from "./qdrant.js";
+import { isDoctrineExpired } from "./validity.js";
 
 export { EmbeddingsClient } from "./embeddings.js";
 export { QdrantClient } from "./qdrant.js";
@@ -61,7 +61,11 @@ export class RetrievalStore {
   }
 
   /** Chunk a document, embed, and upsert. Replaces any prior chunks of the same source. */
-  async ingest(source: string, text: string, metadata: Record<string, unknown> = {}): Promise<number> {
+  async ingest(
+    source: string,
+    text: string,
+    metadata: Record<string, unknown> = {},
+  ): Promise<number> {
     await this.init();
     const chunks = chunkMarkdown(source, text);
     if (chunks.length === 0) return 0;
@@ -78,7 +82,13 @@ export class RetrievalStore {
       vector: vectors[i],
       // Default classification "unclassified" so the rights-gating filter (Phase
       // 6) matches uniformly; any caller-supplied classification overrides it.
-      payload: { text: c.text, source: c.source, index: c.index, classification: "unclassified", ...metadata },
+      payload: {
+        text: c.text,
+        source: c.source,
+        index: c.index,
+        classification: "unclassified",
+        ...metadata,
+      },
     }));
     await this.qdrant.deleteBySource(this.collection, source);
     await this.qdrant.upsert(this.collection, points);
@@ -98,7 +108,11 @@ export class RetrievalStore {
    * `classification` is in that set are returned — so unauthorized members never
    * retrieve classified doctrine. Never throws into callers.
    */
-  async query(text: string, topK?: number, allowedClassifications?: string[]): Promise<RetrievedChunk[]> {
+  async query(
+    text: string,
+    topK?: number,
+    allowedClassifications?: string[],
+  ): Promise<RetrievedChunk[]> {
     if (!text?.trim()) return [];
     try {
       await this.init();
@@ -109,7 +123,12 @@ export class RetrievalStore {
           ? { must: [{ key: "classification", match: { any: allowedClassifications } }] }
           : undefined;
       const limit = topK ?? this.topK;
-      const hits = await this.qdrant.search(this.collection, vec, Math.max(limit * 4, limit), filter);
+      const hits = await this.qdrant.search(
+        this.collection,
+        vec,
+        Math.max(limit * 4, limit),
+        filter,
+      );
       return hits
         .filter((h) => !isDoctrineExpired(payloadField(h.payload, "valid_until") || undefined))
         .slice(0, limit)
@@ -129,7 +148,11 @@ export class RetrievalStore {
    * Admin/test path — same as {@link query} but surfaces embedding/vector DB
    * failures instead of swallowing them into an empty result.
    */
-  async queryStrict(text: string, topK?: number, allowedClassifications?: string[]): Promise<RetrievedChunk[]> {
+  async queryStrict(
+    text: string,
+    topK?: number,
+    allowedClassifications?: string[],
+  ): Promise<RetrievedChunk[]> {
     if (!text?.trim()) return [];
     await this.init();
     const [vec] = await this.embeddings.embed(text);
@@ -152,7 +175,11 @@ export class RetrievalStore {
   }
 }
 
-function payloadField(payload: Record<string, unknown> | undefined, key: string, fallback = ""): string {
+function payloadField(
+  payload: Record<string, unknown> | undefined,
+  key: string,
+  fallback = "",
+): string {
   const value = payload?.[key];
   return value == null ? fallback : String(value);
 }

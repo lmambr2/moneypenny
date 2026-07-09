@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 
 /**
  * English-only SOURCE guard (project policy). The codebase + UI must contain no
@@ -19,15 +19,18 @@ const NON_ENGLISH = /[Ѐ-ӿ֐-׿؀-ۿ฀-๿　-ヿ㐀-䶿一-鿿가-힯豈-﫿�
 
 /** Resolve `\uXXXX` / `\u{XXXX}` escapes so hidden CJK cannot evade the guard. */
 function decodeUnicodeEscapes(line: string): string {
-  return line.replace(/\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (_m, braced: string, four: string) => {
-    const code = Number.parseInt(braced ?? four, 16);
-    if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return _m;
-    try {
-      return String.fromCodePoint(code);
-    } catch {
-      return _m;
-    }
-  });
+  return line.replace(
+    /\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g,
+    (_m, braced: string, four: string) => {
+      const code = Number.parseInt(braced ?? four, 16);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return _m;
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return _m;
+      }
+    },
+  );
 }
 
 function lineHasNonEnglish(line: string): boolean {
@@ -64,7 +67,9 @@ describe("English-only source policy", () => {
         const lines = readFileSync(file, "utf-8").split("\n");
         lines.forEach((line, i) => {
           if (lineHasNonEnglish(line)) {
-            offenders.push(`${path.relative(process.cwd(), file)}:${i + 1}: ${line.trim().slice(0, 80)}`);
+            offenders.push(
+              `${path.relative(process.cwd(), file)}:${i + 1}: ${line.trim().slice(0, 80)}`,
+            );
           }
         });
       }

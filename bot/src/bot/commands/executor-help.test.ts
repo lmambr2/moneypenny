@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CommandExecutor } from "./executor.js";
 
 function executor(): CommandExecutor {
@@ -17,7 +17,12 @@ function executor(): CommandExecutor {
 
 describe("cmdHelp", () => {
   it("lists AI, memory, roast, and admin commands", async () => {
-    const text = await executor().execute({ name: "help", args: "", rawArgs: [], flags: new Set() });
+    const text = await executor().execute({
+      name: "help",
+      args: "",
+      rawArgs: [],
+      flags: new Set(),
+    });
 
     expect(text).toContain("!ask");
     expect(text).toContain("!analyst");

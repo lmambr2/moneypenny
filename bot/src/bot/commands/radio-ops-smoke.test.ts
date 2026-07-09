@@ -2,11 +2,12 @@
  * In-repo substitute for R-live ops smoke: drives real RadioCommands
  * !radio ops / status paths (not a re-implementation).
  */
-import { describe, it, expect, vi } from "vitest";
+
 import Database from "better-sqlite3";
-import { CommandExecutor } from "./executor.js";
+import { describe, expect, it, vi } from "vitest";
 import { defaultRadioConfig } from "../../radio/index.js";
 import { TagStore } from "../../radio/tag-store.js";
+import { CommandExecutor } from "./executor.js";
 
 async function run(ex: CommandExecutor, args: string[]) {
   return ex.execute(

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseCommand, isKnownCommand } from "./commands.js";
+import { describe, expect, it } from "vitest";
+import { isKnownCommand, parseCommand } from "./commands.js";
 
 describe("Command Parser", () => {
   it("parses simple command", () => {

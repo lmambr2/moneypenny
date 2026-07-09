@@ -75,16 +75,16 @@
 </template>
 
 <script setup lang="ts">
+import { Icon } from '@iconify/vue';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Icon } from '@iconify/vue';
-import { usePlayerStore } from './stores/player.js';
-import { useWebSocket } from './composables/useWebSocket.js';
+import CoverArt from './components/CoverArt.vue';
 import Navbar from './components/Navbar.vue';
 import Player from './components/Player.vue';
-import CoverArt from './components/CoverArt.vue';
-import Toast from './components/Toast.vue';
 import Queue from './components/Queue.vue';
+import Toast from './components/Toast.vue';
+import { useWebSocket } from './composables/useWebSocket.js';
+import { usePlayerStore } from './stores/player.js';
 
 const playerStore = usePlayerStore();
 const theme = computed(() => playerStore.theme);
@@ -111,9 +111,8 @@ let mobileRaf: number | null = null;
 
 function updateMobileProgress() {
   const duration = currentSong.value?.duration ?? 0;
-  mobileProgressPct.value = duration > 0
-    ? Math.min((playerStore.elapsed / duration) * 100, 100)
-    : 0;
+  mobileProgressPct.value =
+    duration > 0 ? Math.min((playerStore.elapsed / duration) * 100, 100) : 0;
   mobileRaf = requestAnimationFrame(updateMobileProgress);
 }
 
@@ -134,7 +133,8 @@ function toggleMobileQueue() {
 
 function cycleMobileMode() {
   const currentIndex = mobileModeOrder.indexOf(mobileMode.value);
-  const nextMode = mobileModeOrder[(currentIndex + 1) % mobileModeOrder.length] ?? mobileModeOrder[0];
+  const nextMode =
+    mobileModeOrder[(currentIndex + 1) % mobileModeOrder.length] ?? mobileModeOrder[0];
   mobileVolumeOpen.value = false;
   mobileQueueOpen.value = false;
   playerStore.setMode(nextMode);

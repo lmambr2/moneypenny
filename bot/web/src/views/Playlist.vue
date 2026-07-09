@@ -43,13 +43,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
 import { Icon } from '@iconify/vue';
+import { onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../api/axios.js';
-import { usePlayerStore } from '../stores/player.js';
 import CoverArt from '../components/CoverArt.vue';
 import SongCard from '../components/SongCard.vue';
+import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
 const route = useRoute();
@@ -84,12 +84,9 @@ onMounted(async () => {
   const id = route.params.id as string;
   const platform = (route.query.platform as Source) || 'local';
 
-  const detailUrl = kind === 'album'
-    ? `/api/music/album/${id}/detail`
-    : `/api/music/playlist/${id}/detail`;
-  const songsUrl = kind === 'album'
-    ? `/api/music/album/${id}`
-    : `/api/music/playlist/${id}`;
+  const detailUrl =
+    kind === 'album' ? `/api/music/album/${id}/detail` : `/api/music/playlist/${id}/detail`;
+  const songsUrl = kind === 'album' ? `/api/music/album/${id}` : `/api/music/playlist/${id}`;
 
   // allSettled, not Promise.all — if detail 404s but songs is fine
   // (e.g., a playlist whose detail endpoint flaked but the song list
@@ -109,9 +106,7 @@ onMounted(async () => {
   } else if (songList.length > 0) {
     // Fall back to a stub built from the route + first song. For albums,
     // every song's `album` field carries the real album name.
-    const fallbackName = kind === 'album'
-      ? (songList[0]?.album || 'Album')
-      : 'Playlist';
+    const fallbackName = kind === 'album' ? songList[0]?.album || 'Album' : 'Playlist';
     playlist.value = {
       id,
       name: fallbackName,
@@ -122,7 +117,11 @@ onMounted(async () => {
   } else {
     playlist.value = null;
     if (detailRes.status === 'rejected') {
-      console.error('Failed to load detail:', (detailRes.reason as any)?.response?.status, (detailRes.reason as any)?.message);
+      console.error(
+        'Failed to load detail:',
+        (detailRes.reason as any)?.response?.status,
+        (detailRes.reason as any)?.message,
+      );
     }
   }
   songs.value = songList;

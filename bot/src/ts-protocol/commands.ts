@@ -13,7 +13,7 @@ const ESCAPE_MAP: [string, string][] = [
 ];
 
 const UNESCAPE_MAP: [string, string][] = ESCAPE_MAP.map(
-  ([plain, escaped]) => [escaped, plain] as [string, string]
+  ([plain, escaped]) => [escaped, plain] as [string, string],
 ).reverse();
 
 export function escapeValue(value: string): string {
@@ -32,15 +32,12 @@ export function unescapeValue(value: string): string {
   return result;
 }
 
-export function encodeCommand(
-  command: string,
-  params: Record<string, string | number>
-): string {
+export function encodeCommand(command: string, params: Record<string, string | number>): string {
   const parts = [command];
   for (const [key, value] of Object.entries(params)) {
     parts.push(`${key}=${escapeValue(String(value))}`);
   }
-  return parts.join(" ") + "\n";
+  return `${parts.join(" ")}\n`;
 }
 
 export function decodeResponse(raw: string): Record<string, string>[] {

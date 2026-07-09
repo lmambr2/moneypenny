@@ -1,10 +1,5 @@
-import { describe, it, expect } from "vitest";
-import {
-  encodeCommand,
-  decodeResponse,
-  escapeValue,
-  unescapeValue,
-} from "./commands.js";
+import { describe, expect, it } from "vitest";
+import { decodeResponse, encodeCommand, escapeValue, unescapeValue } from "./commands.js";
 
 describe("TS3 Commands", () => {
   it("encodes a simple command", () => {
@@ -12,9 +7,7 @@ describe("TS3 Commands", () => {
       client_login_name: "bot",
       client_login_password: "pass",
     });
-    expect(encoded).toBe(
-      "login client_login_name=bot client_login_password=pass\n"
-    );
+    expect(encoded).toBe("login client_login_name=bot client_login_password=pass\n");
   });
 
   it("escapes special characters in values", () => {
@@ -31,8 +24,7 @@ describe("TS3 Commands", () => {
   });
 
   it("decodes a single response", () => {
-    const response =
-      "virtualserver_name=My\\sServer virtualserver_port=9987";
+    const response = "virtualserver_name=My\\sServer virtualserver_port=9987";
     const result = decodeResponse(response);
     expect(result).toHaveLength(1);
     expect(result[0].virtualserver_name).toBe("My Server");
@@ -40,8 +32,7 @@ describe("TS3 Commands", () => {
   });
 
   it("decodes a piped multi-entry response", () => {
-    const response =
-      "clid=1 client_nickname=User1|clid=2 client_nickname=User2";
+    const response = "clid=1 client_nickname=User1|clid=2 client_nickname=User2";
     const result = decodeResponse(response);
     expect(result).toHaveLength(2);
     expect(result[0].client_nickname).toBe("User1");

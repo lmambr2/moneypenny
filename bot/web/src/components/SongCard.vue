@@ -38,8 +38,8 @@
 
 <script setup lang="ts">
 import { Icon } from '@iconify/vue';
-import CoverArt from './CoverArt.vue';
 import { Song } from '../stores/player.js';
+import CoverArt from './CoverArt.vue';
 
 defineProps<{
   song: Song;

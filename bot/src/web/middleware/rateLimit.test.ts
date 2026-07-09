@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createRateLimit } from "./rateLimit.js";
 
 describe("createRateLimit", () => {
@@ -32,7 +32,7 @@ describe("createRateLimit", () => {
         capacity: 1,
         refillPerSec: 0.001,
         keyFn: (req) => req.get("x-user") ?? "anon",
-      })
+      }),
     );
     customApp.get("/", (_req, res) => res.json({ ok: true }));
     expect((await request(customApp).get("/").set("X-User", "alice")).status).toBe(200);

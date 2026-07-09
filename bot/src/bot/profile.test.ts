@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { BotProfileManager } from "./profile.js";
-import type { TS3Client } from "../ts-protocol/client.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueuedSong } from "../audio/queue.js";
+import type { TS3Client } from "../ts-protocol/client.js";
+import { BotProfileManager } from "./profile.js";
 
 function makeMockTs(): TS3Client & {
   uploadCalls: Buffer[];
@@ -11,7 +11,9 @@ function makeMockTs(): TS3Client & {
   let clears = 0;
   const ts: any = {
     uploadCalls: calls,
-    get clearCalls() { return clears; },
+    get clearCalls() {
+      return clears;
+    },
     getHost: () => "127.0.0.1",
     getHttpQuery: () => null,
     fileTransferInitUpload: vi.fn().mockResolvedValue({}),
@@ -28,9 +30,22 @@ function makeMockTs(): TS3Client & {
   return ts;
 }
 
-const noopLogger: any = { child: () => noopLogger, info: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
+const noopLogger: any = {
+  child: () => noopLogger,
+  info: () => {},
+  debug: () => {},
+  warn: () => {},
+  error: () => {},
+};
 
-const cfgOn = { avatarEnabled: true, descriptionEnabled: false, nicknameEnabled: false, awayStatusEnabled: false, channelDescEnabled: false, nowPlayingMsgEnabled: false };
+const cfgOn = {
+  avatarEnabled: true,
+  descriptionEnabled: false,
+  nicknameEnabled: false,
+  awayStatusEnabled: false,
+  channelDescEnabled: false,
+  nowPlayingMsgEnabled: false,
+};
 const cfgOff = { ...cfgOn, avatarEnabled: false };
 
 const fakeSong: QueuedSong = {
@@ -48,7 +63,9 @@ const flush = () => new Promise((r) => setImmediate(r));
 
 describe("BotProfileManager custom avatar precedence", () => {
   let ts: ReturnType<typeof makeMockTs>;
-  beforeEach(() => { ts = makeMockTs(); });
+  beforeEach(() => {
+    ts = makeMockTs();
+  });
 
   it("setCustomAvatar uploads immediately on a fresh idle bot (sync on)", async () => {
     const pm = new BotProfileManager(ts as any, noopLogger, cfgOn, "Bot");

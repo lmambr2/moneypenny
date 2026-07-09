@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction, RequestHandler } from "express";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
 
 interface Bucket {
   tokens: number;
@@ -58,7 +58,7 @@ export function createRateLimit(options: RateLimitOptions): RequestHandler {
       res.setHeader("Retry-After", String(waitSec));
 
       let userMessage: string;
-      if (typeof options.message === 'function') {
+      if (typeof options.message === "function") {
         userMessage = options.message(waitSec);
       } else if (options.message) {
         userMessage = options.message;

@@ -15,11 +15,7 @@ import type { Logger } from "../logger.js";
 /** Streaming-music loudness target; keep speech at parity with the queue. */
 const TARGET = "loudnorm=I=-14:TP=-1.5:LRA=11";
 
-export function normalizeLoudness(
-  audio: Buffer,
-  format: string,
-  logger?: Logger,
-): Promise<Buffer> {
+export function normalizeLoudness(audio: Buffer, format: string, logger?: Logger): Promise<Buffer> {
   return new Promise((resolve) => {
     const fmt = format.replace(/[^a-z0-9]/gi, "").toLowerCase() || "wav";
     const ff = spawn(
@@ -47,7 +43,9 @@ export function normalizeLoudness(
       if (code === 0 && buf.length > 0) resolve(buf);
       else bail(`ffmpeg exit ${code}, ${buf.length} bytes`);
     });
-    ff.stdin.on("error", () => { /* EPIPE when ffmpeg dies early — close handles it */ });
+    ff.stdin.on("error", () => {
+      /* EPIPE when ffmpeg dies early — close handles it */
+    });
     ff.stdin.end(audio);
   });
 }

@@ -1,6 +1,6 @@
-import type { TS3TextMessage, TS3Client } from "../../ts-protocol/client.js";
 import type { Logger } from "../../logger.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
+import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
 
 /**
  * Doctrine classification ladder (Phase 6 rank-gating). `unclassified` is always
@@ -86,7 +86,10 @@ export async function resolveWebSubject(
       };
     }
     if (matches.length > 1) {
-      logger.warn({ username: user.username, n: matches.length }, "Web subject: ambiguous nickname match — using bare web subject");
+      logger.warn(
+        { username: user.username, n: matches.length },
+        "Web subject: ambiguous nickname match — using bare web subject",
+      );
     }
   } catch (err) {
     logger.debug({ err, username: user.username }, "Web subject: TS channel lookup failed");

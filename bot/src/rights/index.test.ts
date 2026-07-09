@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { RightsEngine, defaultRightsConfig, isRightsConfig, type Subject } from "./index.js";
-import { PUBLIC_COMMANDS, ADMIN_COMMANDS } from "../bot/commands.js";
+import { describe, expect, it } from "vitest";
+import { ADMIN_COMMANDS, PUBLIC_COMMANDS } from "../bot/commands.js";
+import { defaultRightsConfig, isRightsConfig, RightsEngine, type Subject } from "./index.js";
 
 const member: Subject = { uid: "member-uid", serverGroups: ["100"] };
 const officer: Subject = { uid: "officer-uid", serverGroups: ["105"] };
@@ -96,7 +96,9 @@ describe("RightsEngine", () => {
   it("scopes rules to the voice or chat surface", () => {
     const e = new RightsEngine({
       defaultAllow: ["play"],
-      rules: [{ name: "voice-stop", match: { serverGroups: ["105"] }, allow: ["stop"], scope: "voice" }],
+      rules: [
+        { name: "voice-stop", match: { serverGroups: ["105"] }, allow: ["stop"], scope: "voice" },
+      ],
     });
     expect(e.can(officer, "stop", "voice")).toBe(true);
     expect(e.can(officer, "stop", "chat")).toBe(false);
@@ -170,7 +172,11 @@ describe("RightsEngine — adversarial (no escalation, fail-safe)", () => {
 
   it("isRightsConfig accepts well-formed config and rejects garbage", () => {
     expect(isRightsConfig(defaultRightsConfig([6]))).toBe(true);
-    expect(isRightsConfig({ rules: [{ match: { serverGroups: ["1"] }, allow: ["play"], scope: "voice" }] })).toBe(true);
+    expect(
+      isRightsConfig({
+        rules: [{ match: { serverGroups: ["1"] }, allow: ["play"], scope: "voice" }],
+      }),
+    ).toBe(true);
     expect(isRightsConfig(null)).toBe(false);
     expect(isRightsConfig({ rules: "bad" })).toBe(false);
     expect(isRightsConfig({ rules: [{ allow: [1] }] })).toBe(false);

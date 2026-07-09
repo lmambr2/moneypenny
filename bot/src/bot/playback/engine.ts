@@ -1,21 +1,24 @@
 import type { EventEmitter } from "node:events";
+import path from "node:path";
 import type { AudioPlayer } from "../../audio/player.js";
 import type { PlayQueue, QueuedSong } from "../../audio/queue.js";
-import type { BotDatabase } from "../../data/database.js";
 import type { BotConfig } from "../../data/config.js";
+import type { BotDatabase } from "../../data/database.js";
 import type { Logger } from "../../logger.js";
-import path from "node:path";
+import type { LocalProvider } from "../../music/local.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
-import { LocalProvider } from "../../music/local.js";
-import { DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
+import { searchFirstWithFallback } from "../../music/search-fallback.js";
+import { isSpotifyRef, isTidalUrl, resolveExternalTrackQuery } from "../../music/stream.js";
+import { assertSafePlaybackTarget } from "../../music/url-guard.js";
+import {
+  DEFAULT_DEMO_VIDEO_ID,
+  DEFAULT_DEMO_VIDEO_URL,
+  extractVideoId,
+} from "../../music/youtube.js";
+import type { YtLibrary } from "../../music/ytlibrary.js";
 import type { ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
-import { extractVideoId } from "../../music/youtube.js";
-import { isSpotifyRef, isTidalUrl, resolveExternalTrackQuery } from "../../music/stream.js";
-import { searchFirstWithFallback } from "../../music/search-fallback.js";
-import type { YtLibrary } from "../../music/ytlibrary.js";
 import { extractMediaId, pickProvider, providerForPlatform } from "./providers.js";
-import { assertSafePlaybackTarget } from "../../music/url-guard.js";
 
 export interface PlaybackEngineOptions {
   botId: string;
@@ -188,7 +191,10 @@ export class PlaybackEngine {
       : q;
     const resolved = await resolveExternalTrackQuery(url, this.opts.logger);
     if (!resolved) return cmd;
-    this.opts.logger.info({ url: q, resolved }, "Resolved Spotify/Tidal link to a search query (no bridge)");
+    this.opts.logger.info(
+      { url: q, resolved },
+      "Resolved Spotify/Tidal link to a search query (no bridge)",
+    );
     return { ...cmd, args: resolved, rawArgs: resolved.split(/\s+/) };
   }
 
@@ -197,13 +203,19 @@ export class PlaybackEngine {
       () => this.resolveAndPlayOnce(song),
       () => this.resolveAndPlayOnce(song),
     );
-    this.playResolveSerial = next.then(() => true, () => false);
+    this.playResolveSerial = next.then(
+      () => true,
+      () => false,
+    );
     return next;
   }
 
   private async resolveAndPlayOnce(song: QueuedSong): Promise<boolean> {
     if (!this.opts.isConnected()) {
-      this.opts.logger.warn({ songId: song.id, name: song.name }, "resolveAndPlay called on disconnected bot — skipping");
+      this.opts.logger.warn(
+        { songId: song.id, name: song.name },
+        "resolveAndPlay called on disconnected bot — skipping",
+      );
       return false;
     }
     this.voteSkipUsers.clear();
@@ -215,7 +227,10 @@ export class PlaybackEngine {
         const localPath = await this.resolveYoutubeLocalPath(videoId);
         if (localPath) {
           url = localPath;
-          this.opts.logger.info({ videoId, path: localPath }, "YouTube: playing local library copy");
+          this.opts.logger.info(
+            { videoId, path: localPath },
+            "YouTube: playing local library copy",
+          );
         } else {
           url = await provider.getSongUrl(videoId);
           if (url && this.opts.config.youtubeSaveEnabled) {

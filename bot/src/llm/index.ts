@@ -1,21 +1,20 @@
-import { LlmClient, type ChatMessage } from "./client.js";
-import { FallbackLlmClient } from "./fallback-client.js";
 import {
   buildWorkflowTask,
   WORKFLOW_SYSTEM_PROMPTS,
-  type WorkflowKind,
   type WorkflowRequest,
 } from "../docs/workflow.js";
-import { ANALYST_SYSTEM_PROMPT, DelegateClient } from "./delegate.js";
-import { probeLlmEndpoint } from "./probe.js";
-import { DEFAULT_SYSTEM_PROMPT, buildToolRequest, type MusicToolName } from "./tools.js";
-import { ConversationStore, type HistoryEntry } from "./history.js";
 import type { Logger } from "../logger.js";
+import { type ChatMessage, LlmClient } from "./client.js";
+import { ANALYST_SYSTEM_PROMPT, type DelegateClient } from "./delegate.js";
+import { FallbackLlmClient } from "./fallback-client.js";
+import { ConversationStore, type HistoryEntry } from "./history.js";
+import { probeLlmEndpoint } from "./probe.js";
+import { buildToolRequest, DEFAULT_SYSTEM_PROMPT, type MusicToolName } from "./tools.js";
 
 export { LlmClient } from "./client.js";
-export { FallbackLlmClient, createLlmClient } from "./fallback-client.js";
-export { MUSIC_CONTROL_TOOLS, DEFAULT_SYSTEM_PROMPT } from "./tools.js";
+export { createLlmClient, FallbackLlmClient } from "./fallback-client.js";
 export { ConversationStore } from "./history.js";
+export { DEFAULT_SYSTEM_PROMPT, MUSIC_CONTROL_TOOLS } from "./tools.js";
 
 /** Per-ask retrieval context (Phase 6/7): who's asking + what they may see. */
 export interface AskContext {
@@ -114,12 +113,15 @@ export class LlmModule {
           const block = chunks.map((c) => `[${c.source}] ${c.text}`).join("\n\n");
           messages.push({
             role: "system",
-            content: "Relevant knowledge-base context:\n\n" + block,
+            content: `Relevant knowledge-base context:\n\n${block}`,
           });
           sources = [...new Set(chunks.map((c) => c.source).filter(Boolean))];
         }
       } catch (err) {
-        this.logger?.warn({ err }, "RAG retrieval failed in generateWorkflowDoc() — continuing without it");
+        this.logger?.warn(
+          { err },
+          "RAG retrieval failed in generateWorkflowDoc() — continuing without it",
+        );
       }
     }
 
@@ -151,7 +153,7 @@ export class LlmModule {
           const block = chunks.map((c) => `[${c.source}] ${c.text}`).join("\n\n");
           messages.push({
             role: "system",
-            content: "Relevant knowledge-base context:\n\n" + block,
+            content: `Relevant knowledge-base context:\n\n${block}`,
           });
           sources = [...new Set(chunks.map((c) => c.source).filter(Boolean))];
         }
@@ -161,7 +163,7 @@ export class LlmModule {
     }
 
     const userParts = [task.trim()];
-    if (extraContext?.trim()) userParts.push("Additional context:\n" + extraContext.trim());
+    if (extraContext?.trim()) userParts.push(`Additional context:\n${extraContext.trim()}`);
     messages.push({ role: "user", content: userParts.join("\n\n") });
 
     try {
@@ -204,7 +206,12 @@ export class LlmModule {
     messages.push(...this.historyMessages(conversationId), { role: "user", content: question });
 
     try {
-      const resp = await this.client.chat({ messages, tools: undefined, tool_choice: "none", temperature: this.temperature });
+      const resp = await this.client.chat({
+        messages,
+        tools: undefined,
+        tool_choice: "none",
+        temperature: this.temperature,
+      });
       const content = resp.choices?.[0]?.message?.content?.trim() || "(no response)";
       this.record(conversationId, question, content);
       // Deterministic citation footer (Phase 6) — reliable, not model-dependent.
@@ -368,7 +375,8 @@ export class LlmModule {
 function summarizeToolCalls(calls: Array<{ name: string; arguments: any }>): string {
   return calls
     .map((c) => {
-      const args = c.arguments && Object.keys(c.arguments).length > 0 ? JSON.stringify(c.arguments) : "";
+      const args =
+        c.arguments && Object.keys(c.arguments).length > 0 ? JSON.stringify(c.arguments) : "";
       return `[called ${c.name}${args ? `(${args})` : "()"}]`;
     })
     .join(" ");

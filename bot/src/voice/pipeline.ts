@@ -1,6 +1,5 @@
 import type { ControlRouter, RouterContext } from "../control/router.js";
 import type { Logger } from "../logger.js";
-import type { SttProvider, TtsProvider, VoiceOutput, Utterance } from "./types.js";
 import { isMusicSearchRouteText, voiceRouteNeedsPendingAck } from "./music-command.js";
 import {
   isPlaybackControlReply,
@@ -9,6 +8,7 @@ import {
   voicePlayPendingAck,
   voiceSpokenAck,
 } from "./playback-reply.js";
+import type { SttProvider, TtsProvider, Utterance, VoiceOutput } from "./types.js";
 import {
   extractWatchwordCommand,
   isActionableVoiceCommand,
@@ -82,7 +82,10 @@ export class VoicePipeline {
     }
     if (!transcript) {
       this.logger?.info(
-        { speakerClientId: utterance.speakerClientId, durationMs: Math.round(utterance.durationMs) },
+        {
+          speakerClientId: utterance.speakerClientId,
+          durationMs: Math.round(utterance.durationMs),
+        },
         "Voice: STT returned empty transcript",
       );
       return { reply: null, watchwordOnly: false };
@@ -110,7 +113,7 @@ export class VoicePipeline {
     if (!trimmed) return { reply: null, ttsBytes: 0, watchwordOnly: false };
 
     let routeText = trimmed;
-    let watchwordOnly = false;
+    const watchwordOnly = false;
     const watchword = this.opts.watchword ?? "moneypenny";
     const armed = this.opts.isArmed?.(utterance.speakerClientId) ?? false;
     const textWakeFallback = opts.textWakeFallback ?? this.opts.textWakeFallback ?? false;
@@ -149,7 +152,10 @@ export class VoicePipeline {
           this.logger?.info({ transcript: trimmed }, "Voice: armed — waiting for command");
           return { reply: null, ttsBytes: 0, watchwordOnly: true };
         }
-        this.logger?.info({ transcript: trimmed, command: routeText }, "Voice: armed follow-up command");
+        this.logger?.info(
+          { transcript: trimmed, command: routeText },
+          "Voice: armed follow-up command",
+        );
       } else {
         this.logger?.info({ transcript: trimmed }, "Voice: ignored — not in command window");
         return { reply: null, ttsBytes: 0, watchwordOnly: false };
@@ -161,7 +167,10 @@ export class VoicePipeline {
     }
 
     if (isMusicSearchRouteText(routeText, aliases) && this.opts.isPlayInFlight?.(clientId)) {
-      this.logger?.info({ clientId, command: routeText }, "Voice: play resolve in-flight — ignoring duplicate");
+      this.logger?.info(
+        { clientId, command: routeText },
+        "Voice: play resolve in-flight — ignoring duplicate",
+      );
       const ttsBytes = await this.speakInstantPhrase("Still working on that.", opts.speak);
       return { reply: null, ttsBytes, watchwordOnly: false };
     }
@@ -188,7 +197,10 @@ export class VoicePipeline {
         this.opts.arm?.(clientId);
       }
     } catch (err) {
-      this.logger?.warn({ err, transcript: trimmed, command: routeText }, "Voice: routing/execution failed");
+      this.logger?.warn(
+        { err, transcript: trimmed, command: routeText },
+        "Voice: routing/execution failed",
+      );
     } finally {
       if (markedInFlight && !isPlaybackStartReply(reply)) {
         this.opts.clearPlayInFlight?.(clientId);

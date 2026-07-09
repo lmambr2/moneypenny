@@ -1,9 +1,9 @@
 import { Router } from "express";
-import type { Logger } from "../../logger.js";
+import type { AuditStore } from "../../data/audit.js";
+import type { SessionStore } from "../../data/sessions.js";
 import type { UserStore } from "../../data/users.js";
 import { UsernameTakenError } from "../../data/users.js";
-import type { SessionStore } from "../../data/sessions.js";
-import type { AuditStore } from "../../data/audit.js";
+import type { Logger } from "../../logger.js";
 import { extractSessionToken } from "../auth/validateSession.js";
 
 function isValidUsername(v: unknown): v is string {
@@ -18,7 +18,7 @@ export function createUsersRouter(
   users: UserStore,
   sessions: SessionStore,
   audit: AuditStore,
-  logger: Logger
+  logger: Logger,
 ): Router {
   const router = Router();
 
@@ -37,8 +37,10 @@ export function createUsersRouter(
       const u = await users.createUser(username, password, role);
       try {
         audit.record({
-          actorId: req.user!.id, actorUsername: req.user!.username,
-          targetUserId: u.id, targetUsername: u.username,
+          actorId: req.user!.id,
+          actorUsername: req.user!.username,
+          targetUserId: u.id,
+          targetUsername: u.username,
           action: "user.created",
         });
       } catch (auditErr) {
@@ -81,8 +83,10 @@ export function createUsersRouter(
     sessions.deleteAllForUser(targetId);
     try {
       audit.record({
-        actorId: req.user!.id, actorUsername: req.user!.username,
-        targetUserId: target.id, targetUsername: target.username,
+        actorId: req.user!.id,
+        actorUsername: req.user!.username,
+        targetUserId: target.id,
+        targetUsername: target.username,
         action: "user.deleted",
       });
     } catch (auditErr) {
@@ -106,14 +110,17 @@ export function createUsersRouter(
     }
     await users.changePassword(targetId, newPassword);
     // Invalidate all sessions for the target user (except current actor's if it's the same user)
-    const exceptToken = targetId === req.user!.id
-      ? (extractSessionToken(req.headers.cookie) ?? undefined)
-      : undefined;
+    const exceptToken =
+      targetId === req.user!.id
+        ? (extractSessionToken(req.headers.cookie) ?? undefined)
+        : undefined;
     sessions.deleteAllForUser(targetId, exceptToken);
     try {
       audit.record({
-        actorId: req.user!.id, actorUsername: req.user!.username,
-        targetUserId: target.id, targetUsername: target.username,
+        actorId: req.user!.id,
+        actorUsername: req.user!.username,
+        targetUserId: target.id,
+        targetUsername: target.username,
         action: "user.password_reset",
       });
     } catch (auditErr) {
@@ -150,8 +157,10 @@ export function createUsersRouter(
     if (targetBefore.role !== newRole) {
       try {
         audit.record({
-          actorId: req.user!.id, actorUsername: req.user!.username,
-          targetUserId: targetBefore.id, targetUsername: targetBefore.username,
+          actorId: req.user!.id,
+          actorUsername: req.user!.username,
+          targetUserId: targetBefore.id,
+          targetUsername: targetBefore.username,
           action: "user.role_changed",
         });
       } catch (auditErr) {

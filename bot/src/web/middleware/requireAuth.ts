@@ -1,10 +1,10 @@
-import type { Request, Response, NextFunction, RequestHandler } from "express";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { SessionStore } from "../../data/sessions.js";
 import { SESSION_TTL_MS } from "../../data/sessions.js";
 import {
-  validateSessionFromHeaders,
   extractSessionToken,
   SESSION_COOKIE_NAME,
+  validateSessionFromHeaders,
 } from "../auth/validateSession.js";
 
 declare module "express-serve-static-core" {

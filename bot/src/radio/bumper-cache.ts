@@ -8,9 +8,10 @@
  * cached file can be replayed to anyone, so caching a higher-clearance render
  * would be a classified-leak vector. `put()` refuses anything else.
  */
-import type Database from "better-sqlite3";
-import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type Database from "better-sqlite3";
 import type { Logger } from "../logger.js";
 
 export interface BumperCacheEntry {
@@ -79,7 +80,9 @@ export class BumperCache {
       return null;
     }
     const now = this.nowFn();
-    this.db.prepare(`UPDATE bumper_cache SET hits = hits + 1, last_hit_at = ? WHERE hash = ?`).run(now, hash);
+    this.db
+      .prepare(`UPDATE bumper_cache SET hits = hits + 1, last_hit_at = ? WHERE hash = ?`)
+      .run(now, hash);
     return { path: row.path, text: row.text, source: row.source };
   }
 
@@ -96,7 +99,10 @@ export class BumperCache {
   ): string | null {
     const floor = meta.builtFloor ?? "unclassified";
     if (floor !== "unclassified") {
-      this.logger?.debug({ source: meta.source, floor }, "bumper cache: refusing non-unclassified entry");
+      this.logger?.debug(
+        { source: meta.source, floor },
+        "bumper cache: refusing non-unclassified entry",
+      );
       return null;
     }
     const ext = format.replace(/[^a-z0-9]/gi, "").toLowerCase() || "wav";
@@ -128,9 +134,7 @@ export class BumperCache {
     for (const e of expired) this.remove(e.hash, e.path);
 
     const overflow = this.db
-      .prepare(
-        `SELECT hash, path FROM bumper_cache ORDER BY last_hit_at DESC LIMIT -1 OFFSET ?`,
-      )
+      .prepare(`SELECT hash, path FROM bumper_cache ORDER BY last_hit_at DESC LIMIT -1 OFFSET ?`)
       .all(this.maxEntries) as { hash: string; path: string }[];
     for (const e of overflow) this.remove(e.hash, e.path);
   }

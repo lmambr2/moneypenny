@@ -1,19 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import Database from "better-sqlite3";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RoastQuote } from "../../data/roast.js";
 import { RoastStore } from "../../data/roast.js";
 import {
-  RoastService,
-  parseRoastGrade,
-  selectReelQuotes,
   formatRoastReel,
+  parseRoastGrade,
+  RoastService,
   roastCooldownRemainingMs,
   sanitizeRoastCapture,
+  selectReelQuotes,
 } from "./roast.js";
-import type { RoastQuote } from "../../data/roast.js";
 
 describe("parseRoastGrade", () => {
   it("parses JSON score and reason", () => {
-    expect(parseRoastGrade('{"score": 8, "reason": "yikes"}')).toEqual({ score: 8, reason: "yikes" });
+    expect(parseRoastGrade('{"score": 8, "reason": "yikes"}')).toEqual({
+      score: 8,
+      reason: "yikes",
+    });
   });
 
   it("returns null for garbage", () => {
@@ -62,7 +65,12 @@ describe("RoastService", () => {
     store.setLastRoastAt(ts);
     const restarted = new RoastService({
       store,
-      config: { roastEnabled: true, roastCooldownMinutes: 60, roastMinPresent: 2, roastMinScore: 4 } as any,
+      config: {
+        roastEnabled: true,
+        roastCooldownMinutes: 60,
+        roastMinPresent: 2,
+        roastMinScore: 4,
+      } as any,
       llm: () => null,
       tsClient: { sendTextMessage, getClientId: () => 42 } as any,
       logger: console as any,

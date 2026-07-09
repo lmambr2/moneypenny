@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  IcecastTee,
   buildIcecastFfmpegArgs,
   defaultIcecastTeeConfig,
+  IcecastTee,
   isIcecastTeeReady,
   resolveIcecastTee,
 } from "./icecast-tee.js";
@@ -21,7 +21,9 @@ describe("resolveIcecastTee / isIcecastTeeReady", () => {
       ),
     ).toBe(true);
     expect(
-      isIcecastTeeReady(resolveIcecastTee({ enabled: true, mountUrl: "http://icecast.local:8000/live" })),
+      isIcecastTeeReady(
+        resolveIcecastTee({ enabled: true, mountUrl: "http://icecast.local:8000/live" }),
+      ),
     ).toBe(true);
     expect(isIcecastTeeReady(resolveIcecastTee({ enabled: true, mountUrl: "" }))).toBe(false);
     expect(
@@ -87,9 +89,7 @@ describe("IcecastTee lifecycle", () => {
     expect(spawn).toHaveBeenCalledOnce();
     const call = spawn.mock.calls[0] as unknown as [string, string[]];
     expect(call[0]).toBe("ffmpeg");
-    expect(call[1]).toEqual(
-      expect.arrayContaining(["-f", "s16le", "-i", "pipe:0", "libmp3lame"]),
-    );
+    expect(call[1]).toEqual(expect.arrayContaining(["-f", "s16le", "-i", "pipe:0", "libmp3lame"]));
     expect(tee.isRunning()).toBe(true);
 
     const pcm = Buffer.alloc(480);

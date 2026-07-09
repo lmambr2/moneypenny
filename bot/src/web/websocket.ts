@@ -1,22 +1,25 @@
-import { WebSocketServer, WebSocket } from "ws";
-import type { BotManager } from "../bot/manager.js";
+import { WebSocket, type WebSocketServer } from "ws";
 import type { BotInstance } from "../bot/instance.js";
+import type { BotManager } from "../bot/manager.js";
 import type { Logger } from "../logger.js";
 
 export function setupWebSocket(
   wss: WebSocketServer,
   botManager: BotManager,
-  logger: Logger
+  logger: Logger,
 ): () => void {
   const clients = new Set<WebSocket>();
 
   /** Track which bot instances have listeners attached (keyed by id, storing ref) */
-  const attachedBots = new Map<string, {
-    bot: BotInstance;
-    stateChange: () => void;
-    connected: () => void;
-    disconnected: () => void;
-  }>();
+  const attachedBots = new Map<
+    string,
+    {
+      bot: BotInstance;
+      stateChange: () => void;
+      connected: () => void;
+      disconnected: () => void;
+    }
+  >();
 
   wss.on("connection", (ws) => {
     clients.add(ws);

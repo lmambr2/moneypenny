@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue';
+import { nextTick, onMounted, ref, watch } from 'vue';
 import api from '../api/axios.js';
 import { usePlayerStore } from '../stores/player.js';
 import AvatarUpload from './AvatarUpload.vue';
@@ -23,7 +23,8 @@ async function loadCurrent() {
   } catch (err: any) {
     if (err?.response?.status !== 404) {
       const playerStore = usePlayerStore();
-      const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to load avatar';
+      const msg =
+        err?.response?.data?.message || err?.response?.data?.error || 'Failed to load avatar';
       playerStore.notify(msg, 'error');
     }
     avatarDataUrl.value = null;
@@ -48,14 +49,15 @@ watch(avatarDataUrl, async (newVal, oldVal) => {
   if (initializing) return;
   if (newVal === oldVal) return;
   try {
-    if (newVal && newVal.startsWith('data:')) {
+    if (newVal?.startsWith('data:')) {
       await api.put(`/api/bot/${props.botId}/avatar`, { dataUrl: newVal });
     } else if (newVal === null) {
       await api.delete(`/api/bot/${props.botId}/avatar`);
     }
   } catch (err: any) {
     const playerStore = usePlayerStore();
-    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to update avatar';
+    const msg =
+      err?.response?.data?.message || err?.response?.data?.error || 'Failed to update avatar';
     playerStore.notify(msg, 'error');
   }
 });

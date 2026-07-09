@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { scanDropChannel } from "./file-drop.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileDropDeps } from "./file-drop.js";
+import { scanDropChannel } from "./file-drop.js";
 
 describe("scanDropChannel disk mount", () => {
   let tmp: string;

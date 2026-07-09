@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
 /**
  * Regression guard for the referrer-policy / CSRF outage (every mutating WebUI
@@ -24,12 +24,12 @@ import { fileURLToPath } from "node:url";
 describe("frontend referrer policy (CSRF / Origin-header regression)", () => {
   const indexHtmlPath = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    "../../web/index.html"
+    "../../web/index.html",
   );
   const html = fs.readFileSync(indexHtmlPath, "utf-8");
 
   const referrerMeta = html.match(
-    /<meta\s+name=["']referrer["']\s+content=["']([^"']+)["']\s*\/?>/i
+    /<meta\s+name=["']referrer["']\s+content=["']([^"']+)["']\s*\/?>/i,
   );
 
   it("declares a referrer policy meta tag", () => {

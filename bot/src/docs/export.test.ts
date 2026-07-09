@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { execFile, type ChildProcess } from "node:child_process";
+import { type ChildProcess, execFile } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
@@ -72,11 +72,11 @@ describe("docs/export", () => {
       }
       if (call === 2 && cmd === "pandoc" && (args as string[]).includes("-o")) {
         const outPath = (args as string[])[(args as string[]).indexOf("-o") + 1];
-        void import("node:fs/promises").then(({ writeFile }) =>
-          writeFile(outPath, Buffer.from("PK-docx")),
-        ).then(() => {
-          (cb as (err: null) => void)(null);
-        });
+        void import("node:fs/promises")
+          .then(({ writeFile }) => writeFile(outPath, Buffer.from("PK-docx")))
+          .then(() => {
+            (cb as (err: null) => void)(null);
+          });
         return mockExec(() => {});
       }
       (cb as (err: Error) => void)(new Error(`unexpected execFile call ${call}`));

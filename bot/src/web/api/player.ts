@@ -1,15 +1,15 @@
-import { Router, type Request, type Response } from "express";
+import { type Request, type Response, Router } from "express";
+import { type ParsedCommand, parseCommand } from "../../bot/commands.js";
 import type { BotManager } from "../../bot/manager.js";
 import type { BotDatabase } from "../../data/database.js";
-import type { MusicProvider, Song } from "../../music/provider.js";
 import type { Logger } from "../../logger.js";
-import { parseCommand, type ParsedCommand } from "../../bot/commands.js";
-import { requireAdmin } from "../middleware/requireAdmin.js";
+import type { MusicProvider, Song } from "../../music/provider.js";
 import { createRateLimit } from "../middleware/rateLimit.js";
+import { requireAdmin } from "../middleware/requireAdmin.js";
 import { requireBot } from "./bot-request.js";
 import "./bot-request.js";
-import type { BotInstance } from "../../bot/instance.js";
 import type { QueuedSong } from "../../audio/queue.js";
+import type { BotInstance } from "../../bot/instance.js";
 
 const VALID_PLATFORMS = new Set(["local", "youtube", "stream"]);
 
@@ -22,7 +22,9 @@ function requirePlatform(platform: unknown, res: Response): "local" | "youtube" 
   if (typeof platform === "string" && VALID_PLATFORMS.has(platform)) {
     return platform as "local" | "youtube" | "stream";
   }
-  res.status(400).json({ error: "platform must be local, youtube, or stream", code: "VALIDATION_ERROR" });
+  res
+    .status(400)
+    .json({ error: "platform must be local, youtube, or stream", code: "VALIDATION_ERROR" });
   return null;
 }
 
@@ -71,7 +73,8 @@ export function createPlayerRouter(
   const playerLimit = createRateLimit({
     capacity: 60,
     refillPerSec: 5,
-    message: (waitSec) => `Player actions rate limited. Please wait ${waitSec}s before issuing more commands.`,
+    message: (waitSec) =>
+      `Player actions rate limited. Please wait ${waitSec}s before issuing more commands.`,
   });
   router.use(playerLimit);
 
@@ -87,8 +90,13 @@ export function createPlayerRouter(
     res.status(403).json({ error: message, code: "PERMISSION_DENIED" });
   };
 
-  const denyUnless = async (bot: BotInstance, req: Request, res: Response, command: string): Promise<boolean> => {
-    if (!req.user || await bot.canWebUserRunCommand(req.user, command)) return true;
+  const denyUnless = async (
+    bot: BotInstance,
+    req: Request,
+    res: Response,
+    command: string,
+  ): Promise<boolean> => {
+    if (!req.user || (await bot.canWebUserRunCommand(req.user, command))) return true;
     permissionDenied(res, `You don't have permission to use '${command}'.`);
     return false;
   };
@@ -171,20 +179,13 @@ export function createPlayerRouter(
   router.post("/:botId/volume", async (req, res) => {
     try {
       const bot = requireBot(req);
-      if (!await denyUnless(bot, req, res, "vol")) return;
+      if (!(await denyUnless(bot, req, res, "vol"))) return;
       const { volume } = req.body;
       // Reject bad input with a proper 4xx instead of letting cmdVol
       // return a "Usage:" string inside a 200 body — API clients can't
       // detect that failure mode, and the UI would silently swallow it.
-      if (
-        typeof volume !== "number" ||
-        !Number.isFinite(volume) ||
-        volume < 0 ||
-        volume > 100
-      ) {
-        res
-          .status(400)
-          .json({ error: "volume must be a number between 0 and 100" });
+      if (typeof volume !== "number" || !Number.isFinite(volume) || volume < 0 || volume > 100) {
+        res.status(400).json({ error: "volume must be a number between 0 and 100" });
         return;
       }
       const cmd = parseCommand(`!vol ${Math.round(volume)}`, "!")!;
@@ -202,9 +203,7 @@ export function createPlayerRouter(
       const bot = requireBot(req);
       const { mode } = req.body;
       if (typeof mode !== "string" || !VALID_MODES.has(mode)) {
-        res
-          .status(400)
-          .json({ error: "mode must be one of: seq, loop, random, rloop" });
+        res.status(400).json({ error: "mode must be one of: seq, loop, random, rloop" });
         return;
       }
       const cmd = parseCommand(`!mode ${mode}`, "!")!;
@@ -229,9 +228,7 @@ export function createPlayerRouter(
       // typeof NaN === "number" and NaN < 0 is false, so a plain range
       // check lets NaN/Infinity through and later corrupts seekOffset.
       if (typeof position !== "number" || !Number.isFinite(position) || position < 0) {
-        res
-          .status(400)
-          .json({ error: "position must be a finite non-negative number" });
+        res.status(400).json({ error: "position must be a finite non-negative number" });
         return;
       }
       bot.getPlayer().seek(position);
@@ -262,7 +259,7 @@ export function createPlayerRouter(
   router.post("/:botId/play-at", requireAdmin, async (req, res) => {
     try {
       const bot = requireBot(req);
-      if (!await denyUnless(bot, req, res, "play")) return;
+      if (!(await denyUnless(bot, req, res, "play"))) return;
       const { index } = req.body;
       if (typeof index !== "number" || index < 0) {
         res.status(400).json({ error: "index is required", code: "VALIDATION_ERROR" });
@@ -303,10 +300,7 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       const { playlistId, platform } = req.body;
-      const cmd = parseCommand(
-        `!playlist ${platformFlag(platform)} ${playlistId}`.trim(),
-        "!"
-      )!;
+      const cmd = parseCommand(`!playlist ${platformFlag(platform)} ${playlistId}`.trim(), "!")!;
       await runRoutedCommand(bot, req, res, cmd);
     } catch (err) {
       logger.error({ err }, "Player API error");
@@ -320,8 +314,8 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       // Replacing the live queue is disruptive — require clear + playlist rights (F7).
-      if (!await denyUnless(bot, req, res, "playlist")) return;
-      if (!await denyUnless(bot, req, res, "clear")) return;
+      if (!(await denyUnless(bot, req, res, "playlist"))) return;
+      if (!(await denyUnless(bot, req, res, "clear"))) return;
       const { playlistId, platform } = req.body;
       // Use the bot's own provider lookup — it already knows about youtube,
       // which the router's constructor params did not.
@@ -353,8 +347,8 @@ export function createPlayerRouter(
   router.post("/:botId/play-album", async (req, res) => {
     try {
       const bot = requireBot(req);
-      if (!await denyUnless(bot, req, res, "album")) return;
-      if (!await denyUnless(bot, req, res, "clear")) return;
+      if (!(await denyUnless(bot, req, res, "album"))) return;
+      if (!(await denyUnless(bot, req, res, "clear"))) return;
       const { albumId, platform } = req.body;
       const provider = bot.getProviderFor(parsePlatform(platform));
 
@@ -384,7 +378,7 @@ export function createPlayerRouter(
   router.post("/:botId/play-song", async (req, res) => {
     try {
       const bot = requireBot(req);
-      if (!await denyUnless(bot, req, res, "play")) return;
+      if (!(await denyUnless(bot, req, res, "play"))) return;
       // clear-queue semantics when something is already playing
       const player = bot.getPlayer() as { getState?: () => string };
       const queue = bot.getQueueManager() as { size?: () => number };
@@ -393,8 +387,11 @@ export function createPlayerRouter(
         (typeof queue.size === "function" && queue.size() > 0);
       if (busy && !(await denyUnless(bot, req, res, "clear"))) return;
       const { song } = req.body;
-      if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
+      if (!song?.id || !song.platform) {
+        res.status(400).json({
+          error: "song object with id and platform is required",
+          code: "VALIDATION_ERROR",
+        });
         return;
       }
       if (!requirePlatform(song.platform, res)) return;
@@ -406,11 +403,17 @@ export function createPlayerRouter(
       bot.getPlayer().resetFailures();
       const ok = await bot.resolveAndPlay(q.current()!);
       if (!ok) {
-        res.json({ ok: false, message: `Cannot play "${song.name || song.id}" (source or region restriction)` });
+        res.json({
+          ok: false,
+          message: `Cannot play "${song.name || song.id}" (source or region restriction)`,
+        });
         return;
       }
 
-      res.json({ ok: true, message: `Now playing: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
+      res.json({
+        ok: true,
+        message: `Now playing: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`,
+      });
     } catch (err) {
       logger.error({ err }, "Player API error");
       res.status(500).json({ error: "internal error" });
@@ -422,10 +425,13 @@ export function createPlayerRouter(
   router.post("/:botId/play-next-song", async (req, res) => {
     try {
       const bot = requireBot(req);
-      if (!await denyUnless(bot, req, res, "play")) return;
+      if (!(await denyUnless(bot, req, res, "play"))) return;
       const { song } = req.body;
-      if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
+      if (!song?.id || !song.platform) {
+        res.status(400).json({
+          error: "song object with id and platform is required",
+          code: "VALIDATION_ERROR",
+        });
         return;
       }
       if (!requirePlatform(song.platform, res)) return;
@@ -436,8 +442,7 @@ export function createPlayerRouter(
       // at currentIndex+1. Using size-1 after addNext was wrong when the
       // queue had stale currentIndex>=0 while the player was idle (e.g.,
       // after natural track end without queue.clear()).
-      const insertedAt =
-        queue.getCurrentIndex() < 0 ? queue.size() : queue.getCurrentIndex() + 1;
+      const insertedAt = queue.getCurrentIndex() < 0 ? queue.size() : queue.getCurrentIndex() + 1;
       queue.addNext(song);
 
       if (wasIdle) {
@@ -446,14 +451,23 @@ export function createPlayerRouter(
         bot.getPlayer().resetFailures();
         const ok = await bot.resolveAndPlay(queue.current()!);
         if (!ok) {
-          res.json({ ok: false, message: `Cannot play "${song.name || song.id}" (source or region restriction)` });
+          res.json({
+            ok: false,
+            message: `Cannot play "${song.name || song.id}" (source or region restriction)`,
+          });
           return;
         }
-        res.json({ ok: true, message: `Now playing: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
+        res.json({
+          ok: true,
+          message: `Now playing: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`,
+        });
         return;
       }
 
-      res.json({ ok: true, message: `Added next: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
+      res.json({
+        ok: true,
+        message: `Added next: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`,
+      });
     } catch (err) {
       logger.error({ err }, "Player API error");
       res.status(500).json({ error: "internal error" });
@@ -463,10 +477,13 @@ export function createPlayerRouter(
   router.post("/:botId/add-song", async (req, res) => {
     try {
       const bot = requireBot(req);
-      if (!await denyUnless(bot, req, res, "add")) return;
+      if (!(await denyUnless(bot, req, res, "add"))) return;
       const { song } = req.body;
-      if (!song || !song.id || !song.platform) {
-        res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
+      if (!song?.id || !song.platform) {
+        res.status(400).json({
+          error: "song object with id and platform is required",
+          code: "VALIDATION_ERROR",
+        });
         return;
       }
       if (!requirePlatform(song.platform, res)) return;
@@ -479,11 +496,15 @@ export function createPlayerRouter(
         queue.playAt(queue.size() - 1);
         bot.getPlayer().resetFailures();
         await bot.resolveAndPlay(queue.current()!);
-        res.json({ message: `Now playing: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'}` });
+        res.json({
+          message: `Now playing: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`,
+        });
         return;
       }
 
-      res.json({ message: `Added to queue: ${song.name || 'Unknown'} - ${song.artist || 'Unknown'} (position ${queue.size()})` });
+      res.json({
+        message: `Added to queue: ${song.name || "Unknown"} - ${song.artist || "Unknown"} (position ${queue.size()})`,
+      });
     } catch (err) {
       logger.error({ err }, "Player API error");
       res.status(500).json({ error: "internal error" });
@@ -494,7 +515,7 @@ export function createPlayerRouter(
   router.post("/:botId/add-by-id", async (req, res) => {
     try {
       const bot = requireBot(req);
-      if (!await denyUnless(bot, req, res, "add")) return;
+      if (!(await denyUnless(bot, req, res, "add"))) return;
       const { songId, platform } = req.body;
       const provider = bot.getProviderFor(parsePlatform(platform));
 

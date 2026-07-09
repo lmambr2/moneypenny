@@ -1,7 +1,12 @@
-import type { TS3Client } from "../../ts-protocol/client.js";
 import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
-import { RightsEngine, defaultRightsConfig, type Subject, type RightsConfig } from "../../rights/index.js";
+import {
+  defaultRightsConfig,
+  type RightsConfig,
+  RightsEngine,
+  type Subject,
+} from "../../rights/index.js";
+import type { TS3Client } from "../../ts-protocol/client.js";
 import { resolveSubject } from "./subject.js";
 
 export interface RightsRuntimeDeps {
@@ -49,7 +54,10 @@ export class RightsRuntime {
   }> {
     let subject: Subject;
     if (opts?.serverGroups && opts.serverGroups.length > 0) {
-      subject = { uid: opts.uid?.trim() || "debug-subject", serverGroups: opts.serverGroups.map(String) };
+      subject = {
+        uid: opts.uid?.trim() || "debug-subject",
+        serverGroups: opts.serverGroups.map(String),
+      };
     } else if (opts?.uid?.trim()) {
       subject = await resolveSubject(opts.uid.trim(), this.deps.tsClient, this.deps.logger);
     } else {

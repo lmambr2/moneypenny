@@ -1,10 +1,6 @@
-import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
-import {
-  YouTubeProvider,
-  DEFAULT_DEMO_VIDEO_ID,
-  DEFAULT_DEMO_VIDEO_URL,
-} from "./youtube.js";
+import { describe, expect, it } from "vitest";
+import { DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL, YouTubeProvider } from "./youtube.js";
 
 const hasYtDlp = (() => {
   try {
@@ -46,7 +42,7 @@ describe("YouTubeProvider — default unit test / startup video", () => {
       expect(song.duration).toBeGreaterThanOrEqual(0);
       // coverUrl may be present
     },
-    30_000
+    30_000,
   );
 
   (hasYtDlp ? it : it.skip)(
@@ -58,7 +54,7 @@ describe("YouTubeProvider — default unit test / startup video", () => {
       expect(detail!.platform).toBe("youtube");
       expect(detail!.name.length).toBeGreaterThan(3);
     },
-    30_000
+    30_000,
   );
 
   (hasYtDlp ? it : it.skip)(
@@ -73,6 +69,6 @@ describe("YouTubeProvider — default unit test / startup video", () => {
         expect(url).toBeNull();
       }
     },
-    45_000
+    45_000,
   );
 });

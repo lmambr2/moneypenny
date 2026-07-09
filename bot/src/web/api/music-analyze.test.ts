@@ -1,17 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import Database from "better-sqlite3";
 import express from "express";
 import request from "supertest";
-import Database from "better-sqlite3";
-import { createMusicRouter } from "./music.js";
-import { TagStore, RadioAnalyzer, defaultRadioConfig, type RadioConfig } from "../../radio/index.js";
-import { LocalProvider } from "../../music/local.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LocalProvider } from "../../music/local.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { CommandRunner } from "../../radio/analyzer.js";
+import {
+  defaultRadioConfig,
+  RadioAnalyzer,
+  type RadioConfig,
+  TagStore,
+} from "../../radio/index.js";
+import { createMusicRouter } from "./music.js";
 
 const stub = (platform: MusicProvider["platform"]): MusicProvider =>
-  ({ platform, search: vi.fn(), getSongUrl: vi.fn(), setQuality() {}, getQuality: () => "d",
-     getSongDetail: vi.fn(), getPlaylistSongs: vi.fn(), getRecommendPlaylists: vi.fn(),
-     getAlbumSongs: vi.fn(), getLyrics: vi.fn(), getAuthStatus: vi.fn() }) as unknown as MusicProvider;
+  ({
+    platform,
+    search: vi.fn(),
+    getSongUrl: vi.fn(),
+    setQuality() {},
+    getQuality: () => "d",
+    getSongDetail: vi.fn(),
+    getPlaylistSongs: vi.fn(),
+    getRecommendPlaylists: vi.fn(),
+    getAlbumSongs: vi.fn(),
+    getLyrics: vi.fn(),
+    getAuthStatus: vi.fn(),
+  }) as unknown as MusicProvider;
 
 function build(role: "admin" | "member" | null, radio: RadioConfig) {
   const tagStore = new TagStore({ db: new Database(":memory:") });
@@ -43,7 +58,11 @@ function build(role: "admin" | "member" | null, radio: RadioConfig) {
 
   const app = express();
   app.use(express.json());
-  if (role) app.use((req, _res, next) => { req.user = { id: "u1", username: "u", role }; next(); });
+  if (role)
+    app.use((req, _res, next) => {
+      req.user = { id: "u1", username: "u", role };
+      next();
+    });
   app.use(
     createMusicRouter(local, stub("youtube"), stub("stream"), console as never, {
       tagStore,

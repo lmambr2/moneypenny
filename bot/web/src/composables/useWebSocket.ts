@@ -1,4 +1,4 @@
-import { ref, onUnmounted } from 'vue';
+import { onUnmounted, ref } from 'vue';
 import { usePlayerStore } from '../stores/player.js';
 
 export function useWebSocket() {

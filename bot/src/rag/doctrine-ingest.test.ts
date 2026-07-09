@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  reindexDoctrine,
-  reindexDoctrineSources,
   ingestDoctrineDoc,
   purgeOrphanedDoctrine,
+  reindexDoctrine,
+  reindexDoctrineSources,
 } from "./doctrine-ingest.js";
 
 function bodyFor(source: string): string {
@@ -11,7 +11,10 @@ function bodyFor(source: string): string {
 }
 
 function fakes(filesOnDisk: string[], registry: Array<{ source: string; bytes?: number }>) {
-  const retrieval = { ingest: vi.fn().mockResolvedValue(2), purge: vi.fn().mockResolvedValue(undefined) };
+  const retrieval = {
+    ingest: vi.fn().mockResolvedValue(2),
+    purge: vi.fn().mockResolvedValue(undefined),
+  };
   const doctrine = {
     dir: "/tmp/doctrine",
     safeName: vi.fn((name: string) => name),
@@ -49,7 +52,12 @@ function fakes(filesOnDisk: string[], registry: Array<{ source: string; bytes?: 
 describe("ingestDoctrineDoc", () => {
   it("parses frontmatter → ingests body with classification + records the registry", async () => {
     const { retrieval, doctrine } = fakes([], []);
-    const out = await ingestDoctrineDoc(retrieval, doctrine, "intsum.md", "---\nclassification: secret\ntags: [intel]\n---\n# INTSUM\nbody");
+    const out = await ingestDoctrineDoc(
+      retrieval,
+      doctrine,
+      "intsum.md",
+      "---\nclassification: secret\ntags: [intel]\n---\n# INTSUM\nbody",
+    );
     expect(out).toMatchObject({ source: "intsum.md", classification: "secret", chunks: 2 });
     const [src, body, meta] = retrieval.ingest.mock.calls[0];
     expect(src).toBe("intsum.md");
@@ -60,7 +68,10 @@ describe("ingestDoctrineDoc", () => {
 
 describe("reindexDoctrine — full sync", () => {
   it("ingests on-disk files and purges docs whose file is gone", async () => {
-    const { retrieval, doctrine } = fakes(["a.md", "b.md"], [{ source: "a.md" }, { source: "c.md" }]);
+    const { retrieval, doctrine } = fakes(
+      ["a.md", "b.md"],
+      [{ source: "a.md" }, { source: "c.md" }],
+    );
     const out = await reindexDoctrine(retrieval, doctrine);
     expect(retrieval.purge).toHaveBeenCalledWith("c.md");
     expect(doctrine.remove).toHaveBeenCalledWith("c.md");
@@ -88,10 +99,13 @@ describe("reindexDoctrine — full sync", () => {
 
   it("skips byte-identical files during full reindex", async () => {
     const unchanged = Buffer.byteLength(bodyFor("a.md"));
-    const { retrieval, doctrine } = fakes(["a.md", "b.md"], [
-      { source: "a.md", bytes: unchanged },
-      { source: "b.md", bytes: 1 },
-    ]);
+    const { retrieval, doctrine } = fakes(
+      ["a.md", "b.md"],
+      [
+        { source: "a.md", bytes: unchanged },
+        { source: "b.md", bytes: 1 },
+      ],
+    );
     const out = await reindexDoctrine(retrieval, doctrine);
     expect(out.map((d) => d.source)).toEqual(["b.md"]);
     expect(retrieval.ingest).toHaveBeenCalledTimes(1);
@@ -106,11 +120,10 @@ describe("reindexDoctrine — full sync", () => {
 
 describe("reindexDoctrineSources — selective", () => {
   it("re-indexes only the requested files", async () => {
-    const { retrieval, doctrine } = fakes(["a.md", "b.md", "c.md"], [
-      { source: "a.md" },
-      { source: "b.md" },
-      { source: "c.md" },
-    ]);
+    const { retrieval, doctrine } = fakes(
+      ["a.md", "b.md", "c.md"],
+      [{ source: "a.md" }, { source: "b.md" }, { source: "c.md" }],
+    );
     const out = await reindexDoctrineSources(retrieval, doctrine, ["b.md"], { force: true });
     expect(out.map((d) => d.source)).toEqual(["b.md"]);
     expect(retrieval.ingest).toHaveBeenCalledTimes(1);

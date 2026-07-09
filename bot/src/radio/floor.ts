@@ -19,8 +19,10 @@ export function floorFromMembers(
   let floor: Set<string> | null = null;
   for (const m of members) {
     if (m.type === 1) continue;
-    const levels = levelsFor({ uid: m.uid ?? "", serverGroups: (m.serverGroups ?? []).map(String) })
-      ?? ["unclassified"];
+    const levels = levelsFor({
+      uid: m.uid ?? "",
+      serverGroups: (m.serverGroups ?? []).map(String),
+    }) ?? ["unclassified"];
     floor = floor === null ? new Set(levels) : new Set(levels.filter((l) => floor!.has(l)));
   }
   return floor && floor.size > 0 ? [...floor] : ["unclassified"];

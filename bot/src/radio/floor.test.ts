@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { floorFromMembers } from "./floor.js";
 
 // levelsFor keyed by uid — mimics allowedClassificationsFor per member.

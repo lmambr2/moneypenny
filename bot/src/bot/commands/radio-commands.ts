@@ -1,13 +1,21 @@
-import type { TS3TextMessage } from "../../ts-protocol/client.js";
-import type { MusicProvider, Song } from "../../music/provider.js";
 import type { QueuedSong } from "../../audio/queue.js";
+import type { MusicProvider, Song } from "../../music/provider.js";
+import {
+  isUnderBumperDir,
+  pinBumperToPool,
+  type RadioConfig,
+  type RadioProfile,
+  type TagStore,
+} from "../../radio/index.js";
+import type { TS3TextMessage } from "../../ts-protocol/client.js";
 import type { ParsedCommand } from "../commands.js";
-import { isUnderBumperDir, pinBumperToPool, type RadioConfig, type RadioProfile, type TagStore } from "../../radio/index.js";
 import type { CommandExecutorDeps } from "./executor.js";
 
 /** Validate raw select_tracks filters (§9.4) — the LLM proposes, the executor
  *  disposes. Unknown keys are dropped; malformed values become undefined. */
-export function parseTagFilters(raw: Record<string, unknown>): Parameters<TagStore["selectTracks"]>[0] {
+export function parseTagFilters(
+  raw: Record<string, unknown>,
+): Parameters<TagStore["selectTracks"]>[0] {
   const strArr = (v: unknown) =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
   const num = (v: unknown) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
@@ -55,18 +63,22 @@ export class RadioCommands {
         if (!this.deps.radio) return "Radio controls are not available.";
         const topic = cmd.rawArgs.slice(1).join(" ").trim() || undefined;
         const r = await this.deps.radio.cueBumper(topic);
-        return r === "played" ? "📻 Bumper playing."
-          : r === "cued" ? "📻 Bumper cued for the next track break."
-          : "No bumper available (radio off, or no source could produce one).";
+        return r === "played"
+          ? "📻 Bumper playing."
+          : r === "cued"
+            ? "📻 Bumper cued for the next track break."
+            : "No bumper available (radio off, or no source could produce one).";
       }
       case "say": {
         if (!this.deps.radio) return "Radio controls are not available.";
         const text = cmd.rawArgs.slice(1).join(" ").trim();
         if (!text) return `Usage: ${p}radio say <text>`;
         const r = await this.deps.radio.cueSay(text);
-        return r === "played" ? "📻 On air."
-          : r === "cued" ? "📻 Liner cued for the next track break."
-          : "Can't speak right now (radio off or TTS unavailable).";
+        return r === "played"
+          ? "📻 On air."
+          : r === "cued"
+            ? "📻 Liner cued for the next track break."
+            : "Can't speak right now (radio off or TTS unavailable).";
       }
       case "skip": {
         if (!this.deps.radio) return "Radio controls are not available.";
@@ -166,7 +178,9 @@ export class RadioCommands {
     let activeRelay: { relayUrl: string; bumperIntervalSec: number } | null = null;
 
     if (music.select && this.deps.tagStore) {
-      const keys = this.deps.tagStore.selectTracks(parseTagFilters(music.select as Record<string, unknown>));
+      const keys = this.deps.tagStore.selectTracks(
+        parseTagFilters(music.select as Record<string, unknown>),
+      );
       pool.push(...(await this.tagKeysToSongs(keys)));
     }
     for (const ref of music.playlistRefs ?? []) {
@@ -196,7 +210,9 @@ export class RadioCommands {
         const provider = this.deps.getProvider(new Set([flag]));
         const songs = await this.resolvePlaylistSongs(provider, ref.ref);
         pool.push(...songs.map((s) => ({ ...s, platform: provider.platform })));
-      } catch { /* a dead ref never blocks the profile */ }
+      } catch {
+        /* a dead ref never blocks the profile */
+      }
     }
     // R-R6 relay-in: last-resort live stream when no library/playlist pool.
     if (pool.length === 0 && music.relayUrl) {
@@ -215,7 +231,10 @@ export class RadioCommands {
     if (pool.length === 0) {
       for (const seed of music.seedQueries ?? []) {
         const hit = await this.deps.playback
-          .searchFirst({ name: "play", args: seed, rawArgs: seed.split(/\s+/), flags: new Set() }, 1)
+          .searchFirst(
+            { name: "play", args: seed, rawArgs: seed.split(/\s+/), flags: new Set() },
+            1,
+          )
           .catch(() => null);
         if (hit) pool.push({ ...hit.song, platform: hit.provider.platform });
       }
@@ -285,7 +304,8 @@ export class RadioCommands {
   }
 
   private summary(radio: RadioConfig): string {
-    const cadence = radio.everyNSongs > 0 ? `Bumpers every ${radio.everyNSongs} songs` : "Clock-only";
+    const cadence =
+      radio.everyNSongs > 0 ? `Bumpers every ${radio.everyNSongs} songs` : "Clock-only";
     return `${cadence}; profile '${radio.activeProfile}'; sources: ${radio.sources.join(", ")}.`;
   }
 
@@ -337,7 +357,7 @@ export class RadioCommands {
     try {
       raw = JSON.parse(cmd.args || "{}") as Record<string, unknown>;
     } catch {
-      return "Usage: selecttracks {\"genreAny\":[\"ambient\"],\"bpmMax\":110}";
+      return 'Usage: selecttracks {"genreAny":["ambient"],"bpmMax":110}';
     }
     const keys = this.deps.tagStore.selectTracks(parseTagFilters(raw));
     const songs = await this.tagKeysToSongs(keys);
@@ -366,7 +386,10 @@ export class RadioCommands {
 }
 
 /** Prompt for radio auto-fill / !radio gen when operator text is absent. */
-export function buildRadioGenPrompt(profile: RadioProfile | undefined, profileName: string): string {
+export function buildRadioGenPrompt(
+  profile: RadioProfile | undefined,
+  profileName: string,
+): string {
   const tone = profile?.bumper?.tone?.trim();
   const topics = profile?.bumper?.topics?.filter(Boolean) ?? [];
   const seeds = profile?.music?.seedQueries?.filter(Boolean) ?? [];
@@ -376,7 +399,9 @@ export function buildRadioGenPrompt(profile: RadioProfile | undefined, profileNa
     tone || `Radio profile ${profileName}`,
     topics.length ? `themes: ${topics.slice(0, 4).join(", ")}` : "",
     moodBits ? `mood: ${moodBits}` : "",
-    seeds.length ? `style: ${seeds.slice(0, 3).join(", ")}` : "instrumental bed suitable for TeamSpeak",
+    seeds.length
+      ? `style: ${seeds.slice(0, 3).join(", ")}`
+      : "instrumental bed suitable for TeamSpeak",
     "no vocals preferred, clean for voice channel, steady energy",
   ].filter(Boolean);
   return bits.join(". ");

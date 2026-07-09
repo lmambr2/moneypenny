@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import express from "express";
 import cookieParser from "cookie-parser";
+import express from "express";
 import request from "supertest";
-import { createDatabase, type BotDatabase } from "../../data/database.js";
-import { createUserStore } from "../../data/users.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type BotDatabase, createDatabase } from "../../data/database.js";
 import { createSessionStore } from "../../data/sessions.js";
+import { createUserStore } from "../../data/users.js";
+import { defaultRightsConfig, RightsEngine } from "../../rights/index.js";
+import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
 import { createRequireAuth } from "../middleware/requireAuth.js";
 import { createPlayerRouter } from "./player.js";
-import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
-import { RightsEngine, defaultRightsConfig } from "../../rights/index.js";
 
 describe("player router", () => {
   let botDb: BotDatabase;
@@ -52,9 +52,14 @@ describe("player router", () => {
     const bot = {
       id: "b1",
       isConnected: () => true,
-      canWebUserRunCommand: async (user: { id: string; username: string; role: string }, cmd: string) =>
-        engine.can(resolveSubjectForUser(user), cmd),
-      executeRoutedCommand: async (cmd: { name: string }, opts?: { webUser?: { id: string; username: string; role: string } }) => {
+      canWebUserRunCommand: async (
+        user: { id: string; username: string; role: string },
+        cmd: string,
+      ) => engine.can(resolveSubjectForUser(user), cmd),
+      executeRoutedCommand: async (
+        cmd: { name: string },
+        opts?: { webUser?: { id: string; username: string; role: string } },
+      ) => {
         const user = opts?.webUser;
         if (user) {
           const subject = resolveSubjectForUser(user);
@@ -65,7 +70,13 @@ describe("player router", () => {
         routedCalls.push(cmd.name);
         return { message: `executed:${cmd.name}`, denied: false };
       },
-      getPlayer: () => ({ getElapsed: () => 0, stop: () => {}, resetFailures: () => {}, seek: () => {}, getState: () => "idle" }),
+      getPlayer: () => ({
+        getElapsed: () => 0,
+        stop: () => {},
+        resetFailures: () => {},
+        seek: () => {},
+        getState: () => "idle",
+      }),
       getQueue: () => [],
       getQueueManager: () => ({
         size: () => 0,
@@ -79,7 +90,12 @@ describe("player router", () => {
         addNext: () => {},
       }),
       resolveAndPlay: async () => true,
-      getProviderFor: () => ({ getPlaylistSongs: async () => [], getAlbumSongs: async () => [], getSongDetail: async () => null, platform: "youtube" as const }),
+      getProviderFor: () => ({
+        getPlaylistSongs: async () => [],
+        getAlbumSongs: async () => [],
+        getSongDetail: async () => null,
+        platform: "youtube" as const,
+      }),
       getProfileManager: () => ({ getConfig: () => ({}), updateConfig: () => {} }),
       getStatus: () => ({ id: "b1" }),
     };

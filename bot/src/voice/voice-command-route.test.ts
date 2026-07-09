@@ -2,10 +2,10 @@
  * In-repo substitute for V-live: real watchword + command shape path
  * (voiceCommandShapeOk / parse) used under music with soft duck defaults.
  */
-import { describe, it, expect } from "vitest";
-import { voiceCommandShapeOk } from "./watchword.js";
-import { defaultVoiceConfig } from "./types.js";
+import { describe, expect, it } from "vitest";
 import { resolveSttModelSelection } from "./stt-models.js";
+import { defaultVoiceConfig } from "./types.js";
+import { voiceCommandShapeOk } from "./watchword.js";
 
 describe("V-live substitute: voice command routing + duck defaults", () => {
   it("accepts play <title> and pause/skip transport verbs", () => {

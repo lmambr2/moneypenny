@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
 import Database from "better-sqlite3";
-import { CommandExecutor } from "./executor.js";
+import { describe, expect, it, vi } from "vitest";
 import { TagStore } from "../../radio/index.js";
+import { CommandExecutor } from "./executor.js";
 
 function harness(opts: { playerState?: "idle" | "playing" } = {}) {
   const tagStore = new TagStore({ db: new Database(":memory:") });
@@ -18,7 +18,9 @@ function harness(opts: { playerState?: "idle" | "playing" } = {}) {
   const resolveAndPlay = vi.fn(async () => true);
   const local = {
     getSongDetail: vi.fn(async (id: string) =>
-      id === "k3" ? null : { id, name: id, artist: "A", album: "", duration: 1, coverUrl: "", platform: "local" },
+      id === "k3"
+        ? null
+        : { id, name: id, artist: "A", album: "", duration: 1, coverUrl: "", platform: "local" },
     ),
   };
   const ex = new CommandExecutor({
@@ -37,7 +39,12 @@ function harness(opts: { playerState?: "idle" | "playing" } = {}) {
 }
 
 const run = (ex: CommandExecutor, filters: unknown) =>
-  ex.execute({ name: "selecttracks", args: JSON.stringify(filters), rawArgs: [], flags: new Set() });
+  ex.execute({
+    name: "selecttracks",
+    args: JSON.stringify(filters),
+    rawArgs: [],
+    flags: new Set(),
+  });
 
 describe("cmdSelectTracks", () => {
   it("queues matching local tracks and reports the count", async () => {

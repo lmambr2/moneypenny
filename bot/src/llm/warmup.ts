@@ -1,7 +1,7 @@
-import { createLlmClient } from "./fallback-client.js";
-import { EmbeddingsClient } from "../rag/embeddings.js";
 import type { BotConfig } from "../data/config.js";
 import type { Logger } from "../logger.js";
+import { EmbeddingsClient } from "../rag/embeddings.js";
+import { createLlmClient } from "./fallback-client.js";
 
 /**
  * Best-effort model pre-warm at startup so the first `!ask` / voice turn does
@@ -32,7 +32,10 @@ export async function warmLlmModels(config: BotConfig, logger: Logger): Promise<
           temperature: 0,
         })
         .then(() => {
-          logger.info({ url: config.llmUrl, model: config.llmModel || "(default)" }, "Chat model warmed");
+          logger.info(
+            { url: config.llmUrl, model: config.llmModel || "(default)" },
+            "Chat model warmed",
+          );
         })
         .catch((err) => {
           logger.warn({ err, url: config.llmUrl }, "Chat model warm-up skipped");
@@ -53,7 +56,10 @@ export async function warmLlmModels(config: BotConfig, logger: Logger): Promise<
         embeddings
           .dimension()
           .then((dim) => {
-            logger.info({ url: embedUrl, model: config.embeddingModel || "(default)", dim }, "Embedding model warmed");
+            logger.info(
+              { url: embedUrl, model: config.embeddingModel || "(default)", dim },
+              "Embedding model warmed",
+            );
           })
           .catch((err) => {
             logger.warn({ err, url: embedUrl }, "Embedding model warm-up skipped");

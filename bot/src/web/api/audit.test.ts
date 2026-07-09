@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import express from "express";
 import cookieParser from "cookie-parser";
+import express from "express";
 import request from "supertest";
-import { createDatabase, type BotDatabase } from "../../data/database.js";
-import { createUserStore } from "../../data/users.js";
-import { createSessionStore } from "../../data/sessions.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuditStore } from "../../data/audit.js";
+import { type BotDatabase, createDatabase } from "../../data/database.js";
+import { createSessionStore } from "../../data/sessions.js";
+import { createUserStore } from "../../data/users.js";
+import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
 import { createRequireAuth } from "../middleware/requireAuth.js";
 import { createAuditRouter } from "./audit.js";
-import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
 
 describe("audit router", () => {
   let botDb: BotDatabase;
@@ -24,8 +24,10 @@ describe("audit router", () => {
     cookie = `${SESSION_COOKIE_NAME}=${sessions.createSession(alice.id).token}`;
     for (let i = 0; i < 3; i++) {
       audit.record({
-        actorId: alice.id, actorUsername: "alice",
-        targetUserId: "x", targetUsername: "x",
+        actorId: alice.id,
+        actorUsername: "alice",
+        targetUserId: "x",
+        targetUsername: "x",
         action: "user.created",
       });
     }

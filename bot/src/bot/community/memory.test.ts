@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import Database from "better-sqlite3";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../../data/memory.js";
 import { MemoryService } from "./memory.js";
 

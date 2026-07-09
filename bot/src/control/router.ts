@@ -1,8 +1,14 @@
-import { parseCommand, isKnownCommand, AUDIO_COMMANDS, type ParsedCommand } from "../bot/commands.js";
 import {
+  AUDIO_COMMANDS,
+  isKnownCommand,
+  type ParsedCommand,
+  parseCommand,
+} from "../bot/commands.js";
+import type { BotInstance } from "../bot/instance.js";
+import {
+  type AnalystRequest,
   appendAnalystSaveNotice,
   parseAnalystCommand,
-  type AnalystRequest,
 } from "../docs/analyst.js";
 import {
   buildWorkflowTask,
@@ -17,10 +23,9 @@ import {
   DELEGATE_TOOL_NAME,
   formatDelegateFollowUp,
 } from "../llm/delegate.js";
-import type { BotInstance } from "../bot/instance.js";
+import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
-import type { Logger } from "../logger.js";
 
 /**
  * CommandHandler — registered handlers the router delegates to after routing.
@@ -28,7 +33,11 @@ import type { Logger } from "../logger.js";
  */
 export interface CommandHandler {
   name: string;
-  execute(cmd: ParsedCommand, context: RouterContext, decision: RouterDecision): Promise<string | null>;
+  execute(
+    cmd: ParsedCommand,
+    context: RouterContext,
+    decision: RouterDecision,
+  ): Promise<string | null>;
 }
 
 /**
@@ -144,16 +153,16 @@ export interface RouterDecision {
   command?: ParsedCommand;
   // When the router (or future LLM) pre-resolves a music item using LocalProvider.resolve
   resolvedMusic?: {
-    type: 'song' | 'playlist';
+    type: "song" | "playlist";
     item: Song | Playlist;
-    providerPlatform: 'local' | 'youtube' | 'stream';
+    providerPlatform: "local" | "youtube" | "stream";
   };
   // Present when type === "llm": what to hand to the LLM module.
   llmIntent?: LlmIntent;
 }
 
 /** Music commands that benefit from an early LocalProvider.resolve (DESIGN §7.4 + §4). */
-const RESOLVABLE_MUSIC_COMMANDS = new Set(['play', 'add', 'playnext', 'pn', 'playlist', 'album']);
+const RESOLVABLE_MUSIC_COMMANDS = new Set(["play", "add", "playnext", "pn", "playlist", "album"]);
 
 /** Commands that push audio and therefore require an active TS connection. */
 // Audio-gated commands come from the single manifest (bot/commands.ts).
@@ -279,7 +288,7 @@ export class ControlRouter {
     if (!text) return { type: "unknown" };
 
     // Parse as if prefixed so flag/alias handling is shared with the chat path.
-    const command = parseCommand("!" + text, "!", aliases);
+    const command = parseCommand(`!${text}`, "!", aliases);
     if (command) {
       command.name = command.name.replace(/[.,!?;:]+$/u, "");
     }
@@ -307,7 +316,7 @@ export class ControlRouter {
   private async resolveMusicForCommand(
     command: ParsedCommand,
     context: RouterContext,
-  ): Promise<RouterDecision['resolvedMusic']> {
+  ): Promise<RouterDecision["resolvedMusic"]> {
     if (!RESOLVABLE_MUSIC_COMMANDS.has(command.name) || !command.args) {
       return undefined;
     }
@@ -332,7 +341,10 @@ export class ControlRouter {
    */
   async executeParsedCommand(cmd: ParsedCommand, context: RouterContext): Promise<string | null> {
     const resolvedMusic = await this.resolveMusicForCommand(cmd, context);
-    return this.executeDeterministic({ type: "deterministic", command: cmd, resolvedMusic }, context);
+    return this.executeDeterministic(
+      { type: "deterministic", command: cmd, resolvedMusic },
+      context,
+    );
   }
 
   /**
@@ -352,7 +364,10 @@ export class ControlRouter {
   }
 
   /** Run a resolved deterministic decision through its registered handler. */
-  private async executeDeterministic(decision: RouterDecision, context: RouterContext): Promise<string | null> {
+  private async executeDeterministic(
+    decision: RouterDecision,
+    context: RouterContext,
+  ): Promise<string | null> {
     const cmd = decision.command!;
 
     // Rank gating (DESIGN §8) — the first gate. Applies to typed commands and
@@ -476,7 +491,9 @@ export class ControlRouter {
     if (!text) return null;
 
     const moveClientEnabled = !context.canRun || context.canRun("moveclient");
-    const result = await this.llm!.chatForIntent(text, context.conversationId, { moveClientEnabled });
+    const result = await this.llm!.chatForIntent(text, context.conversationId, {
+      moveClientEnabled,
+    });
     const toolCalls = result.toolCalls ?? [];
 
     if (toolCalls.length === 0) {
@@ -506,7 +523,10 @@ export class ControlRouter {
       }
       try {
         const resolvedMusic = await this.resolveMusicForCommand(cmd, context);
-        const out = await this.executeDeterministic({ type: "deterministic", command: cmd, resolvedMusic }, context);
+        const out = await this.executeDeterministic(
+          { type: "deterministic", command: cmd, resolvedMusic },
+          context,
+        );
         if (out) outputs.push(out);
       } catch (err) {
         this.logger.warn({ err, tool: tc.name }, "LLM tool execution failed");
@@ -547,8 +567,7 @@ export class ControlRouter {
       return finish(raw);
     }
 
-    void this.llm!
-      .delegate(req.task, extraContext, ctx)
+    void this.llm!.delegate(req.task, extraContext, ctx)
       .then(async (result) => {
         await context.postFollowUp!(await finish(result));
       })
@@ -598,7 +617,9 @@ export class ControlRouter {
 
     void generate()
       .then(async (raw) => {
-        await context.postFollowUp!(formatWorkflowFollowUp(req.kind, await finish(raw), context.invokerName));
+        await context.postFollowUp!(
+          formatWorkflowFollowUp(req.kind, await finish(raw), context.invokerName),
+        );
       })
       .catch(async (err) => {
         context.logger.warn({ err, kind: req.kind }, "Async workflow failed");
@@ -628,7 +649,10 @@ function sourceFlags(source?: string): Set<string> {
  * can run through the deterministic router exactly like a typed `!`-command.
  * Returns null for tools we don't recognize.
  */
-export function toolCallToCommand(tc: { name: string; arguments?: Record<string, unknown> }): ParsedCommand | null {
+export function toolCallToCommand(tc: {
+  name: string;
+  arguments?: Record<string, unknown>;
+}): ParsedCommand | null {
   const a = tc.arguments ?? {};
   const make = (name: string, args = ""): ParsedCommand => ({
     name,
@@ -641,7 +665,10 @@ export function toolCallToCommand(tc: { name: string; arguments?: Record<string,
     case "play_music": {
       const query = String(a.query ?? "").trim();
       if (!query) return null;
-      return { ...make("play", query), flags: sourceFlags(typeof a.source === "string" ? a.source : undefined) };
+      return {
+        ...make("play", query),
+        flags: sourceFlags(typeof a.source === "string" ? a.source : undefined),
+      };
     }
     case "queue": {
       const query = String(a.query ?? "").trim();

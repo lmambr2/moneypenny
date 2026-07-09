@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
 import Database from "better-sqlite3";
-import { RadioAnalyzer, parseKey, parseBpm, type CommandRunner } from "./analyzer.js";
+import { describe, expect, it, vi } from "vitest";
+import { type CommandRunner, parseBpm, parseKey, RadioAnalyzer } from "./analyzer.js";
 import { TagStore } from "./tag-store.js";
 import { defaultRadioConfig } from "./types.js";
 
@@ -44,7 +44,12 @@ describe("RadioAnalyzer", () => {
     const { a, tags } = analyzer();
     const r = await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" });
     expect(r).toEqual({ musicalKey: "Am", bpm: 120 });
-    expect(tags.get("k")).toMatchObject({ musicalKey: "Am", keyScale: "minor", bpm: 120, source: "analyzer" });
+    expect(tags.get("k")).toMatchObject({
+      musicalKey: "Am",
+      keyScale: "minor",
+      bpm: 120,
+      source: "analyzer",
+    });
   });
 
   it("skips a track that already has key+BPM (unless forced)", async () => {
@@ -54,14 +59,19 @@ describe("RadioAnalyzer", () => {
     const callsAfterFirst = (run as ReturnType<typeof vi.fn>).mock.calls.length;
     expect(await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" })).toBeNull();
     expect((run as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAfterFirst);
-    expect(await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" }, { force: true })).not.toBeNull();
+    expect(
+      await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" }, { force: true }),
+    ).not.toBeNull();
   });
 
   it("no-ops gracefully when the binaries are missing", async () => {
     const { a, tags } = analyzer({ found: false });
     expect(await a.analyzeTrack({ absPath: "/m/a.mp3", trackKey: "k" })).toBeNull();
     expect(tags.get("k")).toBeNull();
-    expect(await a.analyzeAll([{ absPath: "/m/a.mp3", trackKey: "k" }])).toEqual({ analyzed: 0, skipped: 1 });
+    expect(await a.analyzeAll([{ absPath: "/m/a.mp3", trackKey: "k" }])).toEqual({
+      analyzed: 0,
+      skipped: 1,
+    });
   });
 
   it("tallies a batch", async () => {

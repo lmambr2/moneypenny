@@ -26,7 +26,11 @@ export interface NowPlayingInfo {
 
 /** Narrow retrieval seam (RetrievalStore.query) — floored server-side (§6.3). */
 export interface BumperRetrieval {
-  query(text: string, topK?: number, allowedClassifications?: string[]): Promise<{ text: string; source: string }[]>;
+  query(
+    text: string,
+    topK?: number,
+    allowedClassifications?: string[],
+  ): Promise<{ text: string; source: string }[]>;
 }
 
 /** Narrow LLM seam (LlmModule.complete) — plain completion, tool_choice "none". */
@@ -90,11 +94,17 @@ export class RadioBumperFactory implements BumperFactory {
     if (!clean) return null;
     const cap = wordCap(this.deps.getConfig().maxBumperSeconds);
     const capped = clean.split(/\s+/).slice(0, cap).join(" ");
-    const path = await this.deps.speech.render(capped, "say", { floor: ["unclassified", "operator"] });
+    const path = await this.deps.speech.render(capped, "say", {
+      floor: ["unclassified", "operator"],
+    });
     return path ? { path, label: "say" } : null;
   }
 
-  private async buildOne(source: BumperSource, floor: string[], topic?: string): Promise<BuiltBumper | null> {
+  private async buildOne(
+    source: BumperSource,
+    floor: string[],
+    topic?: string,
+  ): Promise<BuiltBumper | null> {
     try {
       switch (source) {
         case "prerecorded": {
@@ -169,14 +179,17 @@ export class RadioBumperFactory implements BumperFactory {
   /** Doctrine → spoken bumper (§6.1/§6.2): floored retrieval → LLM rewrite
    *  (tool_choice "none" via LlmModule.complete) → capped script → TTS. Any
    *  missing piece returns null and the caller falls through (§14). */
-  private async doctrineBumper(floor: string[], topicOverride?: string): Promise<BuiltBumper | null> {
+  private async doctrineBumper(
+    floor: string[],
+    topicOverride?: string,
+  ): Promise<BuiltBumper | null> {
     const retrieval = this.deps.getRetrieval?.() ?? null;
     const llm = this.deps.getLlm?.() ?? null;
     if (!retrieval || !llm) return null;
 
     const cfg = this.deps.getConfig();
     const profile = cfg.profiles[cfg.activeProfile];
-    const topics = topicOverride ? [topicOverride] : profile?.bumper?.topics ?? [];
+    const topics = topicOverride ? [topicOverride] : (profile?.bumper?.topics ?? []);
     if (topics.length === 0) return null; // nothing curated to talk about
     const topic = topics[Math.floor(Math.random() * topics.length)];
 

@@ -510,6 +510,7 @@ See **[ROADMAP.md](./ROADMAP.md)** for the status of Phases 4–8.
 
 ## Documentation
 
+- **[docs/linting.md](./docs/linting.md)** — Biome lint/format (`cd bot && npm run lint`)
 - **[docs/editions.md](./docs/editions.md)** — SBC vs Server product matrix and topologies
 - **[docs/BUILD.md](./docs/BUILD.md)** — near-term build list (poke commands, ACE-Step, …)
 - **[docs/ace-step.md](./docs/ace-step.md)** — ACE-Step music gen design sketch (not implemented)

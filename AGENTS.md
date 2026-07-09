@@ -6,6 +6,8 @@ This file guides AI coding assistants working in this repo. Follow it unless the
 
 **Language policy:** English-only source (`bot/src`, `bot/web/src`). No Chinese platforms, APIs, or user-facing strings. Runtime data (song titles, etc.) may be any language.
 
+**Lint/format:** [Biome](https://biomejs.dev/) — `cd bot && npm run lint` / `lint:fix`. Config `bot/biome.json`. Wired into `scripts/deploy-preflight.sh` and full `scripts/ci-validate.sh`. **Does not replace `tsc` or vitest.** See [docs/linting.md](./docs/linting.md).
+
 ---
 
 ## 0. System map — what this actually is

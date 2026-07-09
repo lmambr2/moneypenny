@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  parseClientRows,
-  parseChannelRows,
-  resolveClientQuery,
-  resolveChannelQuery,
   extractQueryRows,
+  parseChannelRows,
+  parseClientRows,
+  resolveChannelQuery,
+  resolveClientQuery,
   serverGroupsByClidFromRows,
 } from "./move-resolver.js";
 

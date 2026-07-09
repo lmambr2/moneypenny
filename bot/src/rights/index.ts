@@ -1,4 +1,4 @@
-import { PUBLIC_COMMANDS, ADMIN_COMMANDS } from "../bot/commands.js";
+import { ADMIN_COMMANDS, PUBLIC_COMMANDS } from "../bot/commands.js";
 
 /**
  * Rank-gating rights model (DESIGN §8).
@@ -149,7 +149,12 @@ export function isRightsConfig(v: unknown): v is RightsConfig {
   if (o.defaultAllow !== undefined && !isStringArray(o.defaultAllow)) return false;
   if (o.superAdminUids !== undefined && !isStringArray(o.superAdminUids)) return false;
   if (o.commandGroups !== undefined) {
-    if (typeof o.commandGroups !== "object" || o.commandGroups === null || Array.isArray(o.commandGroups)) return false;
+    if (
+      typeof o.commandGroups !== "object" ||
+      o.commandGroups === null ||
+      Array.isArray(o.commandGroups)
+    )
+      return false;
     for (const val of Object.values(o.commandGroups)) {
       if (!isStringArray(val)) return false;
     }
@@ -163,11 +168,13 @@ export function isRightsConfig(v: unknown): v is RightsConfig {
       if (r.match !== undefined) {
         if (typeof r.match !== "object" || r.match === null || Array.isArray(r.match)) return false;
         if (r.match.uids !== undefined && !isStringArray(r.match.uids)) return false;
-        if (r.match.serverGroups !== undefined && !isStringArray(r.match.serverGroups)) return false;
+        if (r.match.serverGroups !== undefined && !isStringArray(r.match.serverGroups))
+          return false;
       }
       if (r.allow !== undefined && !isStringArray(r.allow)) return false;
       if (r.deny !== undefined && !isStringArray(r.deny)) return false;
-      if (r.scope !== undefined && r.scope !== "voice" && r.scope !== "chat" && r.scope !== "both") return false;
+      if (r.scope !== undefined && r.scope !== "voice" && r.scope !== "chat" && r.scope !== "both")
+        return false;
     }
   }
   return true;
@@ -189,11 +196,13 @@ export function defaultRightsConfig(adminGroups: number[] = []): RightsConfig {
     superAdminUids: [],
     rules:
       adminGroups.length > 0
-        ? [{
-          name: "admins",
-          match: { serverGroups: adminGroups.map(String) },
-          allow: ["@admin", "@analyst"],
-        }]
+        ? [
+            {
+              name: "admins",
+              match: { serverGroups: adminGroups.map(String) },
+              allow: ["@admin", "@analyst"],
+            },
+          ]
         : [],
   };
 }

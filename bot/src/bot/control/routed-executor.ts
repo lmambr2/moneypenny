@@ -1,12 +1,10 @@
-import type { TS3TextMessage } from "../../ts-protocol/client.js";
-import type { ParsedCommand } from "../commands.js";
-import type { Logger } from "../../logger.js";
-import type { TS3Client } from "../../ts-protocol/client.js";
 import type { ControlRouter, RouterContext } from "../../control/router.js";
-import type { RightsRuntime } from "../rights/runtime.js";
+import type { Logger } from "../../logger.js";
+import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
+import type { ParsedCommand } from "../commands.js";
 import type { BotInstance } from "../instance.js";
+import type { RightsRuntime } from "../rights/runtime.js";
 import { resolveSubject, resolveWebSubject } from "../rights/subject.js";
-import type { Subject } from "../../rights/index.js";
 
 export interface RoutedExecutorDeps {
   bot: BotInstance;
@@ -37,7 +35,10 @@ export class RoutedCommandExecutor {
 
   async executeRoutedCommand(
     cmd: ParsedCommand,
-    opts?: { webUser?: { id: string; username: string; role: "admin" | "member" }; message?: TS3TextMessage },
+    opts?: {
+      webUser?: { id: string; username: string; role: "admin" | "member" };
+      message?: TS3TextMessage;
+    },
   ): Promise<{ message: string | null; denied: boolean }> {
     let canRun: ((commandName: string) => boolean) | undefined;
     const engine = this.deps.rights.getEngine();

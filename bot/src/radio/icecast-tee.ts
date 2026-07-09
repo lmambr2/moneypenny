@@ -34,9 +34,7 @@ export function defaultIcecastTeeConfig(): IcecastTeeConfig {
 }
 
 /** Normalize partial Settings / config into a full tee config (defaults off). */
-export function resolveIcecastTee(
-  partial?: Partial<IcecastTeeConfig> | null,
-): IcecastTeeConfig {
+export function resolveIcecastTee(partial?: Partial<IcecastTeeConfig> | null): IcecastTeeConfig {
   const d = defaultIcecastTeeConfig();
   if (!partial || typeof partial !== "object") return d;
   return {
@@ -47,13 +45,8 @@ export function resolveIcecastTee(
         ? partial.format
         : "mp3",
     sampleRate:
-      typeof partial.sampleRate === "number" && partial.sampleRate > 0
-        ? partial.sampleRate
-        : 48000,
-    channels:
-      typeof partial.channels === "number" && partial.channels > 0
-        ? partial.channels
-        : 2,
+      typeof partial.sampleRate === "number" && partial.sampleRate > 0 ? partial.sampleRate : 48000,
+    channels: typeof partial.channels === "number" && partial.channels > 0 ? partial.channels : 2,
   };
 }
 
@@ -87,9 +80,11 @@ export function buildIcecastFfmpegArgs(cfg: IcecastTeeConfig): string[] {
   const ch = cfg.channels ?? 2;
   const fmt = cfg.format ?? "mp3";
   const codec =
-    fmt === "ogg" ? ["-c:a", "libvorbis", "-q:a", "5"] :
-    fmt === "opus" ? ["-c:a", "libopus", "-b:a", "128k"] :
-    ["-c:a", "libmp3lame", "-b:a", "192k"];
+    fmt === "ogg"
+      ? ["-c:a", "libvorbis", "-q:a", "5"]
+      : fmt === "opus"
+        ? ["-c:a", "libopus", "-b:a", "128k"]
+        : ["-c:a", "libmp3lame", "-b:a", "192k"];
   // icecast:// is ffmpeg's native source protocol; http(s) also works with -f icecast
   const outProto = cfg.mountUrl.startsWith("icecast:") ? [] : ["-f", "icecast"];
   return [
@@ -229,9 +224,7 @@ export class IcecastTee {
       enabled: this.cfg.enabled,
       ready: isIcecastTeeReady(this.cfg),
       running: this.isRunning(),
-      mountUrl: this.cfg.mountUrl
-        ? this.cfg.mountUrl.replace(/:[^:@/]+@/, ":***@")
-        : "",
+      mountUrl: this.cfg.mountUrl ? this.cfg.mountUrl.replace(/:[^:@/]+@/, ":***@") : "",
       format: this.cfg.format ?? "mp3",
     };
   }

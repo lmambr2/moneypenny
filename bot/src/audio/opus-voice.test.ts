@@ -1,11 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createOpusEncoder } from "./encoder.js";
 import { decodeVoiceOpusPacket } from "./opus-voice.js";
 
 describe("decodeVoiceOpusPacket", () => {
   it("classifies undecodable tiny payloads as DTX", () => {
     const enc = createOpusEncoder(1);
-    expect(decodeVoiceOpusPacket(enc, Buffer.from([0xff, 0xff, 0xff]))).toEqual({ ok: false, reason: "dtx" });
+    expect(decodeVoiceOpusPacket(enc, Buffer.from([0xff, 0xff, 0xff]))).toEqual({
+      ok: false,
+      reason: "dtx",
+    });
   });
 
   it("decodes tiny but valid silence frames", () => {

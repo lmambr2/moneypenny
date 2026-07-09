@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { bindPlayerEvents, type PlayerEventBindings } from "./event-bindings.js";
 
 /** Minimal player stub: captures event handlers so tests can emit them. */
@@ -9,7 +9,7 @@ function fakePlayer() {
       (handlers[ev] ??= []).push(cb);
     },
     emit(ev: string, ...args: unknown[]) {
-      (handlers[ev] ?? []).forEach((h) => h(...args));
+      for (const h of handlers[ev] ?? []) h(...args);
     },
   };
 }

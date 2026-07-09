@@ -1,15 +1,15 @@
 import type { BotConfig } from "../../data/config.js";
 import type { MemoryStore } from "../../data/memory.js";
-import type { KgService } from "../community/kg.js";
-import type { MemPalaceClient } from "../../memory/mempalace-client.js";
-import type { Logger } from "../../logger.js";
-import { LlmModule, type RetrievalHook } from "../../llm/index.js";
-import { createLlmClient } from "../../llm/fallback-client.js";
-import { DelegateClient } from "../../llm/delegate.js";
-import type { RetrievalStore } from "../../rag/index.js";
-import { allowedClassificationsFor } from "../rights/subject.js";
-import type { RightsEngine, Subject } from "../../rights/index.js";
 import { economyContextForQuestion } from "../../economy/context.js";
+import { DelegateClient } from "../../llm/delegate.js";
+import { createLlmClient } from "../../llm/fallback-client.js";
+import { LlmModule, type RetrievalHook } from "../../llm/index.js";
+import type { Logger } from "../../logger.js";
+import type { MemPalaceClient } from "../../memory/mempalace-client.js";
+import type { RetrievalStore } from "../../rag/index.js";
+import type { RightsEngine, Subject } from "../../rights/index.js";
+import type { KgService } from "../community/kg.js";
+import { allowedClassificationsFor } from "../rights/subject.js";
 
 export interface LlmRuntimeDeps {
   config: BotConfig;
@@ -180,7 +180,11 @@ export class LlmRuntime {
     const out: Array<{ text: string; source: string; score?: number }> = [];
     const retrieval = this.deps.getRetrieval();
     if (this.deps.config.ragEnabled && retrieval) {
-      const chunks = await retrieval.query(question, this.deps.config.ragTopK, ctx?.allowedClassifications);
+      const chunks = await retrieval.query(
+        question,
+        this.deps.config.ragTopK,
+        ctx?.allowedClassifications,
+      );
       out.push(...chunks.map((c) => ({ text: c.text, source: c.source, score: c.score })));
     }
     if (this.deps.config.memoryEnabled && ctx?.userUid) {

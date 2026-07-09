@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { LocalProvider } from "./local.js";
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { LocalProvider } from "./local.js";
 
 describe("LocalProvider - path guard (safeResolve)", () => {
   let tmpDir: string;
@@ -131,15 +131,24 @@ describe("LocalProvider - uploadSong + refresh (web UI)", () => {
 
     // File must exist in the isolated uploads/ dir (the "secure that mfer" isolation)
     const expectedPath = path.join(tmpDir, "uploads", "my new track.mp3");
-    const exists = await fs.access(expectedPath).then(() => true).catch(() => false);
+    const exists = await fs
+      .access(expectedPath)
+      .then(() => true)
+      .catch(() => false);
     expect(exists).toBe(true);
 
     // uploads/ subdir was created
-    const uploadsDirExists = await fs.access(path.join(tmpDir, "uploads")).then(() => true).catch(() => false);
+    const uploadsDirExists = await fs
+      .access(path.join(tmpDir, "uploads"))
+      .then(() => true)
+      .catch(() => false);
     expect(uploadsDirExists).toBe(true);
 
     // Original library files untouched
-    const seedExists = await fs.access(path.join(tmpDir, "existing", "seed1.mp3")).then(() => true).catch(() => false);
+    const seedExists = await fs
+      .access(path.join(tmpDir, "existing", "seed1.mp3"))
+      .then(() => true)
+      .catch(() => false);
     expect(seedExists).toBe(true);
   });
 
@@ -156,9 +165,9 @@ describe("LocalProvider - uploadSong + refresh (web UI)", () => {
 
     // Verify files on disk in uploads/
     const files = await fs.readdir(path.join(tmpDir, "uploads"));
-    const mp3s = files.filter(f => f.endsWith(".mp3"));
+    const mp3s = files.filter((f) => f.endsWith(".mp3"));
     expect(mp3s.length).toBeGreaterThanOrEqual(2);
-    expect(mp3s.some(f => f.includes("(1)"))).toBe(true);
+    expect(mp3s.some((f) => f.includes("(1)"))).toBe(true);
   });
 
   it("deleteSong removes an uploaded track from disk and the index", async () => {
@@ -228,7 +237,11 @@ describe("LocalProvider - bumper exclusion from search (§9.2)", () => {
     await fs.writeFile(path.join(tmpDir, "jingle.mp3"), "fake-mp3");
   });
   afterEach(async () => {
-    try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("hides excluded ids from search but still resolves them directly", async () => {

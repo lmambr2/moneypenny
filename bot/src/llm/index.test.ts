@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
-import { LlmModule, ConversationStore } from "./index.js";
+import { describe, expect, it, vi } from "vitest";
 import type { ChatCompletionRequest, ChatCompletionResponse } from "./client.js";
+import { ConversationStore, LlmModule } from "./index.js";
 
 // Build a fake LlmClient that records requests and returns scripted responses.
 function fakeClient(responder: (req: ChatCompletionRequest) => ChatCompletionResponse) {
@@ -17,7 +17,13 @@ function fakeClient(responder: (req: ChatCompletionRequest) => ChatCompletionRes
 function textResponse(content: string | null, toolCalls?: any[]): ChatCompletionResponse {
   return {
     id: "x",
-    choices: [{ index: 0, message: { role: "assistant", content, tool_calls: toolCalls }, finish_reason: "stop" }],
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content, tool_calls: toolCalls },
+        finish_reason: "stop",
+      },
+    ],
   };
 }
 
@@ -75,7 +81,13 @@ describe("LlmModule history", () => {
 
   it("chatForIntent records a compact turn even when only tool calls are returned", async () => {
     const { client, requests } = fakeClient(() =>
-      textResponse(null, [{ id: "1", type: "function", function: { name: "play_music", arguments: '{"query":"jazz"}' } }]),
+      textResponse(null, [
+        {
+          id: "1",
+          type: "function",
+          function: { name: "play_music", arguments: '{"query":"jazz"}' },
+        },
+      ]),
     );
     const history = new ConversationStore();
     const mod = new LlmModule({ client: client as any, history });

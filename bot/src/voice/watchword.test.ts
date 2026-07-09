@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   extractCommandSegment,
   extractWatchwordCommand,
-  partialMentionsCommand,
   isActionableVoiceCommand,
   isPartialSafeVoiceCommand,
   normalizeVoiceCommand,
+  partialMentionsCommand,
   watchwordAliases,
 } from "./watchword.js";
 
@@ -29,9 +29,10 @@ describe("extractWatchwordCommand", () => {
   });
 
   it("routes on KWS even when STT drops the wake name", () => {
-    expect(
-      extractWatchwordCommand("pause", "moneypenny", { kwsDetected: true }),
-    ).toEqual({ matched: true, command: "pause" });
+    expect(extractWatchwordCommand("pause", "moneypenny", { kwsDetected: true })).toEqual({
+      matched: true,
+      command: "pause",
+    });
   });
 
   it("watchword-only with KWS and empty STT", () => {
@@ -75,9 +76,9 @@ describe("extractWatchwordCommand", () => {
 
   it("does not invent commands from STT garble words", () => {
     expect(extractCommandSegment("Money peri, France, and.", "moneypenny")).toBe("");
-    expect(isActionableVoiceCommand(extractCommandSegment("Money peri, France, and.", "moneypenny"))).toBe(
-      false,
-    );
+    expect(
+      isActionableVoiceCommand(extractCommandSegment("Money peri, France, and.", "moneypenny")),
+    ).toBe(false);
     // "pass" is not mapped to pause/resume — only exact verbs.
     expect(extractCommandSegment("Honey penny pass.", "moneypenny")).toBe("");
   });
@@ -98,12 +99,12 @@ describe("extractWatchwordCommand", () => {
   });
 
   it("matches watchword-only utterances with an empty command", () => {
-    expect(
-      extractWatchwordCommand("Moneypenny", "moneypenny", { textWakeFallback: true }),
-    ).toEqual({
-      matched: true,
-      command: "",
-    });
+    expect(extractWatchwordCommand("Moneypenny", "moneypenny", { textWakeFallback: true })).toEqual(
+      {
+        matched: true,
+        command: "",
+      },
+    );
   });
 });
 

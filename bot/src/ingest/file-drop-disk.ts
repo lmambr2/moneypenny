@@ -3,7 +3,11 @@ import path from "node:path";
 import type { ChannelFile } from "../ts-protocol/client.js";
 
 /** TS6 on-disk layout: `<root>/virtualserver_<sid>/channel_<cid>/…` */
-export function channelFilesDir(tsFilesDir: string, virtualServerId: number | bigint, channelId: bigint): string {
+export function channelFilesDir(
+  tsFilesDir: string,
+  virtualServerId: number | bigint,
+  channelId: bigint,
+): string {
   return path.join(tsFilesDir, `virtualserver_${virtualServerId}`, `channel_${channelId}`);
 }
 
@@ -28,7 +32,12 @@ export interface DiskChannelEntry {
  * Recursively list files under a channel's on-disk directory. `filePath` uses the
  * same `/`-rooted shape as TS `ftgetfilelist` (e.g. `/recruitment spiel.md`).
  */
-export async function listDiskChannelFiles(channelDir: string, dirPath = "/", depth = 0, maxDepth = 8): Promise<DiskChannelEntry[]> {
+export async function listDiskChannelFiles(
+  channelDir: string,
+  dirPath = "/",
+  depth = 0,
+  maxDepth = 8,
+): Promise<DiskChannelEntry[]> {
   const absDir = diskPathForChannelFile(channelDir, dirPath);
   let names: string[];
   try {
@@ -45,7 +54,7 @@ export async function listDiskChannelFiles(channelDir: string, dirPath = "/", de
     const st = await fs.stat(abs);
     if (st.isDirectory()) {
       if (depth < maxDepth) {
-        out.push(...await listDiskChannelFiles(channelDir, filePath, depth + 1, maxDepth));
+        out.push(...(await listDiskChannelFiles(channelDir, filePath, depth + 1, maxDepth)));
       }
       continue;
     }

@@ -115,7 +115,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 9657,
     notes: "Ship Mining. Res 0.5. Inst 350. Win 2. Expl 4. ~9,657 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "aluminum",
@@ -133,7 +134,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 3680,
     notes: "Ship Mining. Res -0.4. Inst 0. Win -0.5. Expl -36. ~3,680 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "aphorite",
@@ -151,7 +153,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 101421,
     notes: "FPS Mining. Res 0. Inst 0. Win 0. Expl 0. ~101,421 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "aslarite",
@@ -169,7 +172,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 5095,
     notes: "Ship Mining. Res 0.5. Inst 700. Win 0.6. Expl 240. ~5,095 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "beryl",
@@ -185,9 +189,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 1.5,
     explosive: 20.0,
     valueScuApprox: 19887,
-    notes: "Ship Mining. Res 0.65. Inst 350. Win 1.5. Expl 20. ~19,887 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.65. Inst 350. Win 1.5. Expl 20. ~19,887 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "bexalite",
@@ -203,9 +209,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 0.4,
     explosive: 100.0,
     valueScuApprox: 28907,
-    notes: "Ship Mining. Res 0.6. Inst 600. Win 0.4. Expl 100. ~28,907 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.6. Inst 600. Win 0.4. Expl 100. ~28,907 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "borase",
@@ -223,7 +231,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 27376,
     notes: "Ship Mining. Res 0.3. Inst 40. Win 0.5. Expl 120. ~27,376 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "carinite",
@@ -241,7 +250,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: null,
     notes: "FPS Mining. Res 0.5. Inst 300. Win 10. Expl 0.5.",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "carinite-pure",
@@ -259,7 +269,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: null,
     notes: "FPS Mining. Res 0.5. Inst 300. Win 10. Expl 0.5.",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "copper",
@@ -275,9 +286,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: -0.9,
     explosive: -20.0,
     valueScuApprox: 3733,
-    notes: "Ship Mining. Res -0.7. Inst 50. Win -0.9. Expl -20. ~3,733 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res -0.7. Inst 50. Win -0.9. Expl -20. ~3,733 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "corundum",
@@ -295,7 +308,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 3662,
     notes: "Ship Mining. Res 0.1. Inst 50. Win 0.5. Expl -36. ~3,662 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "diamond",
@@ -311,9 +325,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 0.25,
     explosive: 8.0,
     valueScuApprox: 7488,
-    notes: "Ship Mining. Res -0.07. Inst 0.063. Win 0.25. Expl 8. ~7,488 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res -0.07. Inst 0.063. Win 0.25. Expl 8. ~7,488 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "dolivine",
@@ -331,7 +347,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 146082,
     notes: "FPS Mining. Res 0.1. Inst 0. Win 0. Expl 0. ~146,082 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "flowstone",
@@ -349,7 +366,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 98750,
     notes: "FPS Mining. Res -1. Inst 0. Win 0. Expl -1000. ~98,750 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "gold",
@@ -365,9 +383,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 2.1,
     explosive: 100.0,
     valueScuApprox: 29808,
-    notes: "Ship Mining. Res 0.5. Inst 550. Win 2.1. Expl 100. ~29,808 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.5. Inst 550. Win 2.1. Expl 100. ~29,808 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "hadanite",
@@ -385,7 +405,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 545419,
     notes: "FPS Mining. Res 0. Inst 200. Win 0. Expl 1. ~545,419 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "hephaestanite",
@@ -401,9 +422,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 0.5,
     explosive: 120.0,
     valueScuApprox: 4655,
-    notes: "Ship Mining. Res -0.3. Inst 400. Win 0.5. Expl 120. ~4,655 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res -0.3. Inst 400. Win 0.5. Expl 120. ~4,655 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "ice",
@@ -421,7 +444,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: null,
     notes: "Ship Mining. Res -0.5. Inst 0. Win 0.5. Expl -20.",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "iron",
@@ -439,7 +463,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 3346,
     notes: "Ship Mining. Res -0.4. Inst 50. Win -0.9. Expl 20. ~3,346 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "jaclium",
@@ -457,7 +482,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: null,
     notes: "FPS Mining. Res 0.5. Inst 100. Win 3. Expl 1.",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "janalite",
@@ -475,7 +501,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 4326260,
     notes: "FPS Mining. Res 0.3. Inst 300. Win 10. Expl 1. ~4,326,260 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "laranite",
@@ -493,7 +520,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 8667,
     notes: "Ship Mining. Res 0.5. Inst 400. Win 0.5. Expl 200. ~8,667 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "lindinium",
@@ -509,9 +537,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 0.23,
     explosive: 260.0,
     valueScuApprox: 46925,
-    notes: "Ship Mining. Res 0.95. Inst 1000. Win 0.23. Expl 260. ~46,925 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.95. Inst 1000. Win 0.23. Expl 260. ~46,925 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "ouratite",
@@ -527,9 +557,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 0.6,
     explosive: 240.0,
     valueScuApprox: 38205,
-    notes: "Ship Mining. Res 0.6. Inst 600. Win 0.6. Expl 240. ~38,205 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.6. Inst 600. Win 0.6. Expl 240. ~38,205 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "quantainium",
@@ -545,9 +577,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 2.3,
     explosive: 260.0,
     valueScuApprox: 151782,
-    notes: "Ship Mining. Res 0.95. Inst 1000. Win 2.3. Expl 260. ~151,782 aUEC/SCU (DataHub snapshot). Sours if left raw — refine ASAP..",
+    notes:
+      "Ship Mining. Res 0.95. Inst 1000. Win 2.3. Expl 260. ~151,782 aUEC/SCU (DataHub snapshot). Sours if left raw — refine ASAP..",
     defaultMethod: "dinyx",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "quartz",
@@ -565,7 +599,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 4343,
     notes: "Ship Mining. Res -0.7. Inst 50. Win 0.5. Expl -20. ~4,343 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "riccite",
@@ -581,9 +616,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 2.3,
     explosive: 260.0,
     valueScuApprox: 68973,
-    notes: "Ship Mining. Res 0.95. Inst 850. Win 2.3. Expl 260. ~68,973 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.95. Inst 850. Win 2.3. Expl 260. ~68,973 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "sadaryx",
@@ -601,7 +638,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 500000,
     notes: "FPS Mining. Res 0. Inst 200. Win 0. Expl 1. ~500,000 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "saldynium",
@@ -619,7 +657,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: null,
     notes: "FPS Mining. Res 0. Inst 100. Win 5. Expl 1.",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "savrilium",
@@ -635,9 +674,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 2.3,
     explosive: 260.0,
     valueScuApprox: 126429,
-    notes: "Ship Mining. Res 0.95. Inst 1000. Win 2.3. Expl 260. ~126,429 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.95. Inst 1000. Win 2.3. Expl 260. ~126,429 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "silicon",
@@ -655,7 +696,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 2431,
     notes: "Ship Mining. Res -0.2. Inst 50. Win 0.5. Expl 80. ~2,431 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "stileron",
@@ -671,9 +713,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 0.6,
     explosive: 260.0,
     valueScuApprox: 136581,
-    notes: "Ship Mining. Res 0.6. Inst 870. Win 0.6. Expl 260. ~136,581 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.6. Inst 870. Win 0.6. Expl 260. ~136,581 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "taranite",
@@ -689,9 +733,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 0.6,
     explosive: 240.0,
     valueScuApprox: 25854,
-    notes: "Ship Mining. Res 0.5. Inst 700. Win 0.6. Expl 240. ~25,854 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.5. Inst 700. Win 0.6. Expl 240. ~25,854 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "ferron",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "tin",
@@ -709,7 +755,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 3954,
     notes: "Ship Mining. Res -0.2. Inst 0. Win 0.5. Expl -36. ~3,954 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "titanium",
@@ -727,7 +774,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 8023,
     notes: "Ship Mining. Res 0.1. Inst 0. Win -0.7. Expl 20. ~8,023 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "torite",
@@ -743,9 +791,11 @@ export const ORES: readonly OreSpec[] = [
     optimalWindow: 2.1,
     explosive: 100.0,
     valueScuApprox: 7583,
-    notes: "Ship Mining. Res 0.25. Inst 550. Win 2.1. Expl 100. ~7,583 aUEC/SCU (DataHub snapshot).",
+    notes:
+      "Ship Mining. Res 0.25. Inst 550. Win 2.1. Expl 100. ~7,583 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "tungsten",
@@ -763,7 +813,8 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 10222,
     notes: "Ship Mining. Res -0.4. Inst 0. Win -0.7. Expl 80. ~10,222 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
   {
     id: "vlklimpet",
@@ -781,9 +832,9 @@ export const ORES: readonly OreSpec[] = [
     valueScuApprox: 9657,
     notes: "FPS Mining. Res 0.5. Inst 350. Win 2. Expl 4. ~9,657 aUEC/SCU (DataHub snapshot).",
     defaultMethod: "cormack",
-    locationsHint: "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
+    locationsHint:
+      "Patch-dependent — put org routes in doctrine; use community maps as bookmarks only",
   },
-
 ];
 
 /**
@@ -915,7 +966,10 @@ export const CRAFT_RECIPES: readonly CraftRecipe[] = [
 ];
 
 function norm(s: string): string {
-  return s.trim().toLowerCase().replace(/[_\s]+/g, "-");
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
 }
 
 export function findOre(query: string): OreSpec | undefined {

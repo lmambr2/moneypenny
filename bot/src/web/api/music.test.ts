@@ -1,13 +1,19 @@
-import { describe, it, expect, vi } from "vitest";
 import express from "express";
 import request from "supertest";
-import { createMusicRouter } from "./music.js";
+import { describe, expect, it, vi } from "vitest";
 import type { MusicProvider } from "../../music/provider.js";
+import { createMusicRouter } from "./music.js";
 
 function stubProvider(platform: MusicProvider["platform"]): MusicProvider {
   return {
     platform,
-    search: vi.fn(async () => ({ songs: [{ id: "1", name: platform, artist: "A", album: "", duration: 0, coverUrl: "", platform }], playlists: [], albums: [] })),
+    search: vi.fn(async () => ({
+      songs: [
+        { id: "1", name: platform, artist: "A", album: "", duration: 0, coverUrl: "", platform },
+      ],
+      playlists: [],
+      albums: [],
+    })),
     getSongUrl: async () => null,
     setQuality: () => {},
     getQuality: () => "default",
@@ -32,7 +38,9 @@ describe("music router", () => {
 
   it("routes platform=stream to the stream provider", async () => {
     const { app, stream, youtube } = build();
-    const res = await request(app).get("/search").query({ q: "http://example.com/radio.mp3", platform: "stream" });
+    const res = await request(app)
+      .get("/search")
+      .query({ q: "http://example.com/radio.mp3", platform: "stream" });
     expect(res.status).toBe(200);
     expect(res.body.songs[0].name).toBe("stream");
     expect(stream.search).toHaveBeenCalled();
@@ -76,7 +84,9 @@ describe("music router", () => {
       (req as any).user = { id: "a1", role: "admin", username: "admin" };
       next();
     });
-    app.use(createMusicRouter(local, stubProvider("youtube"), stubProvider("stream"), console as any));
+    app.use(
+      createMusicRouter(local, stubProvider("youtube"), stubProvider("stream"), console as any),
+    );
 
     const res = await request(app).delete("/tracks/abc123");
     expect(res.status).toBe(200);
@@ -92,7 +102,9 @@ describe("music router", () => {
       (req as any).user = { id: "m1", role: "member", username: "mem" };
       next();
     });
-    app.use(createMusicRouter(local, stubProvider("youtube"), stubProvider("stream"), console as any));
+    app.use(
+      createMusicRouter(local, stubProvider("youtube"), stubProvider("stream"), console as any),
+    );
     expect((await request(app).delete("/tracks/abc123")).status).toBe(403);
     expect(local.deleteSong).not.toHaveBeenCalled();
   });

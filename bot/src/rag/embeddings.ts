@@ -34,7 +34,10 @@ export class EmbeddingsClient {
 
   constructor(options: EmbeddingsClientOptions = {}) {
     this.baseUrl = (
-      options.baseUrl || process.env.EMBEDDING_URL || process.env.RKLLAMA_URL || "http://ollama:11434"
+      options.baseUrl ||
+      process.env.EMBEDDING_URL ||
+      process.env.RKLLAMA_URL ||
+      "http://ollama:11434"
     ).replace(/\/$/, "");
     this.model = options.model || process.env.EMBEDDING_MODEL || "embeddinggemma";
     // Pi CPU: embeddinggemma can take 3+ minutes per batch when contended.
@@ -78,7 +81,10 @@ export class EmbeddingsClient {
       }
     };
     const next = this.embedQueue.then(run, run);
-    this.embedQueue = next.then(() => undefined, () => undefined);
+    this.embedQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
 

@@ -1,7 +1,7 @@
 import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
-import type { SttProvider, StreamSttResult, Utterance } from "./types.js";
+import type { StreamSttResult, SttProvider, Utterance } from "./types.js";
 
 function streamErrorDetail(err: unknown): string | undefined {
   if (!axios.isAxiosError(err)) return undefined;

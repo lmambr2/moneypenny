@@ -2,9 +2,9 @@ import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
 import {
-  LlmClient,
   type ChatCompletionRequest,
   type ChatCompletionResponse,
+  LlmClient,
   type LlmClientOptions,
 } from "./client.js";
 import { probeLlmEndpoint } from "./probe.js";
@@ -28,11 +28,20 @@ export interface LlmEndpointHealth {
 export function isRetryableLlmError(err: unknown): boolean {
   if (!axios.isAxiosError(err)) {
     const msg = errorMessage(err).toLowerCase();
-    return msg.includes("timeout") || msg.includes("econnrefused") || msg.includes("enotfound")
-      || msg.includes("network");
+    return (
+      msg.includes("timeout") ||
+      msg.includes("econnrefused") ||
+      msg.includes("enotfound") ||
+      msg.includes("network")
+    );
   }
-  if (err.code === "ECONNABORTED" || err.code === "ECONNREFUSED" || err.code === "ENOTFOUND"
-    || err.code === "ETIMEDOUT" || err.code === "EHOSTUNREACH") {
+  if (
+    err.code === "ECONNABORTED" ||
+    err.code === "ECONNREFUSED" ||
+    err.code === "ENOTFOUND" ||
+    err.code === "ETIMEDOUT" ||
+    err.code === "EHOSTUNREACH"
+  ) {
     return true;
   }
   const status = err.response?.status;
@@ -100,7 +109,6 @@ export class FallbackLlmClient {
       return this.fallback.chat(req);
     }
   }
-
 }
 
 export function createLlmClient(opts: {

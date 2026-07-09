@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BumperCache } from "./bumper-cache.js";
 import { SpeechSink } from "./speech.js";
 
@@ -37,7 +37,11 @@ describe("SpeechSink", () => {
   });
 
   it("returns null (never throws) when TTS fails", async () => {
-    const tts = { synthesize: vi.fn(async () => { throw new Error("tts down"); }) };
+    const tts = {
+      synthesize: vi.fn(async () => {
+        throw new Error("tts down");
+      }),
+    };
     const sink = new SpeechSink({ tts, cache: cache(), logger });
     expect(await sink.render("x")).toBeNull();
     expect(loggerMock.warn).toHaveBeenCalled();
@@ -52,10 +56,14 @@ describe("SpeechSink", () => {
 
   it("a higher-clearance floor renders ephemeral and never touches the cache (§6.5)", async () => {
     const shared = cache();
-    const tts = { synthesize: vi.fn(async () => ({ audio: Buffer.from("classified"), format: "wav" })) };
+    const tts = {
+      synthesize: vi.fn(async () => ({ audio: Buffer.from("classified"), format: "wav" })),
+    };
     const sink = new SpeechSink({ tts, cache: shared, logger, voice: "af" });
 
-    const p1 = await sink.render("cleared-room brief", "doctrine", { floor: ["unclassified", "secret"] });
+    const p1 = await sink.render("cleared-room brief", "doctrine", {
+      floor: ["unclassified", "secret"],
+    });
     expect(p1).toBeTruthy();
     expect(p1).toContain(tmpdir()); // ephemeral, not the cache dir
 
@@ -66,7 +74,11 @@ describe("SpeechSink", () => {
     // And an unclassified render of the same text is a fresh cache entry, not a leak.
     const p3 = await sink.render("cleared-room brief", "doctrine", { floor: ["unclassified"] });
     expect(p3).not.toBe(p1);
-    try { rmSync(p1!, { force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(p1!, { force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("playSpeech renders then plays", async () => {

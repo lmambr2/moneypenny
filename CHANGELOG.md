@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Tooling: Biome lint + format
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `@biomejs/biome` in `bot/`; config `bot/biome.json` (bot + web sources)
+- Scripts: `npm run lint` / `lint:fix` / `format` / `check`
+- Deploy preflight + full `ci-validate` run Biome; VS Code settings + [docs/linting.md](./docs/linting.md)
+
 ### Security audit + SSRF hardening
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

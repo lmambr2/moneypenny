@@ -2,11 +2,7 @@ import type { Source } from './player.js';
 
 const STORAGE_KEY = 'source-tabs';
 
-export type TabKey =
-  | 'home.recommend'
-  | 'home.daily'
-  | 'home.user'
-  | 'library.user';
+export type TabKey = 'home.recommend' | 'home.daily' | 'home.user' | 'library.user';
 
 function readAll(): Partial<Record<TabKey, Source>> {
   try {

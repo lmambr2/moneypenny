@@ -1,9 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import {
-  RelayScheduler,
-  relaySongFromUrl,
-  resolveRelayFromProfile,
-} from "./relay.js";
+import { describe, expect, it, vi } from "vitest";
+import { RelayScheduler, relaySongFromUrl, resolveRelayFromProfile } from "./relay.js";
 
 describe("resolveRelayFromProfile", () => {
   it("returns null when no relayUrl", () => {

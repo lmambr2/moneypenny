@@ -28,25 +28,31 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 
-const props = withDefaults(defineProps<{
-  url: string;
-  size?: number;
-  radius?: number;
-  showShadow?: boolean;
-}>(), {
-  size: 48,
-  radius: 8,
-  showShadow: false,
-});
+const props = withDefaults(
+  defineProps<{
+    url: string;
+    size?: number;
+    radius?: number;
+    showShadow?: boolean;
+  }>(),
+  {
+    size: 48,
+    radius: 8,
+    showShadow: false,
+  },
+);
 
 const loaded = ref(false);
 const errored = ref(false);
 
 // Reset error state when URL changes
-watch(() => props.url, () => {
-  errored.value = false;
-  loaded.value = false;
-});
+watch(
+  () => props.url,
+  () => {
+    errored.value = false;
+    loaded.value = false;
+  },
+);
 
 function onImageLoad() {
   loaded.value = true;

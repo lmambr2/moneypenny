@@ -46,7 +46,7 @@ function nativeFrames(meta: mm.IAudioMetadata): { id: string; value: unknown }[]
 
 function hasFrame(frames: { id: string }[], ...ids: string[]): boolean {
   const want = ids.map((i) => i.toUpperCase());
-  return frames.some((f) => want.some((w) => f.id === w || f.id.startsWith(w + ":")));
+  return frames.some((f) => want.some((w) => f.id === w || f.id.startsWith(`${w}:`)));
 }
 
 function emptyTally(): TagScanTally {

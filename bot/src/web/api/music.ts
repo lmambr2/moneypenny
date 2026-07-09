@@ -1,19 +1,19 @@
+import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
-import path from "node:path";
-import type { MusicProvider } from "../../music/provider.js";
-import { YouTubeProvider } from "../../music/youtube.js";
 import type { Logger } from "../../logger.js";
-import { createRateLimit } from "../middleware/rateLimit.js";
-import { requireAdmin } from "../middleware/requireAdmin.js";
-import { errorCode, errorMessage } from "../../util/error.js";
-import { multerArray, uploadedFiles } from "./upload.js";
 import type { LocalProvider } from "../../music/local.js";
+import type { MusicProvider } from "../../music/provider.js";
 import type { RadioAnalyzer, TagStore, TrackTags } from "../../radio/index.js";
 import type { RadioConfig } from "../../radio/types.js";
+import { errorCode, errorMessage } from "../../util/error.js";
+import { createRateLimit } from "../middleware/rateLimit.js";
+import { requireAdmin } from "../middleware/requireAdmin.js";
+import { multerArray, uploadedFiles } from "./upload.js";
 
 function asLocalProvider(provider: MusicProvider): LocalProvider | null {
-  return "listForAnalysis" in provider && typeof (provider as LocalProvider).listForAnalysis === "function"
+  return "listForAnalysis" in provider &&
+    typeof (provider as LocalProvider).listForAnalysis === "function"
     ? (provider as LocalProvider)
     : null;
 }
@@ -54,7 +54,7 @@ export function createMusicRouter(
   youtubeProvider: MusicProvider,
   streamProvider: MusicProvider,
   logger: Logger,
-  options: MusicRouterOptions = {}
+  options: MusicRouterOptions = {},
 ): Router {
   const { tagStore, radioAnalyzer, getRadioConfig, canEditTags } = options;
   const router = Router();
@@ -151,9 +151,7 @@ export function createMusicRouter(
       const provider = getProvider(plat);
       // Empty local query = library browse — allow a higher limit for the scrollable UI.
       const lim =
-        !query && plat === "local"
-          ? parseLibraryLimit(limit, 500)
-          : parseSearchLimit(limit);
+        !query && plat === "local" ? parseLibraryLimit(limit, 500) : parseSearchLimit(limit);
       const result = await provider.search(query, lim);
       res.json(result);
     } catch (err) {
@@ -377,7 +375,8 @@ export function createMusicRouter(
         let code = "INTERNAL_ERROR";
         let status = 500;
         if (/permission| EACCES |eacces/i.test(msg) || errorCode(err) === "EACCES") {
-          msg = "Cannot write to music directory. Ensure MUSIC_DIR on the host is writable by uid 1000 (container user).";
+          msg =
+            "Cannot write to music directory. Ensure MUSIC_DIR on the host is writable by uid 1000 (container user).";
           code = "PERMISSION_DENIED";
           status = 403;
         } else if (/unsupported|format/i.test(msg)) {
@@ -386,7 +385,7 @@ export function createMusicRouter(
         }
         res.status(status).json({ error: msg, code });
       }
-    }
+    },
   );
 
   // GET /api/music/stats — indexed local track count (for Settings / dashboard).
@@ -451,7 +450,9 @@ export function createMusicRouter(
       }
       const local = asLocalProvider(localProvider);
       if (!local) {
-        res.status(501).json({ error: "Analyzer requires the local music provider", code: "NOT_IMPLEMENTED" });
+        res
+          .status(501)
+          .json({ error: "Analyzer requires the local music provider", code: "NOT_IMPLEMENTED" });
         return;
       }
       const force = !!(req.body as { force?: boolean })?.force;
@@ -463,7 +464,10 @@ export function createMusicRouter(
             res.status(404).json({ error: "Track not found in library index", code: "NOT_FOUND" });
             return;
           }
-          const result = await radioAnalyzer.analyzeTrack({ absPath, trackKey: trackId }, { force });
+          const result = await radioAnalyzer.analyzeTrack(
+            { absPath, trackKey: trackId },
+            { force },
+          );
           res.json({
             success: true,
             trackId,
@@ -479,7 +483,9 @@ export function createMusicRouter(
         res.json({ success: true, trackCount: tracks.length, ...tally });
       } catch (err) {
         logger.error({ err }, "analyzer batch failed");
-        res.status(500).json({ error: errorMessage(err, "Analyze failed"), code: "INTERNAL_ERROR" });
+        res
+          .status(500)
+          .json({ error: errorMessage(err, "Analyze failed"), code: "INTERNAL_ERROR" });
       }
     });
   }
@@ -501,10 +507,12 @@ export function createMusicRouter(
       const body = (req.body ?? {}) as Record<string, unknown>;
       const tags: Partial<TrackTags> = {};
       for (const f of STRING_TAGS) {
-        if (typeof body[f] === "string") (tags as Record<string, unknown>)[f] = (body[f] as string).trim();
+        if (typeof body[f] === "string")
+          (tags as Record<string, unknown>)[f] = (body[f] as string).trim();
       }
       for (const f of NUMBER_TAGS) {
-        if (body[f] != null && Number.isFinite(Number(body[f]))) (tags as Record<string, unknown>)[f] = Number(body[f]);
+        if (body[f] != null && Number.isFinite(Number(body[f])))
+          (tags as Record<string, unknown>)[f] = Number(body[f]);
       }
       try {
         if (Object.keys(tags).length > 0) tagStore.upsert(id, tags, "manual");
@@ -519,7 +527,9 @@ export function createMusicRouter(
         res.json({ success: true, tags: tagStore.get(id) });
       } catch (err) {
         logger.error({ err, id }, "tag edit failed");
-        res.status(500).json({ error: errorMessage(err, "Tag edit failed"), code: "INTERNAL_ERROR" });
+        res
+          .status(500)
+          .json({ error: errorMessage(err, "Tag edit failed"), code: "INTERNAL_ERROR" });
       }
     });
 
@@ -529,7 +539,7 @@ export function createMusicRouter(
         res.status(401).json({ error: "unauthenticated" });
         return;
       }
-      const stars = Number((req.body ?? {}).stars);
+      const stars = Number(req.body?.stars);
       if (!(stars >= 1 && stars <= 5)) {
         res.status(400).json({ error: "stars must be 1..5", code: "BAD_REQUEST" });
         return;

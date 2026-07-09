@@ -44,9 +44,7 @@ describe("schedulePhase0AutoPlay", () => {
     });
     expect(info).toHaveBeenCalledWith(expect.stringContaining("auto !test"));
     await vi.advanceTimersByTimeAsync(4000);
-    expect(executeCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "test" }),
-    );
+    expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ name: "test" }));
   });
 
   it("schedules explicit track when PHASE0_TEST_PLAY is set", async () => {

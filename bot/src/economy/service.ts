@@ -1,13 +1,7 @@
 /**
  * Economy command surface — deterministic org order builders + optional UEX prices.
  */
-import { parseEconomyArgs } from "./parse.js";
-import {
-  buildCraftOrder,
-  buildMineOrder,
-  buildRefineOrder,
-  isOrderError,
-} from "./orders.js";
+
 import {
   formatCraftOrder,
   formatEconHelp,
@@ -19,6 +13,8 @@ import {
   formatRefineOrder,
   formatSearch,
 } from "./format.js";
+import { buildCraftOrder, buildMineOrder, buildRefineOrder, isOrderError } from "./orders.js";
+import { parseEconomyArgs } from "./parse.js";
 import { getUexClient, type UexClient } from "./uex.js";
 
 export type EconomyCommand = "mine" | "refine" | "craft" | "econ";

@@ -1,13 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PlaybackEngine } from "./engine.js";
-import { LocalProvider } from "../../music/local.js";
-import { YtLibrary } from "../../music/ytlibrary.js";
 import Database from "better-sqlite3";
-import { DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlayQueue } from "../../audio/queue.js";
+import { LocalProvider } from "../../music/local.js";
+import { DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
+import { YtLibrary } from "../../music/ytlibrary.js";
+import { PlaybackEngine } from "./engine.js";
 
 function fakeLogger() {
   const l: any = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -85,7 +85,9 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
   it("playDemoTrack falls back to YouTube when the local copy cannot be resolved", async () => {
     vi.spyOn(local, "getSongUrl").mockResolvedValue(null);
     youtubeSearch.mockResolvedValue({
-      songs: [{ id: DEFAULT_DEMO_VIDEO_ID, name: "Demo", artist: "Artist", album: "", duration: 60 }],
+      songs: [
+        { id: DEFAULT_DEMO_VIDEO_ID, name: "Demo", artist: "Artist", album: "", duration: 60 },
+      ],
       playlists: [],
       albums: [],
     });

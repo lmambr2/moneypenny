@@ -1,5 +1,5 @@
-import nacl from "tweetnacl";
 import crypto from "node:crypto";
+import nacl from "tweetnacl";
 
 export interface TS3Identity {
   publicKey: Uint8Array;

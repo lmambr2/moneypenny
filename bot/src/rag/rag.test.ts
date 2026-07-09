@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import axios from "axios";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EmbeddingsClient } from "./embeddings.js";
-import { QdrantClient } from "./qdrant.js";
 import { RetrievalStore } from "./index.js";
+import { QdrantClient } from "./qdrant.js";
 
 vi.mock("axios");
 
@@ -19,11 +19,19 @@ beforeEach(() => {
 describe("EmbeddingsClient", () => {
   it("POSTs /v1/embeddings and returns vectors in input order", async () => {
     http.post.mockResolvedValue({
-      data: { data: [{ embedding: [4, 5, 6], index: 1 }, { embedding: [1, 2, 3], index: 0 }] },
+      data: {
+        data: [
+          { embedding: [4, 5, 6], index: 1 },
+          { embedding: [1, 2, 3], index: 0 },
+        ],
+      },
     });
     const c = new EmbeddingsClient({ baseUrl: "http://ollama:11434", model: "embeddinggemma" });
     const vecs = await c.embed(["a", "b"]);
-    expect(vecs).toEqual([[1, 2, 3], [4, 5, 6]]); // sorted by index
+    expect(vecs).toEqual([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]); // sorted by index
     const [url, body] = http.post.mock.calls[0];
     expect(url).toBe("/v1/embeddings");
     expect(body).toMatchObject({ model: "embeddinggemma", input: ["a", "b"] });
@@ -50,14 +58,18 @@ describe("QdrantClient", () => {
   });
 
   it("does not recreate an existing collection", async () => {
-    http.get.mockResolvedValue({ data: { result: { config: { params: { vectors: { size: 768 } } } } } });
+    http.get.mockResolvedValue({
+      data: { result: { config: { params: { vectors: { size: 768 } } } } },
+    });
     const q = new QdrantClient();
     await q.ensureCollection("docs", 768);
     expect(http.put).not.toHaveBeenCalled();
   });
 
   it("searches with limit + payload and returns hits", async () => {
-    http.post.mockResolvedValue({ data: { result: [{ id: "x", score: 0.9, payload: { text: "t" } }] } });
+    http.post.mockResolvedValue({
+      data: { result: [{ id: "x", score: 0.9, payload: { text: "t" } }] },
+    });
     const q = new QdrantClient();
     const hits = await q.search("docs", [1, 2, 3], 4);
     expect(hits[0]).toMatchObject({ id: "x", score: 0.9 });
@@ -115,7 +127,10 @@ describe("RetrievalStore", () => {
       const texts = Array.isArray(input) ? input : [input];
       return texts.map(() => [1, 1, 1]);
     });
-    const body = Array.from({ length: 20 }, (_, i) => `## Section ${i}\n${"word ".repeat(200)}`).join("\n\n");
+    const body = Array.from(
+      { length: 20 },
+      (_, i) => `## Section ${i}\n${"word ".repeat(200)}`,
+    ).join("\n\n");
     const n = await store.ingest("big.md", body);
     expect(n).toBeGreaterThan(8);
     expect(embeddings.embed.mock.calls.length).toBeGreaterThan(1);
@@ -125,10 +140,18 @@ describe("RetrievalStore", () => {
   it("query embeds the question and maps hits to chunks", async () => {
     const { store, embeddings, qdrant } = makeStore();
     embeddings.embed.mockResolvedValue([[9, 9, 9]]);
-    qdrant.search.mockResolvedValue([{ id: "a", score: 0.8, payload: { text: "answer", source: "doc.md", classification: "unclassified" } }]);
+    qdrant.search.mockResolvedValue([
+      {
+        id: "a",
+        score: 0.8,
+        payload: { text: "answer", source: "doc.md", classification: "unclassified" },
+      },
+    ]);
     const out = await store.query("what is the answer?");
     expect(qdrant.search).toHaveBeenCalledWith("docs", [9, 9, 9], 8, undefined);
-    expect(out).toEqual([{ text: "answer", source: "doc.md", score: 0.8, classification: "unclassified" }]);
+    expect(out).toEqual([
+      { text: "answer", source: "doc.md", score: 0.8, classification: "unclassified" },
+    ]);
   });
 
   it("query passes a classification filter when allowedClassifications is given", async () => {
@@ -151,8 +174,26 @@ describe("RetrievalStore", () => {
     const { store, embeddings, qdrant } = makeStore();
     embeddings.embed.mockResolvedValue([[1, 0, 0]]);
     qdrant.search.mockResolvedValue([
-      { id: "fresh", score: 0.9, payload: { text: "current", source: "a.md", classification: "unclassified", valid_until: "2099-01-01" } },
-      { id: "stale", score: 0.95, payload: { text: "old", source: "b.md", classification: "unclassified", valid_until: "2020-01-01" } },
+      {
+        id: "fresh",
+        score: 0.9,
+        payload: {
+          text: "current",
+          source: "a.md",
+          classification: "unclassified",
+          valid_until: "2099-01-01",
+        },
+      },
+      {
+        id: "stale",
+        score: 0.95,
+        payload: {
+          text: "old",
+          source: "b.md",
+          classification: "unclassified",
+          valid_until: "2020-01-01",
+        },
+      },
     ]);
     const out = await store.query("q", 2);
     expect(out).toHaveLength(1);

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { generateIdentity, exportIdentity, importIdentity } from "./identity.js";
+import { describe, expect, it } from "vitest";
+import { exportIdentity, generateIdentity, importIdentity } from "./identity.js";
 
 describe("TS3 Identity", () => {
   it("generates a valid identity with keypair", () => {

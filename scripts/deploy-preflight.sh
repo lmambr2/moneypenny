@@ -4,7 +4,7 @@
 # files, or rank-gating / command regressions.
 #
 # Usage:
-#   ./scripts/deploy-preflight.sh              # markers + tsc + deploy-critical tests
+#   ./scripts/deploy-preflight.sh              # markers + tsc + biome + deploy-critical tests
 #   ./scripts/deploy-preflight.sh --full       # also run npm run test:all
 #   ./scripts/deploy-preflight.sh --markers    # tree fingerprint only (fast)
 #
@@ -30,6 +30,8 @@ Options:
   --full       Run full test:all after critical tests (slower)
   --markers    Only assert production-fork files + COMMAND_MANIFEST markers
   -h, --help
+
+Gates (default): production fork markers → tsc --noEmit → biome check → vitest critical.
 EOF
 }
 
@@ -57,6 +59,10 @@ fi
 echo "--- Typecheck ---"
 (cd "$ROOT/bot" && npx tsc --noEmit)
 _deploy_ok "tsc --noEmit"
+
+echo "--- Biome lint ---"
+(cd "$ROOT/bot" && npx biome check .)
+_deploy_ok "biome check"
 
 echo "--- Deploy-critical tests ---"
 (

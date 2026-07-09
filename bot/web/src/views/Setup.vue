@@ -93,7 +93,10 @@ async function createBotAndNext() {
     currentStep.value = 2;
   } catch (err: any) {
     const playerStore = usePlayerStore();
-    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Failed to create bot during setup';
+    const msg =
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      'Failed to create bot during setup';
     playerStore.notify(msg, 'error');
   }
 }

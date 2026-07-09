@@ -11,13 +11,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue';
 import { Icon } from '@iconify/vue';
+import { onUnmounted, ref, watch } from 'vue';
 import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
 const visible = ref(false);
-const current = ref<{ id: number; message: string; type: 'error' | 'info'; retryAfter?: number } | null>(null);
+const current = ref<{
+  id: number;
+  message: string;
+  type: 'error' | 'info';
+  retryAfter?: number;
+} | null>(null);
 let timer: ReturnType<typeof setTimeout> | null = null;
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
 let baseMessage = '';
@@ -62,11 +67,14 @@ watch(
       updateCountdown(); // initial
       countdownInterval = setInterval(updateCountdown, 1000);
     } else {
-      timer = setTimeout(() => {
-        visible.value = false;
-      }, current.value.type === 'error' ? 5000 : 3000);
+      timer = setTimeout(
+        () => {
+          visible.value = false;
+        },
+        current.value.type === 'error' ? 5000 : 3000,
+      );
     }
-  }
+  },
 );
 
 onUnmounted(() => {

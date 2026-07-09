@@ -1,12 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CommandExecutor } from "./executor.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotConfig } from "../../data/config.js";
 import type { TS3TextMessage } from "../../ts-protocol/client.js";
+import { CommandExecutor } from "./executor.js";
 
-function makeExecutor(overrides: Partial<{
-  listClientsInCurrentChannel: () => Promise<{ clid: number; nickname: string }[]>;
-  moveClientToChannel: (t: string, c: string) => Promise<string>;
-}> = {}) {
+function makeExecutor(
+  overrides: Partial<{
+    listClientsInCurrentChannel: () => Promise<{ clid: number; nickname: string }[]>;
+    moveClientToChannel: (t: string, c: string) => Promise<string>;
+  }> = {},
+) {
   const config = { commandPrefix: "!" } as BotConfig;
   return new CommandExecutor({
     playback: {} as any,
@@ -40,12 +42,15 @@ describe("CommandExecutor — moveall", () => {
 
   it("stages a mass move and requires confirm", async () => {
     const ex = makeExecutor();
-    const out = await ex.execute({
-      name: "moveall",
-      args: "Briefing Room",
-      rawArgs: ["Briefing", "Room"],
-      flags: new Set(),
-    }, msg);
+    const out = await ex.execute(
+      {
+        name: "moveall",
+        args: "Briefing Room",
+        rawArgs: ["Briefing", "Room"],
+        flags: new Set(),
+      },
+      msg,
+    );
     expect(out).toMatch(/Move 2 client/i);
     expect(out).toMatch(/confirm within 30/i);
   });
@@ -53,18 +58,24 @@ describe("CommandExecutor — moveall", () => {
   it("executes after confirm", async () => {
     const move = vi.fn().mockResolvedValue("Moved Bond → Briefing Room.");
     const ex = makeExecutor({ moveClientToChannel: move });
-    await ex.execute({
-      name: "moveall",
-      args: "Briefing",
-      rawArgs: ["Briefing"],
-      flags: new Set(),
-    }, msg);
-    const out = await ex.execute({
-      name: "moveall",
-      args: "confirm",
-      rawArgs: ["confirm"],
-      flags: new Set(),
-    }, msg);
+    await ex.execute(
+      {
+        name: "moveall",
+        args: "Briefing",
+        rawArgs: ["Briefing"],
+        flags: new Set(),
+      },
+      msg,
+    );
+    const out = await ex.execute(
+      {
+        name: "moveall",
+        args: "confirm",
+        rawArgs: ["confirm"],
+        flags: new Set(),
+      },
+      msg,
+    );
     expect(move).toHaveBeenCalledTimes(2);
     expect(out).toMatch(/Mass move complete: 2\/2/i);
   });

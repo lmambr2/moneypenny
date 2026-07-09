@@ -45,12 +45,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../api/axios.js';
-import { usePlayerStore } from '../stores/player.js';
 import CoverArt from '../components/CoverArt.vue';
+import { usePlayerStore } from '../stores/player.js';
 
 const router = useRouter();
 const store = usePlayerStore();
@@ -168,10 +168,14 @@ watch(currentSong, () => {
   lineRefs.value = {};
 });
 
-watch(() => store.isPlaying, (playing) => {
-  if (playing) startSync();
-  else stopSync();
-}, { immediate: true });
+watch(
+  () => store.isPlaying,
+  (playing) => {
+    if (playing) startSync();
+    else stopSync();
+  },
+  { immediate: true },
+);
 
 onMounted(() => {
   if (currentSong.value) fetchLyrics();

@@ -3,17 +3,17 @@
  * No I/O; safe for unit tests and command handlers.
  */
 import {
-  CRAFT_RECIPES,
   CATALOG_DISCLAIMER,
-  ORES,
-  REFINE_BASE,
-  REFINE_METHODS,
+  CRAFT_RECIPES,
+  type CraftRecipe,
   findOre,
   findRecipe,
   findRefineMethod,
   materialLabel,
-  type CraftRecipe,
+  ORES,
   type OreSpec,
+  REFINE_BASE,
+  REFINE_METHODS,
   type RefineMethod,
 } from "./catalog.js";
 

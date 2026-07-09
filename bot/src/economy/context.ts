@@ -4,14 +4,14 @@
  * Static seed only — no network I/O on the ask path.
  */
 import {
+  CATALOG_DISCLAIMER,
   catalogBrief,
   findOre,
   findRecipe,
   findRefineMethod,
-  CATALOG_DISCLAIMER,
 } from "./catalog.js";
-import { buildCraftOrder, buildMineOrder, buildRefineOrder, isOrderError } from "./orders.js";
 import { formatCraftOrder, formatMineOrder, formatRefineOrder } from "./format.js";
+import { buildCraftOrder, buildMineOrder, buildRefineOrder, isOrderError } from "./orders.js";
 
 const ECON_KEYWORDS =
   /\b(mine|mining|miner|ore|ores|refine|refining|refinery|craft|crafting|scu|quantainium|quantanium|bexalite|taranite|laranite|borase|agricium|hephaestanite|stileron|riccite|aslarite|a\.?uec|economy|bom|bill of materials|raw cargo|souring|uex)\b/i;
@@ -91,8 +91,7 @@ export function economyContextForQuestion(
   }
 
   out.push({
-    text:
-      "For exact order math use: !mine <ore> scu:N, !refine <ore> scu:N method:name, !craft <recipe> qty:N, !econ ores|methods|recipes|prices <ore>. Live prices via UEX when enabled.",
+    text: "For exact order math use: !mine <ore> scu:N, !refine <ore> scu:N method:name, !craft <recipe> qty:N, !econ ores|methods|recipes|prices <ore>. Live prices via UEX when enabled.",
     source: "economy/commands",
     score: 0.85,
   });

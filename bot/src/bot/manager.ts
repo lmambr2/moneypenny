@@ -1,22 +1,17 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
-import {
-  BotInstance,
-  type BotInstanceOptions,
-} from "./instance.js";
-import type { MusicProvider } from "../music/provider.js";
-import { YouTubeProvider } from "../music/youtube.js";
-import type { BotDatabase } from "../data/database.js";
-import type { BotConfig } from "../data/config.js";
-import { mergeBotSecret } from "../data/bot-secrets.js";
-import type { Logger } from "../logger.js";
-
-import type { ServerProtocol } from "../ts-protocol/client.js";
 import type { AvatarStore } from "../data/avatars.js";
-import type { RetrievalStore } from "../rag/index.js";
+import { mergeBotSecret } from "../data/bot-secrets.js";
+import type { BotConfig } from "../data/config.js";
+import type { BotDatabase } from "../data/database.js";
 import type { DoctrineStore } from "../data/doctrine.js";
 import type { FileDropStore } from "../data/file-drop.js";
+import type { Logger } from "../logger.js";
+import type { MusicProvider } from "../music/provider.js";
 import type { TagStore } from "../radio/index.js";
+import type { RetrievalStore } from "../rag/index.js";
+import type { ServerProtocol } from "../ts-protocol/client.js";
+import { BotInstance } from "./instance.js";
 
 /**
  * Run bot.connect() with a hard deadline. If the handshake hangs (e.g. the
@@ -24,25 +19,15 @@ import type { TagStore } from "../radio/index.js";
  * instance down instead of waiting for the library's 60s idle timeout, so
  * the HTTP /start call returns promptly and the UI doesn't lock up.
  */
-async function connectWithTimeout(
-  bot: BotInstance,
-  ms: number,
-  logger: Logger
-): Promise<void> {
+async function connectWithTimeout(bot: BotInstance, ms: number, logger: Logger): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`connect timeout after ${ms}ms`)),
-      ms
-    );
+    timer = setTimeout(() => reject(new Error(`connect timeout after ${ms}ms`)), ms);
   });
   try {
     await Promise.race([bot.connect(), timeout]);
   } catch (err) {
-    logger.warn(
-      { err, botId: bot.id },
-      "Connect failed or timed out — tearing down instance"
-    );
+    logger.warn({ err, botId: bot.id }, "Connect failed or timed out — tearing down instance");
     try {
       bot.disconnect();
     } catch {
@@ -100,7 +85,7 @@ export class BotManager extends EventEmitter {
     fileDropStore?: FileDropStore,
     tsFilesDir?: string,
     tsVirtualServerId?: number,
-    tagStore?: TagStore
+    tagStore?: TagStore,
   ) {
     super();
     this.localProvider = localProvider;
@@ -211,7 +196,10 @@ export class BotManager extends EventEmitter {
     if (bot && params.name) {
       bot.name = params.name;
     }
-    this.logger.info({ botId: id }, "Bot instance config updated (connection changes need restart)");
+    this.logger.info(
+      { botId: id },
+      "Bot instance config updated (connection changes need restart)",
+    );
   }
 
   getBotConfig(id: string): import("../data/database.js").BotInstance | undefined {
@@ -231,8 +219,14 @@ export class BotManager extends EventEmitter {
    * `autoStart` is true (i.e. they should be connected). `reconnect` reuses
    * startBot, which tears down and rebuilds the instance.
    */
-  getWatchdogTargets(): Array<{ id: string; name: string; isConnected: () => boolean; reconnect: () => Promise<void> }> {
-    return this.database.getBotInstances()
+  getWatchdogTargets(): Array<{
+    id: string;
+    name: string;
+    isConnected: () => boolean;
+    reconnect: () => Promise<void>;
+  }> {
+    return this.database
+      .getBotInstances()
       .filter((s) => s.autoStart)
       .map((s) => ({
         id: s.id,
@@ -282,7 +276,7 @@ export class BotManager extends EventEmitter {
           virtualServerId: this.tsVirtualServerId ?? 1,
         },
         localProvider: this.localProvider,
-      tagStore: this.tagStore,
+        tagStore: this.tagStore,
         youtubeProvider: this.youtubeProvider,
         streamProvider: this.streamProvider,
         database: this.database,
@@ -334,7 +328,7 @@ export class BotManager extends EventEmitter {
           virtualServerId: this.tsVirtualServerId ?? 1,
         },
         localProvider: this.localProvider,
-      tagStore: this.tagStore,
+        tagStore: this.tagStore,
         youtubeProvider: this.youtubeProvider,
         streamProvider: this.streamProvider,
         database: this.database,
@@ -348,37 +342,37 @@ export class BotManager extends EventEmitter {
 
       // Only auto-connect bots that have autoStart enabled
       if (saved.autoStart) {
-        bot.connect().then(() => {
-          // Persist identity after successful connection for future restarts
-          this.persistBotIdentity(saved, bot);
-          this.logger.info(
-            { botId: saved.id, name: saved.name },
-            "Auto-connected saved bot"
-          );
-        }).catch((err) => {
-          this.logger.error(
-            { err, botId: saved.id, name: saved.name },
-            "Failed to auto-connect bot (start manually from Settings)"
-          );
-        });
+        bot
+          .connect()
+          .then(() => {
+            // Persist identity after successful connection for future restarts
+            this.persistBotIdentity(saved, bot);
+            this.logger.info({ botId: saved.id, name: saved.name }, "Auto-connected saved bot");
+          })
+          .catch((err) => {
+            this.logger.error(
+              { err, botId: saved.id, name: saved.name },
+              "Failed to auto-connect bot (start manually from Settings)",
+            );
+          });
 
         // Stagger connections to avoid overwhelming the TS server
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } else {
         this.logger.info(
           { botId: saved.id, name: saved.name },
-          "Loaded bot (autoStart disabled, not connecting)"
+          "Loaded bot (autoStart disabled, not connecting)",
         );
       }
     }
 
-    this.logger.info(
-      { count: savedInstances.length },
-      "Loaded saved bot instances"
-    );
+    this.logger.info({ count: savedInstances.length }, "Loaded saved bot instances");
   }
 
-  private persistBotIdentity(saved: import("../data/database.js").BotInstance, bot: BotInstance): void {
+  private persistBotIdentity(
+    saved: import("../data/database.js").BotInstance,
+    bot: BotInstance,
+  ): void {
     const identity = bot.getIdentityExport();
     if (identity && identity !== saved.identity) {
       this.database.saveBotInstance({ ...saved, identity });
