@@ -9,8 +9,9 @@ voice-smoke / SC-client arc. Complements
 **Method:** Source review of `bot/src/web/**` (auth/CSRF/gates), `bot/src/rights`,
 `bot/src/control`, `bot/src/ts-protocol`, `bot/src/ingest`, `bot/src/music/url-guard`,
 `bot/src/harness`, `bot/src/tools` (SC/status), `bot/src/memory`, `bot/src/rag`,
-`scripts/deploy-to-pi.sh`, `scripts/rights-rank-gating.json`; full bot vitest
-suite; `npm audit` (bot); static `rg` for spawn/eval/path/fetch/secrets.
+`services/*` listen addresses, `docker-compose.yml` + `docker-compose.ace-step.yml`
+host publish bindings, `scripts/deploy-to-pi.sh`, `scripts/rights-rank-gating.json`;
+full bot vitest suite; `npm audit` (bot); static `rg` for spawn/eval/path/fetch/secrets.
 
 **Non-goals:** Live Pi/TS pen-test, full transitive SCA product, Python brain /
 Vue rewrite / teamspeak.js adoption, shipping every remediation in this pass.
@@ -42,9 +43,11 @@ TLS, proxy trust) and **admin-equivalent power** on a shared dashboard.
 6. **Low/privacy:** Admin `GET /api/bot/memory/private?uid=` can list any
    member’s `!remember` facts — expected for admin, sensitive on shared
    admin accounts.
+7. **Medium (ops bind):** ACE-Step overlay host publish is all-interfaces by
+   default; core AI sidecars correctly use `127.0.0.1:…` publish.
 
-**No Critical** in-repo issues found in this pass. Suite: **1016 passed**,
-1 failed before P0 template fix; re-verify green after fix.
+**No Critical** in-repo issues found in this pass. Suite: **1018+** passed after
+P0 fixes; compose bind posture regression tests added.
 
 ---
 
@@ -113,6 +116,41 @@ remains fixed and covered by `url-guard` / engine tests.
 | L-2026-07-09-5 | `npm audit` | 1 **low**: esbuild Windows dev-server advisory — not production path. |
 | L-2026-07-09-6 | `BOT_SESSION_SECRET` | Still reserved/unused; sessions are random DB-hashed tokens. |
 | L-2026-07-09-7 | Deploy rsync | `scripts/deploy-to-pi.sh` excludes `.env`; `--delete` gated — good. Operator must protect SSH and host `bot/data`. |
+| L-2026-07-09-8 | Sidecar in-container `0.0.0.0` | STT/TTS/bridges/MemPalace/ACE listen on all interfaces **inside** the container; safety depends on **host publish** mapping. |
+
+#### M-2026-07-09-5 — ACE-Step compose host publish is not loopback-bound by default
+
+| | |
+|--|--|
+| **Severity** | Medium (ops / multi-service bind) |
+| **Location** | `docker-compose.ace-step.yml` `ports: "${ACE_STEP_PORT:-7865}:7865"`; adapter `HOST=0.0.0.0` |
+| **Threat** | On a GPU host, default Docker publish binds **all host interfaces**, so the generate adapter (mock or worker proxy) may be LAN-reachable without auth. |
+| **Impact** | Untrusted LAN clients could burn GPU / fill disk under `MUSIC_DIR` if mock is off and worker is up; mock mode still exposes a generate surface. |
+| **Remediation** | Prefer `127.0.0.1:7865:7865` (or firewall `:7865`) on multi-user LANs; reach from Pi via SSH tunnel or private network ACL. Documented accepted risk for single-operator GPU boxes. |
+| **Tests** | `bot/src/data/compose-bind-posture.test.ts` asserts ACE overlay is not loopback by default (documents residual). |
+
+### Multi-service network bind posture
+
+**Design:** Process listen address inside the container is often `0.0.0.0` (required for Docker port mapping). **Host-side publish** is the security boundary for “is this on the LAN?”
+
+| Service | Compose file | Host publish (shipped default) | In-container bind | Posture |
+|---------|--------------|--------------------------------|-------------------|---------|
+| **bot** (UI/API) | `docker-compose.yml` | `127.0.0.1:3000:3000` | `BIND_ADDRESS=0.0.0.0` | **OK** — localhost host publish |
+| **ollama** | same | `127.0.0.1:11434:11434` | image default | **OK** |
+| **rkllama** | same | `127.0.0.1:8080:8080` | `0.0.0.0` | **OK** |
+| **stt-whisper** | same | `127.0.0.1:9000:9000` | `0.0.0.0` | **OK** — no auth on STT |
+| **stt-mock** | same | `127.0.0.1:9001:9000` | `0.0.0.0` | **OK** (dev) |
+| **piper-tts** | same | `127.0.0.1:8880:8880` | `0.0.0.0` | **OK** — no auth on TTS |
+| **spotify-bridge** | same | `127.0.0.1:8082:8082` | `0.0.0.0` | **OK** |
+| **mempalace-bridge** | same | `127.0.0.1:8090:8090` | `0.0.0.0` | **OK** |
+| **qdrant** | same | *none* (compose network only) | container default | **OK** — bot uses `http://qdrant:6333` |
+| **tidal-bridge** | same | *none* (network only) | `0.0.0.0` | **OK** — bot uses `http://tidal-bridge:8081` |
+| **teamspeak** (profile `server`) | same | `9987/udp`, `30033`, `10080`, `10022` **all interfaces** | image | **OK intentional** — clients must reach voice/query |
+| **ace-step** | `docker-compose.ace-step.yml` | `${PORT:-7865}:7865` **all interfaces** | `HOST=0.0.0.0` | **Residual M-5** |
+
+**Evidence / regression guard:** `bot/src/data/compose-bind-posture.test.ts` parses shipped compose YAML and fails if AI sidecars lose `127.0.0.1:` host publish.
+
+**Operator residual:** Changing any `127.0.0.1:…` publish to `0.0.0.0:…` without a firewall exposes **unauthenticated** STT/TTS/LLM/bridge HTTP. Never do that on an untrusted network. See [hardening.md](./hardening.md).
 
 ### Surfaces reviewed (OK / residual)
 
@@ -132,6 +170,7 @@ remains fixed and covered by `url-guard` / engine tests.
 | Parameterized better-sqlite3 | **OK** | |
 | File-drop channel | **OK** | Trust TS channel ACLs |
 | SC org / host status plugins | **OK** fail-open | Admin URL LAN SSRF (M2) |
+| **Multi-service compose host publish / bind** | **OK** for core AI sidecars (loopback publish) | ACE-Step default all-if; TS server all-if intentional; in-container 0.0.0.0 |
 
 ---
 
@@ -231,10 +270,12 @@ test -f bot/src/music/url-guard.ts
 test -f bot/src/bot/instance.ts
 test -f bot/src/tools/sc-org-client.ts
 test -f scripts/rights-rank-gating.json
+test -f docker-compose.yml
+test -f docker-compose.ace-step.yml
 
 cd bot && npx vitest run src/rights/rank-gating-template.test.ts \
   src/tools/sc-org-client.test.ts src/music/url-guard.test.ts \
-  src/web/middleware/csrf.test.ts
+  src/web/middleware/csrf.test.ts src/data/compose-bind-posture.test.ts
 ```
 
 ---
