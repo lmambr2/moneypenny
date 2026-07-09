@@ -10,7 +10,8 @@ Quick reference for operators and `@analyst`. **Rank-gating controls who can ret
 
 **Economy commands:** `!mine` / `!refine` / `!craft` / `!econ` (product).  
 **Private logistics doctrine:** copy templates from `docs/examples/doctrine/` into
-your private doctrine store — do not publish org routes in a public repo.
+your **private** store (`bot/data/doctrine/` or host `doctrine.git`) — never into
+this public GitHub tree. The public repo has **no** real RAG corpus.
 
 ---
 

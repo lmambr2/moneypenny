@@ -69,7 +69,13 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 
 ### E. Mutable state (`bot/data/` volume)
 
-`config.json`, `moneypenny.db`, `doctrine/`, logs, avatars. Writable by uid 1000 in Docker.
+`config.json`, `moneypenny.db`, **`doctrine/`** (runtime RAG corpus), logs, avatars.
+Writable by uid 1000 in Docker.
+
+**Hard rule:** never commit real doctrine / RAG corpus into the public repo.
+Runtime corpus = `bot/data/doctrine/` (gitignored). Public git only has product
+docs + `docs/examples/doctrine/*.example.md` templates. Top-level `/doctrine/`
+is gitignored.
 
 ### Topological seams (where clean cuts go)
 

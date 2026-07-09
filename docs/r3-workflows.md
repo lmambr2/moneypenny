@@ -139,4 +139,4 @@ Route heavy, long-context work through `!analyst` + delegate model.
 ## 7. References
 
 `DESIGN.md` §R3 · `bot/src/docs/{workflow,analyst,export}.ts` ·
-`bot/src/web/api/rag.ts` · [rag-ingestion-cheatsheet](../doctrine/ops/rag-ingestion-cheatsheet.md)
+`bot/src/web/api/rag.ts` · [rag-ingestion-cheatsheet](./rag-ingestion-cheatsheet.md)

@@ -18,22 +18,19 @@ build/
 *.key
 
 # ---------------------------------------------------------------------------
-# Private org doctrine / logistics — NEVER commit real routes, pads, BOMs.
-# Runtime corpus lives under /bot/data/ (ignored above). Templates only:
-#   docs/examples/doctrine/*.example.md
+# REAL doctrine / RAG corpus — NEVER in the public repo.
+# Runtime knowledge base: /bot/data/doctrine/ (under /bot/data/, ignored above).
+# Private wiki: separate doctrine.git on the host — not this GitHub tree.
+# Public templates only: docs/examples/doctrine/*.example.md (+ README).
+# Product how-to: docs/rag-ingestion.md, docs/rag-ingestion-cheatsheet.md
 # ---------------------------------------------------------------------------
+/doctrine/
 /doctrine.private/
 /private-doctrine/
 /doctrine.local/
-**/*.doctrine.local.md
-# Extra trees people invent next to the repo
 /org-doctrine/
 /my-doctrine/
-# Under public doctrine/: only product cheatsheets (e.g. RAG ops). Block the rest.
-/doctrine/**
-!/doctrine/ops/
-/doctrine/ops/**
-!/doctrine/ops/rag-ingestion-cheatsheet.md
+**/*.doctrine.local.md
 # Examples dir: only *.example.md + README (filled-in copies stay local)
 /docs/examples/doctrine/**
 !/docs/examples/doctrine/README.md

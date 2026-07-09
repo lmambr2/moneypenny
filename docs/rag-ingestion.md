@@ -10,6 +10,20 @@ enabled for any of it to work.
 > Music uses the same ideas in two of these paths (web upload, TeamSpeak file
 > drop), but the corpus itself is **Markdown only**.
 
+## Public repo policy (hard rule)
+
+**No real doctrine / RAG corpus files live in the public Moneypenny git tree.**
+
+| Location | Role |
+|----------|------|
+| **`bot/data/doctrine/`** on the bot host | Runtime corpus (gitignored; never commit) |
+| **Private `doctrine.git` wiki** on the host | Versioned org knowledge (not this GitHub repo) |
+| **`docs/examples/doctrine/*.example.md`** | Public *templates* only — copy into private store |
+| **`docs/rag-ingestion*.md`** | Product how-to (not ingested as org doctrine) |
+| **`/doctrine/` in a clone** | Gitignored — do not use for public commits |
+
+Operator quick sheet: [rag-ingestion-cheatsheet.md](./rag-ingestion-cheatsheet.md).
+
 ---
 
 ## Prerequisites (enable RAG first)

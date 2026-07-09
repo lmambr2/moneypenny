@@ -22,15 +22,15 @@ These Markdown files are **examples for private org knowledge bases**. They are
 
 ## What stays public in this repo
 
-- Product docs: `docs/economy.md`
-- Seed catalog + commands (no org routes)
-- This `examples/` folder (generic templates)
+- Product docs: `docs/economy.md`, `docs/rag-ingestion.md`, `docs/rag-ingestion-cheatsheet.md`
+- Seed catalog + economy commands (no org routes)
+- This `examples/` folder (generic templates only)
 
-## What should stay private
+## What must stay private (never commit here)
 
-- Real mining locations / schedules  
-- Pad codes, org store locations, blueprint sources  
-- Restricted/secret doctrine (`classification:` frontmatter)
+- **Any real RAG corpus** — routes, pads, BOMs, INTSUMs, AARs, intel
+- Files under `bot/data/doctrine/` or a host `doctrine.git` wiki
+- A top-level `/doctrine/` tree (gitignored entirely in this repo)
 
-The public `doctrine/ops/` tree in this repo is limited to **product** ops
-cheatsheets (e.g. RAG ingestion), not org logistics.
+`.gitignore` blocks `/doctrine/`, private doctrine trees, and non-example
+files under `docs/examples/doctrine/`.
