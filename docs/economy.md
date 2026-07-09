@@ -1,6 +1,6 @@
 # Org economy — mining, refining, craft, trade
 
-**Status:** shipped on `dev`  
+**Status:** shipped on `dev` / `master` (2026-07-09)  
 **Policy:** sustainable data use — public JSON APIs only, long cache, fail-open, attribution. **No HTML scrapers.**
 
 ---

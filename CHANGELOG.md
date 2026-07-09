@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Economy: TS6 ⚠️ flags + shopping-list tighten
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Unstable/critical ores (Quantainium, Stileron, …) marked with **⚠️** on mine/refine/craft/work lists
+- `!mine` / `!refine` / `!craft` are short shopping lists (no step guidebooks); Dinyx yield ~45% all ores
+- Backlog E-RAW / E-SIG / E-STN documented (not implemented)
+
 ### Economy: !workorder / !work-items (org shopping list)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
