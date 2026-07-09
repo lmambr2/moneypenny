@@ -1544,7 +1544,11 @@ async function loadAiSettings() {
     ai.voiceWatchword = voice.watchword ?? 'moneypenny';
     ai.voiceRequireWatchword = voice.requireWatchword !== false;
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
-    ai.voiceDuckMusicVolume = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 25;
+    // Legacy default was 2 (near-mute); show soft default so next Save fixes config.json.
+    {
+      const d = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 25;
+      ai.voiceDuckMusicVolume = d === 2 ? 25 : d;
+    }
     ai.voiceListenWindowSec = Math.max(
       5,
       Math.round((typeof voice.listenWindowMs === 'number' ? voice.listenWindowMs : 15000) / 1000),

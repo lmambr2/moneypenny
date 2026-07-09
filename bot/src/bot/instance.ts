@@ -187,6 +187,15 @@ export class BotInstance extends EventEmitter {
       logger: this.logger,
       playSong: async (song) =>
         this.playback.playResolvedItem({ type: "song", item: song }, "local"),
+      getPlayingPath: async () => {
+        const cur = this.queue.current();
+        if (!cur || cur.platform !== "local") return null;
+        try {
+          return (await (this.localProvider as LocalProvider).pathForId(cur.id)) ?? null;
+        } catch {
+          return null;
+        }
+      },
     });
 
     this.kg = new KgService({
@@ -683,6 +692,14 @@ export class BotInstance extends EventEmitter {
       busy: h.busy,
       error: h.error,
     };
+  }
+
+  /**
+   * Web / API entry for ACE-Step generation (same path as !generate).
+   * Invoker key is used for rate limiting.
+   */
+  handleAceStepGenerate(prompt: string, invokerKey = "web"): Promise<string> {
+    return this.generateProvider.handleGenerate(prompt, invokerKey);
   }
 
   getLlmStatus() {

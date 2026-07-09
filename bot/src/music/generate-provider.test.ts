@@ -93,6 +93,15 @@ describe("GenerateProvider", () => {
     expect(await provider.handleGenerate("")).toMatch(/Usage/);
   });
 
+  it("handleGenerate status reports config", async () => {
+    const { provider, client } = harness();
+    (client as any).health = vi.fn(async () => ({ ok: true, engine: "ace-step", busy: false }));
+    const line = await provider.handleGenerate("status");
+    expect(line).toMatch(/ACE-Step/);
+    expect(line).toMatch(/enabled|health/i);
+    expect(line).toMatch(/files=\d+/);
+  });
+
   it("handleGenerate when disabled", async () => {
     const { provider } = harness({ enabled: false });
     expect(await provider.handleGenerate("focus")).toMatch(/off/i);
@@ -150,6 +159,35 @@ describe("GenerateProvider", () => {
     expect(r.removed).toBe(3);
     const left = await fs.readdir(out);
     expect(left.filter((n) => n.endsWith(".mp3")).length).toBe(2);
+  });
+
+  it("prune skips now-playing path even when oldest", async () => {
+    const out = path.join(musicDir, "generated/ace-step");
+    await fs.mkdir(out, { recursive: true });
+    const files: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const f = path.join(out, `track-${i}.mp3`);
+      await fs.writeFile(f, "x");
+      await fs.utimes(f, new Date(1_000_000 + i * 1000), new Date(1_000_000 + i * 1000));
+      files.push(f);
+    }
+    const playing = files[0]!; // oldest
+    const { provider } = harness();
+    (provider as any).deps.getConfig = () =>
+      ({
+        aceStepEnabled: true,
+        aceStepUrl: "http://x",
+        aceStepTimeoutMs: 60_000,
+        aceStepOutputDir: "generated/ace-step",
+        aceStepMaxFiles: 2,
+      }) as any;
+    (provider as any).deps.getPlayingPath = async () => playing;
+    const r = await provider.pruneNow();
+    expect(r.removed).toBe(2);
+    const left = (await fs.readdir(out)).filter((n) => n.endsWith(".mp3")).sort();
+    expect(left).toContain("track-0.mp3");
+    expect(left).toHaveLength(2);
+    await expect(fs.access(playing)).resolves.toBeUndefined();
   });
 
   it("rate limits per invoker", async () => {

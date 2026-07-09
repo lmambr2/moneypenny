@@ -37,6 +37,28 @@
         </span>
       </div>
 
+      <!-- ACE-Step generate (admin; needs Settings → ACE-Step enabled) -->
+      <div v-if="session.isAdmin.value" class="generate-row">
+        <input
+          v-model="genPrompt"
+          class="library-filter-input"
+          type="text"
+          maxlength="500"
+          placeholder="Generate with ACE-Step… e.g. late night focus ambient, 110 bpm"
+          :disabled="genBusy"
+          @keydown.enter.prevent="runGenerate"
+        />
+        <button
+          class="refresh-btn"
+          :disabled="genBusy || !genPrompt.trim()"
+          title="Generate a track via ACE-Step → library → play (same as !generate)"
+          @click="runGenerate"
+        >
+          {{ genBusy ? 'Generating…' : '✦ Generate' }}
+        </button>
+        <span v-if="genMsg" class="upload-hint" :class="{ 'gen-msg-err': genErr }">{{ genMsg }}</span>
+      </div>
+
       <!-- Upload progress + per-file status + cancel (shown while a batch is active or just completed) -->
       <div v-if="currentUploadFiles.length > 0" class="upload-progress-panel">
         <div class="progress-header">
@@ -474,6 +496,37 @@ const analyzerMsg = ref('');
 const history = ref<Song[]>([]);
 const historyLoading = ref(true);
 const refreshing = ref(false);
+
+const genPrompt = ref('');
+const genBusy = ref(false);
+const genMsg = ref('');
+const genErr = ref(false);
+
+async function runGenerate() {
+  const prompt = genPrompt.value.trim();
+  if (!prompt || genBusy.value) return;
+  genBusy.value = true;
+  genMsg.value = '';
+  genErr.value = false;
+  try {
+    const res = await api.post('/api/bot/ace-step/generate', { prompt });
+    genMsg.value = res.data?.message ?? 'Generated';
+    genErr.value = res.data?.ok === false;
+    if (res.data?.ok !== false) {
+      genPrompt.value = '';
+      await loadLibraryTracks();
+      store.fetchHomeData();
+    }
+  } catch (err: any) {
+    genErr.value = true;
+    genMsg.value =
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      'Generation failed';
+  } finally {
+    genBusy.value = false;
+  }
+}
 
 /** Full local library for the scrollable Library panel (not the Home recent sample). */
 const libraryTracks = ref<Song[]>([]);
@@ -1132,6 +1185,23 @@ async function refreshIndex() {
   align-items: center;
   gap: 10px;
   margin: 0 0 10px;
+}
+
+.generate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.generate-row .library-filter-input {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.gen-msg-err {
+  color: var(--danger, #e55);
 }
 
 .library-filter-input {

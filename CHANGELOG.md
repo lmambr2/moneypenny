@@ -11,8 +11,10 @@ assistant** authored each batch of work, since not every commit carries a
 ### Voice: softer music duck default
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
-- Default duck volume **25** (was 2 / near-mute); migrate saved `2` → `25`
+- Default duck volume **25** (was 2 / near-mute); migrate saved `2` → `25` (runtime + Settings load)
 - Settings / docs updated
+- `!generate status`; prune skips now-playing track
+- Web Library **Generate** button (`POST /api/bot/ace-step/generate`)
 
 ### ACE-Step A5–A6 — prune, tags, host docs
 **Author: Grok (xAI), driven by Lane Ambrose.**

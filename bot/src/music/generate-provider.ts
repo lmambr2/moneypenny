@@ -25,6 +25,8 @@ export interface GenerateProviderDeps {
   now?: () => number;
   /** When set, successful gens are started on the player (A2 play path). */
   playSong?: (song: Song) => Promise<string>;
+  /** Absolute path of the track currently playing — never prune this file. */
+  getPlayingPath?: () => string | null | Promise<string | null>;
 }
 
 export type GenerateResult =
@@ -51,15 +53,13 @@ export class GenerateProvider {
   async handleGenerate(args: string, invokerKey = "anon"): Promise<string> {
     const prompt = args?.trim();
     if (!prompt) {
-      return "Usage: !generate <prompt> · !generate prune — e.g. !generate late night focus, 110 bpm";
+      return "Usage: !generate <prompt> · !generate prune · !generate status";
     }
 
-    // A5: !generate prune — drop oldest gens beyond aceStepMaxFiles
     const head = prompt.split(/\s+/)[0]?.toLowerCase();
+
+    // A5: !generate prune — drop oldest gens beyond aceStepMaxFiles
     if (head === "prune") {
-      if (!this.isConfigured() && !(this.deps.getConfig().aceStepOutputDir)) {
-        // Allow prune even if gen is "off" as long as we have a music dir path
-      }
       try {
         const r = await this.pruneNow();
         return r.removed > 0
@@ -68,6 +68,10 @@ export class GenerateProvider {
       } catch (err) {
         return `Prune failed: ${err instanceof Error ? err.message : "error"}`;
       }
+    }
+
+    if (head === "status") {
+      return this.statusLine();
     }
 
     if (!this.isConfigured()) {
@@ -107,10 +111,6 @@ export class GenerateProvider {
     }
   }
 
-  /**
-   * Core path for !generate and (later) radio auto-fill.
-   * Does not enqueue playback — caller decides.
-   */
   /**
    * Core path for !generate and radio auto-fill.
    * @param opts.trackInFlight — count against concurrent slot (default true for auto-fill).
@@ -216,8 +216,15 @@ export class GenerateProvider {
       /* tags optional */
     }
 
-    // A5: prune oldest generated files beyond aceStepMaxFiles (best-effort).
-    const pruned = await this.pruneOutputDir(outDir, cfg.aceStepMaxFiles ?? 40, realFile);
+    // A5: prune oldest gens; never drop the new file or currently playing track.
+    const keepPaths = [realFile];
+    try {
+      const playing = await this.deps.getPlayingPath?.();
+      if (playing) keepPaths.push(playing);
+    } catch {
+      /* ignore */
+    }
+    const pruned = await this.pruneOutputDir(outDir, cfg.aceStepMaxFiles ?? 40, keepPaths);
     if (pruned > 0) {
       this.deps.logger.info({ pruned, outDir }, "ACE-Step pruned old generated files");
       await this.deps.localProvider.refresh();
@@ -228,17 +235,31 @@ export class GenerateProvider {
 
   /**
    * Remove oldest audio files in the gen output dir until ≤ maxKeep remain.
-   * Never deletes `keepPath` (the file just written). Returns count removed.
+   * Never deletes paths in `keepPaths` (just-written and/or now-playing).
+   * If more keep-protected files exist than maxKeep, keeps all of them.
    */
-  async pruneOutputDir(outDir: string, maxKeep: number, keepPath?: string): Promise<number> {
+  async pruneOutputDir(
+    outDir: string,
+    maxKeep: number,
+    keepPaths?: string | string[],
+  ): Promise<number> {
     if (!maxKeep || maxKeep < 1) return 0;
     let realOut: string;
-    let realKeep: string | null = null;
     try {
       realOut = await fs.realpath(outDir);
-      if (keepPath) realKeep = await fs.realpath(keepPath);
     } catch {
       return 0;
+    }
+
+    const keepSet = new Set<string>();
+    const rawKeep = Array.isArray(keepPaths) ? keepPaths : keepPaths ? [keepPaths] : [];
+    for (const k of rawKeep) {
+      if (!k) continue;
+      try {
+        keepSet.add(await fs.realpath(k));
+      } catch {
+        /* path may already be gone */
+      }
     }
 
     let entries: { name: string; full: string; mtime: number }[] = [];
@@ -259,14 +280,16 @@ export class GenerateProvider {
       return 0;
     }
 
-    if (entries.length <= maxKeep) return 0;
+    const protectedCount = entries.filter((e) => keepSet.has(e.full)).length;
+    const effectiveMax = Math.max(maxKeep, protectedCount);
+    if (entries.length <= effectiveMax) return 0;
     entries.sort((a, b) => a.mtime - b.mtime); // oldest first
     let removed = 0;
-    while (entries.length > maxKeep) {
+    while (entries.length > effectiveMax) {
       const victim = entries.shift()!;
-      if (realKeep && victim.full === realKeep) {
-        entries.push(victim); // re-queue keep as newest-ish and stop if only keep left over
-        if (entries.every((e) => e.full === realKeep)) break;
+      if (keepSet.has(victim.full)) {
+        entries.push(victim);
+        if (entries.every((e) => keepSet.has(e.full))) break;
         continue;
       }
       try {
@@ -286,9 +309,51 @@ export class GenerateProvider {
     const outSub = (cfg.aceStepOutputDir || "generated/ace-step").replace(/^\/+/, "");
     const outDir = path.resolve(musicDir, outSub);
     const maxKeep = cfg.aceStepMaxFiles ?? 40;
-    const removed = await this.pruneOutputDir(outDir, maxKeep);
+    let keep: string | undefined;
+    try {
+      keep = (await this.deps.getPlayingPath?.()) ?? undefined;
+    } catch {
+      keep = undefined;
+    }
+    const removed = await this.pruneOutputDir(outDir, maxKeep, keep);
     if (removed > 0) await this.deps.localProvider.refresh();
     return { removed, maxKeep, dir: outSub };
+  }
+
+  async statusLine(): Promise<string> {
+    const cfg = this.deps.getConfig();
+    const url = (cfg.aceStepUrl || "").trim() || "(no url)";
+    const configured = this.isConfigured();
+    let health = "n/a";
+    if (configured) {
+      const c = this.deps.getClient();
+      if (c) {
+        const h = await c.health();
+        health = h.ok ? `ok${h.busy ? " busy" : ""}` : `down (${h.error || "?"})`;
+      } else health = "no client";
+    }
+    const max = cfg.aceStepMaxFiles ?? 40;
+    const out = cfg.aceStepOutputDir || "generated/ace-step";
+    const auto = cfg.aceStepAutoFill ? "on" : "off";
+    const busy = this.isBusy() ? "yes" : "no";
+    let files = "?";
+    try {
+      const musicDir = path.resolve(this.deps.localProvider.getMusicDir());
+      const outDir = path.resolve(musicDir, out.replace(/^\/+/, ""));
+      const names = await fs.readdir(outDir);
+      files = String(names.filter((n) => /\.(mp3|wav|flac|ogg|m4a|opus)$/i.test(n)).length);
+    } catch {
+      files = "0";
+    }
+    return [
+      `ACE-Step: ${configured ? "enabled" : "disabled"}`,
+      `url=${url}`,
+      `health=${health}`,
+      `jobInFlight=${busy}`,
+      `autoFill=${auto}`,
+      `output=${out}`,
+      `files=${files}/${max === 0 ? "∞" : max}`,
+    ].join(" · ");
   }
 
   private async resolveSharedPath(

@@ -465,6 +465,41 @@ export function createBotRouter(
     res.json(await bot.getAceStepStatus());
   });
 
+  // POST /api/bot/ace-step/generate — admin web Generate (Library); same path as !generate.
+  router.post("/ace-step/generate", requireAdmin, async (req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+    if (!prompt) {
+      res.status(400).json({ error: "prompt is required", code: "VALIDATION_ERROR" });
+      return;
+    }
+    if (prompt.length > 500) {
+      res.status(400).json({ error: "prompt too long (max 500)", code: "VALIDATION_ERROR" });
+      return;
+    }
+    const username = (req as { user?: { username?: string } }).user?.username;
+    const invoker = typeof username === "string" && username ? `web:${username}` : "web";
+    try {
+      const message = await bot.handleAceStepGenerate(prompt, invoker);
+      const failed = /^Generation failed|^Music generation is off|^ACE-Step client/i.test(message);
+      const rateLimited = /rate limit/i.test(message);
+      const busy = /already running/i.test(message);
+      res.status(failed ? 502 : rateLimited ? 429 : busy ? 409 : 200).json({
+        ok: !failed && !rateLimited && !busy,
+        message,
+      });
+    } catch (err: unknown) {
+      res.status(502).json({
+        error: errorMessage(err, "generation failed"),
+        code: "GENERATE_ERROR",
+      });
+    }
+  });
+
   // GET /api/bot/memory/status — MemPalace sidecar configured + reachable.
   router.get("/memory/status", requireAdmin, async (_req, res) => {
     const bot = botManager.getAllBots()[0];

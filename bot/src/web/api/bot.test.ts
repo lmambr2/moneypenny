@@ -33,6 +33,10 @@ function fakeBot() {
       autoFill: false,
       engine: "ace-step",
     }),
+    handleAceStepGenerate(prompt: string, invoker?: string) {
+      this.calls.push(["aceGenerate", [prompt, invoker]]);
+      return Promise.resolve(`Generated · playing ${prompt}`);
+    },
     updateVoice(...a: any[]) { this.calls.push(["voice", a]); },
     getEffectiveRights: async () => ({
       subject: { uid: "u1", serverGroups: ["105"] },
@@ -206,6 +210,28 @@ describe("bot settings router", () => {
     const status = await request(app).get("/api/bot/ace-step/status").set("Cookie", adminCookie);
     expect(status.status).toBe(200);
     expect(status.body).toMatchObject({ configured: true, available: true, engine: "ace-step" });
+  });
+
+  it("POST /ace-step/generate runs gen for admin and rejects empty prompt", async () => {
+    const forbidden = await request(app)
+      .post("/api/bot/ace-step/generate")
+      .set("Cookie", memberCookie)
+      .send({ prompt: "chill pad" });
+    expect(forbidden.status).toBe(403);
+
+    const bad = await request(app)
+      .post("/api/bot/ace-step/generate")
+      .set("Cookie", adminCookie)
+      .send({ prompt: "  " });
+    expect(bad.status).toBe(400);
+
+    const ok = await request(app)
+      .post("/api/bot/ace-step/generate")
+      .set("Cookie", adminCookie)
+      .send({ prompt: "late night focus" });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ ok: true, message: expect.stringMatching(/Generated|playing/i) });
+    expect(bot.calls.some((c) => c[0] === "aceGenerate" && c[1][0] === "late night focus")).toBe(true);
   });
 
   it("updates stream bridge and voice settings live", async () => {
