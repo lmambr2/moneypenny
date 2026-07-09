@@ -156,7 +156,7 @@ async function remove(name: string) {
 onMounted(load);
 onUnmounted(() => {
   if (mediaRecorder && recording.value) {
-    mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+    for (const t of mediaRecorder.stream.getTracks()) t.stop();
     mediaRecorder.stop();
   }
 });
