@@ -54,7 +54,9 @@ services:
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      # Host gids: `getent group render video` — defaults vary by distro
+      # Host gids: ALWAYS export from host (Arch/CachyOS ≠ Debian 992/44):
+      #   export RENDER_GID=$(getent group render | cut -d: -f3)
+      #   export VIDEO_GID=$(getent group video | cut -d: -f3)
       - "${RENDER_GID:-992}"
       - "${VIDEO_GID:-44}"
 
