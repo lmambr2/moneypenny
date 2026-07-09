@@ -292,6 +292,17 @@ export class BotInstance extends EventEmitter {
       stationName: this.name,
       getRetrieval: () => this.knowledge.getRetrieval() ?? null,
       getLlm: () => this.llm.getModule() ?? null,
+      // OQ1: org KG / diary only — never per-user !remember rooms.
+      getOrgMemory: () => {
+        const mp = this.mempalace;
+        if (!mp || !this.config.mempalaceEnabled) return null;
+        return {
+          searchOrg: async (query: string, limit = 5) => {
+            const hits = await mp.kgSearch(query, { limit });
+            return hits.map((h) => ({ fact: h.fact }));
+          },
+        };
+      },
       logger: this.logger,
     });
     this.radio = new RadioDirector({
@@ -536,23 +547,50 @@ export class BotInstance extends EventEmitter {
     return this.kg.syncToMemPalace();
   }
 
-  async syncMemoryToMemPalace(): Promise<{ synced: number; failed: number; skipped: boolean }> {
+  async syncMemoryToMemPalace(): Promise<{
+    synced: number;
+    failed: number;
+    skipped: boolean;
+    total?: number;
+  }> {
     return this.memory.syncToMemPalace();
   }
 
-  async getMemPalaceStatus(): Promise<{ configured: boolean; available: boolean; url: string }> {
-    const url = this.config.mempalaceUrl ?? "";
-    if (!this.config.mempalaceEnabled || !url.trim()) {
-      return { configured: false, available: false, url };
+  async getMemPalaceStatus(): Promise<{
+    configured: boolean;
+    available: boolean;
+    url: string;
+    memoryEnabled: boolean;
+    kgEnabled: boolean;
+    lastUserSync: { synced: number; failed: number; skipped: boolean; total?: number; at: number } | null;
+  }> {
+    const envUrl = (process.env.MEMPALACE_URL || "").trim();
+    const url = (this.config.mempalaceUrl || envUrl || "").trim();
+    const last = this.memory.getLastSync();
+    const base = {
+      url,
+      memoryEnabled: !!this.config.memoryEnabled,
+      kgEnabled: !!this.config.kgEnabled,
+      lastUserSync: last
+        ? { ...last.result, at: last.at }
+        : null,
+    };
+    if (!this.config.mempalaceEnabled || !url) {
+      return { configured: false, available: false, ...base };
     }
     const available = this.mempalace ? await this.mempalace.isAvailable() : false;
-    return { configured: true, available, url };
+    return { configured: true, available, ...base };
   }
 
   private createMemPalaceClient(): MemPalaceClient | null {
     if (!this.config.mempalaceEnabled) return null;
-    const url = this.config.mempalaceUrl?.trim();
+    const url =
+      this.config.mempalaceUrl?.trim() ||
+      (process.env.MEMPALACE_URL || "").trim();
     if (!url) return null;
+    if (!this.config.mempalaceUrl?.trim() && url) {
+      this.config.mempalaceUrl = url;
+    }
     return new MemPalaceClient({ url, logger: this.logger });
   }
 

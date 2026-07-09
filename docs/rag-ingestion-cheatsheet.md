@@ -78,10 +78,13 @@ Use `!analyst -s` or `!intsum -s` / `!aar -s` to auto-save. Do not symlink MemPa
 
 ## MemPalace & knowledge graph (Phase 7)
 
+Full operator guide + smoke checklist: **[memory.md](./memory.md)**.
+
 **Personal memory** (per-user, not doctrine):
 
 - `!remember <fact>` / `!recall` / `!forget`
 - Settings → **Per-user memory** + **MemPalace**; **Sync SQLite → MemPalace** backfills facts
+- Install: `./install.sh --with-memory` → compose profile `memory` + `MEMPALACE_URL`
 
 **Org knowledge graph** (institutional, temporal — not doctrine files):
 
@@ -90,6 +93,7 @@ Use `!analyst -s` or `!intsum -s` / `!aar -s` to auto-save. Do not symlink MemPa
 - `!kg list` / `!kg forget <n|all>` — analyst for forget
 - `!diary intel|logistics <fact> [from:…] [until:…]` — specialist diary entries
 - Settings → **Org knowledge graph** (`kgEnabled`) injects KG into `!ask`
+- Radio bumper source `memory` is **org-only** and requires `memoryBroadcastOptIn`
 
 MemPalace sidecar stores per-user rooms + shared `org_kg` / diary rooms for semantic recall. Not a substitute for RAG doctrine.
 

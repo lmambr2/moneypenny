@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { LlmRuntime } from "./runtime.js";
 
 describe("LlmRuntime", () => {
-  it("buildRetrieveHook is undefined when rag, memory, and kg are all off", () => {
+  it("buildRetrieveHook still returns economy-only hook when rag/memory/kg are off", async () => {
     const runtime = new LlmRuntime({
       config: { ragEnabled: false, memoryEnabled: false, kgEnabled: false } as any,
       logger: { info: vi.fn() } as any,
@@ -13,7 +13,10 @@ describe("LlmRuntime", () => {
       getRightsEngine: () => null,
       onModuleChange: vi.fn(),
     });
-    expect(runtime.buildRetrieveHook()).toBeUndefined();
+    const hook = runtime.buildRetrieveHook();
+    expect(hook).toBeTypeOf("function");
+    // Economy seed only fires on keyword match; unrelated questions return [].
+    expect(await hook!("hello world")).toEqual([]);
   });
 
   it("retrieve hook merges MemPalace hits with non-duplicate SQLite facts", async () => {

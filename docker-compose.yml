@@ -92,6 +92,8 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
       # Pi CPU embeddinggemma can take 3+ min/batch — avoid 180s ingest timeouts.
       - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-600000}
+      # Phase 7 MemPalace (profile memory). URL only — enable toggles in Settings.
+      - MEMPALACE_URL=${MEMPALACE_URL:-}
       # File-drop disk mount (optional — see TS6_FILES_HOST_DIR volume above)
       - TS6_FILES_DIR=${TS6_FILES_DIR:-}
       - TS6_VIRTUAL_SERVER_ID=${TS6_VIRTUAL_SERVER_ID:-1}

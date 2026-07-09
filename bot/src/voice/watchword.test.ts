@@ -152,6 +152,14 @@ describe("isActionableVoiceCommand", () => {
     expect(isActionableVoiceCommand("forget all")).toBe(true);
     expect(isActionableVoiceCommand("forget 3")).toBe(true);
   });
+
+  it("accepts voice memory remember/recall with real payloads", () => {
+    expect(isActionableVoiceCommand("recall")).toBe(true);
+    expect(isActionableVoiceCommand("remember")).toBe(false);
+    expect(isActionableVoiceCommand("remember jazz")).toBe(false); // one word too thin
+    expect(isActionableVoiceCommand("remember I like jazz")).toBe(true);
+    expect(isActionableVoiceCommand("remember callsign raven")).toBe(true);
+  });
 });
 
 describe("extractCommandSegment false positives", () => {

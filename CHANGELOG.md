@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Phase 7 polish — memory A1–A5
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **A1** `docs/memory.md` operator guide + smoke checklist
+- **A2** Voice `remember` / `recall` / `forget` shape rules (real payloads only)
+- **A3** Radio org-memory bumper when `memoryBroadcastOptIn` (KG only, never private)
+- **A4** Await MemPalace on remember/forget; richer sync status + Settings messages
+- **A5** `install.sh --with-memory` → profile `memory` + `MEMPALACE_URL`
+
 ### SBC STT default — Whisper base on NPU (RKNN)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

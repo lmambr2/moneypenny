@@ -1573,6 +1573,13 @@ async function refreshMemPalaceStatus() {
     const res = await api.get('/api/bot/memory/status');
     memPalace.configured = !!res.data.configured;
     memPalace.available = !!res.data.available;
+    const last = res.data.lastUserSync;
+    if (last && !last.skipped) {
+      memPalace.syncMsg =
+        `Last sync: ${last.synced ?? 0}/${last.total ?? last.synced ?? 0} ok` +
+        (last.failed ? `, ${last.failed} failed` : '') +
+        (last.at ? ` · ${new Date(last.at).toLocaleString()}` : '');
+    }
   } catch {
     memPalace.configured = ai.mempalaceEnabled && !!ai.mempalaceUrl.trim();
     memPalace.available = false;
@@ -1586,12 +1593,24 @@ async function syncMemPalace() {
   memPalace.syncMsg = '';
   try {
     const res = await api.post('/api/bot/memory/sync');
-    if (res.data.skipped) {
+    const um = res.data.userMemory ?? res.data;
+    const kg = res.data.kg;
+    if (um.skipped && (!kg || kg.skipped)) {
       memPalace.syncMsg = 'Enable MemPalace and set a bridge URL first.';
     } else {
-      memPalace.syncMsg = `Synced ${res.data.synced ?? 0} fact(s)` +
-        (res.data.failed ? `, ${res.data.failed} failed` : '') + '.';
+      const parts = [
+        `User facts: ${um.synced ?? 0} ok` +
+          (um.failed ? `, ${um.failed} failed` : '') +
+          (um.total != null ? ` (${um.total} total)` : ''),
+      ];
+      if (kg && !kg.skipped) {
+        parts.push(
+          `KG: ${kg.synced ?? 0} ok` + (kg.failed ? `, ${kg.failed} failed` : ''),
+        );
+      }
+      memPalace.syncMsg = parts.join(' · ');
     }
+    await refreshMemPalaceStatus();
   } catch (err: any) {
     memPalace.syncMsg = err?.response?.data?.error ?? 'Sync failed.';
   } finally {

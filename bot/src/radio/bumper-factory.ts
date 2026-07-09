@@ -7,8 +7,8 @@
  *   - stationId   : a canned station identifier, TTS'd + cached
  *   - timeCheck   : a spoken time check
  *   - nowPlaying  : "that was X, up next Y" from the queue
- * `doctrine`/`memory` (LLM + RAG, floored) arrive in R-R4 and resolve to null
- * here so they simply fall through.
+ * `doctrine` uses floored RAG; `memory` uses **org-scoped** MemPalace KG only
+ * when `radio.memoryBroadcastOptIn` is true (OQ1 — never private `!remember`).
  *
  * Never throws into the boundary path: any failure returns null and the
  * director advances the music (§14).
@@ -34,6 +34,14 @@ export interface BumperLlm {
   complete(prompt: string, system?: string): Promise<string>;
 }
 
+/**
+ * Org knowledge graph only (MemPalace `org_kg` / diaries via kgSearch).
+ * Must never expose per-user `!remember` rooms.
+ */
+export interface BumperOrgMemory {
+  searchOrg(query: string, limit?: number): Promise<Array<{ fact: string }>>;
+}
+
 export interface RadioBumperFactoryDeps {
   getConfig: () => RadioConfig;
   prerecorded: PrerecordedPool;
@@ -50,6 +58,8 @@ export interface RadioBumperFactoryDeps {
    *  hot-swappable at runtime; null → the source falls through (§14). */
   getRetrieval?: () => BumperRetrieval | null;
   getLlm?: () => BumperLlm | null;
+  /** Org MemPalace KG for the memory bumper (OQ1 opt-in). */
+  getOrgMemory?: () => BumperOrgMemory | null;
   logger: Logger;
   now?: () => number;
 }
@@ -104,7 +114,7 @@ export class RadioBumperFactory implements BumperFactory {
         case "doctrine":
           return this.doctrineBumper(floor, topic);
         case "memory":
-          return null; // OQ1: org MemPalace namespace — dormant until curated + opted in
+          return this.memoryBumper(topic);
         default:
           return null;
       }
@@ -112,6 +122,48 @@ export class RadioBumperFactory implements BumperFactory {
       this.deps.logger.warn({ err, source }, "radio: bumper source failed");
       return null;
     }
+  }
+
+  /**
+   * Org MemPalace → spoken bumper (OQ1). Requires `memoryBroadcastOptIn` and
+   * `memory` in `radio.sources`. Uses kgSearch only (never per-user rooms).
+   */
+  private async memoryBumper(topicOverride?: string): Promise<BuiltBumper | null> {
+    const cfg = this.deps.getConfig();
+    if (!cfg.memoryBroadcastOptIn) return null;
+
+    const orgMem = this.deps.getOrgMemory?.() ?? null;
+    const llm = this.deps.getLlm?.() ?? null;
+    if (!orgMem || !llm) return null;
+
+    const profile = cfg.profiles[cfg.activeProfile];
+    const topics = topicOverride
+      ? [topicOverride]
+      : profile?.bumper?.topics?.length
+        ? profile.bumper.topics
+        : ["organization roles operations"];
+    const topic = topics[Math.floor(Math.random() * topics.length)];
+
+    const hits = await orgMem.searchOrg(topic, 5);
+    const material = hits.map((h) => h.fact.trim()).filter(Boolean)[0];
+    if (!material) return null;
+
+    const cap = wordCap(cfg.maxBumperSeconds);
+    const tone = profile?.bumper?.tone ? ` Tone: ${profile.bumper.tone}.` : "";
+    const script = (
+      await llm.complete(
+        `Rewrite the following as a short spoken radio station note: under ${cap} words, one breath, plain speech, no markdown, no lists, no private names unless present. Invent nothing — only rephrase what is given.${tone}\n\n${material}`,
+        "You are a radio announcer. Reply with only the spoken line itself. Never invent personal facts.",
+      )
+    ).trim();
+    if (!script) return null;
+
+    const capped = script.split(/\s+/).slice(0, cap).join(" ");
+    // Floor unclassified only — org memory is not doctrine classification tiers.
+    const path = await this.deps.speech.render(capped, "memory", {
+      floor: ["unclassified"],
+    });
+    return path ? { path, label: "memory" } : null;
   }
 
   /** Doctrine → spoken bumper (§6.1/§6.2): floored retrieval → LLM rewrite

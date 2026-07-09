@@ -10,8 +10,18 @@ export interface MemoryServiceDeps {
   logger?: Logger;
 }
 
+export interface MemorySyncResult {
+  synced: number;
+  failed: number;
+  skipped: boolean;
+  total: number;
+}
+
 /** Per-user memory commands (ROADMAP Phase 7). SQLite MVP + optional MemPalace. */
 export class MemoryService {
+  private lastSync: MemorySyncResult | null = null;
+  private lastSyncAt: number | null = null;
+
   constructor(private deps: MemoryServiceDeps) {}
 
   setMemPalace(client: MemPalaceClient | null, enabled: boolean, url?: string): void {
@@ -24,19 +34,32 @@ export class MemoryService {
     return !!this.deps.config.mempalaceEnabled && !!this.deps.mempalace;
   }
 
-  handleRemember(args: string, invokerUid?: string): string {
+  getLastSync(): { result: MemorySyncResult; at: number } | null {
+    if (!this.lastSync || this.lastSyncAt == null) return null;
+    return { result: this.lastSync, at: this.lastSyncAt };
+  }
+
+  async handleRemember(args: string, invokerUid?: string): Promise<string> {
     const fact = args?.trim();
     if (!fact) return "Usage: !remember <something about you>";
     if (!invokerUid) return "Couldn't identify you — nothing saved.";
 
     this.deps.store.add(invokerUid, fact);
+
+    let mpOk: boolean | null = null;
     if (this.useMemPalace()) {
-      void this.deps.mempalace!.remember(invokerUid, fact).then((ok) => {
-        if (!ok) this.deps.logger?.warn({ invokerUid }, "MemPalace remember sync failed — SQLite copy kept");
-      });
+      mpOk = await this.deps.mempalace!.remember(invokerUid, fact);
+      if (!mpOk) {
+        this.deps.logger?.warn({ invokerUid }, "MemPalace remember sync failed — SQLite copy kept");
+      }
     }
 
     if (this.useMemPalace()) {
+      if (mpOk === false) {
+        return this.deps.config.memoryEnabled
+          ? "Noted locally — MemPalace sync failed; try Sync in Settings later."
+          : "Noted locally (MemPalace sync failed; memory injection is off).";
+      }
       return this.deps.config.memoryEnabled
         ? "Noted — filed in MemPalace and ready for semantic recall."
         : "Noted in MemPalace (memory injection is off in Settings).";
@@ -60,17 +83,24 @@ export class MemoryService {
     return this.formatRecall(local.map((f) => f.fact));
   }
 
-  handleForget(args: string, invokerUid?: string): string {
+  async handleForget(args: string, invokerUid?: string): Promise<string> {
     if (!invokerUid) return "Couldn't identify you.";
     const trimmed = args?.trim().toLowerCase();
     if (!trimmed) return "Usage: !forget <number> or !forget all";
 
     if (trimmed === "all") {
       const n = this.deps.store.forget(invokerUid);
+      let mpNote = "";
       if (this.useMemPalace()) {
-        void this.deps.mempalace!.forget(invokerUid, { all: true });
+        const ok = await this.deps.mempalace!.forget(invokerUid, { all: true });
+        if (!ok) {
+          this.deps.logger?.warn({ invokerUid }, "MemPalace forget-all failed");
+          mpNote = " (MemPalace may still have copies — re-run Sync or forget again)";
+        }
       }
-      return n > 0 ? `Forgotten ${n} fact${n === 1 ? "" : "s"}.` : "Nothing to forget.";
+      return n > 0
+        ? `Forgotten ${n} fact${n === 1 ? "" : "s"}.${mpNote}`
+        : "Nothing to forget.";
     }
 
     const index = Number.parseInt(trimmed, 10);
@@ -78,28 +108,50 @@ export class MemoryService {
       return "Usage: !forget <number> (from !recall) or !forget all";
     }
 
+    // Delete MemPalace first while indices still match its recall order, then SQLite.
+    let mpOk: boolean | null = null;
     if (this.useMemPalace()) {
-      void this.deps.mempalace!.forget(invokerUid, { index });
+      mpOk = await this.deps.mempalace!.forget(invokerUid, { index });
+      if (!mpOk) {
+        this.deps.logger?.warn({ invokerUid, index }, "MemPalace forget-index failed");
+      }
     }
 
-    return this.deps.store.forgetAtIndex(invokerUid, index)
-      ? "Forgotten."
-      : "No fact at that number — run !recall to see your list.";
+    const localOk = this.deps.store.forgetAtIndex(invokerUid, index);
+    if (!localOk && mpOk !== true) {
+      return "No fact at that number — run !recall to see your list.";
+    }
+    if (localOk && mpOk === false) {
+      return "Forgotten locally; MemPalace may still have it — check !recall or Sync.";
+    }
+    return "Forgotten.";
   }
 
   /** Push every SQLite fact to MemPalace (idempotent — duplicates are skipped server-side). */
-  async syncToMemPalace(): Promise<{ synced: number; failed: number; skipped: boolean }> {
+  async syncToMemPalace(): Promise<MemorySyncResult> {
     if (!this.useMemPalace()) {
-      return { synced: 0, failed: 0, skipped: true };
+      const empty: MemorySyncResult = { synced: 0, failed: 0, skipped: true, total: 0 };
+      this.lastSync = empty;
+      this.lastSyncAt = Date.now();
+      return empty;
     }
+    const all = this.deps.store.allFacts();
     let synced = 0;
     let failed = 0;
-    for (const fact of this.deps.store.allFacts()) {
+    for (const fact of all) {
       const ok = await this.deps.mempalace!.remember(fact.userUid, fact.fact);
       if (ok) synced++;
       else failed++;
     }
-    return { synced, failed, skipped: false };
+    const result: MemorySyncResult = {
+      synced,
+      failed,
+      skipped: false,
+      total: all.length,
+    };
+    this.lastSync = result;
+    this.lastSyncAt = Date.now();
+    return result;
   }
 
   private formatRecall(facts: string[]): string {

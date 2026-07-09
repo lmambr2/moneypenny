@@ -20,13 +20,13 @@ RAW_BASE="https://raw.githubusercontent.com/lmambr2/moneypenny"
 
 # ── defaults / flags ─────────────────────────────────────────────────────────
 EDITION="auto"; LLM="auto"; MODEL=""; INSTALL_DIR="moneypenny"; BRANCH="main"
-WITH_VOICE=0; WITH_SERVER=0; WITH_RAG=0; NO_BUILD=0; ASSUME_YES=0
+WITH_VOICE=0; WITH_SERVER=0; WITH_RAG=0; WITH_MEMORY=0; NO_BUILD=0; ASSUME_YES=0
 VOICE_PROFILE=""
 # interactive: auto = wizard on TTY unless -y; 1 = force; 0 = never
 INTERACTIVE="auto"
 # Track CLI so the wizard can skip questions the user already answered.
 FLAG_EDITION=0; FLAG_LLM=0; FLAG_MODEL=0
-FLAG_VOICE=0; FLAG_RAG=0; FLAG_SERVER=0
+FLAG_VOICE=0; FLAG_RAG=0; FLAG_SERVER=0; FLAG_MEMORY=0
 
 # ── pretty logging ───────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -61,6 +61,8 @@ Usage: ./install.sh [options]
   --with-server                also start a TeamSpeak 6 server container
   --with-rag                   Qdrant + embedding model (knowledge base)
   --no-rag                     disable RAG (non-interactive / wizard default override)
+  --with-memory                MemPalace bridge (Phase 7 semantic memory + KG)
+  --no-memory                  disable MemPalace profile
   --no-voice                   disable voice
   --dir <path>                 install dir when bootstrapping (default: ./moneypenny)
   --branch <name>              git branch to clone (default: main)
@@ -69,7 +71,7 @@ Usage: ./install.sh [options]
 EOF
 }
 
-NO_RAG=0; NO_VOICE=0
+NO_RAG=0; NO_VOICE=0; NO_MEMORY=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -88,6 +90,8 @@ while [ $# -gt 0 ]; do
     --with-server) WITH_SERVER=1; FLAG_SERVER=1 ;;
     --with-rag) WITH_RAG=1; FLAG_RAG=1; NO_RAG=0 ;;
     --no-rag) WITH_RAG=0; FLAG_RAG=1; NO_RAG=1 ;;
+    --with-memory) WITH_MEMORY=1; FLAG_MEMORY=1; NO_MEMORY=0 ;;
+    --no-memory) WITH_MEMORY=0; FLAG_MEMORY=1; NO_MEMORY=1 ;;
     --dir) INSTALL_DIR="${2:?}"; shift ;;
     --branch) BRANCH="${2:?}"; shift ;;
     --no-build) NO_BUILD=1 ;;
@@ -336,6 +340,15 @@ run_wizard() {
     fi
   fi
 
+  # MemPalace (Phase 7)
+  if [ "$FLAG_MEMORY" -eq 0 ]; then
+    if confirm "Enable MemPalace (per-user memory + org knowledge graph sidecar)?" 1; then
+      WITH_MEMORY=1
+    else
+      WITH_MEMORY=0
+    fi
+  fi
+
   # Optional TS6 container
   if [ "$FLAG_SERVER" -eq 0 ]; then
     if confirm "Also start a TeamSpeak 6 server container? (skip if you already have TS6)" 0; then
@@ -351,6 +364,7 @@ run_wizard() {
   _echo_tty "  Edition:  ${EDITION}"
   _echo_tty "  LLM:      ${LLM}${MODEL:+  model=${MODEL}}"
   _echo_tty "  RAG:      $([ "$WITH_RAG" -eq 1 ] && echo yes || echo no)"
+  _echo_tty "  Memory:   $([ "$WITH_MEMORY" -eq 1 ] && echo yes || echo no)"
   _echo_tty "  Voice:    $([ "$WITH_VOICE" -eq 1 ] && echo "yes (${VOICE_PROFILE:-auto})" || echo no)"
   _echo_tty "  TS6 ctr:  $([ "$WITH_SERVER" -eq 1 ] && echo yes || echo no)"
   _echo_tty "  Build:    $([ "$NO_BUILD" -eq 1 ] && echo 'use existing images' || echo 'build images')"
@@ -473,6 +487,10 @@ if [ "$WITH_RAG" -eq 1 ]; then
   fi
   say "RAG: ${c_b}Qdrant${c_0} + embedding model ${EMBED_MODEL}"
 fi
+if [ "$WITH_MEMORY" -eq 1 ]; then
+  PROFILES+=("memory")
+  say "Memory: ${c_b}MemPalace bridge${c_0} (enable toggles in Settings after first boot)"
+fi
 
 # ── 3. Docker + Compose ──────────────────────────────────────────────────────
 if ! have docker; then
@@ -561,6 +579,9 @@ if [ "$WITH_RAG" -eq 1 ]; then
   else
     set_env EMBEDDING_URL "http://ollama:11434"
   fi
+fi
+if [ "$WITH_MEMORY" -eq 1 ]; then
+  set_env MEMPALACE_URL "http://mempalace-bridge:8090"
 fi
 if [ "$WITH_VOICE" -eq 1 ] && [ "$VOICE_PROFILE" != "legacy" ]; then
   set_env STT_URL "http://stt-whisper:9000"
@@ -668,6 +689,10 @@ if [ "$WITH_VOICE" -eq 1 ] && [ "${VOICE_PROFILE:-}" != "legacy" ]; then
   else
     echo "  ${c_d}SBC STT: Whisper base on NPU (RKNN). Export: MODEL_TYPE=base ./models/convert/export-whisper-rknn.sh → models/rknn/.${c_0}"
   fi
+fi
+if [ "$WITH_MEMORY" -eq 1 ]; then
+  echo "  ${c_d}Memory: Settings → Per-user memory + MemPalace + Org KG; URL ${MEMPALACE_URL:-http://mempalace-bridge:8090} (docs/memory.md).${c_0}"
+  echo "  ${c_d}Smoke: !remember <fact> → !ask about it → !forget all. Analysts: !kg / !diary.${c_0}"
 fi
 echo
 echo "  ${c_d}Logs:${c_0}    docker compose ${COMPOSE_FILES[*]} ${PROFILE_FLAGS[*]} logs -f bot"

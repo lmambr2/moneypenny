@@ -77,6 +77,11 @@ export function voiceCommandShapeOk(name: string, args: string): boolean {
   if (name === "forget") {
     return a === "all" || /^\d+$/.test(a);
   }
+  // Free-form personal fact — need a real payload (not "remember" alone / one word).
+  if (name === "remember") {
+    const words = a.split(/\s+/).filter(Boolean);
+    return words.length >= 2 || a.length >= 8;
+  }
   if (name === "vol") {
     return /^\d{1,3}$/.test(a);
   }

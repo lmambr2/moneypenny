@@ -165,11 +165,13 @@ classification.
 commit; an unauthorized member is denied the gated/classified corpus.
 
 ## Phase 7 — Long-term memory (MemPalace)
-> **Status (dev): SHIPPED (2026-06).** Per-user: `!remember` / `!recall` in SQLite
-> + optional MemPalace semantic recall. Institutional: temporal **knowledge graph**
-> via `!kg` / `!diary` (SQLite + MemPalace `org_kg` / diary rooms), injected into
-> `!ask` when `kgEnabled` is on. Analysts record; `!kg who <name> [asof:date]`
-> answers temporal roster/role queries.
+> **Status (dev): SHIPPED (2026-06); polished 2026-07 (A1–A5).** Per-user:
+> `!remember` / `!recall` in SQLite + optional MemPalace semantic recall.
+> Institutional: temporal **knowledge graph** via `!kg` / `!diary` (SQLite +
+> MemPalace `org_kg` / diary rooms), injected into `!ask` when `kgEnabled` is on.
+> Analysts record; `!kg who <name> [asof:date]` answers temporal roster/role
+> queries. Install: `--with-memory`. Ops: [docs/memory.md](./docs/memory.md).
+> Radio org bumper: `memoryBroadcastOptIn` + source `memory` (never private facts).
 
 **Goal:** durable per-user/conversational memory + a temporal knowledge graph
 (who held what role when, fleet comps, op history) — institutional memory.

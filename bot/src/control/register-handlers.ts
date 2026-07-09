@@ -59,7 +59,7 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     roastout: async (_cmd, ctx) => host.roast.handleOptOut(ctx.invokerUid),
     remember: async (cmd, ctx) => host.memory.handleRemember(cmd.args, ctx.invokerUid),
     recall: async (_cmd, ctx) => host.memory.handleRecall(ctx.invokerUid),
-    forget: async (cmd, ctx) => host.memory.handleForget(cmd.args, ctx.invokerUid),
+    forget: async (cmd, ctx) => host.memory.handleForget(cmd.args, ctx.invokerUid), // awaits MemPalace
     kg: async (cmd, ctx) => host.kg.handleKg(cmd.args, ctx.invokerUid, ctx.canRun),
     diary: async (cmd, ctx) => host.kg.handleDiary(cmd.args, ctx.invokerUid, ctx.canRun),
     mine: async (cmd) => handleEconomyCommand("mine" as EconomyCommand, cmd.args),

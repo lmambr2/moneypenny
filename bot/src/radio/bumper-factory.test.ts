@@ -12,11 +12,14 @@ function harness(opts: {
   getBumperAsset?: () => Promise<string | null>;
   retrieval?: { query: ReturnType<typeof vi.fn> } | null;
   llm?: { complete: ReturnType<typeof vi.fn> } | null;
+  orgMemory?: { searchOrg: ReturnType<typeof vi.fn> } | null;
+  memoryBroadcastOptIn?: boolean;
   profile?: { topics?: string[]; tone?: string };
 }) {
   const cfg: RadioConfig = {
     ...defaultRadioConfig(),
     sources: opts.sources ?? ["prerecorded", "stationId", "timeCheck", "nowPlaying"],
+    memoryBroadcastOptIn: opts.memoryBroadcastOptIn ?? false,
     activeProfile: "ops",
     profiles: { ops: { name: "ops", bumper: opts.profile ?? { topics: ["refinery yields"] } } },
   };
@@ -33,6 +36,7 @@ function harness(opts: {
     stationName: "Moneypenny Radio",
     getRetrieval: () => (opts.retrieval === undefined ? null : opts.retrieval) as never,
     getLlm: () => (opts.llm === undefined ? null : opts.llm) as never,
+    getOrgMemory: () => (opts.orgMemory === undefined ? null : opts.orgMemory) as never,
     logger,
     now: () => new Date(2026, 5, 30, 14, 5).getTime(),
   });
@@ -112,9 +116,32 @@ describe("RadioBumperFactory", () => {
     expect(await factory.build({ slot: "bumper", sources: ["prerecorded", "nowPlaying"] })).toBeNull();
   });
 
-  it("memory resolves to null (OQ1 dormant)", async () => {
-    const { factory } = harness({ sources: ["memory"] });
+  it("memory resolves to null when opt-in is off (OQ1)", async () => {
+    const { factory } = harness({
+      sources: ["memory"],
+      memoryBroadcastOptIn: false,
+      orgMemory: { searchOrg: vi.fn(async () => [{ fact: "Fleet CO is Alice" }]) },
+      llm: { complete: vi.fn(async () => "Fleet CO is Alice.") },
+    });
     expect(await factory.build({ slot: "bumper", sources: ["memory"] })).toBeNull();
+  });
+
+  it("memory bumper speaks org KG when opted in", async () => {
+    const searchOrg = vi.fn(async () => [{ fact: "Fleet CO is Alice as of 2026" }]);
+    const complete = vi.fn(async () => "Fleet command is with Alice.");
+    const { factory, renderFn } = harness({
+      sources: ["memory"],
+      memoryBroadcastOptIn: true,
+      orgMemory: { searchOrg },
+      llm: { complete },
+    });
+    const b = await factory.build({ slot: "bumper", sources: ["memory"] });
+    expect(b?.label).toBe("memory");
+    expect(searchOrg).toHaveBeenCalled();
+    expect(complete).toHaveBeenCalled();
+    expect(renderFn).toHaveBeenCalled();
+    const [, source] = renderFn.mock.calls[0] as unknown as [string, string];
+    expect(source).toBe("memory");
   });
 });
 
