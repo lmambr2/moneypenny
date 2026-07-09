@@ -112,25 +112,29 @@ describe("PlayQueue", () => {
     expect(queue.next()?.id).toBe("D");
   });
 
-  it("remove shifts forwardStack so random next() never returns undefined", () => {
-    queue.setMode(PlayMode.Random);
+  it("remove drops OOB forwardStack top so random next() never returns undefined", () => {
+    // Honest regression for forwardStack rewrite on remove:
+    //   play A→B→C, ONE prev → current B, forwardStack=[2] (resume C).
+    //   remove(C): without rewrite stack stays [2]; next() does
+    //     return this.songs[2] → undefined (not null).
+    //   With rewrite, 2 is filtered; RandomLoop reshuffles → real Song A|B.
+    //   (Two prevs left stack=[2,1]; LIFO next pops valid 1 → B even pre-fix.)
+    queue.setMode(PlayMode.RandomLoop);
     queue.add(makeSong("A"));
     queue.add(makeSong("B"));
     queue.add(makeSong("C"));
-    queue.playAt(0); // A
-    queue.playAt(1); // B — history [0]
-    queue.playAt(2); // C — history [0,1]
-    // Walk back twice: prev → B, prev → A; forwardStack = [2, 1]
-    expect(queue.prev()?.id).toBe("B");
-    expect(queue.prev()?.id).toBe("A");
-    // Remove C (was index 2, now only A,B) — stale forward entry 2 must drop/shift
-    queue.remove(2);
+    queue.playAt(0);
+    queue.playAt(1);
+    queue.playAt(2); // C
+    expect(queue.prev()?.id).toBe("B"); // forwardStack = [2] only (LIFO top = OOB after remove)
+    queue.remove(2); // drop C
     expect(queue.size()).toBe(2);
-    // next should resume to B (shifted), not undefined/stale index 2
     const n = queue.next();
+    // Must be a real QueuedSong — fails on pre-fix `undefined` from songs[2].
+    expect(n).toBeDefined();
     expect(n).not.toBeNull();
-    expect(n!.id).toBe("B");
-    expect(n!.id).toBeDefined();
+    expect(typeof n!.id).toBe("string");
+    expect(["A", "B"]).toContain(n!.id);
   });
 
   it("removing the only song clears the queue", () => {
