@@ -4,7 +4,7 @@ import {
   type WorkflowRequest,
 } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
-import { type ChatMessage, LlmClient } from "./client.js";
+import { type ChatMessage, extractAssistantText, LlmClient } from "./client.js";
 import { ANALYST_SYSTEM_PROMPT, type DelegateClient } from "./delegate.js";
 import { FallbackLlmClient } from "./fallback-client.js";
 import { ConversationStore, type HistoryEntry } from "./history.js";
@@ -240,7 +240,18 @@ export class LlmModule {
         tool_choice: "none",
         temperature: this.temperature,
       });
-      return resp.choices?.[0]?.message?.content?.trim() || "";
+      const msg = resp.choices?.[0]?.message;
+      const text = msg ? extractAssistantText(msg) : "";
+      if (!text && msg) {
+        this.logger?.warn(
+          {
+            hasContent: !!(msg.content && String(msg.content).trim()),
+            hasReasoning: !!(msg as { reasoning?: string }).reasoning,
+          },
+          "LLM complete returned empty text (content/reasoning)",
+        );
+      }
+      return text;
     } catch (err) {
       this.logger?.warn({ err }, "LLM complete failed");
       return "";

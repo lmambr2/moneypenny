@@ -52,6 +52,8 @@ export interface ChatCompletionResponse {
     message: {
       role: string;
       content: string | null;
+      /** Some Gemma/Ollama builds put the answer here when content is empty. */
+      reasoning?: string | null;
       tool_calls?: ToolCall[];
     };
     finish_reason: string;
@@ -61,6 +63,46 @@ export interface ChatCompletionResponse {
     completion_tokens: number;
     total_tokens: number;
   };
+}
+
+/**
+ * Prefer message.content; if empty (common on Gemma-4 reasoning models), salvage a
+ * spoken line from `reasoning`. Strips markdown fences / bullet thinking noise.
+ */
+export function extractAssistantText(message: {
+  content?: string | null;
+  reasoning?: string | null;
+}): string {
+  const fromContent = (message.content ?? "").trim();
+  if (fromContent) return stripAssistantNoise(fromContent);
+
+  const reasoning = (message.reasoning ?? "").trim();
+  if (!reasoning) return "";
+
+  // Walk upward for the last plain spoken-looking line (skip * bullets / headers).
+  const lines = reasoning
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let l = lines[i]!;
+    l = l.replace(/^["'`]+|["'`]+$/g, "").trim();
+    if (l.length < 8 || l.length > 600) continue;
+    if (/^[*\-#•]/.test(l)) continue;
+    if (/^(constraint|role|tone|thinking|note|step|rule)\b/i.test(l)) continue;
+    if (/^[*\s]*\d+[.)]\s/.test(l)) continue;
+    return stripAssistantNoise(l);
+  }
+  return "";
+}
+
+function stripAssistantNoise(text: string): string {
+  let t = text.trim();
+  // Drop ``` fences if the model wraps the line.
+  t = t.replace(/^```(?:\w+)?\s*/i, "").replace(/\s*```$/i, "");
+  // Drop leading "Spoken line:" style labels.
+  t = t.replace(/^(spoken line|bumper|announcement)\s*:\s*/i, "");
+  return t.trim();
 }
 
 /**

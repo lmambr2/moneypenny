@@ -679,18 +679,21 @@ export class RadioBumperFactory implements BumperFactory {
 
     const cap = wordCap(cfg.maxBumperSeconds);
     const tone = profile?.bumper?.tone ? ` Tone: ${profile.bumper.tone}.` : "";
-    const script = (
+    // Clip material so the model doesn't burn tokens on long reasoning traces.
+    const materialClip = material.split(/\s+/).slice(0, 120).join(" ");
+    let script = (
       await llm.complete(
-        `Rewrite the following as a spoken radio bumper: under ${cap} words, one breath, plain speech, no markdown, no lists. Invent nothing — only rephrase what is given.${tone}\n\n${material}`,
-        "You are a radio announcer. Reply with only the spoken line itself.",
+        `Rewrite the following as ONE short spoken radio bumper line (under ${cap} words). Plain speech only — no markdown, no lists, no quotes, no preamble. Invent nothing; only rephrase what is given.${tone}\n\n${materialClip}`,
+        "You are a radio announcer. Output only the spoken sentence.",
       )
     ).trim();
     if (!script) {
+      // Fail-open: clipped source text is better than skipping the break entirely.
+      script = materialClip.split(/\s+/).slice(0, Math.min(cap, 45)).join(" ");
       this.deps.logger.info(
-        { topic: topicUsed, source: sourceHit },
-        "radio: doctrine skip — LLM returned empty rewrite",
+        { topic: topicUsed, source: sourceHit, fallback: true },
+        "radio: doctrine LLM empty — using clipped source text",
       );
-      return null;
     }
 
     const capped = script.split(/\s+/).slice(0, cap).join(" ");
