@@ -120,7 +120,8 @@ path; ACE-Step non-mock worker; doctrine prewarm UX more obvious.
 | **H5** | Tool transparency | Debug agentic loop | Log/tool panel: which tools fired, args, success/fail |
 | **H6** | Multi-channel / multi-server (later) | Scale beyond one channel | Config for channel scope; no single global queue assumption |
 
-**Depends on:** Station S1–S2 stable so radio doesn’t regress while harness UI grows.
+**Does not wait on Station “done.”** Fix radio/doctrine regressions from live
+feedback in parallel; don’t block H1–H2 on S1–S5 completeness.
 
 ---
 
@@ -154,9 +155,10 @@ Never broadcast private `!remember` rooms (already load-bearing).
 
 ---
 
-### Track G — Growth / Star Citizen org (optional)
+### Track G — Growth / Star Citizen org
 
-Only after Station is boringly solid:
+**In scope now** as plugins (not blocked on “Station complete”). Still fail-open
+and never between a user and the music.
 
 | ID | Feature | Notes |
 |----|---------|--------|
@@ -167,38 +169,60 @@ Only after Station is boringly solid:
 
 ---
 
-## 5. When to extract a Python “brain” service
+## 5. Python “brain” service — plan now, extract later
 
-Do **not** extract by default. Extract when **two or more** are true:
+**Decision:** design the boundary up front; **do not** implement the service
+until pain criteria hit (see below).
+
+### Planned boundary (doc-level contract)
+
+```
+TS bot (TS6 + music + rights + radio) ──HTTP──► brain (future FastAPI)
+web dashboard (Vue) ──────────────────────────► brain (same loop)
+brain ──► ollama / qdrant / mempalace / stt / tts (sidecars unchanged)
+```
+
+| Responsibility | Owner today | Owner if extracted |
+|----------------|-------------|---------------------|
+| TS6 events, music, radio director, rights enforcement | Bot | **Bot** (always) |
+| Tool allow-list execution against live queue/player | Bot | Bot (brain *proposes*, bot *disposes*) |
+| Multi-step plan / RAG pack / rewrite orchestration | Bot (`LlmModule` + tools) | **Brain** candidate |
+| Voice turn sequencing (STT→intent→TTS) | Bot + sidecars | **Brain** candidate if messy |
+
+**Extract when two or more are true:**
 
 - Voice turn pipeline needs retries, barge-in, multi-step tools beyond ControlRouter comfort  
 - RAG eval / re-rank / multi-query becomes a pipeline you iterate weekly  
 - Multiple clients (TS + web + future) need the **same** agent loop  
 
-**Shape if extracted:**
-
-```
-TS bot (TS6 + music + rights) ──HTTP──► brain (FastAPI): plan → tools → answer
-web dashboard ─────────────────────────► brain (same)
-brain ──► ollama / qdrant / mempalace / stt / tts (unchanged)
-```
-
 **Still not a full rewrite** — the bot remains the TeamSpeak and music authority.
+
+**Near-term planning work (no new service yet):**
+
+- Sketch OpenAPI-ish request/response for `POST /v1/turn` (transcript or text →
+  reply text + optional tool proposals + sources)  
+- Keep tool *execution* on the bot (executor disposes)  
+- Prefer thin adapters in TS so a future brain is a URL swap, not a rewrite  
 
 ---
 
-## 6. Suggested sequencing (next ~quarter)
+## 6. Sequencing (locked to 2026-07-09 decisions)
+
+Harness-first; Station feedback-driven in parallel; SC hooks and memory in scope.
 
 ```
-Now ──► S1–S5 (finish Station trust)
-     ──► R1–R2 (topics + ingest hygiene)
-     ──► H1–H2 (thin harness UI: turns + sources)
-     ──► V1 (voice under music smoke)
-     ──► R4 (org KG useful for memory bumper)
-     ──► H4–H5 / G* as product identity firmens
+Now ──► H1–H2   Chat-first dashboard panel + cited sources (Vue polish)
+     ──► R4     Org KG seed path so memory bumpers can hit
+     ──► R1–R2  Topic packs + ingest hygiene (feeds doctrine + !ask)
+     ──► G1–G2  Org command surface + first SC/external status tools (fail-open)
+     ──► H5     Tool transparency (what fired / args / result)
+     ──► V1     Voice under music smoke (feedback-driven)
+     ──► Brain  Boundary doc / OpenAPI sketch only until pain criteria
+     ──► S*     Station polish continuous via user feedback (not a gate)
 ```
 
-**Parallel ok:** docs, ACE-Step worker, Icecast ops — don’t block S1–S2.
+**Parallel always:** radio/doctrine/TTS bugs from live ops, ACE-Step worker,
+docs.
 
 ---
 
@@ -221,7 +245,9 @@ Now ──► S1–S5 (finish Station trust)
 | 2026-07 | TS spine + sidecars affirmed; no Python/Rust full rewrite |
 | 2026-07 | Vue retained for near-term dashboard work |
 | 2026-07 | Radio/doctrine/TTS arc on `dev`/`master` (profiles, seeds, station ID, timezones, cori-medium, Gemma reasoning salvage) |
-| 2026-07 | Feature roadmap: Station default, Harness progressive; extract brain only on pain |
+| 2026-07-09 | **Harness first (B)**; Station continuous via feedback, not a gate |
+| 2026-07-09 | **Org memory now**; **SC/org hooks wanted** as fail-open tools |
+| 2026-07-09 | **Vue polish** (no framework swap); **brain: plan boundary, don’t build yet** |
 
 ---
 
@@ -240,4 +266,4 @@ Now ──► S1–S5 (finish Station trust)
 
 ---
 
-*Ship the station. Grow the harness. Don’t rewrite the spine.*
+*Grow the harness. Keep shipping the station. Don’t rewrite the spine.*

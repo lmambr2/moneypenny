@@ -3,11 +3,31 @@
 Living backlog of next implementation work. Design sketches link out; this is the
 ordered **do list**, not full specs.
 
-**Last updated:** 2026-07-08 (docs scrub + radio tooltips + presence fix)
+Product sequence and locked decisions: **[feature-roadmap.md](./feature-roadmap.md)**
+(harness-first, Station via feedback, Vue polish, brain boundary plan-only).
+
+**Last updated:** 2026-07-09 (harness-first sequence locked)
 
 ---
 
 ## Now / next (priority)
+
+Harness-first queue from [feature-roadmap.md](./feature-roadmap.md) §6 — Station
+bugs still interrupt from live feedback.
+
+| ID | Item | Notes | Status |
+|----|------|--------|--------|
+| **H1** | Chat-first dashboard panel | Turns stream: user / tools / sources (admin) | **Next** |
+| **H2** | Cited answers in UI | `!ask` / dashboard query shows sources + classification | **Next** |
+| **R4** | Org KG seed path | MemPalace org facts so `memory` bumpers can hit | **Next** |
+| **R1–R2** | Topic packs + ingest hygiene | Profile topics match corpus; reindex/class audit | Queued |
+| **G1–G2** | Org commands + SC/external status tools | Fail-open plugins; never block music | Queued |
+| **H5** | Tool transparency | Which tools fired, args, result | Queued |
+| **V1** | Voice under music smoke | Feedback-driven; text fallback always works | Partial |
+| **Brain** | Python brain boundary sketch | OpenAPI `POST /v1/turn` only — no service until pain | Plan only |
+| **S\*** | Station polish | Continuous via user feedback (not a gate) | Ongoing |
+
+### Recently closed build items (2026-07)
 
 | ID | Item | Notes | Status |
 |----|------|--------|--------|

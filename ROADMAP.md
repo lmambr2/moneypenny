@@ -237,11 +237,12 @@ saved local file, no re-download.
 
 ---
 
-## Feature roadmap (Station vs Harness)
+## Feature roadmap (Harness first, Station continuous)
 
-Product-facing tracks after the 2026-07 radio/TTS/doctrine arc — what to build
-next, what **not** to rewrite (TS spine + sidecars stay), when a Python “brain”
-service might appear:
+Product-facing tracks after the 2026-07 radio/TTS/doctrine arc. **Decisions
+locked 2026-07-09:** harness-first (B), Station polish from user feedback (not
+a gate), org memory + SC/org tools in scope now, Vue polish (no framework swap),
+Python “brain” **planned** only until pain criteria hit. TS spine + sidecars stay.
 
 → **[docs/feature-roadmap.md](./docs/feature-roadmap.md)**
 
