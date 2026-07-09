@@ -559,6 +559,8 @@ export class CommandExecutor {
       `${p}analyst <task> · ${p}agent <task> — Heavy delegate model (async ack + follow-up)`,
       `${p}intsum [-s] [class:<level>] <points> · ${p}aar [-s] [class:<level>] <points> — Templated INTSUM/AAR (@analyst)`,
       `${p}remember <fact> · ${p}recall · ${p}forget <n|all> — Per-user memory`,
+      `${p}kg remember|who|list|forget — Org knowledge graph (not private memory)`,
+      `${p}ops [status|brief|sc|host|list] — Org brief + external status (fail-open)`,
       "",
       "Org economy (seed catalog; optional UEX prices)",
       `${p}mine <ore> [scu:N] [method:name] — Mining pull order + stability clock`,

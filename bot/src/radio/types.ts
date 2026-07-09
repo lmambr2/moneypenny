@@ -134,11 +134,13 @@ export function defaultRadioConfig(): RadioConfig {
     memoryBroadcastOptIn: false,
     activeProfile: "lobby",
     profiles: {
+      // Topic packs (R1) align with common doctrine filenames/headings:
+      // station/welcome, ops/briefing, combat-doctrine/ROE, mining/logistics.
       lobby: {
         name: "lobby",
         music: { seedQueries: ["chill", "ambient"], shuffle: true },
         bumper: {
-          topics: ["station", "welcome"],
+          topics: ["station", "welcome", "org announcements", "code of conduct"],
           // Align with DEFAULT_SYSTEM_PROMPT (Miss Moneypenny persona).
           tone: "Miss Moneypenny: dry poised British secretary wit, mock-formal teasing, brief and elegant, never crude",
         },
@@ -151,7 +153,7 @@ export function defaultRadioConfig(): RadioConfig {
           shuffle: true,
         },
         bumper: {
-          topics: ["ops", "briefing"],
+          topics: ["ops", "briefing", "standup", "priorities"],
           tone: "Miss Moneypenny: dry British composure, calm mock-formal briefing manner, brief and sharp",
         },
       },
@@ -162,8 +164,19 @@ export function defaultRadioConfig(): RadioConfig {
           shuffle: true,
         },
         bumper: {
-          topics: ["combat doctrine"],
+          topics: ["combat doctrine", "ROE", "engagement", "fleet ops"],
           tone: "Miss Moneypenny under pressure: dry British composure, clipped mock-formal urgency, still arch, never shouty",
+        },
+      },
+      mining: {
+        name: "mining",
+        music: {
+          seedQueries: ["space ambient", "industrial", "mining"],
+          shuffle: true,
+        },
+        bumper: {
+          topics: ["mining", "logistics", "refinery", "cargo"],
+          tone: "Miss Moneypenny: dry British efficiency, practical logistics manner, brief",
         },
       },
     },

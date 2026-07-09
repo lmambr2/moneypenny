@@ -17,14 +17,14 @@ bugs still interrupt from live feedback.
 
 | ID | Item | Notes | Status |
 |----|------|--------|--------|
-| **H1** | Chat-first dashboard panel | Turns stream: user / tools / sources (admin) | **Next** |
-| **H2** | Cited answers in UI | `!ask` / dashboard query shows sources + classification | **Next** |
-| **R4** | Org KG seed path | MemPalace org facts so `memory` bumpers can hit | **Next** |
-| **R1–R2** | Topic packs + ingest hygiene | Profile topics match corpus; reindex/class audit | Queued |
-| **G1–G2** | Org commands + SC/external status tools | Fail-open plugins; never block music | Queued |
-| **H5** | Tool transparency | Which tools fired, args, result | Queued |
-| **V1** | Voice under music smoke | Feedback-driven; text fallback always works | Partial |
-| **Brain** | Python brain boundary sketch | OpenAPI `POST /v1/turn` only — no service until pain | Plan only |
+| **H1** | Chat-first dashboard panel | `/harness` + `POST /api/bot/harness/ask` | **Shipped** 2026-07-09 |
+| **H2** | Cited answers in UI | Sources + classification on harness turns | **Shipped** 2026-07-09 |
+| **H5** | Tool transparency | Intent mode tool records on harness panel | **Shipped** 2026-07-09 |
+| **R4** | Org KG seed path | `POST /api/bot/org-kg` + `searchOrg` for memory bumper | **Shipped** 2026-07-09 |
+| **R1–R2** | Topic packs + ingest hygiene | mining profile topics; `GET …/doctrine/hygiene` | **Shipped** 2026-07-09 |
+| **G1–G2** | Org commands + SC/external status tools | `!ops` + fail-open plugins | **Shipped** 2026-07-09 |
+| **Brain** | Python brain boundary sketch | [brain-boundary.md](./brain-boundary.md) only | **Shipped** (doc) |
+| **V1** | Voice under music smoke | Feedback-driven; text fallback always works | Partial / deferred |
 | **S\*** | Station polish | Continuous via user feedback (not a gate) | Ongoing |
 
 ### Recently closed build items (2026-07)

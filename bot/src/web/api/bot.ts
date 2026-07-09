@@ -907,6 +907,103 @@ export function createBotRouter(
     res.json({ answer });
   });
 
+  // ─── Harness cockpit (H1/H2/H5) ───────────────────────────────────────────
+  // POST /api/bot/harness/ask — grounded turn with sources + tools + errors.
+  router.post("/harness/ask", requireAdmin, async (req, res) => {
+    const question =
+      typeof req.body?.question === "string"
+        ? req.body.question.trim()
+        : typeof req.body?.q === "string"
+          ? req.body.q.trim()
+          : "";
+    if (!question) {
+      res.status(400).json({ error: "question is required", code: "VALIDATION_ERROR" });
+      return;
+    }
+    const mode = req.body?.mode === "intent" ? "intent" : "ask";
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    try {
+      const turn = await bot.runHarnessTurn(question, { mode });
+      if (turn.error === "LLM is not enabled") {
+        res.status(409).json({ error: turn.error, code: "LLM_DISABLED", turn });
+        return;
+      }
+      res.json({ turn });
+    } catch (err: unknown) {
+      logger.error({ err }, "Harness ask failed");
+      res.status(502).json({
+        error: errorMessage(err, "harness ask failed"),
+        code: "HARNESS_ERROR",
+      });
+    }
+  });
+
+  // GET /api/bot/harness/turns — recent turn ring buffer.
+  router.get("/harness/turns", requireAdmin, (req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.json({ turns: [] });
+      return;
+    }
+    const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query.limit ?? "30"), 10) || 30));
+    res.json({ turns: bot.listHarnessTurns(limit) });
+  });
+
+  // ─── Org KG seed (R4) ─────────────────────────────────────────────────────
+  // POST /api/bot/org-kg — seed org-scoped fact (never private !remember).
+  router.post("/org-kg", requireAdmin, async (req, res) => {
+    const fact = typeof req.body?.fact === "string" ? req.body.fact.trim() : "";
+    if (!fact) {
+      res.status(400).json({ error: "fact is required", code: "VALIDATION_ERROR" });
+      return;
+    }
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    try {
+      const result = await bot.seedOrgKgFactAsync(fact, "web-admin");
+      if (!result.ok) {
+        res.status(400).json({ error: result.message, code: "KG_ERROR" });
+        return;
+      }
+      res.json(result);
+    } catch (err: unknown) {
+      logger.error({ err }, "Org KG seed failed");
+      res.status(502).json({ error: errorMessage(err, "org kg seed failed"), code: "KG_ERROR" });
+    }
+  });
+
+  // GET /api/bot/org-kg — list recent org facts.
+  router.get("/org-kg", requireAdmin, (_req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.json({ facts: [] });
+      return;
+    }
+    res.json({ facts: bot.listOrgKgFacts(30) });
+  });
+
+  // GET /api/bot/ops/status — org ops brief (G1) for dashboard.
+  router.get("/ops/status", requireAdmin, async (_req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    try {
+      const text = await bot.handleOps("status");
+      res.json({ text });
+    } catch (err: unknown) {
+      res.status(502).json({ error: errorMessage(err, "ops failed"), code: "OPS_ERROR" });
+    }
+  });
+
   router.get("/", (_req, res) => {
     const bots = botManager.getAllBots().map((b) => b.getStatus());
     res.json({ bots });

@@ -76,6 +76,8 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "forget", kind: "special" },
   { name: "kg", kind: "special" },
   { name: "diary", kind: "special" },
+  // Org/ops brief + external status plugins (feature-roadmap G1/G2).
+  { name: "ops", kind: "special" },
   // Org economy orders (docs/economy.md) — seed catalog + optional UEX prices.
   { name: "mine", kind: "special" },
   { name: "refine", kind: "special" },

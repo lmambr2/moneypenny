@@ -300,11 +300,15 @@
         </label>
         <button class="refresh-btn" @click="toggleNewDoc" :disabled="doctrineBusy">+ New doc</button>
         <button class="refresh-btn" @click="reindexDoctrine" :disabled="doctrineBusy">⟳ Reindex</button>
+        <button class="refresh-btn" @click="loadDoctrineHygiene" :disabled="doctrineBusy" title="Classification audit + reindex status">
+          ☰ Hygiene
+        </button>
         <span class="upload-hint">
           Markdown docs are chunked and embedded so <code>!ask</code> / <code>!analyst</code> can cite them.
           Requires the knowledge base (RAG) enabled in Settings.
         </span>
       </div>
+      <p v-if="hygieneSummary" class="upload-hint hygiene-summary">{{ hygieneSummary }}</p>
 
       <details class="doctrine-help">
         <summary>Doctrine metadata (YAML frontmatter)</summary>
@@ -887,6 +891,25 @@ async function reindexDoctrine() {
     await loadDoctrine();
   } catch (err: any) {
     doctrineMsg.value = err?.response?.data?.error ?? 'Reindex failed.';
+  } finally {
+    doctrineBusy.value = false;
+  }
+}
+
+const hygieneSummary = ref('');
+async function loadDoctrineHygiene() {
+  doctrineBusy.value = true;
+  hygieneSummary.value = '';
+  try {
+    const res = await api.get('/api/rag/doctrine/hygiene');
+    const d = res.data;
+    const parts = Object.entries(d.byClassification ?? {})
+      .map(([k, v]) => `${k}:${v}`)
+      .join(', ');
+    hygieneSummary.value = `Docs ${d.docCount ?? 0} · expired ${d.expiredCount ?? 0} · by class [${parts || 'none'}] · reindex: ${d.reindex?.endpoint ?? 'POST /api/rag/doctrine/reindex'}`;
+    doctrineMsg.value = hygieneSummary.value;
+  } catch (err: any) {
+    doctrineMsg.value = err?.response?.data?.error ?? 'Hygiene load failed.';
   } finally {
     doctrineBusy.value = false;
   }

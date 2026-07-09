@@ -7,6 +7,7 @@
       <RouterLink to="/search" class="nav-link" active-class="active">Search</RouterLink>
       <RouterLink to="/library" class="nav-link" active-class="active">Library</RouterLink>
       <RouterLink to="/history" class="nav-link" active-class="active">History</RouterLink>
+      <RouterLink to="/harness" class="nav-link" active-class="active">Harness</RouterLink>
     </div>
 
     <div class="nav-right">

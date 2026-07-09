@@ -70,6 +70,16 @@ const DELTAS: readonly RightsDelta[] = [
       admin: ["generate"],
     },
   },
+  {
+    // !ops org brief + external status (feature-roadmap G1/G2).
+    version: 5,
+    defaultAllow: ["ops"],
+    groups: {
+      dj: ["ops"],
+      admin: ["ops"],
+      analyst: ["ops"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

@@ -6,6 +6,20 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-09
+
+### Feature roadmap sprint: harness cockpit + org depth
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **H1/H2/H5:** Admin **Harness** panel (`/harness`) + `POST /api/bot/harness/ask` —
+  structured turns (user, reply, RAG sources with classification, tool records, errors)
+- **R4:** `POST /api/bot/org-kg` org fact seed; memory bumper `searchOrg` (MemPalace then SQLite KG; never private `!remember`)
+- **R1:** Default radio profiles include **mining** + curated doctrine-aligned topic packs
+- **R2:** `GET /api/rag/doctrine/hygiene` classification audit; Library **Hygiene** button
+- **G1/G2:** `!ops` org status surface; fail-open external status plugins (`host`, `sc-org`)
+- **Brain:** [docs/brain-boundary.md](./docs/brain-boundary.md) OpenAPI-ish `POST /v1/turn` (plan only)
+- No Pi deploy this sprint
+
 ## 2026-07-08
 
 ### Radio: docs scrub, tooltips, presence gate, prewarm, color

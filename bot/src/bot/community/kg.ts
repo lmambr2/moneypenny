@@ -186,6 +186,80 @@ export class KgService {
       : "No fact at that number — run !kg list.";
   }
 
+  /**
+   * Org-scoped search for memory bumpers (R4). MemPalace kgSearch first, then
+   * SQLite KG. Never touches per-user !remember rooms.
+   */
+  async searchOrg(query: string, limit = 5): Promise<Array<{ fact: string }>> {
+    const q = query.trim();
+    if (!q) return [];
+
+    if (this.useMemPalace()) {
+      const hits = await this.deps.mempalace!.kgSearch(q, { limit });
+      if (hits.length > 0) {
+        return hits.map((h) => ({ fact: h.fact }));
+      }
+    }
+
+    if (!this.deps.config.kgEnabled) return [];
+    return this.deps.store
+      .searchText(q, undefined, limit)
+      .map((f) => ({ fact: displayFactLine(f.fact, f.validFrom, f.validUntil) }));
+  }
+
+  /** List recent org facts (dashboard / API). */
+  listFacts(limit = 20): Array<{
+    id: number;
+    subject: string;
+    fact: string;
+    validFrom: string | null;
+    validUntil: string | null;
+    diary: string | null;
+  }> {
+    return this.deps.store.list(limit).map((f) => ({
+      id: f.id,
+      subject: f.subject,
+      fact: f.fact,
+      validFrom: f.validFrom,
+      validUntil: f.validUntil,
+      diary: f.diary,
+    }));
+  }
+
+  /**
+   * Seed an org fact and await MemPalace sync when enabled (R4 API path).
+   * Returns the human message from handleRemember.
+   */
+  async seedOrgFact(
+    fact: string,
+    invokerUid?: string,
+  ): Promise<{ ok: boolean; message: string; syncedToMemPalace: boolean }> {
+    const msg = this.handleRemember(fact, invokerUid, undefined, () => true);
+    if (msg.startsWith("Usage:") || msg.startsWith("Recording org")) {
+      return { ok: false, message: msg, syncedToMemPalace: false };
+    }
+    let syncedToMemPalace = false;
+    if (this.useMemPalace()) {
+      const row = this.deps.store.list(1)[0];
+      if (row) {
+        const line = formatKgRecord({
+          subject: row.subject,
+          fact: row.fact,
+          validFrom: row.validFrom,
+          validUntil: row.validUntil,
+          diary: row.diary,
+        });
+        syncedToMemPalace = await this.deps.mempalace!.kgRemember(line, {
+          validFrom: row.validFrom,
+          validUntil: row.validUntil,
+          diary: row.diary,
+          subject: row.subject,
+        });
+      }
+    }
+    return { ok: true, message: msg, syncedToMemPalace };
+  }
+
   /** Facts to inject into !ask / delegate retrieval. */
   async recallForQuestion(question: string): Promise<Array<{ text: string; source: string }>> {
     if (!this.deps.config.kgEnabled) return [];

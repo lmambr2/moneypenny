@@ -44,7 +44,13 @@ import { CommandExecutor } from "./commands/executor.js";
 import type { ParsedCommand } from "./commands.js";
 import { KgService } from "./community/kg.js";
 import { MemoryService } from "./community/memory.js";
+import { OpsService } from "./community/ops.js";
 import { RoastService } from "./community/roast.js";
+import {
+  createHostHealthPlugin,
+  createStarCitizenOrgStatusPlugin,
+  ExternalStatusRegistry,
+} from "../tools/external-status.js";
 import { PokeHandler } from "./control/poke-handler.js";
 import { RoutedCommandExecutor } from "./control/routed-executor.js";
 import { TextMessageHandler } from "./control/text-handler.js";
@@ -108,6 +114,8 @@ export class BotInstance extends EventEmitter {
   private roast: RoastService;
   private memory: MemoryService;
   private kg: KgService;
+  private ops: OpsService;
+  private statusRegistry: ExternalStatusRegistry;
   private knowledge: KnowledgeService;
   private llm: LlmRuntime;
   private idlePoller: IdlePoller;
@@ -119,6 +127,7 @@ export class BotInstance extends EventEmitter {
   private rights: RightsRuntime;
   private routed: RoutedCommandExecutor;
   private mempalace: MemPalaceClient | null = null;
+  private harnessStore: import("../harness/index.js").HarnessTurnStore | null = null;
   private aceStep: AceStepClient | null = null;
   private generateProvider: GenerateProvider;
   private icecastTee: IcecastTee;
@@ -208,6 +217,28 @@ export class BotInstance extends EventEmitter {
       config: this.config,
       mempalace: this.mempalace,
       logger: this.logger,
+    });
+
+    this.statusRegistry = new ExternalStatusRegistry();
+    this.statusRegistry.register(createHostHealthPlugin());
+    this.statusRegistry.register(createStarCitizenOrgStatusPlugin({}));
+    this.ops = new OpsService({
+      statusRegistry: this.statusRegistry,
+      getNowPlaying: () => {
+        const cur = this.queue.current();
+        return cur ? `${cur.name}${cur.artist ? ` — ${cur.artist}` : ""}` : null;
+      },
+      getRadioStatus: async () => {
+        const r = this.config.radio;
+        if (!r?.enabled) return "Radio: off";
+        return `Radio: on · profile ${r.activeProfile} · everyN ${r.everyNSongs}`;
+      },
+      getOrgBrief: async () => {
+        if (!this.config.kgEnabled) return "";
+        const facts = this.kg.listFacts(3);
+        if (facts.length === 0) return "Org KG: (empty — !kg remember <fact>)";
+        return `Org KG: ${facts.map((f) => f.fact).join("; ")}`;
+      },
     });
 
     this.llm = new LlmRuntime({
@@ -372,14 +403,11 @@ export class BotInstance extends EventEmitter {
       getRetrieval: () => this.knowledge.getRetrieval() ?? null,
       getLlm: () => this.llm.getModule() ?? null,
       // OQ1: org KG / diary only — never per-user !remember rooms.
+      // Prefer MemPalace kgSearch; fall back to SQLite org KG (never private rooms).
       getOrgMemory: () => {
-        const mp = this.mempalace;
-        if (!mp || !this.config.mempalaceEnabled) return null;
+        if (!this.config.kgEnabled && !this.config.mempalaceEnabled) return null;
         return {
-          searchOrg: async (query: string, limit = 5) => {
-            const hits = await mp.kgSearch(query, { limit });
-            return hits.map((h) => ({ fact: h.fact }));
-          },
+          searchOrg: async (query: string, limit = 5) => this.kg.searchOrg(query, limit),
         };
       },
       logger: this.logger,
@@ -485,6 +513,7 @@ export class BotInstance extends EventEmitter {
       roast: this.roast,
       memory: this.memory,
       kg: this.kg,
+      ops: this.ops,
       knowledge: this.knowledge,
       generate: {
         handleGenerate: (args, invokerKey) =>
@@ -785,6 +814,81 @@ export class BotInstance extends EventEmitter {
 
   askLlm(question: string) {
     return this.llm.askLlm(question);
+  }
+
+  /**
+   * Admin harness cockpit (H1/H2/H5): grounded ask or intent+tools with a
+   * structured turn (sources, tool records, errors).
+   */
+  async runHarnessTurn(
+    question: string,
+    opts?: { mode?: import("../harness/index.js").HarnessMode },
+  ): Promise<import("../harness/index.js").HarnessTurn> {
+    const { runHarnessTurn, InMemoryHarnessStore } = await import("../harness/index.js");
+    if (!this.harnessStore) {
+      this.harnessStore = new InMemoryHarnessStore(50);
+    }
+    const mode = opts?.mode === "intent" ? "intent" : "ask";
+    const mod = this.llm.getModule();
+    return runHarnessTurn(question, mode, {
+      llm: mod
+        ? {
+            ask: (q, conv) => mod.ask(q, conv),
+            chatForIntent: (q, conv) => mod.chatForIntent(q, conv),
+          }
+        : null,
+      retrieve: async (q) => this.llm.retrieveForHarness(q),
+      executeTool: async (name, args) => {
+        try {
+          // Tool proposals only affect music when the real executor is live;
+          // fail-open with a clear message — never throw into the player.
+          const { toolCallToCommand } = await import("../control/router.js");
+          const cmd = toolCallToCommand({ name, arguments: args });
+          if (!cmd) {
+            return { ok: false, error: `unknown or invalid tool: ${name}` };
+          }
+          const text = await this.commands.execute(cmd);
+          return { ok: true, result: text ?? "(ok)" };
+        } catch (err) {
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      },
+      store: this.harnessStore,
+      conversationId: "harness-dashboard",
+    });
+  }
+
+  listHarnessTurns(limit = 30) {
+    return this.harnessStore?.list(limit) ?? [];
+  }
+
+  /** Seed org KG fact (R4) — SQLite + MemPalace when enabled. Never uses !remember rooms. */
+  seedOrgKgFact(fact: string, invokerUid?: string): string {
+    return this.kg.handleKg(`remember ${fact}`, invokerUid, () => true);
+  }
+
+  seedOrgKgFactAsync(fact: string, invokerUid?: string) {
+    return this.kg.seedOrgFact(fact, invokerUid);
+  }
+
+  listOrgKgFacts(limit = 20) {
+    return this.kg.listFacts(limit);
+  }
+
+  /** Org memory search for bumpers: MemPalace kgSearch, else SQLite KG. Never private rooms. */
+  async searchOrgMemory(query: string, limit = 5): Promise<Array<{ fact: string }>> {
+    return this.kg.searchOrg(query, limit);
+  }
+
+  handleOps(args: string, canRun?: (c: string) => boolean) {
+    return this.ops.handle(args, canRun ?? (() => true));
+  }
+
+  getStatusRegistry() {
+    return this.statusRegistry;
   }
 
   updateRights(enabled: boolean, rights?: RightsConfig): void {

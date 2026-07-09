@@ -173,11 +173,22 @@ export class LlmRuntime {
     this.deps.onModuleChange(this.module);
   }
 
+  /**
+   * Public retrieve for harness cockpit (H1/H2) — same sources as !ask, with
+   * classification when the vector payload has it.
+   */
+  async retrieveForHarness(
+    question: string,
+    ctx?: { allowedClassifications?: string[]; userUid?: string },
+  ): Promise<Array<{ text: string; source: string; score?: number; classification?: string }>> {
+    return this.retrieveContext(question, ctx);
+  }
+
   private async retrieveContext(
     question: string,
     ctx?: { allowedClassifications?: string[]; userUid?: string },
-  ): Promise<Array<{ text: string; source: string; score?: number }>> {
-    const out: Array<{ text: string; source: string; score?: number }> = [];
+  ): Promise<Array<{ text: string; source: string; score?: number; classification?: string }>> {
+    const out: Array<{ text: string; source: string; score?: number; classification?: string }> = [];
     const retrieval = this.deps.getRetrieval();
     if (this.deps.config.ragEnabled && retrieval) {
       const chunks = await retrieval.query(
@@ -185,7 +196,14 @@ export class LlmRuntime {
         this.deps.config.ragTopK,
         ctx?.allowedClassifications,
       );
-      out.push(...chunks.map((c) => ({ text: c.text, source: c.source, score: c.score })));
+      out.push(
+        ...chunks.map((c) => ({
+          text: c.text,
+          source: c.source,
+          score: c.score,
+          classification: c.classification,
+        })),
+      );
     }
     if (this.deps.config.memoryEnabled && ctx?.userUid) {
       const mp = this.deps.config.mempalaceEnabled ? this.deps.getMemPalace() : null;

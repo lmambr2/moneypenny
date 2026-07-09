@@ -2,6 +2,7 @@ import type { CommandExecutor } from "../bot/commands/executor.js";
 import { commandsOfKind, type ParsedCommand } from "../bot/commands.js";
 import type { KgService } from "../bot/community/kg.js";
 import type { MemoryService } from "../bot/community/memory.js";
+import type { OpsService } from "../bot/community/ops.js";
 import type { RoastService } from "../bot/community/roast.js";
 import type { KnowledgeService } from "../bot/knowledge/service.js";
 import type { PlaybackEngine } from "../bot/playback/engine.js";
@@ -16,6 +17,7 @@ export interface CommandHandlerHost {
   roast: RoastService;
   memory: MemoryService;
   kg: KgService;
+  ops?: OpsService;
   knowledge: KnowledgeService;
   /** ACE-Step !generate (optional until configured). */
   generate?: {
@@ -77,6 +79,10 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     forget: async (cmd, ctx) => host.memory.handleForget(cmd.args, ctx.invokerUid), // awaits MemPalace
     kg: async (cmd, ctx) => host.kg.handleKg(cmd.args, ctx.invokerUid, ctx.canRun),
     diary: async (cmd, ctx) => host.kg.handleDiary(cmd.args, ctx.invokerUid, ctx.canRun),
+    ops: async (cmd, ctx) => {
+      if (!host.ops) return "Ops status is not available on this bot.";
+      return host.ops.handle(cmd.args, ctx.canRun);
+    },
     mine: async (cmd) => handleEconomyCommand("mine" as EconomyCommand, cmd.args),
     refine: async (cmd) => handleEconomyCommand("refine" as EconomyCommand, cmd.args),
     craft: async (cmd) => handleEconomyCommand("craft" as EconomyCommand, cmd.args),

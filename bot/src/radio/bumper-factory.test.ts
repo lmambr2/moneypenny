@@ -389,4 +389,22 @@ describe("RadioBumperFactory", () => {
     });
     expect(await factory.build({ slot: "bumper", sources: ["memory"] })).toBeNull();
   });
+
+  it("memory bumper hits when org KG returns facts (R4; never private rooms)", async () => {
+    const searchOrg = vi.fn(async () => [{ fact: "FC is Alice this week" }]);
+    const complete = vi.fn(async () => "Fleet commander is Alice this week.");
+    const { factory, renderFn } = harness({
+      sources: ["memory"],
+      memoryBroadcastOptIn: true,
+      orgMemory: { searchOrg },
+      llm: { complete },
+    });
+    const out = await factory.build({ slot: "bumper", sources: ["memory"] });
+    expect(out?.label).toBe("memory");
+    expect(out?.path).toMatch(/\.wav$/);
+    expect(searchOrg).toHaveBeenCalled();
+    expect(complete).toHaveBeenCalled();
+    expect(JSON.stringify(complete.mock.calls)).toMatch(/FC is Alice/);
+    expect(renderFn).toHaveBeenCalled();
+  });
 });

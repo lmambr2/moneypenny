@@ -112,6 +112,43 @@ Body markdown…
     res.json({ docs: doctrine.list() });
   });
 
+  /**
+   * GET /api/rag/doctrine/hygiene — reindex observability + classification audit (R2).
+   * Lists registry docs with classification/tags/chunks and a by-classification summary.
+   */
+  router.get("/doctrine/hygiene", (_req, res) => {
+    const docs = doctrine.list();
+    const today = new Date().toISOString().slice(0, 10);
+    const byClassification: Record<string, number> = {};
+    let expired = 0;
+    const enriched = docs.map((d) => {
+      const cls = d.classification || "unclassified";
+      byClassification[cls] = (byClassification[cls] ?? 0) + 1;
+      const isExpired = !!(d.validUntil && d.validUntil < today);
+      if (isExpired) expired++;
+      return {
+        source: d.source,
+        classification: cls,
+        tags: d.tags,
+        chunks: d.chunks,
+        bytes: d.bytes,
+        validUntil: d.validUntil ?? null,
+        expired: isExpired,
+        updatedAt: d.updatedAt,
+      };
+    });
+    res.json({
+      docCount: docs.length,
+      expiredCount: expired,
+      byClassification,
+      docs: enriched,
+      reindex: {
+        endpoint: "POST /api/rag/doctrine/reindex",
+        command: "!reindex [source.md]",
+      },
+    });
+  });
+
   router.get("/doctrine/export/capabilities", async (_req, res) => {
     const pandoc = await isPandocAvailable();
     res.json({

@@ -113,12 +113,12 @@ path; ACE-Step non-mock worker; doctrine prewarm UX more obvious.
 
 | ID | Feature | Why | Accept |
 |----|---------|-----|--------|
-| **H1** | Chat-first dashboard panel | See the harness | Stream of turns: user, tools, sources, errors (admin) |
-| **H2** | Cited answers in UI | Trust RAG | `!ask` / dashboard query shows sources + classification |
-| **H3** | Memory scopes | Multi-user org | Clear UI for per-user vs org KG; never mix private into broadcast |
-| **H4** | Voice-first progressive enhancement | Hands-free ops | Wake → command → spoken ack reliable under music; text fallback always works |
-| **H5** | Tool transparency | Debug agentic loop | Log/tool panel: which tools fired, args, success/fail |
-| **H6** | Multi-channel / multi-server (later) | Scale beyond one channel | Config for channel scope; no single global queue assumption |
+| **H1** | Chat-first dashboard panel | See the harness | Stream of turns: user, tools, sources, errors (admin) — **shipped** `/harness` + `POST /api/bot/harness/ask` |
+| **H2** | Cited answers in UI | Trust RAG | Turn sources include classification when present — **shipped** with H1 |
+| **H3** | Memory scopes | Multi-user org | Clear UI for per-user vs org KG; never mix private into broadcast — **deferred** (org seed UI on Harness; private still !remember) |
+| **H4** | Voice-first progressive enhancement | Hands-free ops | Wake → command → spoken ack reliable under music; text fallback always works — **deferred** (feedback / Pi smoke) |
+| **H5** | Tool transparency | Debug agentic loop | Log/tool panel: which tools fired, args, success/fail — **shipped** intent mode on harness panel |
+| **H6** | Multi-channel / multi-server (later) | Scale beyond one channel | Config for channel scope; no single global queue assumption — **deferred** |
 
 **Does not wait on Station “done.”** Fix radio/doctrine regressions from live
 feedback in parallel; don’t block H1–H2 on S1–S5 completeness.
@@ -129,11 +129,11 @@ feedback in parallel; don’t block H1–H2 on S1–S5 completeness.
 
 | ID | Feature | Why | Accept |
 |----|---------|-----|--------|
-| **R1** | Topic packs | Doctrine bumpers hit | Starter topic lists per profile (lobby/combat/mining) matching real files |
-| **R2** | Ingest hygiene | Better retrieval | Reindex status, classification audit, expired chunk hygiene |
-| **R3** | Eval loop (light) | Catch empty rewrites | Scripted queries: expected non-empty doctrine/memory; CI optional |
-| **R4** | Org KG fill | Memory bumper useful | Path to seed org facts; `memory` bumper logs hits not only skips |
-| **R5** | Game-state hooks (optional) | SC org awareness | Tools that pull org roster/status into RAG or tools — **plugin**, not core rewrite |
+| **R1** | Topic packs | Doctrine bumpers hit | Starter topics on lobby/focus/combat/**mining** defaults — **shipped** |
+| **R2** | Ingest hygiene | Better retrieval | `GET /api/rag/doctrine/hygiene` + Library **Hygiene** — **shipped** |
+| **R3** | Eval loop (light) | Catch empty rewrites | Scripted queries: expected non-empty doctrine/memory; CI optional — **deferred** |
+| **R4** | Org KG fill | Memory bumper useful | `POST /api/bot/org-kg` + `!kg remember`; MemPalace/SQLite `searchOrg` — **shipped** |
+| **R5** | Game-state hooks (optional) | SC org awareness | Tools that pull org roster/status into RAG or tools — **plugin**, not core rewrite (see G2) |
 
 **Doctrine/memory split (keep deliberate):**
 
@@ -162,10 +162,10 @@ and never between a user and the music.
 
 | ID | Feature | Notes |
 |----|---------|--------|
-| **G1** | Org command surface | `!ops`, status briefs via tools |
-| **G2** | SC API / external status tools | Fail-open; cached; never blocks music |
-| **G3** | Shared dashboard for non-admins | Read-only now-playing, next bumper, simple queue |
-| **G4** | Audio / abuse moderation hooks | Rate limits, mute integration — rights-first |
+| **G1** | Org command surface | `!ops` status/brief/sc/host/list — **shipped** |
+| **G2** | SC API / external status tools | Fail-open registry + `sc-org` + `host` plugins — **shipped** (live SC URL optional) |
+| **G3** | Shared dashboard for non-admins | Read-only now-playing, next bumper, simple queue — **deferred** |
+| **G4** | Audio / abuse moderation hooks | Rate limits, mute integration — rights-first — **deferred** |
 
 ---
 
@@ -199,8 +199,7 @@ brain ──► ollama / qdrant / mempalace / stt / tts (sidecars unchanged)
 
 **Near-term planning work (no new service yet):**
 
-- Sketch OpenAPI-ish request/response for `POST /v1/turn` (transcript or text →
-  reply text + optional tool proposals + sources)  
+- OpenAPI-ish contract: **[brain-boundary.md](./brain-boundary.md)** (`POST /v1/turn`) — **shipped as docs only**  
 - Keep tool *execution* on the bot (executor disposes)  
 - Prefer thin adapters in TS so a future brain is a URL swap, not a rewrite  
 
@@ -248,6 +247,14 @@ docs.
 | 2026-07-09 | **Harness first (B)**; Station continuous via feedback, not a gate |
 | 2026-07-09 | **Org memory now**; **SC/org hooks wanted** as fail-open tools |
 | 2026-07-09 | **Vue polish** (no framework swap); **brain: plan boundary, don’t build yet** |
+| 2026-07-09 | **Sprint:** H1/H2/H5, R1/R2/R4, G1/G2 + brain-boundary.md on `dev` (no Pi deploy) |
+| 2026-07-09 | **Deferred this sprint:** H3 full scopes UI, H4/V1 live voice, H6, G3–G4, R3 eval, real SC auth |
+
+### Sprint notes (2026-07-09)
+
+- **SC org plugin** uses `SC_ORG_STATUS_URL` when set; otherwise fail-open message (no live credentials required).
+- **Memory bumper** org search: MemPalace `kgSearch` then SQLite KG; never per-user `!remember` rooms.
+- **Vue** kept; Harness panel is admin cockpit (not a framework migration).
 
 ---
 
@@ -257,6 +264,7 @@ docs.
 |-----|------|
 | [ROADMAP.md](../ROADMAP.md) | Phase history 0–9 |
 | [DESIGN.md](../DESIGN.md) | Architecture principles |
+| [docs/brain-boundary.md](./brain-boundary.md) | Future `POST /v1/turn` contract (plan only) |
 | [docs/radio.md](./radio.md) | Radio / bumpers / profiles |
 | [docs/voice.md](./voice.md) · [voice-backends.md](./voice-backends.md) | Voice loop |
 | [docs/memory.md](./memory.md) | Memory / MemPalace |
