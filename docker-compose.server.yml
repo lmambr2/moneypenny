@@ -41,7 +41,7 @@ services:
       args:
         WHISPER_VULKAN: ${WHISPER_VULKAN:-1}
     environment:
-      - STT_MODEL=${STT_MODEL:-small}
+      - STT_MODEL=${STT_MODEL:-medium}
       - STT_DEVICE=${STT_DEVICE:-auto}
       - STT_BACKEND=whisper-cpp
       - STT_EAGER_LOAD=${STT_EAGER_LOAD:-1}

@@ -844,39 +844,57 @@ export class VoiceSession {
     const silenceTailBytes =
       Math.floor(48_000 * (this.silenceTailMs / 1000)) * 2 * Math.max(1, meta.channels);
     if (meta.peak === 0 && meta.pcmBytes <= silenceTailBytes + 960 && !out.keyword) {
-      // Finals often land on the trailing-silence chunk (peak 0). Keep transport
-      // verbs (pause) and play/search that still carry a title; drop bare play
-      // and conversational junk that only looks like a command.
+      // Finals often land on the trailing-silence chunk (peak 0).
+      // Require a real watchword match (or already-armed) — do NOT invent
+      // commands from bare verbs / STT garble (no synonym table).
       const aliases = this.deps.config.commandAliases;
-      const candidate = extractCommandSegment(out.final, this.watchword);
+      const armed = this.isArmed(clientId);
+      const ww = extractWatchwordCommand(out.final, this.watchword, {
+        textWakeFallback: this.textWakeFallback,
+        armed,
+      });
+      if (!ww.matched) {
+        this.deps.logger.info(
+          { clientId, transcript: out.final },
+          "Voice: ignoring silence-tail flush (no watchword / not armed)",
+        );
+        return;
+      }
+      const candidate =
+        ww.command && isActionableVoiceCommand(ww.command, aliases)
+          ? ww.command
+          : extractCommandSegment(out.final, this.watchword);
       if (!isActionableVoiceCommand(candidate, aliases)) {
         this.deps.logger.info(
           { clientId, transcript: out.final },
-          "Voice: ignoring silence-tail flush",
+          "Voice: ignoring silence-tail flush (watchword only or no command)",
         );
-        return;
-      }
-      const musicSearch = isMusicSearchRouteText(candidate, aliases);
-      if (musicSearch) {
-        const parsedArgs = candidate.replace(/^\S+\s*/, "").trim();
-        if (!parsedArgs) {
-          this.deps.logger.info(
-            { clientId, transcript: out.final, command: candidate },
-            "Voice: ignoring silence-tail bare play/search (needs title)",
-          );
+        // Still allow arm on wake-only via processVoiceTurn below when command empty.
+        if (!ww.command?.trim()) {
+          // fall through to processVoiceTurn for arm-only
+        } else {
           return;
         }
-      } else if (!isPartialSafeVoiceCommand(candidate, aliases)) {
+      } else {
+        const musicSearch = isMusicSearchRouteText(candidate, aliases);
+        if (musicSearch) {
+          const parsedArgs = candidate.replace(/^\S+\s*/, "").trim();
+          if (!parsedArgs) {
+            this.deps.logger.info(
+              { clientId, transcript: out.final, command: candidate },
+              "Voice: ignoring silence-tail bare play/search (needs title)",
+            );
+            return;
+          }
+        } else if (!isPartialSafeVoiceCommand(candidate, aliases) && !armed) {
+          // Full wake+command phrases (e.g. clear) are allowed even if not partial-safe.
+          // partial-safe is only for bare transport verbs after arm.
+        }
         this.deps.logger.info(
           { clientId, transcript: out.final, command: candidate },
-          "Voice: ignoring silence-tail non-transport command",
+          "Voice: silence-tail flush carried a command — routing",
         );
-        return;
       }
-      this.deps.logger.info(
-        { clientId, transcript: out.final, command: candidate },
-        "Voice: silence-tail flush carried a command — routing",
-      );
     }
 
     // Command-mode final — routing/TTS may take several seconds; hold duck until done.

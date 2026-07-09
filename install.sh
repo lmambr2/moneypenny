@@ -56,8 +56,8 @@ Usage: ./install.sh [options]
   --llm <npu|ollama|mock|URL>  LLM backend (default: ollama; npu opt-in on SBC)
   --model <name>               LLM model (sbc: E2B GGUF; server: 12B QAT; npu: npu-llm)
   --with-voice                 Whisper+Piper by edition (edge/server)
-  --with-voice-edge            force Pi Whisper tiny + piper
-  --with-voice-server          force x86 Whisper + piper
+  --with-voice-edge            force Pi Whisper small + piper
+  --with-voice-server          force x86 Whisper medium + piper
   --with-server                also start a TeamSpeak 6 server container
   --with-rag                   Qdrant + embedding model (knowledge base)
   --no-rag                     disable RAG (non-interactive / wizard default override)
@@ -324,8 +324,8 @@ run_wizard() {
         :
       else
         ask_menu "Voice profile?" 1 \
-          "edge — Whisper tiny + RKNN (SBC/ARM)" \
-          "server — whisper.cpp + Piper (x86/AMD)"
+          "edge — Whisper small CPU (SBC/ARM)" \
+          "server — Whisper medium + Piper (x86/AMD)"
         case "$REPLY" in
           1) VOICE_PROFILE=edge ;;
           2) VOICE_PROFILE=server ;;
@@ -433,27 +433,28 @@ if [ "$WITH_VOICE" -eq 1 ]; then
   case "$VOICE_PROFILE" in
     edge)
       PROFILES+=("voice-edge")
-      : "${STT_MODEL:=tiny}"
-      : "${STT_DEVICE:=npu}"
-      : "${STT_BACKEND:=rknn}"
-      say "Voice: ${c_b}edge${c_0} (dual-track RKNN NPU → CPU fallback, model=${STT_MODEL} + piper)"
+      # small on CPU for accuracy (RKNN weights are tiny-only today)
+      : "${STT_MODEL:=small}"
+      : "${STT_DEVICE:=cpu}"
+      : "${STT_BACKEND:=faster-whisper}"
+      say "Voice: ${c_b}edge${c_0} (Whisper ${STT_MODEL} via faster-whisper CPU + piper; NPU tiny optional)"
       ;;
     server)
       PROFILES+=("voice-server")
       : "${STT_BACKEND:=whisper-cpp}"
       if [ "$HAS_AMD" -eq 1 ]; then
-        : "${STT_MODEL:=small}"
+        : "${STT_MODEL:=medium}"
         : "${STT_DEVICE:=vulkan}"
         : "${WHISPER_VULKAN:=1}"
-        say "Voice: ${c_b}server${c_0} (dual-track whisper.cpp Vulkan, model=${STT_MODEL} + piper; AMD)"
+        say "Voice: ${c_b}server${c_0} (whisper.cpp Vulkan, model=${STT_MODEL} + piper; AMD)"
       elif [ "$HAS_NVIDIA" -eq 1 ]; then
-        : "${STT_MODEL:=small}"
+        : "${STT_MODEL:=medium}"
         : "${STT_DEVICE:=cuda}"
-        say "Voice: ${c_b}server${c_0} (dual-track whisper.cpp, model=${STT_MODEL}; NVIDIA untested)"
+        say "Voice: ${c_b}server${c_0} (whisper.cpp, model=${STT_MODEL}; NVIDIA untested)"
       else
-        : "${STT_MODEL:=small}"
+        : "${STT_MODEL:=medium}"
         : "${STT_DEVICE:=cpu}"
-        say "Voice: ${c_b}server${c_0} (dual-track whisper.cpp CPU, model=${STT_MODEL} + piper)"
+        say "Voice: ${c_b}server${c_0} (whisper.cpp CPU, model=${STT_MODEL} + piper)"
       fi
       ;;
     legacy)
@@ -563,7 +564,7 @@ fi
 if [ "$WITH_VOICE" -eq 1 ] && [ "$VOICE_PROFILE" != "legacy" ]; then
   set_env STT_URL "http://stt-whisper:9000"
   set_env TTS_URL "http://piper-tts:8880"
-  set_env STT_MODEL "${STT_MODEL:-tiny}"
+  set_env STT_MODEL "${STT_MODEL:-small}"
   set_env STT_DEVICE "${STT_DEVICE:-auto}"
   set_env STT_BACKEND "${STT_BACKEND:-faster-whisper}"
   if [ "${STT_BACKEND}" = "rknn" ]; then
@@ -657,9 +658,9 @@ fi
 if [ "$WITH_VOICE" -eq 1 ] && [ "${VOICE_PROFILE:-}" != "legacy" ]; then
   echo "  ${c_d}Voice: Settings → voice + textWakeFallback; dual-track STT + piper (docs/voice-backends.md).${c_0}"
   if [ "$EDITION" = "server" ]; then
-    echo "  ${c_d}STT models: ./scripts/download-whisper-ggml.sh small${c_0}"
+    echo "  ${c_d}STT models: ./scripts/download-whisper-ggml.sh medium${c_0}"
   else
-    echo "  ${c_d}SBC STT: CPU tiny until .rknn in models/rknn/ (models/rknn/README.md).${c_0}"
+    echo "  ${c_d}SBC STT: Whisper small on CPU (faster-whisper); optional NPU tiny via STT_MODEL=tiny + .rknn.${c_0}"
   fi
 fi
 echo

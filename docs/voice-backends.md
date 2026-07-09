@@ -20,8 +20,8 @@ Moneypenny does **not** embed STT/TTS. The bot only calls HTTP sidecars.
 
 | Edition | Image | Engine | Default model | Accelerator |
 |---------|-------|--------|---------------|-------------|
-| **SBC** | `services/stt-rknn` | **RKNN** → faster-whisper fallback | `tiny` | Rockchip **NPU** |
-| **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `small` | **Vulkan** (AMD) / CPU |
+| **SBC** | `services/stt-rknn` | faster-whisper **small** (default); RKNN **tiny** optional | `small` | CPU (NPU when `STT_MODEL=tiny` + `.rknn`) |
+| **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `medium` | **Vulkan** (AMD) / CPU |
 
 Same compose service name: **`stt-whisper`** → bot always uses  
 `http://stt-whisper:9000`. Overlays swap the build context.
@@ -43,16 +43,16 @@ Same compose service name: **`stt-whisper`** → bot always uses
 | **`voice-dev`** | CI | stt-mock | — |
 
 ```bash
-# SBC
-export STT_MODEL=tiny STT_BACKEND=rknn
+# SBC — small on CPU (better accuracy; first start downloads HF weights)
+export STT_MODEL=small STT_BACKEND=faster-whisper STT_DEVICE=cpu
 docker compose -f docker-compose.yml -f docker-compose.sbc.yml \
   --profile voice-edge up -d --build
 
-# Server (AMD / CachyOS)
-export STT_MODEL=small STT_DEVICE=vulkan WHISPER_VULKAN=1
+# Server (AMD / CachyOS) — medium on Vulkan
+export STT_MODEL=medium STT_DEVICE=vulkan WHISPER_VULKAN=1
 export RENDER_GID=$(getent group render | cut -d: -f3)
 export VIDEO_GID=$(getent group video | cut -d: -f3)
-./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp small
+./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp medium
 docker compose -f docker-compose.yml -f docker-compose.server.yml \
   --profile voice-server up -d --build
 ```

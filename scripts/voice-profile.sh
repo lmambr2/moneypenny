@@ -31,10 +31,12 @@ if [[ "$EDITION" == "sbc" ]]; then
 # SBC — RKNN NPU Whisper tiny → faster-whisper CPU fallback
 COMPOSE_FILE=docker-compose.yml:docker-compose.sbc.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-edge
-STT_MODEL=tiny
-STT_DEVICE=npu
-STT_BACKEND=rknn
+# Prefer faster-whisper small (accuracy). RKNN path is still tiny-only weights.
+STT_MODEL=small
+STT_DEVICE=cpu
+STT_BACKEND=faster-whisper
 STT_FALLBACK=faster-whisper
+# Optional NPU tiny: STT_MODEL=tiny STT_BACKEND=rknn STT_DEVICE=npu
 # Bot: sttUrl=http://stt-whisper:9000 ttsUrl=http://piper-tts:8880 textWakeFallback=true
 EOF
 elif [[ "$HAS_AMD" -eq 1 ]]; then
@@ -42,20 +44,20 @@ elif [[ "$HAS_AMD" -eq 1 ]]; then
 # Server + AMD — whisper.cpp Vulkan
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-server
-STT_MODEL=small
+STT_MODEL=medium
 STT_DEVICE=vulkan
 STT_BACKEND=whisper-cpp
 WHISPER_VULKAN=1
 RENDER_GID=\$(getent group render | cut -d: -f3)
 VIDEO_GID=\$(getent group video | cut -d: -f3)
-# Download: ./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp small
+# Download: ./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp medium
 EOF
 elif [[ "$HAS_NVIDIA" -eq 1 ]]; then
   cat <<EOF
 # Server + NVIDIA (untested) — whisper.cpp or faster-whisper
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-server
-STT_MODEL=small
+STT_MODEL=medium
 STT_DEVICE=cuda
 STT_BACKEND=whisper-cpp
 EOF
@@ -64,7 +66,7 @@ else
 # Server CPU
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-server
-STT_MODEL=small
+STT_MODEL=medium
 STT_DEVICE=cpu
 STT_BACKEND=whisper-cpp
 EOF
