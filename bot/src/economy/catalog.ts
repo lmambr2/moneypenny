@@ -92,10 +92,8 @@ export const CATALOG_SOURCES = [
 ] as const;
 
 export const CATALOG_DISCLAIMER =
-  `Seed catalog (${CATALOG_AS_OF}). Rock stats/values are a frozen snapshot for ` +
-  `planning — not cockpit-live. Refine yields are qualitative. Live: !econ prices ` +
-  `(UEX), !craft / !econ blueprints (sc-craft), !trade (sc-trade, token). ` +
-  `No HTML scrapers at runtime.`;
+  `Shopping-list estimates only. Refine % is by method (same for every ore); ` +
+  `station can change it. Live prices: !econ prices · craft BOM: !craft · trade: !trade.`;
 
 /**
  * Mineable materials from one-shot DataHub import (ship + FPS).
@@ -844,60 +842,64 @@ export const ORES: readonly OreSpec[] = [
  * Refinery methods — qualitative speed/cost/yield from DataHub method cards
  * (one-shot). Numeric rates are our planning mapping, not exported game tables.
  */
+/**
+ * Yield is by method for every ore (not per material). Station can still change it.
+ * Dinyx ≈45% (ops feedback); others are rough relative estimates only.
+ */
 export const REFINE_METHODS: readonly RefineMethod[] = [
   {
     id: "dinyx",
     name: "Dinyx Solventation",
     aliases: ["din", "solventation"],
-    yieldRate: 0.85,
+    yieldRate: 0.45,
     timeMult: 1.6,
     costMult: 0.7,
-    notes: "DataHub: very low speed, low cost, high yield. Prefer for premium when time allows.",
+    notes: "~45% all ores (method rate).",
   },
   {
     id: "thermonatic",
     name: "Thermonatic Deposition",
     aliases: ["thermo", "thermonatic", "deposition"],
-    yieldRate: 0.7,
+    yieldRate: 0.4,
     timeMult: 1.25,
     costMult: 0.85,
-    notes: "DataHub: low speed, low cost, moderate yield.",
+    notes: "Method rate; all ores.",
   },
   {
     id: "ferron",
     name: "Ferron Exchange",
     aliases: ["fx", "exchange"],
-    yieldRate: 0.78,
+    yieldRate: 0.42,
     timeMult: 1.15,
     costMult: 1.0,
-    notes: "DataHub: low speed, moderate cost, high yield. Workhorse for valuables.",
+    notes: "Method rate; all ores.",
   },
   {
     id: "electrostarolysis",
     name: "Electrostarolysis",
     aliases: ["electro", "starolysis"],
-    yieldRate: 0.68,
+    yieldRate: 0.38,
     timeMult: 1.0,
     costMult: 1.05,
-    notes: "DataHub: moderate speed/cost/yield baseline.",
+    notes: "Method rate; all ores.",
   },
   {
     id: "cormack",
     name: "Cormack Method",
     aliases: ["corm"],
-    yieldRate: 0.55,
+    yieldRate: 0.3,
     timeMult: 0.65,
     costMult: 1.0,
-    notes: "DataHub: high speed, moderate cost, low yield. Bulk / clock-tight runs.",
+    notes: "Faster / lower yield band. Method rate; all ores.",
   },
   {
     id: "pyrometric",
     name: "Pyrometric Chromalysis",
     aliases: ["pyro", "chromalysis"],
-    yieldRate: 0.82,
+    yieldRate: 0.43,
     timeMult: 1.45,
     costMult: 1.35,
-    notes: "DataHub: low speed, high cost, high yield.",
+    notes: "Method rate; all ores.",
   },
 ];
 

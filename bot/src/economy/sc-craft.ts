@@ -129,32 +129,23 @@ export function blueprintToCraftOrder(bp: ScCraftBlueprint, qty = 1): CraftOrder
     bp.craft_time_seconds != null && bp.craft_time_seconds > 0
       ? Math.round((bp.craft_time_seconds * n) / 60)
       : null;
-  const steps = [
-    `Source BOM: SC Craft Tools${bp.version ? ` (${bp.version})` : ""}.`,
-    `Craft qty ${n} × ${bp.name}.`,
-    craftMin != null
-      ? `Est. craft time (sc-craft): ~${craftMin} min for qty ${n}.`
-      : "Craft time not listed.",
-    bp.category ? `Category: ${bp.category}.` : "Stage materials at industrial fabricator.",
-    "Verify quantities in-game before committing rare stock.",
-  ];
   return {
     recipe: {
       id: bp.blueprint_id || `sc-craft-${bp.id}`,
-      name: bp.name,
+      name: bp.name + (craftMin != null ? ` (~${craftMin} min)` : ""),
       aliases: bp.blueprint_id ? [bp.blueprint_id] : [],
       ingredients: bom.map((b) => ({
         materialId: b.materialId,
         amount: b.amount / n,
         unit: b.unit,
       })),
-      stationHint: bp.category || "In-game crafting station",
-      notes: SC_CRAFT_ATTRIBUTION,
+      stationHint: bp.category || "",
+      notes: "",
     },
     qty: n,
     bom,
     impliedRawHint: [],
-    steps,
+    steps: [],
     disclaimer: SC_CRAFT_ATTRIBUTION,
   };
 }

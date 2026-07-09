@@ -3,23 +3,25 @@ import { findOre } from "./catalog.js";
 import { buildCraftOrder, buildMineOrder, buildRefineOrder, isOrderError } from "./orders.js";
 
 describe("economy orders", () => {
-  it("builds a quantainium mine order with critical clock", () => {
+  it("builds a quantainium mine shopping list with clock", () => {
     const o = buildMineOrder("quantanium", 32); // alias
     expect(isOrderError(o)).toBe(false);
     if (isOrderError(o)) return;
     expect(o.ore.id).toBe("quantainium");
     expect(o.targetScu).toBe(32);
-    expect(o.stabilityLine).toMatch(/CRITICAL/);
-    expect(o.steps.length).toBeGreaterThan(2);
+    expect(o.stabilityLine).toMatch(/refine within/i);
+    expect(o.steps).toEqual([]);
   });
 
-  it("refines with dinyx high-yield estimate", () => {
+  it("refines with dinyx ~45% for any ore (method rate)", () => {
     const o = buildRefineOrder("bexalite", 32, "dinyx");
     expect(isOrderError(o)).toBe(false);
     if (isOrderError(o)) return;
     expect(o.inputScu).toBe(32);
-    expect(o.outputScu).toBeCloseTo(32 * 0.85, 5);
+    expect(o.outputScu).toBeCloseTo(32 * 0.45, 5);
     expect(o.method.id).toBe("dinyx");
+    const o2 = buildRefineOrder("quantainium", 32, "dinyx");
+    if (!isOrderError(o2)) expect(o2.outputScu).toBe(o.outputScu);
   });
 
   it("rejects unknown ore / method", () => {

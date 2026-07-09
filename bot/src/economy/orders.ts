@@ -1,9 +1,8 @@
 /**
- * Pure order calculators — mining / refining / crafting.
+ * Pure order calculators — shopping lists, not guidebooks.
  * No I/O; safe for unit tests and command handlers.
  */
 import {
-  CATALOG_DISCLAIMER,
   CRAFT_RECIPES,
   type CraftRecipe,
   findOre,
@@ -11,16 +10,16 @@ import {
   findRefineMethod,
   materialLabel,
   ORES,
-  type OreSpec,
-  REFINE_BASE,
   REFINE_METHODS,
   type RefineMethod,
+  type OreSpec,
 } from "./catalog.js";
 
 export interface MineOrder {
   ore: OreSpec;
   targetScu: number;
   stabilityLine: string;
+  /** @deprecated empty — shopping list has no steps */
   steps: string[];
   suggestedMethod: RefineMethod;
   disclaimer: string;
@@ -31,8 +30,11 @@ export interface RefineOrder {
   method: RefineMethod;
   inputScu: number;
   outputScu: number;
+  /** @deprecated not shown — times were wrong */
   estMinutes: number;
+  /** @deprecated not shown */
   estAuec: number;
+  /** @deprecated empty */
   steps: string[];
   disclaimer: string;
 }
@@ -49,6 +51,7 @@ export interface CraftOrder {
   qty: number;
   bom: CraftBomLine[];
   impliedRawHint: string[];
+  /** @deprecated empty */
   steps: string[];
   disclaimer: string;
 }
@@ -62,12 +65,12 @@ function parsePositive(n: number | undefined, fallback: number): number {
 
 function stabilityLine(ore: OreSpec): string {
   if (ore.stability === "critical" && ore.refineWithinMin != null) {
-    return `CRITICAL — refine within ~${ore.refineWithinMin} min of extraction or risk souring.`;
+    return `⚠ refine within ~${ore.refineWithinMin} min or it sours`;
   }
   if (ore.stability === "volatile" && ore.refineWithinMin != null) {
-    return `VOLATILE — prefer refine within ~${ore.refineWithinMin} min; do not store raw overnight.`;
+    return `⚠ volatile — prefer refine within ~${ore.refineWithinMin} min`;
   }
-  return "STABLE — no souring clock in catalog; still secure cargo.";
+  return "";
 }
 
 export function buildMineOrder(
@@ -86,21 +89,13 @@ export function buildMineOrder(
     findRefineMethod(ore.defaultMethod) ??
     REFINE_METHODS[0]!;
 
-  const steps = [
-    `Locate ${ore.name} — ${ore.locationsHint}.`,
-    `Extract ≥ ${scu} SCU raw (account for bag/headroom).`,
-    stabilityLine(ore),
-    `Transit to refinery; queue ${method.name} (default for this ore).`,
-    ore.notes,
-  ];
-
   return {
     ore,
     targetScu: scu,
     stabilityLine: stabilityLine(ore),
-    steps,
+    steps: [],
     suggestedMethod: method,
-    disclaimer: CATALOG_DISCLAIMER,
+    disclaimer: "",
   };
 }
 
@@ -124,27 +119,18 @@ export function buildRefineOrder(
     REFINE_METHODS[0]!;
 
   const input = parsePositive(inputScu, 32);
+  // Yield is by method for every ore (not material-specific).
   const outputScu = Math.round(input * method.yieldRate * 100) / 100;
-  const estMinutes = Math.round(input * REFINE_BASE.minutesPerScu * method.timeMult);
-  const estAuec = Math.round(input * REFINE_BASE.auecPerScu * method.costMult);
-
-  const steps = [
-    `Deliver ${input} SCU raw ${ore.name} to refinery intake.`,
-    `Select method: ${method.name} (yield ≈ ${Math.round(method.yieldRate * 100)}% seed). ${method.notes}`,
-    `Expect ~${outputScu} SCU refined · ~${estMinutes} min · ~${estAuec.toLocaleString()} aUEC (seed estimates).`,
-    stabilityLine(ore),
-    "Collect refined cargo; store or feed craft queue.",
-  ];
 
   return {
     ore,
     method,
     inputScu: input,
     outputScu,
-    estMinutes,
-    estAuec,
-    steps,
-    disclaimer: CATALOG_DISCLAIMER,
+    estMinutes: 0,
+    estAuec: 0,
+    steps: [],
+    disclaimer: "",
   };
 }
 
@@ -153,8 +139,8 @@ export function buildCraftOrder(recipeQuery: string, qty?: number): CraftOrder |
   if (!recipe) {
     return {
       error:
-        `No offline seed recipe for "${recipeQuery}". ` +
-        `Use an in-game blueprint name via sc-craft (e.g. !craft P4-AR or !econ blueprints Coda).`,
+        `No offline recipe for "${recipeQuery}". ` +
+        `Try !craft P4-AR or !econ blueprints Coda (sc-craft).`,
     };
   }
   const n = Math.max(1, Math.floor(parsePositive(qty, 1)));
@@ -173,26 +159,16 @@ export function buildCraftOrder(recipeQuery: string, qty?: number): CraftOrder |
     if (!ore) continue;
     const method = findRefineMethod(ore.defaultMethod) ?? REFINE_METHODS[0]!;
     const rawNeeded = Math.ceil((line.amount / method.yieldRate) * 100) / 100;
-    impliedRawHint.push(
-      `~${rawNeeded} SCU raw ${ore.name} → ${line.amount} SCU refined via ${method.name}`,
-    );
+    impliedRawHint.push(`~${rawNeeded} SCU raw ${ore.name} (${method.name} ≈${Math.round(method.yieldRate * 100)}%)`);
   }
-
-  const steps = [
-    `Workbench: ${recipe.stationHint}.`,
-    `Craft qty ${n} × ${recipe.name}.`,
-    "Stage BOM materials (see lines below).",
-    recipe.notes,
-    "Run craft; log surplus to org stores.",
-  ];
 
   return {
     recipe,
     qty: n,
     bom,
     impliedRawHint,
-    steps,
-    disclaimer: CATALOG_DISCLAIMER,
+    steps: [],
+    disclaimer: "",
   };
 }
 

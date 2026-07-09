@@ -29,42 +29,21 @@ import {
 } from "./sc-trade.js";
 import type { UexPriceSnapshot } from "./uex.js";
 
+/** Shopping list — not a guidebook. */
 export function formatMineOrder(o: MineOrder): string {
-  const stats: string[] = [];
-  if (o.ore.resistance != null) stats.push(`Res ${o.ore.resistance}`);
-  if (o.ore.instability != null) stats.push(`Inst ${o.ore.instability}`);
-  if (o.ore.optimalWindow != null) stats.push(`Win ${o.ore.optimalWindow}`);
-  if (o.ore.explosive != null) stats.push(`Expl ${o.ore.explosive}`);
-  const val =
-    o.ore.valueScuApprox != null
-      ? `~${o.ore.valueScuApprox.toLocaleString()} aUEC/SCU snapshot`
-      : "value n/a";
+  const clock = o.stabilityLine ? ` · ${o.stabilityLine}` : "";
   return [
-    `⛏ Mine order — ${o.ore.name} (${o.ore.rarity}, ${o.ore.mode})`,
-    `Target: ${o.targetScu} SCU raw · tier ${o.ore.valueTier} · ${o.ore.stability}`,
-    stats.length ? `Rock: ${stats.join(" · ")} · ${val}` : val,
-    o.stabilityLine,
-    `Default refine: ${o.suggestedMethod.name}`,
-    "",
-    "Steps:",
-    ...o.steps.map((s, i) => `  ${i + 1}. ${s}`),
-    "",
-    o.disclaimer,
-    `Next: !refine ${o.ore.id} scu:${o.targetScu}`,
+    `⛏ ${o.ore.name} — ${o.targetScu} SCU raw${clock}`,
+    `Refine: !refine ${o.ore.id} scu:${o.targetScu} method:${o.suggestedMethod.id}`,
   ].join("\n");
 }
 
 export function formatRefineOrder(o: RefineOrder): string {
+  const pct = Math.round(o.method.yieldRate * 100);
   return [
-    `⚗ Refine order — ${o.ore.name}`,
-    `In: ${o.inputScu} SCU raw → Out: ~${o.outputScu} SCU refined`,
-    `Method: ${o.method.name} (≈${Math.round(o.method.yieldRate * 100)}% seed yield)`,
-    `Est: ~${o.estMinutes} min · ~${o.estAuec.toLocaleString()} aUEC`,
-    "",
-    "Steps:",
-    ...o.steps.map((s, i) => `  ${i + 1}. ${s}`),
-    "",
-    o.disclaimer,
+    `⚗ ${o.ore.name} · ${o.method.name}`,
+    `${o.inputScu} SCU raw → ~${o.outputScu} SCU refined (~${pct}%)`,
+    `Yield is by method for every ore; station can change it.`,
   ].join("\n");
 }
 
@@ -72,35 +51,20 @@ export function formatCraftOrder(o: CraftOrder): string {
   const bom = o.bom.map((b) => `  • ${b.amount} ${b.unit} ${b.label}`);
   const raw =
     o.impliedRawHint.length > 0
-      ? ["", "Implied raw (via default refine yields):", ...o.impliedRawHint.map((h) => `  • ${h}`)]
+      ? ["Raw if refining first:", ...o.impliedRawHint.map((h) => `  • ${h}`)]
       : [];
-  return [
-    `🔧 Craft order — ${o.qty}× ${o.recipe.name}`,
-    `Station: ${o.recipe.stationHint}`,
-    "",
-    "Bill of materials:",
-    ...bom,
-    ...raw,
-    "",
-    "Steps:",
-    ...o.steps.map((s, i) => `  ${i + 1}. ${s}`),
-    "",
-    o.disclaimer,
-  ].join("\n");
+  return [`🔧 ${o.qty}× ${o.recipe.name}`, ...bom, ...raw].join("\n");
 }
 
 export function formatEconHelp(prefix = "!"): string {
   return [
-    "Org economy (mine/refine seed · craft/trade live APIs):",
-    `${prefix}mine quantainium scu:32 — mining pull + stability clock`,
-    `${prefix}refine bexalite scu:32 method:dinyx — refine yield/time estimate`,
-    `${prefix}craft P4-AR qty:1 — in-game blueprint BOM (sc-craft.tools)`,
-    `${prefix}trade routes ship:Freelancer+MAX invest:200000 — routes (needs SC_TRADE_API_TOKEN)`,
-    `${prefix}econ ores|methods — seed catalog`,
-    `${prefix}econ blueprints Coda — live blueprints`,
-    `${prefix}econ prices quantainium — UEX averages`,
-    `${prefix}econ search stileron — seed search`,
-    `${prefix}econ cache — disk cache status · ${prefix}econ refresh — re-warm catalogs`,
+    "Shopping lists (not a guidebook):",
+    `${prefix}mine quantainium scu:32`,
+    `${prefix}refine quantainium scu:32 method:dinyx`,
+    `${prefix}craft P4-AR qty:1`,
+    `${prefix}trade routes ship:Freelancer+MAX invest:200000`,
+    `${prefix}econ prices quantainium · ${prefix}econ blueprints Coda · ${prefix}econ ores`,
+    `${prefix}econ cache · ${prefix}econ refresh`,
     "",
     CATALOG_DISCLAIMER,
   ].join("\n");

@@ -54,12 +54,11 @@ describe("blueprintToBom / blueprintToCraftOrder", () => {
     expect(bom[1]?.amount).toBe(0.18);
   });
 
-  it("builds craft order with attribution", () => {
+  it("builds shopping-list craft order", () => {
     const order = blueprintToCraftOrder(SAMPLE, 1);
     expect(order.recipe.name).toContain("Greatsword");
     expect(order.bom.some((b) => b.label === "Iron")).toBe(true);
-    expect(order.disclaimer).toMatch(/sc-craft\.tools/i);
-    expect(order.steps.some((s) => /craft time/i.test(s))).toBe(true);
+    expect(order.steps).toEqual([]);
   });
 });
 

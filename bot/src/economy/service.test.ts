@@ -20,12 +20,12 @@ const sampleBp = {
 describe("handleEconomyCommand", () => {
   it("mine / refine / craft return formatted orders", async () => {
     const mine = await handleEconomyCommand("mine", "stileron scu:16");
-    expect(mine).toContain("Mine order");
-    expect(mine).toContain("Stileron");
+    expect(mine).toMatch(/Stileron/);
+    expect(mine).toMatch(/16 SCU/);
 
     const refine = await handleEconomyCommand("refine", "bex scu:8 method:cormack");
-    expect(refine).toContain("Refine order");
-    expect(refine).toContain("Cormack");
+    expect(refine).toMatch(/Bexalite|Cormack/i);
+    expect(refine).toMatch(/8 SCU/);
 
     const craftOffline = await handleEconomyCommand("craft", "P4-AR qty:1", "!", {
       scCraft: new ScCraftClient({ enabled: false }),
@@ -42,7 +42,7 @@ describe("handleEconomyCommand", () => {
     expect(out).toContain("Greatsword");
     expect(out).toContain("Iron");
     expect(out).toMatch(/1\.28|1.28/); // 0.64 * 2
-    expect(out).toMatch(/sc-craft\.tools/i);
+    expect(out).not.toMatch(/Steps:/i);
   });
 
   it("econ blueprints lists injectable hits", async () => {
