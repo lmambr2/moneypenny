@@ -57,6 +57,7 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
   const specialRunners: Record<string, (cmd: ParsedCommand, ctx: RouterContext) => Promise<string>> = {
     roast: async () => host.roast.handleCommand(),
     roastout: async (_cmd, ctx) => host.roast.handleOptOut(ctx.invokerUid),
+    roastin: async (_cmd, ctx) => host.roast.handleOptIn(ctx.invokerUid),
     remember: async (cmd, ctx) => host.memory.handleRemember(cmd.args, ctx.invokerUid),
     recall: async (_cmd, ctx) => host.memory.handleRecall(ctx.invokerUid),
     forget: async (cmd, ctx) => host.memory.handleForget(cmd.args, ctx.invokerUid), // awaits MemPalace

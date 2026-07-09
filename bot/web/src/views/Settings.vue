@@ -456,7 +456,7 @@
             <Icon icon="mdi:fire" class="setting-icon" /> Roast (community layer)
           </div>
           <div class="profile-toggle-hint">
-            Capture members' chat lines, let the AI cringe-grade them, and auto-post a "greatest hits" reel when enough people are present. Requires the AI assistant. Members can opt out + purge with <code>!roastout</code>; <code>!roast</code> shows the current reel.
+            Capture members' chat lines, AI cringe-grade them, auto-post a reel when enough people are present. Requires AI. <code>!roast</code> shows the reel; <code>!roastout</code> / <code>!roastin</code> leave or rejoin. See <code>docs/roast.md</code>.
           </div>
         </div>
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.roastEnabled" />

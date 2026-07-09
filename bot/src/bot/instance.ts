@@ -654,10 +654,16 @@ export class BotInstance extends EventEmitter {
     };
   }
 
-  updateRoast(enabled: boolean, minPresent?: number, cooldownMinutes?: number): void {
+  updateRoast(
+    enabled: boolean,
+    minPresent?: number,
+    cooldownMinutes?: number,
+    minScore?: number,
+  ): void {
     this.config.roastEnabled = enabled;
     if (minPresent !== undefined) this.config.roastMinPresent = minPresent;
     if (cooldownMinutes !== undefined) this.config.roastCooldownMinutes = cooldownMinutes;
+    if (minScore !== undefined) this.config.roastMinScore = minScore;
   }
 
   canWebUserRunCommand(

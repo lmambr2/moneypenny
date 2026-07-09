@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Phase 8 roast polish
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `!roastin` rejoin after opt-out; capture sanitizes BBCode/URLs
+- Settings applies `roastMinScore` live; richer `!roast` status
+- `docs/roast.md` operator guide; ROADMAP marked shipped
+
 ### Phase 7 polish — memory A1–A5
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

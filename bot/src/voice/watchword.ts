@@ -61,6 +61,7 @@ const ZERO_ARG_VOICE_COMMANDS = new Set([
   "test",
   "roast",
   "roastout",
+  "roastin",
   "recall",
   "reindex",
   "ingeststatus",

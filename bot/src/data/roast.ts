@@ -21,6 +21,7 @@ const META_LAST_ROAST_AT = "last_roast_at";
  * needs no new infrastructure (the vector-DB/MemPalace upgrades come later).
  */
 export class RoastStore {
+  private db: Database.Database;
   private addStmt: Database.Statement;
   private ungradedStmt: Database.Statement;
   private gradeStmt: Database.Statement;
@@ -34,8 +35,10 @@ export class RoastStore {
   private countUngradedStmt: Database.Statement;
   private recentDupStmt: Database.Statement;
   private removeIdsStmt: Database.Statement;
+  private optInClearStmt: Database.Statement;
 
   constructor(db: Database.Database) {
+    this.db = db;
     db.exec(`
       CREATE TABLE IF NOT EXISTS roast_quotes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +85,7 @@ export class RoastStore {
       `SELECT 1 FROM roast_quotes WHERE user_uid = ? AND text = ? AND created_at > ? LIMIT 1`,
     );
     this.removeIdsStmt = db.prepare(`DELETE FROM roast_quotes WHERE id = ?`);
+    this.optInClearStmt = db.prepare(`DELETE FROM roast_optout WHERE user_uid = ?`);
   }
 
   /** Record one captured line. Callers must check {@link isOptedOut} first. */
@@ -140,6 +144,20 @@ export class RoastStore {
   optOut(userUid: string): number {
     this.optInStmt.run(userUid);
     return this.purgeStmt.run(userUid).changes;
+  }
+
+  /** Clear opt-out so capture resumes (does not restore purged lines). */
+  optIn(userUid: string): boolean {
+    return this.optInClearStmt.run(userUid).changes > 0;
+  }
+
+  /** Lightweight stats for !roast status / Settings. */
+  stats(minScore = 0): { ungraded: number; graded: number; highEnough: number } {
+    return {
+      ungraded: this.ungradedCount(),
+      graded: this.gradedCount(0),
+      highEnough: this.gradedCount(minScore),
+    };
   }
 }
 

@@ -7,6 +7,7 @@ import {
   selectReelQuotes,
   formatRoastReel,
   roastCooldownRemainingMs,
+  sanitizeRoastCapture,
 } from "./roast.js";
 import type { RoastQuote } from "../../data/roast.js";
 
@@ -81,6 +82,18 @@ describe("RoastService", () => {
     expect(sendTextMessage).toHaveBeenCalledTimes(1);
     expect(formatRoastReel(store.top(10))).toBeNull();
     expect(store.gradedCount(4)).toBe(0);
+  });
+
+  it("sanitizeRoastCapture strips BBCode and URLs", () => {
+    expect(sanitizeRoastCapture("[b]hello[/b] https://x.com/y world")).toBe("hello world");
+  });
+
+  it("opt-out then opt-in resumes capture", () => {
+    store.add("u1", "Alice", "line");
+    expect(service.handleOptOut("u1")).toMatch(/out of the roast/);
+    expect(store.isOptedOut("u1")).toBe(true);
+    expect(service.handleOptIn("u1")).toMatch(/Welcome back/);
+    expect(store.isOptedOut("u1")).toBe(false);
   });
 
   it("skips auto-post during cooldown", async () => {

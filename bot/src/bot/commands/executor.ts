@@ -511,7 +511,7 @@ export class CommandExecutor {
       `${p}econ [ores|methods|recipes|prices <ore>|search <q>] — Browse catalog / UEX prices`,
       "",
       "Community",
-      `${p}roast — Greatest-hits cringe reel · ${p}roastout — Opt out + purge your lines`,
+      `${p}roast — Greatest-hits reel · ${p}roastout / ${p}roastin — Leave or rejoin the roast`,
       "",
       "Admin (rights-gated)",
       `${p}reindex [path.md] — Re-embed doctrine (all or one file)`,

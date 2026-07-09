@@ -188,16 +188,11 @@ uses HTTP Query `clientmove`; TS3 uses the full-client `clientMove` API. Rate-li
 to 5 moves per minute. Voice-compatible via deterministic routing (say `moveclient …`).
 
 ## Phase 8 — Community layer (the roast)
-**Goal:** the fun first consumer of the above. Capture each user's lines (keyed by
-TS uid), LLM-grade them for cringe/embarrassment (0–10 + one-line reason), and
-auto-compile a "greatest hits" reel when **3+ members** are present.
-**Work:** MVP on **SQLite** (independent of Phases 5–7, can ship anytime);
-async/batched grading on the NPU (its ~4.5 tok/s can't grade inline); trigger with
-a cooldown so it's a treat, not spam; **opt-out + purge** command; text first,
-voice later (needs the unvalidated STT sidecars, DESIGN §10). Later enriched by
-MemPalace recall (Phase 7).
-**Accept:** 3+ present → a compilation posts (with cooldown); opt-out removes a
-user's lines and stops capture.
+> **Status: SHIPPED.** Ops: [docs/roast.md](./docs/roast.md).
+
+**Goal (met):** capture chat by TS uid → LLM cringe-grade (0–10 + reason) →
+auto reel when **≥N present** + cooldown; `!roast` / `!roastout` / `!roastin`.
+SQLite only. Voice zero-arg for the three commands. Capture strips BBCode/URLs.
 
 ---
 

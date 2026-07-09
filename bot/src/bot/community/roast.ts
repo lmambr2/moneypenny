@@ -62,6 +62,18 @@ export function roastCooldownRemainingMs(lastRoastAt: number, cooldownMinutes: n
   return Math.max(0, cooldownMs - (Date.now() - lastRoastAt));
 }
 
+/** Strip TS BBCode / collapse whitespace; cap length for the grader. */
+export function sanitizeRoastCapture(raw: string, maxLen = 400): string {
+  let t = raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\[\/?[a-z0-9=_\-#]+\]/gi, " ") // [url] [b] etc.
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.length > maxLen) t = t.slice(0, maxLen).trimEnd();
+  return t;
+}
+
 export interface RoastServiceDeps {
   store: RoastStore;
   config: BotConfig;
@@ -83,7 +95,7 @@ export class RoastService {
     if (!this.deps.config.roastEnabled) return;
     if (msg.targetMode === 1) return;
     if (msg.invokerId === String(this.deps.tsClient.getClientId())) return;
-    const text = msg.message?.trim();
+    const text = sanitizeRoastCapture(msg.message ?? "");
     if (!text || text.length < 3) return;
     if (text.startsWith(this.deps.config.commandPrefix)) return;
     if (!msg.invokerUid) return;
@@ -126,15 +138,21 @@ export class RoastService {
     const reel = this.buildReel();
     if (reel) return reel;
 
-    const pending = this.deps.store.ungradedCount();
+    const minScore = this.deps.config.roastMinScore ?? 4;
+    const stats = this.deps.store.stats(minScore);
+    const pending = stats.ungraded;
     if (pending > 0) {
-      return `Nothing roast-worthy graded yet — ${pending} line${pending === 1 ? "" : "s"} still in the queue.`;
+      return (
+        `Nothing roast-worthy graded yet — ${pending} line${pending === 1 ? "" : "s"} still in the queue` +
+        (stats.highEnough ? ` (${stats.highEnough} already ≥${minScore}).` : ".")
+      );
     }
 
-    const minScore = this.deps.config.roastMinScore ?? 4;
-    const graded = this.deps.store.gradedCount(minScore);
-    if (graded === 0) {
-      return `Nothing scored ${minScore}+ yet — keep chatting.`;
+    if (stats.highEnough === 0) {
+      return (
+        `Nothing scored ${minScore}+ yet — keep chatting` +
+        (stats.graded ? ` (${stats.graded} graded under the bar).` : ".")
+      );
     }
 
     const remain = roastCooldownRemainingMs(this.lastRoastAt, this.deps.config.roastCooldownMinutes);
@@ -149,7 +167,16 @@ export class RoastService {
   handleOptOut(invokerUid?: string): string {
     if (!invokerUid) return "Couldn't identify you — opt-out not applied.";
     const removed = this.deps.store.optOut(invokerUid);
-    return `You're out of the roast. Purged ${removed} captured line${removed === 1 ? "" : "s"} and stopped recording you.`;
+    return `You're out of the roast. Purged ${removed} captured line${removed === 1 ? "" : "s"} and stopped recording you. Use !roastin to rejoin.`;
+  }
+
+  handleOptIn(invokerUid?: string): string {
+    if (!invokerUid) return "Couldn't identify you — opt-in not applied.";
+    if (!this.deps.store.isOptedOut(invokerUid)) {
+      return "You're already in the roast — keep chatting (or !roastout to leave).";
+    }
+    this.deps.store.optIn(invokerUid);
+    return "Welcome back to the roast. New lines will be captured; purged history stays gone.";
   }
 
   private async gradeBatch(): Promise<void> {

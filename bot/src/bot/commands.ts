@@ -70,6 +70,7 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   // Community / knowledge (service-backed runners in register-handlers).
   { name: "roast", kind: "special" },
   { name: "roastout", kind: "special" },
+  { name: "roastin", kind: "special" },
   { name: "remember", kind: "special" },
   { name: "recall", kind: "special" },
   { name: "forget", kind: "special" },

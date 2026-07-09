@@ -329,7 +329,14 @@ export function createBotRouter(
         );
       }
       if (touched.rights) bot.updateRights(config.rightsEnabled ?? true, config.rights);
-      if (touched.roast) bot.updateRoast(config.roastEnabled ?? false, config.roastMinPresent, config.roastCooldownMinutes);
+      if (touched.roast) {
+        bot.updateRoast(
+          config.roastEnabled ?? false,
+          config.roastMinPresent,
+          config.roastCooldownMinutes,
+          config.roastMinScore,
+        );
+      }
       if (touched.rag) bot.updateRag(config.ragEnabled ?? false, config.ragTopK);
       if (touched.fileDrop) bot.updateFileDrop(config.fileDropEnabled ?? false, config.fileDropPollSec);
       if (touched.memory) bot.updateMemory(config.memoryEnabled ?? false);
