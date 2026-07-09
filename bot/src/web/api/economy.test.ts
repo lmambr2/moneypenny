@@ -11,6 +11,7 @@ import {
   type ScCraftClient,
   setScCraftClientForTests,
 } from "../../economy/sc-craft.js";
+import { setUexClientForTests, type UexClient } from "../../economy/uex.js";
 import {
   initWorkOrderStore,
   setWorkOrderStoreForTests,
@@ -19,6 +20,43 @@ import {
 import { SESSION_COOKIE_NAME } from "../auth/validateSession.js";
 import { createRequireAuth } from "../middleware/requireAuth.js";
 import { createEconomyRouter } from "./economy.js";
+
+function mockUex(): UexClient {
+  return {
+    isEnabled: () => true,
+    clearCache: () => {},
+    getCommodities: async () => [
+      { id: 2, name: "Bexalite", code: "BEXA", is_raw: 0, price_sell: 28000, price_buy: 20000 },
+      { id: 1, name: "Agricium", code: "AGRI", is_raw: 0, price_sell: 9000, price_buy: 5000 },
+      { id: 3, name: "Bexalite (Raw)", code: "BEXR", is_raw: 1, price_sell: 1000 },
+    ],
+    getTerminalPrices: async () => [],
+    buildSupplyHint: () => ({
+      supplyPct: null,
+      sellTerminals: [],
+      buyTerminals: [],
+      sampleSize: 0,
+    }),
+    lookupPrice: async (q: string) => {
+      if (!/bex/i.test(q)) return null;
+      return {
+        commodity: {
+          id: 2,
+          name: "Bexalite",
+          code: "BEXA",
+          price_sell: 28000,
+          price_buy: 20000,
+        },
+        sell: 28000,
+        buy: 20000,
+        matches: [],
+        fetchedAt: Date.now(),
+        attribution: "test",
+        supply: null,
+      };
+    },
+  } as unknown as UexClient;
+}
 
 function mockCraft(bp: ScCraftBlueprint): ScCraftClient {
   return {
@@ -62,6 +100,7 @@ describe("economy router", () => {
       ],
     };
     setScCraftClientForTests(mockCraft(bp));
+    setUexClientForTests(mockUex());
 
     app = express();
     app.use(express.json());
@@ -72,6 +111,7 @@ describe("economy router", () => {
       createEconomyRouter({
         store,
         scCraft: mockCraft(bp),
+        uex: mockUex(),
         refresh: async () => ({
           at: Date.now(),
           ok: true,
@@ -84,6 +124,7 @@ describe("economy router", () => {
   afterEach(() => {
     setWorkOrderStoreForTests(null);
     setScCraftClientForTests(null);
+    setUexClientForTests(null);
     sqlite.close();
     botDb.close();
   });
@@ -166,6 +207,18 @@ describe("economy router", () => {
     expect(refresh.status).toBe(200);
     expect(refresh.body.ok).toBe(true);
     expect(refresh.body.results[0].source).toBe("test");
+  });
+
+  it("lists UEX commodities for prices dropdown (sorted by name)", async () => {
+    const res = await request(app).get("/api/economy/commodities").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(3);
+    expect(res.body.commodities.map((c: { name: string }) => c.name)).toEqual([
+      "Agricium",
+      "Bexalite",
+      "Bexalite (Raw)",
+    ]);
+    expect(res.body.commodities[0].code).toBe("AGRI");
   });
 
   it("restricts clear-all to admin", async () => {

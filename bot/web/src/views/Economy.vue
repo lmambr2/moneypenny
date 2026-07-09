@@ -356,9 +356,35 @@
       <div class="card">
         <h2>UEX commodity prices</h2>
         <form class="row form" @submit.prevent="runPrices">
-          <input v-model="priceQuery" class="input" placeholder="Commodity (quantainium)" />
-          <button class="btn primary" type="submit" :disabled="busy">Lookup</button>
+          <select
+            v-model="priceQuery"
+            class="input select price-commodity-select"
+            :disabled="busy || !uexCommodities.length"
+            @change="runPrices"
+          >
+            <option disabled value="">
+              {{
+                uexCommodities.length
+                  ? `Select commodity (${uexCommodities.length})…`
+                  : uexCommoditiesLoading
+                    ? 'Loading commodities…'
+                    : 'No commodities (UEX offline?)'
+              }}
+            </option>
+            <option v-for="c in uexCommodities" :key="c.id + c.name" :value="c.name">
+              {{ c.name }}{{ c.code ? ` (${c.code})` : '' }}{{ c.isRaw ? ' · raw' : '' }}
+            </option>
+          </select>
+          <button
+            class="btn primary"
+            type="submit"
+            :disabled="busy || !priceQuery"
+            title="Lookup selected commodity"
+          >
+            Lookup
+          </button>
         </form>
+        <p v-if="uexCommoditiesErr" class="muted">{{ uexCommoditiesErr }}</p>
         <div v-if="priceResult" class="result">
           <div class="result-title">{{ priceResult.commodity.name }}</div>
           <p>
@@ -508,7 +534,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../api/axios.js';
 import { useSession } from '../composables/useSession.js';
 
@@ -673,7 +699,19 @@ const tradeBlocked = computed(
     !!(overview.value && (!overview.value.clients.scTrade || !overview.value.clients.scTradeToken)),
 );
 
-const priceQuery = ref('quantainium');
+const priceQuery = ref('');
+const uexCommodities = ref<
+  Array<{
+    id: number;
+    name: string;
+    code: string;
+    sell: number | null;
+    buy: number | null;
+    isRaw: boolean;
+  }>
+>([]);
+const uexCommoditiesLoading = ref(false);
+const uexCommoditiesErr = ref('');
 const priceResult = ref<{
   commodity: { name: string };
   sell: number | null;
@@ -743,11 +781,37 @@ async function loadCache() {
   cache.value = res.data;
 }
 
+/** UEX full list for Prices dropdown (lazy; cached server-side). */
+async function loadUexCommodities(force = false) {
+  if (uexCommoditiesLoading.value) return;
+  if (uexCommodities.value.length && !force) return;
+  uexCommoditiesLoading.value = true;
+  uexCommoditiesErr.value = '';
+  try {
+    const res = await api.get('/api/economy/commodities');
+    uexCommodities.value = res.data.commodities ?? [];
+    // Default to Quantainium / first match if nothing selected
+    if (!priceQuery.value && uexCommodities.value.length) {
+      const pref =
+        uexCommodities.value.find((c) => /quantainium/i.test(c.name) && !c.isRaw) ??
+        uexCommodities.value.find((c) => /quantainium/i.test(c.name)) ??
+        uexCommodities.value[0];
+      if (pref) priceQuery.value = pref.name;
+    }
+  } catch (e) {
+    uexCommoditiesErr.value = apiErr(e);
+    uexCommodities.value = [];
+  } finally {
+    uexCommoditiesLoading.value = false;
+  }
+}
+
 async function reloadAll() {
   busy.value = true;
   err.value = '';
   try {
     await Promise.all([loadOverview(), loadWorkOrders(), loadCatalog(), loadCache()]);
+    if (tab.value === 'prices') await loadUexCommodities();
   } catch (e) {
     err.value = apiErr(e);
   } finally {
@@ -1018,6 +1082,10 @@ async function refreshCache() {
   }
 }
 
+watch(tab, (t) => {
+  if (t === 'prices') void loadUexCommodities();
+});
+
 onMounted(reloadAll);
 </script>
 
@@ -1134,6 +1202,12 @@ a {
 }
 .input.select {
   flex: 0 1 200px;
+}
+/* Full UEX list — wide enough for long names; native select scrolls when open */
+.input.select.price-commodity-select {
+  flex: 1 1 280px;
+  min-width: 220px;
+  max-width: 100%;
 }
 .input.compact {
   flex: 0 0 180px;

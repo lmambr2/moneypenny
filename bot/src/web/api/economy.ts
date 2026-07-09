@@ -409,6 +409,41 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
   });
 
   // ── Prices (UEX) ─────────────────────────────────────────────────────────
+  /** Full commodity catalog for the Prices tab dropdown (cached UEX list). */
+  router.get("/commodities", networkLimit, async (_req, res) => {
+    const client = uex();
+    if (!client.isEnabled()) {
+      res.status(503).json({ error: "UEX disabled (ECONOMY_UEX=0)" });
+      return;
+    }
+    try {
+      const list = await client.getCommodities();
+      if (!list) {
+        res.status(502).json({ error: "UEX commodities unavailable" });
+        return;
+      }
+      const commodities = list
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          code: c.code ?? "",
+          sell: c.price_sell && c.price_sell > 0 ? c.price_sell : null,
+          buy: c.price_buy && c.price_buy > 0 ? c.price_buy : null,
+          isRaw: !!c.is_raw,
+        }))
+        .filter((c) => c.name)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+      res.json({
+        commodities,
+        count: commodities.length,
+        attribution: "Prices/commodity flags via UEX Corp API (uexcorp.space) — cached.",
+      });
+    } catch (err) {
+      deps.logger?.warn({ err }, "economy commodities list failed");
+      res.status(502).json({ error: "commodities list failed" });
+    }
+  });
+
   router.get("/prices", networkLimit, async (req, res) => {
     const q = str(req.query.q ?? req.query.commodity, 120);
     if (!q) {
