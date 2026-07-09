@@ -25,11 +25,19 @@ export interface MusicRouterOptions {
 }
 
 const MAX_SEARCH_LIMIT = 50;
+/** Library browse (empty local search) can be larger — UI uses a scroll panel. */
+const MAX_LIBRARY_LIST = 2000;
 
 function parseSearchLimit(raw: unknown, fallback = 20): number {
   const n = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
   if (!Number.isFinite(n) || n < 1) return fallback;
   return Math.min(n, MAX_SEARCH_LIMIT);
+}
+
+function parseLibraryLimit(raw: unknown, fallback = 500): number {
+  const n = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, MAX_LIBRARY_LIST);
 }
 
 export function createMusicRouter(
@@ -101,11 +109,66 @@ export function createMusicRouter(
         return;
       }
       const provider = getProvider(plat);
-      const result = await provider.search(query, parseSearchLimit(limit));
+      // Empty local query = library browse — allow a higher limit for the scrollable UI.
+      const lim =
+        !query && plat === "local"
+          ? parseLibraryLimit(limit, 500)
+          : parseSearchLimit(limit);
+      const result = await provider.search(query, lim);
       res.json(result);
     } catch (err) {
       logger.error({ err }, "Search failed");
       res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
+    }
+  });
+
+  // Full local library list for the Library page scroll panel.
+  router.get("/library", async (req, res) => {
+    try {
+      const lim = parseLibraryLimit(req.query.limit, 2000);
+      const result = await localProvider.search("", lim);
+      res.json({ songs: result.songs ?? [], count: result.songs?.length ?? 0 });
+    } catch (err) {
+      logger.error({ err }, "Library list failed");
+      res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
+    }
+  });
+
+  // Admin: delete a local library track (file under MUSIC_DIR) by opaque id.
+  router.delete("/tracks/:id", requireAdmin, async (req, res) => {
+    try {
+      const deleteSong = localProvider.deleteSong;
+      if (!deleteSong) {
+        res.status(501).json({ error: "Delete not supported", code: "NOT_IMPLEMENTED" });
+        return;
+      }
+      const id = req.params.id;
+      if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
+        res.status(400).json({ error: "Invalid track id", code: "VALIDATION_ERROR" });
+        return;
+      }
+      const out = await deleteSong.call(localProvider, id);
+      try {
+        tagStore?.removeTrack(id);
+      } catch (tagErr) {
+        logger.warn({ err: tagErr, id }, "tag cleanup after delete failed");
+      }
+      res.json({ success: true, ...out });
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "";
+      if (code === "NOT_FOUND") {
+        res.status(404).json({ error: errorMessage(err, "Track not found"), code: "NOT_FOUND" });
+        return;
+      }
+      if (code === "FORBIDDEN") {
+        res.status(403).json({ error: errorMessage(err, "Forbidden"), code: "FORBIDDEN" });
+        return;
+      }
+      logger.error({ err }, "Music delete failed");
+      res.status(500).json({ error: errorMessage(err, "Delete failed"), code: "INTERNAL_ERROR" });
     }
   });
 

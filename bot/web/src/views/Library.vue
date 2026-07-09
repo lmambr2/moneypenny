@@ -6,7 +6,7 @@
     <section class="section">
       <h2 class="section-title">
         Local Music Library
-        <span v-if="store.localRecent.length > 0" class="section-count">{{ store.localRecent.length }}</span>
+        <span v-if="libraryTracks.length > 0" class="section-count">{{ libraryTracks.length }}</span>
       </h2>
 
       <!-- Upload from web UI (admin only; non-admins get 403 which is toasted).
@@ -80,28 +80,48 @@
         </div>
       </div>
 
-      <div v-if="store.localRecent.length === 0" class="empty">
+      <div v-if="libraryLoading" class="loading">Loading library…</div>
+      <div v-else-if="libraryTracks.length === 0" class="empty">
         Local library is empty. Use "Upload music files" (goes to <code>uploads/</code> under MUSIC_DIR) or add files on the host then hit "Refresh index".
       </div>
-      <div v-else class="song-list">
-        <SongCard
-          v-for="(song, i) in store.localRecent.slice(0, 20)"
-          :key="`local-${song.id}-${i}`"
-          :song="song"
-          :index="i + 1"
-          :active="store.currentSong?.id === song.id"
-          @play="store.play(song.name, 'local')"
-          @playNext="store.playNextSong(song)"
-          @add="store.addToQueue(song.name, 'local')"
-        />
-      </div>
+      <template v-else>
+        <div class="library-filter-row">
+          <input
+            v-model="libraryFilter"
+            class="library-filter-input"
+            type="search"
+            spellcheck="false"
+            placeholder="Filter by title, artist, or album…"
+          />
+          <span class="library-filter-count">
+            {{ filteredLibraryTracks.length }} / {{ libraryTracks.length }}
+          </span>
+        </div>
+        <div v-if="filteredLibraryTracks.length === 0" class="empty">
+          No tracks match “{{ libraryFilter.trim() }}”.
+        </div>
+        <div v-else class="song-list song-list-scroll">
+          <SongCard
+            v-for="(song, i) in filteredLibraryTracks"
+            :key="`local-${song.id}-${i}`"
+            :song="song"
+            :index="i + 1"
+            :active="store.currentSong?.id === song.id"
+            :deletable="session.isAdmin.value"
+            @play="store.play(song.name, 'local')"
+            @playNext="store.playNextSong(song)"
+            @add="store.addToQueue(song.name, 'local')"
+            @delete="deleteLibraryTrack(song)"
+          />
+        </div>
+      </template>
     </section>
 
     <!-- Radio tag overlay (docs/radio.md §9.3) -->
-    <section v-if="store.localRecent.length > 0" class="section">
+    <section v-if="libraryTracks.length > 0" class="section">
       <h2 class="section-title">
         Track tags
-        <span class="section-count">{{ Math.min(store.localRecent.length, 12) }}</span>
+        <span class="section-count">{{ Math.min(libraryTracks.length, 40) }}</span>
       </h2>
       <p class="upload-hint" style="margin-bottom:10px">
         Tag local tracks for <code>select_tracks</code> / radio profiles. Star ratings feed rotation weighting. Admins can edit tags and mark bumper-eligible assets.
@@ -137,8 +157,8 @@
           <span v-if="analyzerMsg"> — {{ analyzerMsg }}</span>
         </span>
       </div>
-      <div class="track-tags-table">
-        <div v-for="song in store.localRecent.slice(0, 12)" :key="`tag-${song.id}`" class="track-tags-row">
+      <div class="track-tags-table track-tags-scroll">
+        <div v-for="song in libraryTracks.slice(0, 40)" :key="`tag-${song.id}`" class="track-tags-row">
           <div class="track-tags-main">
             <span class="track-tags-name">{{ song.name }}</span>
             <span class="track-tags-artist">{{ song.artist }}</span>
@@ -455,6 +475,56 @@ const history = ref<Song[]>([]);
 const historyLoading = ref(true);
 const refreshing = ref(false);
 
+/** Full local library for the scrollable Library panel (not the Home recent sample). */
+const libraryTracks = ref<Song[]>([]);
+const libraryLoading = ref(true);
+const libraryFilter = ref('');
+const filteredLibraryTracks = computed(() => {
+  const q = libraryFilter.value.trim().toLowerCase();
+  if (!q) return libraryTracks.value;
+  return libraryTracks.value.filter(
+    (s) =>
+      s.name.toLowerCase().includes(q) ||
+      s.artist.toLowerCase().includes(q) ||
+      (s.album || '').toLowerCase().includes(q),
+  );
+});
+
+async function loadLibraryTracks() {
+  libraryLoading.value = true;
+  try {
+    const res = await api.get('/api/music/library', { params: { limit: 2000 } });
+    libraryTracks.value = res.data?.songs ?? [];
+    // Keep Home/recent sample in sync with first slice when empty or after refresh.
+    if (libraryTracks.value.length) {
+      store.localRecent = libraryTracks.value.slice(0, 20);
+      store.localTrackCount = libraryTracks.value.length;
+    }
+  } catch {
+    // Fall back to the small home sample so the page is not empty.
+    libraryTracks.value = [...(store.localRecent || [])];
+  } finally {
+    libraryLoading.value = false;
+  }
+}
+
+async function deleteLibraryTrack(song: Song) {
+  if (!session.isAdmin.value) return;
+  if (!confirm(`Delete “${song.name}” from the library?\n\nThis removes the file from disk under MUSIC_DIR.`)) {
+    return;
+  }
+  try {
+    await api.delete(`/api/music/tracks/${encodeURIComponent(song.id)}`);
+    libraryTracks.value = libraryTracks.value.filter((s) => s.id !== song.id);
+    store.localRecent = store.localRecent.filter((s) => s.id !== song.id);
+    store.localTrackCount = Math.max(0, (store.localTrackCount || 1) - 1);
+    delete trackTags.value[song.id];
+    store.notify(`Deleted “${song.name}”`, 'info');
+  } catch (err: any) {
+    store.notify(err?.response?.data?.error ?? 'Delete failed', 'error');
+  }
+}
+
 // Doctrine knowledge base (ROADMAP Phase 6). Admin-only API; non-admins / RAG-off
 // simply get an empty list.
 interface DoctrineDoc { source: string; classification: string; tags: string[]; chunks: number; bytes: number; updatedAt: number; }
@@ -720,6 +790,7 @@ onMounted(async () => {
   }
 
   store.fetchHomeData();
+  await loadLibraryTracks();
   void loadTrackTagsForRecent();
   if (session.isAdmin.value) void loadAnalyzerStatus();
 
@@ -760,8 +831,9 @@ function ensureTagRow(id: string): TrackTagRow {
 }
 
 async function loadTrackTagsForRecent() {
-  for (const song of store.localRecent.slice(0, 12)) ensureTagRow(song.id);
-  for (const song of store.localRecent.slice(0, 12)) {
+  const tagSongs = libraryTracks.value.slice(0, 40);
+  for (const song of tagSongs) ensureTagRow(song.id);
+  for (const song of tagSongs) {
     try {
       const res = await api.get(`/api/music/tracks/${encodeURIComponent(song.id)}/tags`);
       const row = ensureTagRow(song.id);
@@ -900,14 +972,14 @@ async function onUpload(e: Event) {
 
     if (uploaded.length > 0) {
       store.notify(`Uploaded ${uploaded.length} file(s)`, 'info');
-
-      // Optimistically put the newly uploaded tracks at the front of the visible list.
-      let current = [...(store.localRecent || [])];
+      // Prepend uploads in the full library list (full reload below too).
+      let full = [...libraryTracks.value];
       for (const u of uploaded) {
-        current = current.filter((s: Song) => s.id !== u.id);
-        current.unshift(u);
+        full = full.filter((s: Song) => s.id !== u.id);
+        full.unshift(u);
       }
-      store.localRecent = current.slice(0, 20);
+      libraryTracks.value = full;
+      store.localRecent = full.slice(0, 20);
     }
 
     if (failed.length > 0) {
@@ -915,8 +987,10 @@ async function onUpload(e: Event) {
       store.notify(`Failed to upload ${failed.length} file(s). First: ${firstFail.name} — ${firstFail.error}`, 'error');
     }
 
-    // Re-fetch to keep Home / other views / counts in sync with the fresh index.
+    // Re-fetch to keep Home / Library / counts in sync with the fresh index.
     await store.fetchHomeData();
+    await loadLibraryTracks();
+    void loadTrackTagsForRecent();
   } catch (err: any) {
     const isCancel = err?.code === 'ERR_CANCELED' ||
                      err?.name === 'CanceledError' ||
@@ -967,6 +1041,8 @@ async function refreshIndex() {
     const count = r.data?.trackCount ?? 0;
     store.notify(`Library index refreshed (${count} tracks)`, 'info');
     await store.fetchHomeData();
+    await loadLibraryTracks();
+    void loadTrackTagsForRecent();
   } catch (err: any) {
     const msg = err?.response?.data?.error || err?.message || 'Refresh failed';
     store.notify(msg, 'error');
@@ -1038,6 +1114,48 @@ async function refreshIndex() {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.song-list-scroll {
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elev);
+}
+
+.library-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.library-filter-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.library-filter-count {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.track-tags-scroll {
+  max-height: min(40vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .loading {

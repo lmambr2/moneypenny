@@ -161,6 +161,23 @@ describe("LocalProvider - uploadSong + refresh (web UI)", () => {
     expect(mp3s.some(f => f.includes("(1)"))).toBe(true);
   });
 
+  it("deleteSong removes an uploaded track from disk and the index", async () => {
+    const song = await provider.uploadSong("to-delete.mp3", Buffer.from("delete-me-bytes"));
+    const filePath = path.join(tmpDir, "uploads", "to-delete.mp3");
+    await expect(fs.access(filePath)).resolves.toBeUndefined();
+
+    const out = await provider.deleteSong(song.id);
+    expect(out.deleted).toBe(true);
+    await expect(fs.access(filePath)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const detail = await provider.getSongDetail(song.id);
+    expect(detail).toBeNull();
+  });
+
+  it("deleteSong rejects unknown ids", async () => {
+    await expect(provider.deleteSong("not-a-real-id")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("refresh() returns the track count and picks up new uploads", async () => {
     const initialCount = await provider.refresh();
     expect(initialCount).toBeGreaterThanOrEqual(0); // seeds may not parse as audio (fake bytes) but upload path still works

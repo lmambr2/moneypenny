@@ -24,6 +24,14 @@
       <button class="action-btn" @click.stop="$emit('add')" title="Add to Queue">
         <Icon icon="mdi:playlist-plus" />
       </button>
+      <button
+        v-if="deletable"
+        class="action-btn action-delete"
+        @click.stop="$emit('delete')"
+        title="Delete from library"
+      >
+        <Icon icon="mdi:delete-outline" />
+      </button>
     </div>
   </div>
 </template>
@@ -37,12 +45,15 @@ defineProps<{
   song: Song;
   index: number;
   active?: boolean;
+  /** Show admin delete control (local library only). */
+  deletable?: boolean;
 }>();
 
 defineEmits<{
   play: [];
   playNext: [];
   add: [];
+  delete: [];
 }>();
 
 function formatDuration(seconds: number): string {
@@ -157,5 +168,10 @@ function formatDuration(seconds: number): string {
   opacity: 0.7;
   transition: opacity var(--transition-fast);
   &:hover { opacity: 1; }
+}
+
+.action-delete:hover {
+  color: var(--color-danger, #e55);
+  opacity: 1;
 }
 </style>

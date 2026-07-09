@@ -759,13 +759,25 @@
     font-size: 24px !important;
   }
 
-  /* Library — scrollable file / doctrine panels */
+  /* Library — scrollable music / doctrine / upload panels */
   .upload-file-list {
     max-height: min(32vh, 240px) !important;
   }
 
   .doctrine-list {
     max-height: min(45vh, 400px) !important;
+  }
+
+  .song-list-scroll {
+    max-height: min(50vh, 420px) !important;
+  }
+
+  .track-tags-scroll {
+    max-height: min(36vh, 300px) !important;
+  }
+
+  .library-filter-row {
+    flex-wrap: wrap !important;
   }
 }
 

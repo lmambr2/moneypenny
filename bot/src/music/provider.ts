@@ -79,6 +79,9 @@ export interface MusicProvider {
   /** Optional: upload a file into the local music library (web UI). Returns the indexed Song. Web uploads are isolated under the `uploads/` subdir. */
   uploadSong?(originalFilename: string, data: Buffer): Promise<Song>;
 
+  /** Optional: delete a local library track by opaque id (admin web UI). */
+  deleteSong?(songId: string): Promise<{ deleted: true; name: string }>;
+
   /** Optional: user-owned playlists for name-based !playlist resolution. */
   getUserPlaylists?(): Promise<Playlist[]>;
 }

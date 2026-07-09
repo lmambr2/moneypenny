@@ -59,4 +59,41 @@ describe("music router", () => {
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("VALIDATION_ERROR");
   });
+
+  it("GET /library lists local tracks with a high limit", async () => {
+    const { app, local } = build();
+    const res = await request(app).get("/library").query({ limit: "100" });
+    expect(res.status).toBe(200);
+    expect(local.search).toHaveBeenCalledWith("", 100);
+    expect(res.body.songs).toHaveLength(1);
+  });
+
+  it("DELETE /tracks/:id admin deletes via deleteSong", async () => {
+    const local = stubProvider("local");
+    local.deleteSong = vi.fn(async () => ({ deleted: true as const, name: "gone" }));
+    const app = express();
+    app.use((req, _res, next) => {
+      (req as any).user = { id: "a1", role: "admin", username: "admin" };
+      next();
+    });
+    app.use(createMusicRouter(local, stubProvider("youtube"), stubProvider("stream"), console as any));
+
+    const res = await request(app).delete("/tracks/abc123");
+    expect(res.status).toBe(200);
+    expect(local.deleteSong).toHaveBeenCalledWith("abc123");
+    expect(res.body).toMatchObject({ success: true, deleted: true, name: "gone" });
+  });
+
+  it("DELETE /tracks/:id rejects non-admin", async () => {
+    const local = stubProvider("local");
+    local.deleteSong = vi.fn(async () => ({ deleted: true as const, name: "x" }));
+    const app = express();
+    app.use((req, _res, next) => {
+      (req as any).user = { id: "m1", role: "member", username: "mem" };
+      next();
+    });
+    app.use(createMusicRouter(local, stubProvider("youtube"), stubProvider("stream"), console as any));
+    expect((await request(app).delete("/tracks/abc123")).status).toBe(403);
+    expect(local.deleteSong).not.toHaveBeenCalled();
+  });
 });

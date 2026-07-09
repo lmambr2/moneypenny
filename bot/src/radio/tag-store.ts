@@ -144,6 +144,12 @@ export class TagStore {
     return info.changes > 0;
   }
 
+  /** Drop all tag + rating rows for a track (library file deleted). */
+  removeTrack(trackKey: string): void {
+    this.db.prepare(`DELETE FROM track_ratings WHERE track_key = ?`).run(trackKey);
+    this.db.prepare(`DELETE FROM track_tags WHERE track_key = ?`).run(trackKey);
+  }
+
   /** Raw average + count for a track (what the UI shows). */
   getRating(trackKey: string): { avg: number; count: number } {
     const row = this.selectRow(trackKey);

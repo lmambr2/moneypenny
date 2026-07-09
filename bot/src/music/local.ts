@@ -518,6 +518,59 @@ export class LocalProvider implements MusicProvider {
   }
 
   /**
+   * Delete a track from disk by opaque public id (admin web UI).
+   *
+   * - Resolves id → path via the index; refuses unknown ids
+   * - Enforces musicDir containment via realpath (same as safeResolve)
+   * - Unlinks the file only (does not remove parent dirs)
+   * - Re-indexes so search/library drop the track immediately
+   */
+  async deleteSong(songId: string): Promise<{ deleted: true; name: string }> {
+    await this.ensureIndexed();
+    const abs = this.idToPath.get(songId);
+    if (!abs) {
+      throw Object.assign(new Error("Track not found in library index"), { code: "NOT_FOUND" });
+    }
+
+    let real: string;
+    let realBase: string;
+    try {
+      real = await fs.realpath(abs);
+      realBase = await fs.realpath(this.musicDir);
+    } catch {
+      throw Object.assign(new Error("Track file is missing on disk"), { code: "NOT_FOUND" });
+    }
+    if (real !== realBase && !real.startsWith(realBase + path.sep)) {
+      console.warn(`[LocalProvider] deleteSong blocked outside musicDir: ${songId}`);
+      throw Object.assign(new Error("Refusing to delete path outside music library"), {
+        code: "FORBIDDEN",
+      });
+    }
+    if (real === realBase) {
+      throw Object.assign(new Error("Refusing to delete the music library root"), {
+        code: "FORBIDDEN",
+      });
+    }
+
+    const indexed = this.songs.find((s) => s.id === songId);
+    const name = indexed?.name ?? path.basename(real);
+
+    try {
+      await fs.unlink(real);
+    } catch (e: unknown) {
+      const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
+      if (code === "ENOENT") {
+        // Already gone — still re-index so the UI clears the ghost entry.
+      } else {
+        throw e;
+      }
+    }
+
+    await this.refresh();
+    return { deleted: true, name };
+  }
+
+  /**
    * Upload a song file (from web UI) into the music library.
    *
    * SECURITY / AUDIT NOTE ("secure that mfer"):
