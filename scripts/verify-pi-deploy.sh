@@ -52,8 +52,11 @@ echo
 _check "bot container running" \
   _run "docker inspect -f '{{.State.Running}}' $BOT_CONTAINER 2>/dev/null | grep -qx true"
 
-_check "sherpa container running" \
-  _run "docker inspect -f '{{.State.Running}}' $SHERPA_CONTAINER 2>/dev/null | grep -qx true"
+_check "stt-whisper container running (dual-track STT)" \
+  _run "docker inspect -f '{{.State.Running}}' $STT_CONTAINER 2>/dev/null | grep -qx true"
+
+_check "piper-tts container running" \
+  _run "docker inspect -f '{{.State.Running}}' $PIPER_CONTAINER 2>/dev/null | grep -qx true"
 
 _cmd_markers=''
 for c in "${DEPLOY_CRITICAL_COMMANDS[@]}"; do
@@ -70,8 +73,8 @@ _check "dist/music/local.js exports findSongByVideoId" \
 _check "dist/bot/voice/session.js has passive CPU gates" \
   _run "docker exec $BOT_CONTAINER grep -q passiveStreamFlushMs /app/dist/bot/voice/session.js"
 
-_check "sherpa server has passive KWS batching" \
-  _run "docker exec $SHERPA_CONTAINER grep -q PASSIVE_KWS_ACCUM /app/server.py"
+_check "poke handler present in dist" \
+  _run "docker exec $BOT_CONTAINER test -f /app/dist/bot/control/poke-handler.js"
 
 _check "/music writable by container user (uid 1000)" \
   _run "docker exec $BOT_CONTAINER sh -c 'mkdir -p /music/youtube && touch /music/youtube/.deploy-verify && rm -f /music/youtube/.deploy-verify'"
@@ -85,8 +88,8 @@ if [ -n "$_music_src" ]; then
   _run "ls -la $_music_src $_music_src/youtube 2>/dev/null | head -5" || true
 fi
 
-_check "sherpa /health responds" \
-  _run "docker exec $BOT_CONTAINER node -e \"fetch('http://sherpa-stt:9000/health').then(r=>r.json()).then(j=>{if(!j.ok)process.exit(1)}).catch(()=>process.exit(1))\""
+_check "stt-whisper /health responds" \
+  _run "docker exec $BOT_CONTAINER node -e \"fetch('http://stt-whisper:9000/health').then(r=>r.json()).then(j=>{if(!j.ok)process.exit(1)}).catch(()=>process.exit(1))\""
 
 if _run "docker ps --format '{{.Names}}' | grep -q rkllama"; then
   _check "rkllama /health responds" \

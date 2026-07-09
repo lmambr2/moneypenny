@@ -75,6 +75,11 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "forget", kind: "special" },
   { name: "kg", kind: "special" },
   { name: "diary", kind: "special" },
+  // Org economy orders (docs/economy.md) — seed catalog + optional UEX prices.
+  { name: "mine", kind: "special" },
+  { name: "refine", kind: "special" },
+  { name: "craft", kind: "special" },
+  { name: "econ", kind: "special" },
   { name: "reindex", kind: "special", admin: true },
   { name: "ingeststatus", kind: "special", admin: true },
   // LLM / workflow intents routed inside ControlRouter.

@@ -58,6 +58,7 @@ Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
 - **Per-user memory** — `!remember <fact>` / `!recall`; facts are woven into that member's `!ask`.
 - **Institutional knowledge graph** — `!kg` / `!diary` for temporal org facts (roster, roles, op history); injected into `!ask` when enabled.
 - **Org document workflows** — `!intsum` / `!aar` templated reports via the analyst delegate; Pandoc docx export from the Library.
+- **Org economy orders** — `!mine` / `!refine` / `!craft` / `!econ` for industrial pull orders (seed catalog; optional live prices via UEX API — no scrapers). → **[docs/economy.md](./docs/economy.md)**
 - **Persona** — Miss Moneypenny: dry British MI6-secretary wit (configurable system prompt).
 
 **Community & ops**
@@ -109,6 +110,7 @@ Chat commands (default prefix `!`):
 | `!radio ops <profile>` · `!radio bumper [topic]` · `!radio say <text>` · `!radio skip` · `!radio pin` | Station programming (`@dj` + admin); `pin` promotes last bumper to prerecorded pool |
 | `!selecttracks <json>` | Tag-driven local track selection (normally via the `select_tracks` LLM tool) |
 | `!intsum [-s] [class:<level>] <points>` · `!aar [-s] …` | Templated INTSUM / AAR generation (analyst delegate; `-s` saves to doctrine) |
+| `!mine` · `!refine` · `!craft` · `!econ` | Org economy orders (seed catalog; `!econ prices` via UEX) — [docs/economy.md](docs/economy.md) |
 | `!kg remember <fact>` · `!kg who <name> [asof:date]` · `!kg list` · `!diary intel\|logistics <fact>` | Institutional knowledge graph (analyst-gated) |
 | `!rate <1-5> [song]` · `!unrate` | Star-rate the current (or a searched) track |
 | `!reindex` *(admin)* | Re-embed the doctrine corpus |

@@ -1,0 +1,772 @@
+{
+  "as_of": "2026-07-08",
+  "sources": [
+    {
+      "name": "SC DataHub",
+      "url": "https://sc-datahub.com/tools/mining/ores",
+      "use": "one-shot seed HTML parse"
+    },
+    {
+      "name": "SC DataHub refining",
+      "url": "https://sc-datahub.com/tools/mining/refining",
+      "use": "one-shot seed HTML parse"
+    },
+    {
+      "name": "UEX Corp API",
+      "url": "https://api.uexcorp.space/2.0/commodities",
+      "use": "public API"
+    }
+  ],
+  "ores": [
+    {
+      "name": "Vlklimpet",
+      "slug": "vlklimpet",
+      "mode": "FPS Mining",
+      "res": 0.5,
+      "inst": 350.0,
+      "win": 2.0,
+      "expl": 4.0,
+      "value_scu": 9657
+    },
+    {
+      "name": "Agricium",
+      "slug": "agricium",
+      "mode": "Ship Mining",
+      "res": 0.5,
+      "inst": 350.0,
+      "win": 2.0,
+      "expl": 4.0,
+      "value_scu": 9657
+    },
+    {
+      "name": "Aluminum",
+      "slug": "aluminum",
+      "mode": "Ship Mining",
+      "res": -0.4,
+      "inst": 0.0,
+      "win": -0.5,
+      "expl": -36.0,
+      "value_scu": 3680
+    },
+    {
+      "name": "Aphorite",
+      "slug": "aphorite",
+      "mode": "FPS Mining",
+      "res": 0.0,
+      "inst": 0.0,
+      "win": 0.0,
+      "expl": 0.0,
+      "value_scu": 101421
+    },
+    {
+      "name": "Aslarite",
+      "slug": "aslarite",
+      "mode": "Ship Mining",
+      "res": 0.5,
+      "inst": 700.0,
+      "win": 0.6,
+      "expl": 240.0,
+      "value_scu": 5095
+    },
+    {
+      "name": "Beryl",
+      "slug": "beryl",
+      "mode": "Ship Mining",
+      "res": 0.65,
+      "inst": 350.0,
+      "win": 1.5,
+      "expl": 20.0,
+      "value_scu": 19887
+    },
+    {
+      "name": "Bexalite",
+      "slug": "bexalite",
+      "mode": "Ship Mining",
+      "res": 0.6,
+      "inst": 600.0,
+      "win": 0.4,
+      "expl": 100.0,
+      "value_scu": 28907
+    },
+    {
+      "name": "Borase",
+      "slug": "borase",
+      "mode": "Ship Mining",
+      "res": 0.3,
+      "inst": 40.0,
+      "win": 0.5,
+      "expl": 120.0,
+      "value_scu": 27376
+    },
+    {
+      "name": "Carinite",
+      "slug": "carinite-fps",
+      "mode": "FPS Mining",
+      "res": 0.5,
+      "inst": 300.0,
+      "win": 10.0,
+      "expl": 0.5,
+      "value_scu": null
+    },
+    {
+      "name": "Carinite Pure",
+      "slug": "carinite-pure",
+      "mode": "FPS Mining",
+      "res": 0.5,
+      "inst": 300.0,
+      "win": 10.0,
+      "expl": 0.5,
+      "value_scu": null
+    },
+    {
+      "name": "Copper",
+      "slug": "copper",
+      "mode": "Ship Mining",
+      "res": -0.7,
+      "inst": 50.0,
+      "win": -0.9,
+      "expl": -20.0,
+      "value_scu": 3733
+    },
+    {
+      "name": "Corundum",
+      "slug": "corundum",
+      "mode": "Ship Mining",
+      "res": 0.1,
+      "inst": 50.0,
+      "win": 0.5,
+      "expl": -36.0,
+      "value_scu": 3662
+    },
+    {
+      "name": "Diamond",
+      "slug": "diamond",
+      "mode": "Ship Mining",
+      "res": -0.07,
+      "inst": 0.063,
+      "win": 0.25,
+      "expl": 8.0,
+      "value_scu": 7488
+    },
+    {
+      "name": "Dolivine",
+      "slug": "dolivine",
+      "mode": "FPS Mining",
+      "res": 0.1,
+      "inst": 0.0,
+      "win": 0.0,
+      "expl": 0.0,
+      "value_scu": 146082
+    },
+    {
+      "name": "Flowstone",
+      "slug": "flowstone",
+      "mode": "FPS Mining",
+      "res": -1.0,
+      "inst": 0.0,
+      "win": 0.0,
+      "expl": -1000.0,
+      "value_scu": 98750
+    },
+    {
+      "name": "Gold",
+      "slug": "gold",
+      "mode": "Ship Mining",
+      "res": 0.5,
+      "inst": 550.0,
+      "win": 2.1,
+      "expl": 100.0,
+      "value_scu": 29808
+    },
+    {
+      "name": "Hadanite",
+      "slug": "hadanite",
+      "mode": "FPS Mining",
+      "res": 0.0,
+      "inst": 200.0,
+      "win": 0.0,
+      "expl": 1.0,
+      "value_scu": 545419
+    },
+    {
+      "name": "Hephaestanite",
+      "slug": "hephaestanite",
+      "mode": "Ship Mining",
+      "res": -0.3,
+      "inst": 400.0,
+      "win": 0.5,
+      "expl": 120.0,
+      "value_scu": 4655
+    },
+    {
+      "name": "Ice",
+      "slug": "ice",
+      "mode": "Ship Mining",
+      "res": -0.5,
+      "inst": 0.0,
+      "win": 0.5,
+      "expl": -20.0,
+      "value_scu": null
+    },
+    {
+      "name": "Iron",
+      "slug": "iron",
+      "mode": "Ship Mining",
+      "res": -0.4,
+      "inst": 50.0,
+      "win": -0.9,
+      "expl": 20.0,
+      "value_scu": 3346
+    },
+    {
+      "name": "Jaclium",
+      "slug": "jaclium",
+      "mode": "FPS Mining",
+      "res": 0.5,
+      "inst": 100.0,
+      "win": 3.0,
+      "expl": 1.0,
+      "value_scu": null
+    },
+    {
+      "name": "Janalite",
+      "slug": "janalite",
+      "mode": "FPS Mining",
+      "res": 0.3,
+      "inst": 300.0,
+      "win": 10.0,
+      "expl": 1.0,
+      "value_scu": 4326260
+    },
+    {
+      "name": "Laranite",
+      "slug": "laranite",
+      "mode": "Ship Mining",
+      "res": 0.5,
+      "inst": 400.0,
+      "win": 0.5,
+      "expl": 200.0,
+      "value_scu": 8667
+    },
+    {
+      "name": "Lindinium",
+      "slug": "lindinium",
+      "mode": "Ship Mining",
+      "res": 0.95,
+      "inst": 1000.0,
+      "win": 0.23,
+      "expl": 260.0,
+      "value_scu": 46925
+    },
+    {
+      "name": "Ouratite",
+      "slug": "ouratite",
+      "mode": "Ship Mining",
+      "res": 0.6,
+      "inst": 600.0,
+      "win": 0.6,
+      "expl": 240.0,
+      "value_scu": 38205
+    },
+    {
+      "name": "Quantainium",
+      "slug": "quantainium",
+      "mode": "Ship Mining",
+      "res": 0.95,
+      "inst": 1000.0,
+      "win": 2.3,
+      "expl": 260.0,
+      "value_scu": 151782
+    },
+    {
+      "name": "Quartz",
+      "slug": "quartz",
+      "mode": "Ship Mining",
+      "res": -0.7,
+      "inst": 50.0,
+      "win": 0.5,
+      "expl": -20.0,
+      "value_scu": 4343
+    },
+    {
+      "name": "Riccite",
+      "slug": "riccite",
+      "mode": "Ship Mining",
+      "res": 0.95,
+      "inst": 850.0,
+      "win": 2.3,
+      "expl": 260.0,
+      "value_scu": 68973
+    },
+    {
+      "name": "Sadaryx",
+      "slug": "sadaryx",
+      "mode": "FPS Mining",
+      "res": 0.0,
+      "inst": 200.0,
+      "win": 0.0,
+      "expl": 1.0,
+      "value_scu": 500000
+    },
+    {
+      "name": "Saldynium",
+      "slug": "saldynium",
+      "mode": "FPS Mining",
+      "res": 0.0,
+      "inst": 100.0,
+      "win": 5.0,
+      "expl": 1.0,
+      "value_scu": null
+    },
+    {
+      "name": "Savrilium",
+      "slug": "savrilium",
+      "mode": "Ship Mining",
+      "res": 0.95,
+      "inst": 1000.0,
+      "win": 2.3,
+      "expl": 260.0,
+      "value_scu": 126429
+    },
+    {
+      "name": "Silicon",
+      "slug": "silicon",
+      "mode": "Ship Mining",
+      "res": -0.2,
+      "inst": 50.0,
+      "win": 0.5,
+      "expl": 80.0,
+      "value_scu": 2431
+    },
+    {
+      "name": "Stileron",
+      "slug": "stileron",
+      "mode": "Ship Mining",
+      "res": 0.6,
+      "inst": 870.0,
+      "win": 0.6,
+      "expl": 260.0,
+      "value_scu": 136581
+    },
+    {
+      "name": "Taranite",
+      "slug": "taranite",
+      "mode": "Ship Mining",
+      "res": 0.5,
+      "inst": 700.0,
+      "win": 0.6,
+      "expl": 240.0,
+      "value_scu": 25854
+    },
+    {
+      "name": "Tin",
+      "slug": "tin",
+      "mode": "Ship Mining",
+      "res": -0.2,
+      "inst": 0.0,
+      "win": 0.5,
+      "expl": -36.0,
+      "value_scu": 3954
+    },
+    {
+      "name": "Titanium",
+      "slug": "titanium",
+      "mode": "Ship Mining",
+      "res": 0.1,
+      "inst": 0.0,
+      "win": -0.7,
+      "expl": 20.0,
+      "value_scu": 8023
+    },
+    {
+      "name": "Torite",
+      "slug": "torite",
+      "mode": "Ship Mining",
+      "res": 0.25,
+      "inst": 550.0,
+      "win": 2.1,
+      "expl": 100.0,
+      "value_scu": 7583
+    },
+    {
+      "name": "Tungsten",
+      "slug": "tungsten",
+      "mode": "Ship Mining",
+      "res": -0.4,
+      "inst": 0.0,
+      "win": -0.7,
+      "expl": 80.0,
+      "value_scu": 10222
+    }
+  ],
+  "methods": [
+    {
+      "name": "Dinyx Solventation",
+      "speed": "Very Low Speed",
+      "cost": "Low Cost",
+      "yield": "High Yield",
+      "desc": "This process slowly sublimates raw materials in a pressurized Dinyx chamber and then over time recrystallizes the vaporization in zero gravity to remove impurities as off-cast and produce a high yield"
+    },
+    {
+      "name": "Thermonatic Deposition",
+      "speed": "Low Speed",
+      "cost": "Low Cost",
+      "yield": "Moderate Yield",
+      "desc": "Through slow application of repeated heating and cooling cycles, the raw materials can be separated according to their specific thermonatic properties and produce a moderate refined yield."
+    },
+    {
+      "name": "Ferron Exchange",
+      "speed": "Low Speed",
+      "cost": "Moderate Cost",
+      "yield": "High Yield",
+      "desc": "This recently developed process returns a high yield of refined product at a slightly below-average rate for a nominal cost. By using a resonant distillation process inside a flux-retort, the desired "
+    },
+    {
+      "name": "Electrostarolysis",
+      "speed": "Moderate Speed",
+      "cost": "Moderate Cost",
+      "yield": "Moderate Yield",
+      "desc": "This moderately priced electrochemical process uses a pure sample of the desired final material as an anode to attract and bond the chemically dissolved raw material resulting in an average yield perc"
+    },
+    {
+      "name": "Cormack Method",
+      "speed": "High Speed",
+      "cost": "Moderate Cost",
+      "yield": "Low Yield",
+      "desc": "This readily available and relatively quick process, invented by Art Cormack in 2321, injects the molten material with a stream of reactive gas that bonds with common impurities. The resulting insolub"
+    },
+    {
+      "name": "Pyrometric Chromalysis",
+      "speed": "Low Speed",
+      "cost": "High Cost",
+      "yield": "High Yield",
+      "desc": "This higher-than-average priced refinement process uses a series of very precisely controlled heating chambers to slowly extract the wanted material over the course of the thermal cycle and remove ins"
+    }
+  ],
+  "uex_sample": [
+    {
+      "name": "Agricium",
+      "code": "AGRI",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 9578,
+      "price_buy": 8566
+    },
+    {
+      "name": "Aluminum",
+      "code": "ALUM",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 3700,
+      "price_buy": 3053
+    },
+    {
+      "name": "Aphorite",
+      "code": "APHO",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 101766,
+      "price_buy": 0
+    },
+    {
+      "name": "Beryl",
+      "code": "BERY",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 19712,
+      "price_buy": 15390
+    },
+    {
+      "name": "Bexalite",
+      "code": "BEXA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 28967,
+      "price_buy": 23863
+    },
+    {
+      "name": "Borase",
+      "code": "BORA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 26957,
+      "price_buy": 0
+    },
+    {
+      "name": "Copper",
+      "code": "COPP",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 3803,
+      "price_buy": 3185
+    },
+    {
+      "name": "Copper (Ore)",
+      "code": "COPP",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 1200,
+      "price_buy": 0
+    },
+    {
+      "name": "Corundum",
+      "code": "CORU",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 3683,
+      "price_buy": 2879
+    },
+    {
+      "name": "Diamond",
+      "code": "DIAM",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 7504,
+      "price_buy": 6067
+    },
+    {
+      "name": "Dolivine",
+      "code": "DOLI",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 146940,
+      "price_buy": 0
+    },
+    {
+      "name": "Gold",
+      "code": "GOLD",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 28346,
+      "price_buy": 27555
+    },
+    {
+      "name": "Hadanite",
+      "code": "HADA",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 549684,
+      "price_buy": 0
+    },
+    {
+      "name": "Hephaestanite",
+      "code": "HEPH",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 4584,
+      "price_buy": 4115
+    },
+    {
+      "name": "Iron",
+      "code": "IRON",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 3388,
+      "price_buy": 2704
+    },
+    {
+      "name": "Iron (Ore)",
+      "code": "IRONO",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 1000,
+      "price_buy": 0
+    },
+    {
+      "name": "Janalite",
+      "code": "JANA",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 1597060,
+      "price_buy": 0
+    },
+    {
+      "name": "Laranite",
+      "code": "LARA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 8641,
+      "price_buy": 7371
+    },
+    {
+      "name": "Quantainium",
+      "code": "QUAN",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 151739,
+      "price_buy": 0
+    },
+    {
+      "name": "Quantainium (Raw)",
+      "code": "QUAN",
+      "is_raw": 1,
+      "is_volatile_time": 1,
+      "is_volatile_qt": 0,
+      "price_sell": 0,
+      "price_buy": 0
+    },
+    {
+      "name": "Quartz",
+      "code": "QUAR",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 4469,
+      "price_buy": 3527
+    },
+    {
+      "name": "Taranite",
+      "code": "TARA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 26000,
+      "price_buy": 20789
+    },
+    {
+      "name": "Titanium",
+      "code": "TITA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 8162,
+      "price_buy": 7370
+    },
+    {
+      "name": "Tungsten",
+      "code": "TUNG",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 10472,
+      "price_buy": 8475
+    },
+    {
+      "name": "Cobalt",
+      "code": "COBA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 20227,
+      "price_buy": 18720
+    },
+    {
+      "name": "Potassium",
+      "code": "POTA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 566,
+      "price_buy": 442
+    },
+    {
+      "name": "Stileron",
+      "code": "STIL",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 136452,
+      "price_buy": 122850
+    },
+    {
+      "name": "Beradom",
+      "code": "BERA",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 147213,
+      "price_buy": 0
+    },
+    {
+      "name": "Glacosite",
+      "code": "GLAC",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 99134,
+      "price_buy": 0
+    },
+    {
+      "name": "Feynmaline",
+      "code": "FEYN",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 343485,
+      "price_buy": 0
+    },
+    {
+      "name": "Saldynium (Ore)",
+      "code": "SALD",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 34000000,
+      "price_buy": 0
+    },
+    {
+      "name": "Jaclium (Ore)",
+      "code": "JACO",
+      "is_raw": 1,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 22666700,
+      "price_buy": 0
+    },
+    {
+      "name": "Savrilium",
+      "code": "SAVR",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 128333,
+      "price_buy": 0
+    },
+    {
+      "name": "Torite",
+      "code": "TORI",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 8083,
+      "price_buy": 0
+    },
+    {
+      "name": "Aslarite",
+      "code": "ASLA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 5100,
+      "price_buy": 0
+    },
+    {
+      "name": "Sadaryx",
+      "code": "SADA",
+      "is_raw": 0,
+      "is_volatile_time": 0,
+      "is_volatile_qt": 0,
+      "price_sell": 500000,
+      "price_buy": 0
+    }
+  ]
+}

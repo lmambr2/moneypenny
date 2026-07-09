@@ -50,6 +50,11 @@ const DELTAS: readonly RightsDelta[] = [
       admin: ["radio.pin"],
     },
   },
+  {
+    // Org economy orders (docs/economy.md) — public seed calculators + UEX prices.
+    version: 3,
+    defaultAllow: ["mine", "refine", "craft", "econ"],
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

@@ -24,6 +24,10 @@ describe("cmdHelp", () => {
     expect(text).toContain("!remember");
     expect(text).toContain("!recall");
     expect(text).toContain("!forget");
+    expect(text).toContain("!mine");
+    expect(text).toContain("!refine");
+    expect(text).toContain("!craft");
+    expect(text).toContain("!econ");
     expect(text).toContain("!roast");
     expect(text).toContain("!roastout");
     expect(text).toContain("!reindex");

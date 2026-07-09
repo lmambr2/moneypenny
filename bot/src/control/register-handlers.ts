@@ -7,6 +7,7 @@ import type { KnowledgeService } from "../bot/knowledge/service.js";
 import type { PlaybackEngine } from "../bot/playback/engine.js";
 import type { CommandExecutor } from "../bot/commands/executor.js";
 import type { ControlRouter, RouterContext } from "./router.js";
+import { handleEconomyCommand, type EconomyCommand } from "../economy/service.js";
 
 /** Command execution surface wired into the ControlRouter. */
 export interface CommandHandlerHost {
@@ -61,6 +62,10 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     forget: async (cmd, ctx) => host.memory.handleForget(cmd.args, ctx.invokerUid),
     kg: async (cmd, ctx) => host.kg.handleKg(cmd.args, ctx.invokerUid, ctx.canRun),
     diary: async (cmd, ctx) => host.kg.handleDiary(cmd.args, ctx.invokerUid, ctx.canRun),
+    mine: async (cmd) => handleEconomyCommand("mine" as EconomyCommand, cmd.args),
+    refine: async (cmd) => handleEconomyCommand("refine" as EconomyCommand, cmd.args),
+    craft: async (cmd) => handleEconomyCommand("craft" as EconomyCommand, cmd.args),
+    econ: async (cmd) => handleEconomyCommand("econ" as EconomyCommand, cmd.args),
     reindex: async (cmd) => host.knowledge.handleReindex(cmd.rawArgs.length ? cmd.rawArgs : undefined),
     ingeststatus: async () => host.knowledge.handleIngestStatus(),
   };

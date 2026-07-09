@@ -3,7 +3,8 @@
     "play", "add", "queue", "list", "now", "lyrics", "vote", "help",
     "playlist", "album", "prev", "next", "skip", "pause", "resume",
     "artist", "ask", "test", "roast", "roastout", "remember", "recall", "forget", "kg", "diary",
-    "rate", "unrate", "selecttracks", "radio", "playnext", "pn", "chevron7"
+    "rate", "unrate", "selecttracks", "radio", "playnext", "pn", "chevron7",
+    "mine", "refine", "craft", "econ"
   ],
   "commandGroups": {
     "admin": [

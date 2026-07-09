@@ -9,6 +9,7 @@ import { DelegateClient } from "../../llm/delegate.js";
 import type { RetrievalStore } from "../../rag/index.js";
 import { allowedClassificationsFor } from "../rights/subject.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
+import { economyContextForQuestion } from "../../economy/context.js";
 
 export interface LlmRuntimeDeps {
   config: BotConfig;
@@ -97,8 +98,14 @@ export class LlmRuntime {
   }
 
   buildRetrieveHook(): RetrievalHook | undefined {
-    if (!this.deps.config.ragEnabled && !this.deps.config.memoryEnabled && !this.deps.config.kgEnabled) {
-      return undefined;
+    // Economy seed injects on keyword match even when RAG/memory/KG are off,
+    // so !ask "how do I refine quantainium" still gets order context.
+    if (
+      !this.deps.config.ragEnabled &&
+      !this.deps.config.memoryEnabled &&
+      !this.deps.config.kgEnabled
+    ) {
+      return async (q) => economyContextForQuestion(q);
     }
     return (q, ctx) => this.retrieveContext(q, ctx);
   }
@@ -207,6 +214,8 @@ export class LlmRuntime {
         out.push(...hits.map((h) => ({ text: h.text, source: h.source, score: 0.9 })));
       }
     }
+    // Static org-economy seed (docs/economy.md) — no network on the ask path.
+    out.push(...economyContextForQuestion(question));
     return out;
   }
 }
