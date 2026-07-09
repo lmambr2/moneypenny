@@ -509,6 +509,8 @@ See **[ROADMAP.md](./ROADMAP.md)** for the status of Phases 4–8.
 ## Documentation
 
 - **[docs/editions.md](./docs/editions.md)** — SBC vs Server product matrix and topologies
+- **[docs/BUILD.md](./docs/BUILD.md)** — near-term build list (poke commands, ACE-Step, …)
+- **[docs/ace-step.md](./docs/ace-step.md)** — ACE-Step music gen design sketch (not implemented)
 - **[docs/gpu-amd.md](./docs/gpu-amd.md)** — AMD Server: host Ollama + whisper.cpp Vulkan
 - **[RELEASES.md](./RELEASES.md)** — how release tarballs are built and installed
 - **[DESIGN.md](./DESIGN.md)** — architecture (v3), rights (§8), hardening (§11), phased plan (§13)

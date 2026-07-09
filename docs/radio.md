@@ -18,7 +18,8 @@
 (pin-to-pool). Pi deployed at `e02b87f`. **Analyzer sidecar** (OQ2 keyfinder+aubio) ships in the
 bot image + `POST /api/music/analyze` + Library “Analyze library” when enabled in Settings.
 Still pending: TS live smoke (bumper test, `!radio ops`), re-run OQ3 when a full org
-library is mounted, and optional R-R6.
+library is mounted, and optional R-R6. **Future:** optional ACE-Step generated
+tracks as a library fill / `!radio gen` — design sketch [ace-step.md](./ace-step.md).
 **Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
 and **`focus`** ship in `defaultRadioConfig()`; add custom profiles in config or
 via Settings before `!radio ops` can switch to them.

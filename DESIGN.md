@@ -411,14 +411,13 @@ moneypenny/
 - **Pi deploy safeguards** — `deploy-preflight.sh`, `deploy-to-pi.sh`, `verify-pi-deploy.sh` (`AGENTS.md` §5).
 - **Security posture (§11)** — non-root Docker, CSRF, rate limits, session auth; see `docs/hardening.md`.
 
-**Remaining gaps (ordered):**
-- Live voice round-trip on SBC with `voice-edge` (Whisper tiny + Piper); server `large-v3` GPU smoke.
-- Whisper **RKNN** backend on SBC (`STT_BACKEND=rknn`) — free NPU for ASR, not chat.
-- Radio live smoke on opi5 (`!radio ops`, bumper test); OQ3 re-run when full org library mounted.
-- R-R6 optional: Icecast tee, relay-in, Spotify/Tidal playlist expansion.
-- Spotify librespot bridge (external; Tidal bridge ships but `STREAM_BRIDGE_URL` is opt-in).
-- Vue E2E tests (unit coverage exists; no browser E2E yet).
-- `@discordjs/opus` → `tar` transitive advisory (override in place).
+**Remaining gaps / build list (ordered):** full list in **[docs/BUILD.md](./docs/BUILD.md)**.
+
+- **Poke as command channel** — TS `on("poke")` → ControlRouter (queued).
+- **ACE-Step music gen** — optional DJ fill; design sketch [docs/ace-step.md](./docs/ace-step.md).
+- Server whisper.cpp Vulkan smoke on AMD; drop sherpa/Kokoro after dual-track stable.
+- Radio live smoke on opi5; R-R6 Icecast optional; librespot; Vue E2E.
+- RKNN Whisper INT8 quant (FP tiny ships); `@discordjs/opus` tar advisory.
 
 See updated Phase checkboxes above for per-phase status.
 
