@@ -44,6 +44,8 @@ Public by default (rights: mine/refine/craft/econ v3, trade v7).
 !trade buyers Agricium scu:32 loc:Stanton
 !trade ships Caterpillar
 !trade itinerary from:Stanton+>+microTech+>+Port+Tressler+>+Platinum+Bay to:Stanton+>+Crusader+>+Yela+>+Grim+HEX ship:Freelancer invest:100000
+!econ cache
+!econ refresh
 ```
 
 **Spelling:** seed ore **Quantainium** (game form); aliases `quantanium` / `qt` work.
@@ -67,8 +69,34 @@ Public by default (rights: mine/refine/craft/econ v3, trade v7).
 | **UEX** `api.uexcorp.space` | Optional live commodity averages (`!econ prices`) |
 | **SC Craft Tools** `sc-craft.tools` | Optional live **in-game** craft blueprints (`!craft`, `!econ blueprints`) |
 | **SC Trade Tools** `sc-trade.tools` | Optional trade routes / buyers (`!trade`) — tools need **API token** |
+| **SC Wiki API** `api.star-citizen.wiki` | Item/ship/location enrichment + **doctrine grounding** for `!ask` (from disk cache) |
+| **Disk cache** `data/economy-cache/` | Shared local store for all of the above; auto-refresh |
 | **Org doctrine** | Real SOPs, pads, org craft notes (Library / private store) |
 | scminer, star-crafting.com, SCMDB, … | Human bookmarks only — **not** wired at runtime |
+
+### Local cache + refresh
+
+All live economy clients write through a **disk cache** under the bot data dir
+(`{dataDir}/economy-cache/` or `ECONOMY_CACHE_DIR`):
+
+| Source | What gets cached |
+|--------|------------------|
+| UEX | Full commodities list |
+| sc-craft | Search results + optional blueprint pages on warm |
+| sc-trade | Ships + locations (+ route responses while TTL live) |
+| sc-wiki | Game version, commodity pages, search + item detail for warm names |
+
+**Stale-while-revalidate:** if the network fails, last good disk payload is still served.
+
+**Refresh**
+
+| Trigger | When |
+|---------|------|
+| Bot boot | Warm starts ~15s after start (non-blocking) |
+| Interval | `ECONOMY_CACHE_REFRESH_MS` (default **6 hours**) |
+| Manual | `!econ refresh` · status: `!econ cache` |
+
+`!ask` economy grounding reads **disk only** (no network on the ask path).
 
 ### Offline craft seed
 
@@ -98,6 +126,11 @@ Rare maintainer HTML parse of public DataHub mining pages → `seed-import-*.jso
 | `SCTRADE_API_BASE` | `https://sc-trade.tools` | |
 | `SCTRADE_CACHE_TTL_MS` | `1800000` (30m) | Route cache |
 | `SCTRADE_TIMEOUT_MS` | `45000` | Route search can be heavy |
+| `ECONOMY_SCWIKI` | `1` | `0` disables SC Wiki enrichment |
+| `SCWIKI_API_BASE` | `https://api.star-citizen.wiki` | |
+| `SCWIKI_CACHE_TTL_MS` | `43200000` (12h) | Wiki game-data TTL |
+| `ECONOMY_CACHE_DIR` | `{dataDir}/economy-cache` | Disk cache root |
+| `ECONOMY_CACHE_REFRESH_MS` | `21600000` (6h) | Background re-warm interval |
 
 Shared rules for every remote client:
 
@@ -115,13 +148,15 @@ SC Trade tools licence: [Patreon sc_trade_tools](https://www.patreon.com/cw/sc_t
 
 ```
 !mine / !refine          → catalog.ts + orders.ts (offline)
-!craft / !econ blueprints → sc-craft.ts (optional, cached)
-!econ prices             → uex.ts (optional, cached)
-!trade                   → sc-trade.ts (optional; token for tools)
+!craft / !econ blueprints → sc-craft.ts → disk cache
+!econ prices             → uex.ts → disk cache
+!trade                   → sc-trade.ts → disk cache (token for tools)
+!econ cache|refresh      → cache/store + cache/refresh
 !econ ores|methods|search → catalog.ts
 
 !ask "how do I refine quantainium?"
-        → economyContextForQuestion()  (static seed ores/methods)
+        → economyContextForQuestion()
+           seed ores/methods + sc-wiki disk snippets (no network)
 ```
 
 Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights `bot/src/rights/migrations.ts` (v3 economy + v7 trade).

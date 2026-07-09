@@ -36,6 +36,8 @@ import {
   SpeechSink,
   TagStore,
 } from "../radio/index.js";
+import { startEconomyCacheScheduler } from "../economy/cache/refresh.js";
+import { initEconomyDiskCache } from "../economy/cache/store.js";
 import { DEFAULT_EVAL_CASES, type EvalCase, runEvalLoop } from "../rag/eval-loop.js";
 import type { RetrievalStore } from "../rag/index.js";
 import type { RightsConfig } from "../rights/index.js";
@@ -412,6 +414,13 @@ export class BotInstance extends EventEmitter {
     // Bumpers live under the data dir (dirname of the sqlite file) — NOT under
     // MUSIC_DIR, so prerecorded assets are never indexed as songs.
     const dataDir = dirname(this.database.db.name);
+    // Economy API disk cache (UEX / sc-craft / sc-trade / sc-wiki) + scheduled refresh.
+    try {
+      initEconomyDiskCache(dataDir);
+      startEconomyCacheScheduler({ logger: this.logger });
+    } catch (err) {
+      this.logger.warn({ err }, "economy disk cache init skipped");
+    }
     const radioBumperDir = this.resolveBumperDir(dataDir);
     const radioTtsVoice = this.config.radio.ttsVoice ?? this.config.voice.ttsVoice;
     const radioTts: TtsProvider = this.config.voice.ttsUrl

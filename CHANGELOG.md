@@ -8,6 +8,14 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Economy: shared disk cache + SC Wiki enrichment
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Persistent `data/economy-cache/` for UEX, sc-craft, sc-trade, **api.star-citizen.wiki**
+- Stale-while-revalidate; auto-refresh on boot + `ECONOMY_CACHE_REFRESH_MS` (default 6h)
+- `!econ cache` / `!econ refresh`; `!ask` uses wiki **disk** snippets for grounding
+- Docs: [docs/economy.md](./docs/economy.md)
+
 ### Economy: sc-trade.tools full trade routes
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

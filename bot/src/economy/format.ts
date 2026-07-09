@@ -100,6 +100,7 @@ export function formatEconHelp(prefix = "!"): string {
     `${prefix}econ blueprints Coda — live blueprints`,
     `${prefix}econ prices quantainium — UEX averages`,
     `${prefix}econ search stileron — seed search`,
+    `${prefix}econ cache — disk cache status · ${prefix}econ refresh — re-warm catalogs`,
     "",
     CATALOG_DISCLAIMER,
   ].join("\n");

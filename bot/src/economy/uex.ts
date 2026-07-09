@@ -12,6 +12,7 @@
  */
 import axios from "axios";
 import type { Logger } from "../logger.js";
+import { getEconomyDiskCache, type EconomyDiskCache } from "./cache/store.js";
 
 const DEFAULT_BASE = "https://api.uexcorp.space";
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -58,6 +59,7 @@ export interface UexClientOptions {
   /** Optional API key (Bearer / header if UEX requires it later). */
   apiKey?: string;
   logger?: Logger;
+  disk?: EconomyDiskCache;
   /** Inject for tests. */
   fetchCommodities?: () => Promise<UexCommodity[]>;
 }
@@ -82,6 +84,7 @@ export class UexClient {
   private timeoutMs: number;
   private apiKey?: string;
   private logger?: Logger;
+  private disk: EconomyDiskCache;
   private fetchCommodities?: () => Promise<UexCommodity[]>;
 
   private cache: { at: number; data: UexCommodity[] } | null = null;
@@ -95,6 +98,7 @@ export class UexClient {
       opts.timeoutMs ?? (parseInt(process.env.UEX_TIMEOUT_MS || "", 10) || DEFAULT_TIMEOUT_MS);
     this.apiKey = opts.apiKey ?? process.env.UEX_API_KEY ?? undefined;
     this.logger = opts.logger;
+    this.disk = opts.disk ?? getEconomyDiskCache();
     this.fetchCommodities = opts.fetchCommodities;
   }
 
@@ -111,16 +115,22 @@ export class UexClient {
     if (!this.enabled) return null;
     const now = Date.now();
     if (this.cache && now - this.cache.at < this.ttlMs) return this.cache.data;
+    const diskHit = this.disk.get<UexCommodity[]>("uex", "commodities", now);
+    if (diskHit && !diskHit.stale) {
+      this.cache = { at: diskHit.fetchedAt, data: diskHit.data };
+      return diskHit.data;
+    }
     if (this.inflight) {
       try {
         return await this.inflight;
       } catch {
-        return this.cache?.data ?? null;
+        return this.cache?.data ?? diskHit?.data ?? null;
       }
     }
     this.inflight = this.loadCommodities()
       .then((data) => {
         this.cache = { at: Date.now(), data };
+        this.disk.set("uex", "commodities", data, this.ttlMs);
         return data;
       })
       .finally(() => {
@@ -130,7 +140,7 @@ export class UexClient {
       return await this.inflight;
     } catch (err) {
       this.logger?.warn({ err }, "UEX commodities fetch failed");
-      return this.cache?.data ?? null;
+      return this.cache?.data ?? diskHit?.data ?? null;
     }
   }
 

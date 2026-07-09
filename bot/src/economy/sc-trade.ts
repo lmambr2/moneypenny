@@ -13,6 +13,7 @@
  */
 import axios, { type AxiosError } from "axios";
 import type { Logger } from "../logger.js";
+import { getEconomyDiskCache, type EconomyDiskCache } from "./cache/store.js";
 
 const DEFAULT_BASE = "https://sc-trade.tools";
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 min for route results
@@ -105,6 +106,7 @@ export interface ScTradeClientOptions {
   catalogTtlMs?: number;
   timeoutMs?: number;
   logger?: Logger;
+  disk?: EconomyDiskCache;
   /** Inject for tests. */
   postTrades?: (body: Record<string, unknown>) => Promise<ScTradeRoute[]>;
   postBuyers?: (body: Record<string, unknown>) => Promise<ScTradeTransaction[]>;
@@ -233,6 +235,7 @@ export class ScTradeClient {
   private catalogTtlMs: number;
   private timeoutMs: number;
   private logger?: Logger;
+  private disk: EconomyDiskCache;
   private postTrades?: ScTradeClientOptions["postTrades"];
   private postBuyers?: ScTradeClientOptions["postBuyers"];
   private postItinerary?: ScTradeClientOptions["postItinerary"];
@@ -260,6 +263,7 @@ export class ScTradeClient {
     this.timeoutMs =
       opts.timeoutMs ?? (parseInt(process.env.SCTRADE_TIMEOUT_MS || "", 10) || DEFAULT_TIMEOUT_MS);
     this.logger = opts.logger;
+    this.disk = opts.disk ?? getEconomyDiskCache();
     this.postTrades = opts.postTrades;
     this.postBuyers = opts.postBuyers;
     this.postItinerary = opts.postItinerary;
@@ -306,6 +310,11 @@ export class ScTradeClient {
     if (this.shipsCache && now - this.shipsCache.at < this.catalogTtlMs) {
       return this.shipsCache.data;
     }
+    const diskHit = this.disk.get<ScTradeShip[]>("sc-trade", "ships", now);
+    if (diskHit && !diskHit.stale) {
+      this.shipsCache = { at: diskHit.fetchedAt, data: diskHit.data };
+      return diskHit.data;
+    }
     try {
       let data: ScTradeShip[];
       if (this.fetchShips) {
@@ -318,10 +327,11 @@ export class ScTradeClient {
         data = Array.isArray(res.data) ? res.data : [];
       }
       this.shipsCache = { at: now, data };
+      this.disk.set("sc-trade", "ships", data, this.catalogTtlMs);
       return data;
     } catch (err) {
       this.logger?.warn({ err }, "sc-trade ships fetch failed");
-      return this.shipsCache?.data ?? null;
+      return this.shipsCache?.data ?? diskHit?.data ?? null;
     }
   }
 
@@ -330,6 +340,15 @@ export class ScTradeClient {
     const now = Date.now();
     if (this.locationsCache && now - this.locationsCache.at < this.catalogTtlMs) {
       return this.locationsCache.data;
+    }
+    const diskHit = this.disk.get<Array<{ name: string; type?: string }>>(
+      "sc-trade",
+      "locations",
+      now,
+    );
+    if (diskHit && !diskHit.stale) {
+      this.locationsCache = { at: diskHit.fetchedAt, data: diskHit.data };
+      return diskHit.data;
     }
     try {
       let data: Array<{ name: string; type?: string }>;
@@ -343,10 +362,11 @@ export class ScTradeClient {
         data = Array.isArray(res.data) ? res.data : [];
       }
       this.locationsCache = { at: now, data };
+      this.disk.set("sc-trade", "locations", data, this.catalogTtlMs);
       return data;
     } catch (err) {
       this.logger?.warn({ err }, "sc-trade locations fetch failed");
-      return this.locationsCache?.data ?? null;
+      return this.locationsCache?.data ?? diskHit?.data ?? null;
     }
   }
 

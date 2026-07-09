@@ -159,6 +159,24 @@ async function handleEcon(
       return lookupPrices(rest, prefix, uex);
     case "search":
       return formatSearch(rest);
+    case "cache":
+    case "status": {
+      const { formatCacheStatus } = await import("./cache/refresh.js");
+      return formatCacheStatus();
+    }
+    case "refresh": {
+      const { refreshEconomyCatalogs, formatCacheStatus } = await import("./cache/refresh.js");
+      const report = await refreshEconomyCatalogs();
+      const lines = report.results.map(
+        (r) => `  ${r.ok ? "✓" : "○"} ${r.source}/${r.key}: ${r.detail}`,
+      );
+      return [
+        `Economy cache refresh ${report.ok ? "finished" : "finished with errors"}:`,
+        ...lines,
+        "",
+        formatCacheStatus(),
+      ].join("\n");
+    }
     case "help":
     case "?":
       return formatEconHelp(prefix);

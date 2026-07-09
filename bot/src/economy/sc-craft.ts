@@ -10,6 +10,7 @@
  */
 import axios from "axios";
 import type { Logger } from "../logger.js";
+import { getEconomyDiskCache, type EconomyDiskCache } from "./cache/store.js";
 import type { CraftBomLine, CraftOrder } from "./orders.js";
 
 const DEFAULT_BASE = "https://sc-craft.tools";
@@ -58,6 +59,7 @@ export interface ScCraftClientOptions {
   ttlMs?: number;
   timeoutMs?: number;
   logger?: Logger;
+  disk?: EconomyDiskCache;
   /** Inject for tests. */
   fetchSearch?: (query: string, limit: number) => Promise<ScCraftBlueprint[]>;
   fetchDetail?: (id: number | string) => Promise<ScCraftBlueprint | null>;
@@ -163,6 +165,7 @@ export class ScCraftClient {
   private ttlMs: number;
   private timeoutMs: number;
   private logger?: Logger;
+  private disk: EconomyDiskCache;
   private fetchSearch?: (query: string, limit: number) => Promise<ScCraftBlueprint[]>;
   private fetchDetail?: (id: number | string) => Promise<ScCraftBlueprint | null>;
 
@@ -179,6 +182,7 @@ export class ScCraftClient {
     this.timeoutMs =
       opts.timeoutMs ?? (parseInt(process.env.SCCRAFT_TIMEOUT_MS || "", 10) || DEFAULT_TIMEOUT_MS);
     this.logger = opts.logger;
+    this.disk = opts.disk ?? getEconomyDiskCache();
     this.fetchSearch = opts.fetchSearch;
     this.fetchDetail = opts.fetchDetail;
   }
@@ -208,6 +212,16 @@ export class ScCraftClient {
         attribution: SC_CRAFT_ATTRIBUTION,
       };
     }
+    const diskKey = `search:${key}`;
+    const diskHit = this.disk.get<ScCraftSearchResult>("sc-craft", diskKey, now);
+    if (diskHit && !diskHit.stale) {
+      this.searchCache.set(key, {
+        at: diskHit.fetchedAt,
+        data: diskHit.data.items,
+        total: diskHit.data.total,
+      });
+      return { ...diskHit.data, fetchedAt: diskHit.fetchedAt, attribution: SC_CRAFT_ATTRIBUTION };
+    }
     const inflight = this.inflightSearch.get(key);
     if (inflight) {
       try {
@@ -225,7 +239,14 @@ export class ScCraftClient {
     }
     const p = this.loadSearch(q, lim)
       .then((res) => {
-        this.searchCache.set(key, { at: Date.now(), data: res.items, total: res.total });
+        const at = Date.now();
+        this.searchCache.set(key, { at, data: res.items, total: res.total });
+        this.disk.set(
+          "sc-craft",
+          diskKey,
+          { items: res.items, total: res.total, fetchedAt: at, attribution: SC_CRAFT_ATTRIBUTION },
+          this.ttlMs,
+        );
         return res;
       })
       .finally(() => {
@@ -236,14 +257,22 @@ export class ScCraftClient {
       return await p;
     } catch (err) {
       this.logger?.warn({ err, query: q }, "sc-craft search failed");
-      return hit
-        ? {
-            items: hit.data,
-            total: hit.total,
-            fetchedAt: hit.at,
-            attribution: SC_CRAFT_ATTRIBUTION,
-          }
-        : null;
+      if (hit) {
+        return {
+          items: hit.data,
+          total: hit.total,
+          fetchedAt: hit.at,
+          attribution: SC_CRAFT_ATTRIBUTION,
+        };
+      }
+      if (diskHit) {
+        return {
+          ...diskHit.data,
+          fetchedAt: diskHit.fetchedAt,
+          attribution: SC_CRAFT_ATTRIBUTION,
+        };
+      }
+      return null;
     }
   }
 
