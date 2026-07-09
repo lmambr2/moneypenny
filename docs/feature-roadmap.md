@@ -251,6 +251,16 @@ docs.
 | 2026-07-09 | **Deferred earlier:** H3, H4/V1, R3, G2 depth |
 | 2026-07-09 | **Shipped follow-up:** H3 scopes UI, V1/H4 under-music smoke, G2 ScOrgClient + Settings, R3 eval loop |
 | 2026-07-09 | Still later: H6, G3–G4, live Pi voice under music, real SC credentials beyond bridge URL |
+| 2026-07-09 | **Watch (not adopt):** [teamspeak.js](https://github.com/teamspeakjs/teamspeak.js) — typed ServerQuery (raw + SSH). Do **not** replace `@honeybbq/teamspeak-client` (voice). Revisit only if Query/SSH DX or TS6 Query maturity clearly beats current `TS3Client` + `http-query` + `ts3-nodejs-library`. |
+
+### Watchlist — TeamSpeak libraries
+
+| Library | Role | Stance |
+|---------|------|--------|
+| `@honeybbq/teamspeak-client` | Voice + channel client | **Keep** (music / STT / TTS path) |
+| Own `TS6HttpQuery` | TS6 WebQuery | **Keep** |
+| `ts3-nodejs-library` | Classic ServerQuery | Keep until something better is proven |
+| [teamspeak.js](https://github.com/teamspeakjs/teamspeak.js) | Typed Query (Discord.js-style) | **Monitor only** — no dep, no rewrite |
 
 ### Sprint notes (2026-07-09)
 
