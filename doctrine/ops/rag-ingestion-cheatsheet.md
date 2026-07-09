@@ -8,6 +8,10 @@ valid_until: 2027-06-21
 
 Quick reference for operators and `@analyst`. **Rank-gating controls who can retrieve a doc; it does not load docs.** Loading is always an explicit ingest path below.
 
+**Economy commands:** `!mine` / `!refine` / `!craft` / `!econ` (product).  
+**Private logistics doctrine:** copy templates from `docs/examples/doctrine/` into
+your private doctrine store — do not publish org routes in a public repo.
+
 ---
 
 ## Two stores — do not confuse them

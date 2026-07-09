@@ -17,6 +17,28 @@ build/
 *.pem
 *.key
 
+# ---------------------------------------------------------------------------
+# Private org doctrine / logistics — NEVER commit real routes, pads, BOMs.
+# Runtime corpus lives under /bot/data/ (ignored above). Templates only:
+#   docs/examples/doctrine/*.example.md
+# ---------------------------------------------------------------------------
+/doctrine.private/
+/private-doctrine/
+/doctrine.local/
+**/*.doctrine.local.md
+# Extra trees people invent next to the repo
+/org-doctrine/
+/my-doctrine/
+# Under public doctrine/: only product cheatsheets (e.g. RAG ops). Block the rest.
+/doctrine/**
+!/doctrine/ops/
+/doctrine/ops/**
+!/doctrine/ops/rag-ingestion-cheatsheet.md
+# Examples dir: only *.example.md + README (filled-in copies stay local)
+/docs/examples/doctrine/**
+!/docs/examples/doctrine/README.md
+!/docs/examples/doctrine/*.example.md
+
 # Models (large binaries — never commit weights)
 models/**/*.rkllm
 models/**/*.rknn

@@ -149,7 +149,26 @@ org doctrine or specialist sites operators open in a browser.
 
 ---
 
-## 8. References
+## 8. Org doctrine (private — examples only in-repo)
+
+Real logistics doctrine (routes, pads, BOMs) should live in your **private**
+knowledge base, not a public git tree.
+
+**Templates** (copy → private Library / private wiki / `bot/data/doctrine/`):
+
+| Example file | Contents |
+|--------------|----------|
+| [`docs/examples/doctrine/economy-orders.example.md`](./examples/doctrine/economy-orders.example.md) | Commands, refine policy, QT rules, route/BOM placeholders |
+| [`docs/examples/doctrine/mining-crew-brief.example.md`](./examples/doctrine/mining-crew-brief.example.md) | Mining flight checklist |
+| [`docs/examples/doctrine/logistics-glossary.example.md`](./examples/doctrine/logistics-glossary.example.md) | Shared vocabulary |
+
+See [`docs/examples/doctrine/README.md`](./examples/doctrine/README.md). After
+copying privately: RAG on → reindex → `!ask` grounds on your edits.
+
+---
+
+## 9. References
 
 UEX: [uexcorp.space](https://uexcorp.space/) · seed: `bot/src/economy/catalog.ts` ·
-commands: `bot/src/bot/commands.ts` · rights: `bot/src/rights/migrations.ts`
+commands: `bot/src/bot/commands.ts` · rights: `bot/src/rights/migrations.ts` ·
+examples: `docs/examples/doctrine/`
