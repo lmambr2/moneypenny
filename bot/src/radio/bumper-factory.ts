@@ -581,7 +581,13 @@ export class RadioBumperFactory implements BumperFactory {
 
     const hits = await orgMem.searchOrg(topic, 5);
     const material = hits.map((h) => h.fact.trim()).filter(Boolean)[0];
-    if (!material) return null;
+    if (!material) {
+      this.deps.logger.info(
+        { topic },
+        "radio: memory skip — no org KG hits (MemPalace kgSearch empty)",
+      );
+      return null;
+    }
 
     const cap = wordCap(cfg.maxBumperSeconds);
     const tone = profile?.bumper?.tone ? ` Tone: ${profile.bumper.tone}.` : "";
@@ -591,7 +597,10 @@ export class RadioBumperFactory implements BumperFactory {
         "You are a radio announcer. Reply with only the spoken line itself. Never invent personal facts.",
       )
     ).trim();
-    if (!script) return null;
+    if (!script) {
+      this.deps.logger.info({ topic }, "radio: memory skip — LLM returned empty rewrite");
+      return null;
+    }
 
     const capped = script.split(/\s+/).slice(0, cap).join(" ");
     // Floor unclassified only — org memory is not doctrine classification tiers.
@@ -610,18 +619,63 @@ export class RadioBumperFactory implements BumperFactory {
   ): Promise<BuiltBumper | null> {
     const retrieval = this.deps.getRetrieval?.() ?? null;
     const llm = this.deps.getLlm?.() ?? null;
-    if (!retrieval || !llm) return null;
+    if (!retrieval || !llm) {
+      this.deps.logger.debug?.(
+        { hasRetrieval: !!retrieval, hasLlm: !!llm },
+        "radio: doctrine skip — retrieval or LLM unavailable",
+      );
+      return null;
+    }
 
     const cfg = this.deps.getConfig();
     const profile = cfg.profiles[cfg.activeProfile];
-    const topics = topicOverride ? [topicOverride] : (profile?.bumper?.topics ?? []);
-    if (topics.length === 0) return null; // nothing curated to talk about
-    const topic = topics[Math.floor(Math.random() * topics.length)];
+    const topics = topicOverride
+      ? [topicOverride]
+      : (profile?.bumper?.topics ?? []).map((t) => t.trim()).filter(Boolean);
+    if (topics.length === 0) {
+      this.deps.logger.info(
+        { profile: cfg.activeProfile },
+        "radio: doctrine skip — no bumper topics on active profile (set topics in Settings)",
+      );
+      return null;
+    }
 
-    // Floor applied to the retrieval filter BEFORE text reaches the model (§6.3).
-    const chunks = await retrieval.query(topic, 3, floor);
-    const material = chunks[0]?.text?.trim();
-    if (!material) return null;
+    // Try every topic until RAG returns material (was: one random topic, often a miss).
+    const order = topicOverride
+      ? topics
+      : (() => {
+          const rng = this.deps.random ?? Math.random;
+          const bag = topics.slice();
+          for (let i = bag.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1));
+            const t = bag[i]!;
+            bag[i] = bag[j]!;
+            bag[j] = t;
+          }
+          return bag;
+        })();
+
+    let material: string | undefined;
+    let topicUsed = order[0]!;
+    let sourceHit = "";
+    for (const topic of order) {
+      // Floor applied to the retrieval filter BEFORE text reaches the model (§6.3).
+      const chunks = await retrieval.query(topic, 3, floor);
+      const hit = chunks[0]?.text?.trim();
+      if (hit) {
+        material = hit;
+        topicUsed = topic;
+        sourceHit = chunks[0]?.source ?? "";
+        break;
+      }
+    }
+    if (!material) {
+      this.deps.logger.info(
+        { topics: order, floor, profile: cfg.activeProfile },
+        "radio: doctrine skip — no RAG hits for profile topics at broadcast floor",
+      );
+      return null;
+    }
 
     const cap = wordCap(cfg.maxBumperSeconds);
     const tone = profile?.bumper?.tone ? ` Tone: ${profile.bumper.tone}.` : "";
@@ -631,11 +685,25 @@ export class RadioBumperFactory implements BumperFactory {
         "You are a radio announcer. Reply with only the spoken line itself.",
       )
     ).trim();
-    if (!script) return null;
+    if (!script) {
+      this.deps.logger.info(
+        { topic: topicUsed, source: sourceHit },
+        "radio: doctrine skip — LLM returned empty rewrite",
+      );
+      return null;
+    }
 
     const capped = script.split(/\s+/).slice(0, cap).join(" ");
     const path = await this.deps.speech.render(capped, "doctrine", { floor });
-    return path ? { path, label: "doctrine" } : null;
+    if (!path) {
+      this.deps.logger.info({ topic: topicUsed }, "radio: doctrine skip — TTS render failed");
+      return null;
+    }
+    this.deps.logger.info(
+      { topic: topicUsed, source: sourceHit, floor },
+      "radio: doctrine bumper built",
+    );
+    return { path, label: "doctrine" };
   }
 
   private async speak(text: string, label: string): Promise<BuiltBumper | null> {
