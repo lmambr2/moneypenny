@@ -319,7 +319,9 @@ export function createPlayerRouter(
   router.post("/:botId/play-playlist", async (req, res) => {
     try {
       const bot = requireBot(req);
+      // Replacing the live queue is disruptive — require clear + playlist rights (F7).
       if (!await denyUnless(bot, req, res, "playlist")) return;
+      if (!await denyUnless(bot, req, res, "clear")) return;
       const { playlistId, platform } = req.body;
       // Use the bot's own provider lookup — it already knows about youtube,
       // which the router's constructor params did not.
@@ -343,7 +345,7 @@ export function createPlayerRouter(
       }
     } catch (err) {
       logger.error({ err }, "Play playlist failed");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -352,6 +354,7 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       if (!await denyUnless(bot, req, res, "album")) return;
+      if (!await denyUnless(bot, req, res, "clear")) return;
       const { albumId, platform } = req.body;
       const provider = bot.getProviderFor(parsePlatform(platform));
 
@@ -373,7 +376,7 @@ export function createPlayerRouter(
       }
     } catch (err) {
       logger.error({ err }, "play-album failed");
-      res.status(500).json({ error: (err as Error).message });
+      res.status(500).json({ error: "internal error" });
     }
   });
 
@@ -382,19 +385,26 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       if (!await denyUnless(bot, req, res, "play")) return;
+      // clear-queue semantics when something is already playing
+      const player = bot.getPlayer() as { getState?: () => string };
+      const queue = bot.getQueueManager() as { size?: () => number };
+      const busy =
+        (typeof player.getState === "function" && player.getState() === "playing") ||
+        (typeof queue.size === "function" && queue.size() > 0);
+      if (busy && !(await denyUnless(bot, req, res, "clear"))) return;
       const { song } = req.body;
       if (!song || !song.id || !song.platform) {
         res.status(400).json({ error: "song object with id and platform is required", code: "VALIDATION_ERROR" });
         return;
       }
       if (!requirePlatform(song.platform, res)) return;
-      const queue = bot.getQueueManager();
-      queue.clear();
-      queue.add(song);
-      queue.play();
+      const q = bot.getQueueManager();
+      q.clear();
+      q.add(song);
+      q.play();
 
       bot.getPlayer().resetFailures();
-      const ok = await bot.resolveAndPlay(queue.current()!);
+      const ok = await bot.resolveAndPlay(q.current()!);
       if (!ok) {
         res.json({ ok: false, message: `Cannot play "${song.name || song.id}" (source or region restriction)` });
         return;
@@ -537,7 +547,8 @@ export function createPlayerRouter(
       res.json({ history: [] });
       return;
     }
-    const limit = parseInt(req.query.limit as string) || 50;
+    const rawLimit = parseInt(String(req.query.limit ?? ""), 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
     const botId = String(req.params.botId);
     const records = database.getPlayHistory(botId, limit);
     const history = records.map((r) => ({

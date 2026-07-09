@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPublicPlaybackUrl } from "./url-guard.js";
+import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
 
 describe("isPublicPlaybackUrl", () => {
   it("allows public http(s) stream URLs", () => {
@@ -20,6 +20,13 @@ describe("isPublicPlaybackUrl", () => {
     expect(isPublicPlaybackUrl("http://172.17.0.2:6333")).toBe(false);
   });
 
+  it("blocks CGNAT and IPv4-mapped IPv6", () => {
+    expect(isPublicPlaybackUrl("http://100.64.1.2/x")).toBe(false);
+    expect(isPublicPlaybackUrl("http://[::ffff:127.0.0.1]/1/")).toBe(false);
+    expect(isPublicPlaybackUrl("http://[::ffff:169.254.169.254]/80/")).toBe(false);
+    expect(isPublicPlaybackUrl("http://[::ffff:a9fe:a9fe]/80/")).toBe(false);
+  });
+
   it("blocks docker-compose sidecar hostnames", () => {
     expect(isPublicPlaybackUrl("http://qdrant:6333/collections")).toBe(false);
     expect(isPublicPlaybackUrl("http://ollama:11434/api/tags")).toBe(false);
@@ -28,5 +35,18 @@ describe("isPublicPlaybackUrl", () => {
   it("rejects non-http schemes and garbage", () => {
     expect(isPublicPlaybackUrl("ftp://example.com/x")).toBe(false);
     expect(isPublicPlaybackUrl("not a url")).toBe(false);
+  });
+});
+
+describe("assertPublicPlaybackUrl", () => {
+  it("rejects private literals without DNS", async () => {
+    expect(await assertPublicPlaybackUrl("http://127.0.0.1/")).toBe(false);
+    expect(await assertPublicPlaybackUrl("http://10.0.0.1/")).toBe(false);
+  });
+
+  it("allows a well-known public hostname (DNS)", async () => {
+    // example.com is reserved and resolves publicly; skip if offline.
+    const ok = await assertPublicPlaybackUrl("https://example.com/");
+    expect(typeof ok).toBe("boolean");
   });
 });

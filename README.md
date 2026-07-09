@@ -3,16 +3,17 @@
 </p>
 
 <p align="center">
-  A self-hosted, NPU-accelerated <b>AI + music assistant</b> for a <b>TeamSpeak 6</b> server,<br>
-  running entirely on a single <b>Orange Pi 5 Max (RK3588, 16 GB)</b>.<br>
+  A self-hosted <b>AI + music assistant</b> for a <b>TeamSpeak 6</b> server.<br>
+  <b>Two editions, one repo:</b> <b>SBC</b> (Orange Pi / RK3588) and <b>Server</b> (x86 + GPU).<br>
   <br>
-  <b>One repo. One <code>docker compose up</code>. No cloud.</b>
+  <b>No cloud required.</b> Whisper STT · Piper British TTS · local Gemma.
 </p>
 
 ## Table of Contents
 
 - [Features](#features)
 - [Commands](#commands)
+- [Editions](#editions)
 - [Quick Start](#quick-start)
 - [Accessing the Web UI from Another Machine](#accessing-the-web-ui-from-another-machine)
 - [Configuration Guide](#configuration-guide)
@@ -26,12 +27,19 @@
 
 ## Status
 
-**Live on the Orange Pi 5 Max.** Music + local-AI assistant with a rank-gated
-knowledge base and per-user memory; **797** backend unit tests and **11** frontend unit tests passing (110 test files). Fast chat uses **Gemma 4
-12B QAT** on a LAN workstation (split-brain: embeddings stay on the Pi); Pi **Gemma 4
-E2B** is the offline fallback. See [docs/remote-llm.md](./docs/remote-llm.md) for the
-multi-host layout, [DESIGN.md](./DESIGN.md) for architecture + security posture, and
-[ROADMAP.md](./ROADMAP.md) for the phase plan.
+**Dual-edition product.** Music + local-AI assistant with a rank-gated knowledge
+base and per-user memory; **797** backend unit tests and **11** frontend unit
+tests passing (110 test files).
+
+| Edition | Bot primary host | Chat | Voice |
+|---------|------------------|------|-------|
+| **SBC** | Orange Pi 5 Max (RK3588) | LAN Gemma 4 **12B** (E2B offline fallback) | Whisper **tiny** (+ RKNN later) + Piper |
+| **Server** | x86_64 Linux (**AMD** first; NVIDIA untested) | **Host Ollama** Gemma 4 **12B** (+ 31B if headroom) | whisper.cpp **Vulkan** (AMD) + Piper |
+
+**Bot runs on the machine you install** (`--edition sbc` or `server`). Embeddings +
+Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
+[docs/remote-llm.md](./docs/remote-llm.md), [docs/voice-backends.md](./docs/voice-backends.md),
+[RELEASES.md](./RELEASES.md), [DESIGN.md](./DESIGN.md), [ROADMAP.md](./ROADMAP.md).
 
 ## Features
 
@@ -56,9 +64,31 @@ multi-host layout, [DESIGN.md](./DESIGN.md) for architecture + security posture,
 - **Roast** — captures chat lines, AI-grades them for cringe, auto-posts a "greatest hits" reel when enough people are present; opt out + purge with `!roastout`.
 - **Rank gating** — declarative rights mapped to TS server-groups; gates typed + voice + LLM-driven commands (no escalation via natural language); rules can be **scoped to voice or chat**. Verify with `GET /api/bot/rights/debug`.
 - **Radio mode (autonomous DJ)** — off by default; between songs or on dead air she drops a short bumper: a prerecorded jingle, a spoken station ID/time check, or a doctrine tip rewritten by the LLM and TTS'd in persona, gated to the **least-cleared listener present**. `!radio ops <profile>` retunes music + bumper topics in one switch. → **[docs/radio.md](./docs/radio.md)**
-- Optional **voice loop** (STT → router → TTS — see [docs/voice.md](./docs/voice.md)); watchdog auto-reconnect; read-only container; localhost-bound web UI.
+- Optional **voice loop** — **Whisper** STT (`tiny` on SBC → `large-v3` on Server) + **Piper** British TTS ([docs/voice-backends.md](./docs/voice-backends.md)); watchdog; localhost-bound web UI.
 
 All AI/community features are **off by default** — toggle them in **Settings → AI & Permissions**.
+
+## Editions
+
+One codebase. Two install shapes ([docs/editions.md](./docs/editions.md)):
+
+```bash
+# Orange Pi / RK3588 — edge bot + embeddings + tiny Whisper
+./install.sh --edition sbc --with-rag --with-voice
+
+# x86 server — local 12B chat + server Whisper ladder
+./install.sh --edition server --with-rag --with-voice
+
+# Auto-detect (aarch64 → sbc, else server)
+./install.sh --edition auto --with-rag --with-voice
+./scripts/detect-edition.sh
+```
+
+**Split-brain (recommended):** install **SBC** on the Pi, run Ollama 12B on the
+Server (or full Server edition), then set Settings `llmUrl` to the Server LAN IP.
+**All-in-one:** Server edition only. **Offline Pi:** SBC with local E2B (slow).
+
+Release tarballs: [RELEASES.md](./RELEASES.md) · `./scripts/package-release.sh`
 
 ## Commands
 
@@ -90,32 +120,28 @@ Chat commands (default prefix `!`):
 
 ## Quick Start
 
-One command — works on **x86-64** and the **Orange Pi (aarch64/NPU)**:
+One command — auto-detects **SBC** (aarch64) or **Server** (x86):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lmambr2/moneypenny/main/install.sh | bash
 ```
 
-The installer auto-detects your hardware and wires up an OpenAI-compatible LLM
-backend accordingly:
+| Host | Edition | Defaults |
+|------|---------|----------|
+| Orange Pi / RK3588 | **sbc** | E2B offline fallback; Whisper tiny; point `llmUrl` at LAN 12B |
+| x86_64 Linux (**AMD**) | **server** | host Ollama Gemma 4 12B; whisper.cpp Vulkan; optional TS6 |
+| Either | `--llm npu` | rkllama on SBC only (offline opt-in) |
 
-| Host | LLM backend | Notes |
-|------|-------------|-------|
-| Orange Pi 5 Max (aarch64 + RK3588 NPU) | **rkllama**, native NPU | runs `host-setup/install-npu.sh` for you |
-| x86-64 / any other Linux | **Ollama** (CPU/GPU) | pulls a small model (~2 GB) on first run |
-
-It also installs Docker if missing (after a prompt), generates a `.env` with a
-random session secret, sets up volumes, and starts the stack. Then open the
-**Web UI at http://localhost:3000** and create your admin account.
-
-Prefer to inspect first? Clone and run it locally:
+Installer installs Docker if needed, writes `.env` + `COMPOSE_FILE` for the
+edition overlay, and starts profiles. Then open **http://localhost:3000**.
 
 ```bash
 git clone https://github.com/lmambr2/moneypenny.git && cd moneypenny
-./install.sh --help          # see all options
-./install.sh                 # auto
-# ./install.sh --llm ollama --model gemma4:e4b-it-qat --with-voice
-# ./install.sh --llm http://my-existing-llm:11434   # bring your own endpoint
+./install.sh --help
+./install.sh              # text-interactive wizard (TTY)
+./install.sh -y           # non-interactive auto defaults
+# ./install.sh --edition sbc --llm http://192.168.x.x:11434 --with-rag --with-voice -y
+# ./install.sh --edition server --with-rag --with-voice -y
 ```
 
 <sub>The UI binds to localhost only by default. See the "Accessing the Web UI from Another Machine" section below for LAN access from your PC.</sub>
@@ -186,7 +212,7 @@ After `docker compose up` or the installer finishes:
    - **Music folder**: Make sure the `MUSIC_DIR` you set in `.env` actually contains your music files and is mounted correctly (the container sees it at `/music`).
    - **TeamSpeak connection**: Fill in your TS6 server address, query port (usually 10022 for SSH query), and especially `TS6_API_KEY` if you have one (strongly recommended).
    - **LLM**: If you want `!ask`, `!analyst`, and natural-language music control, enable it and point it at your backend (the installer usually sets this up for you via `RKLLAMA_URL`). For a faster LAN chat box + Pi embeddings, use the **Remote chat + local embeddings** preset in Settings — see [docs/remote-llm.md](./docs/remote-llm.md).
-   - **Voice (optional)**: Enable the voice loop only after you've started the `kokoro` (and optionally sherpa-onnx) sidecars.
+   - **Voice (optional)**: Enable after `voice-edge` (SBC) or `voice-server` (Server) is up — Whisper + Piper. Set **text wake fallback** on (no KWS). See [docs/voice-backends.md](./docs/voice-backends.md).
 
 4. Add your bot in the UI (or let the `PHASE0_*` variables in `.env` auto-create one on first start).
 
@@ -441,9 +467,10 @@ See [docs/remote-llm.md](./docs/remote-llm.md) for split-brain + analyst presets
 **Voice**
 - `voice.enabled`
 - `voice.respondWithVoice`
-- `voice.sttUrl` (sherpa-onnx)
-- `voice.ttsUrl` (Kokoro)
-- `voice.ttsVoice`
+- `voice.sttUrl` (`http://stt-whisper:9000`)
+- `voice.ttsUrl` (`http://piper-tts:8880`)
+- `voice.ttsVoice` (`en_GB-southern_english_female-low`)
+- `voice.textWakeFallback` (**true** for Whisper — no KWS)
 
 **Advanced / Hardening**
 - `bindAddress`
@@ -481,15 +508,18 @@ See **[ROADMAP.md](./ROADMAP.md)** for the status of Phases 4–8.
 
 ## Documentation
 
-- **[DESIGN.md](./DESIGN.md)** — architecture, rights model (§8), hardening (§11), phased plan (§13)
+- **[docs/editions.md](./docs/editions.md)** — SBC vs Server product matrix and topologies
+- **[RELEASES.md](./RELEASES.md)** — how release tarballs are built and installed
+- **[DESIGN.md](./DESIGN.md)** — architecture (v3), rights (§8), hardening (§11), phased plan (§13)
 - **[ROADMAP.md](./ROADMAP.md)** — phase status (4–8) and the org-AI direction
-- **[docs/rank-gating.md](./docs/rank-gating.md)** — TS server-group → command/doctrine permissions (production template + debug API)
-- **[docs/rag-ingestion.md](./docs/rag-ingestion.md)** — load the knowledge base: all four ingestion paths + the classification trust model
-- **[docs/voice.md](./docs/voice.md)** — the voice loop (sherpa-onnx STT + Kokoro TTS sidecars), probes, smoke test
-- **[docs/hardening.md](./docs/hardening.md)** — UFW + TLS reverse-proxy recipe; localhost-only defaults
-- **[docs/radio.md](./docs/radio.md)** — autonomous DJ / radio mode design + commands
-- **[docs/r3-workflows.md](./docs/r3-workflows.md)** — INTSUM/AAR generation + Pandoc export
-- **[docs/session-handoff-2026-07-08.md](./docs/session-handoff-2026-07-08.md)** — agent session log (doc sync, voice deploy, Pi performance audit)
+- **[docs/remote-llm.md](./docs/remote-llm.md)** — split-brain chat + embeddings
+- **[docs/voice-backends.md](./docs/voice-backends.md)** — Whisper ladder + Piper (canonical voice)
+- **[docs/voice.md](./docs/voice.md)** — voice loop wiring, probes, smoke tests
+- **[docs/rank-gating.md](./docs/rank-gating.md)** — TS server-group → command/doctrine permissions
+- **[docs/rag-ingestion.md](./docs/rag-ingestion.md)** — knowledge base ingestion paths
+- **[docs/hardening.md](./docs/hardening.md)** — UFW + TLS reverse-proxy recipe
+- **[docs/radio.md](./docs/radio.md)** — autonomous DJ / radio mode
+- **[docs/r3-workflows.md](./docs/r3-workflows.md)** — INTSUM/AAR + Pandoc export
 - **[docs/phase0.md](./docs/phase0.md)** — first-run validation against a real TS6 server
 - **[docs/FORK.md](./docs/FORK.md)** — what changed from the upstream fork
 - **[CHANGELOG.md](./CHANGELOG.md)** — notable changes + per-batch AI attribution
@@ -500,10 +530,14 @@ Moneypenny is released under the [MIT License](./LICENSE).
 
 It is derived from [ZHANGTIANYAO1/teamspeak-music-bot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot) (MIT) — reworked and extended. Some subsystems reimplement patterns from OSL-3.0 / GPL-3.0 projects in spirit, without copying their source (see DESIGN.md §5).
 
-## Hardware Target
+## Hardware targets
 
-- Orange Pi 5 Max (RK3588, 16 GB LPDDR4X)
-- Active cooling mandatory for Phase 2
-- NVMe for models + music library
-- Ubuntu 24.04 arm64 or Armbian (vendor 6.1 kernel)
-- RKNPU 0.9.8 + RKLLM 1.2.3
+**SBC edition**
+- Orange Pi 5 Max (RK3588, 16 GB LPDDR4X), active cooling, NVMe preferred
+- Ubuntu 24.04 arm64 / Armbian / DietPi (vendor 6.1 kernel)
+- Optional NPU: RKNPU 0.9.8 + RKLLM 1.2–1.3 (offline chat only)
+
+**Server edition**
+- x86_64 Linux, 32 GB+ RAM recommended for Gemma 4 12B QAT
+- **AMD** GPU preferred (host Ollama ROCm + whisper.cpp Vulkan); NVIDIA untested
+- macOS / Apple Silicon: **out of scope** for now

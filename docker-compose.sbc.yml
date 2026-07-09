@@ -1,0 +1,61 @@
+# Moneypenny — SBC edition overlay (Orange Pi 5 Max / RK3588 arm64)
+#
+# Use with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.sbc.yml \
+#     --profile core --profile ollama --profile rag --profile voice-edge up -d
+#
+# Or: ./install.sh --edition sbc
+#
+# Defaults: edge Whisper (tiny), Piper British TTS, on-device ollama for
+# embeddings + E2B fallback. Point llmUrl at a LAN server for fast chat
+# (docs/remote-llm.md, docs/editions.md).
+
+services:
+  bot:
+    environment:
+      # On-device fallback + install defaults. Split-brain chat URL lives in
+      # config.json (llmUrl) — not forced here so LAN overrides stick.
+      - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
+      - EMBEDDING_URL=${EMBEDDING_URL:-http://ollama:11434}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
+      - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-600000}
+      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://qdrant:6333}
+      - MONEYPENNY_EDITION=sbc
+
+  ollama:
+    # Keep embed + small chat fallback resident; leave headroom for music/STT.
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-2}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+    # Soft cap: leave RAM for bot + Whisper tiny + Qdrant on 16 GB boards.
+    mem_limit: ${OLLAMA_MEM_LIMIT:-8g}
+
+  # Dual-track STT: RKNN NPU (with faster-whisper CPU fallback until .rknn mounted)
+  stt-whisper:
+    build:
+      context: ./services/stt-rknn
+      dockerfile: Dockerfile
+    environment:
+      - STT_MODEL=${STT_MODEL:-tiny}
+      - STT_DEVICE=${STT_DEVICE:-npu}
+      - STT_BACKEND=${STT_BACKEND:-rknn}
+      - STT_FALLBACK=${STT_FALLBACK:-faster-whisper}
+      - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8}
+      - STT_EAGER_LOAD=${STT_EAGER_LOAD:-1}
+      - RKNN_MODELS_DIR=${RKNN_MODELS_DIR:-/models/rknn}
+      - RKNN_ENCODER=${RKNN_ENCODER:-}
+      - RKNN_DECODER=${RKNN_DECODER:-}
+    # NPU device nodes (RK3588 DRM) — ignore if missing on non-Pi hosts
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:-991}"
+    volumes:
+      - whisper-models:/models
+      - whisper-fw-cache:/root/.cache
+
+  piper-tts:
+    environment:
+      - PIPER_VOICE=${PIPER_VOICE:-en_GB-southern_english_female-low}
+      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-southern_english_female-low.onnx}

@@ -63,11 +63,11 @@ export interface VoiceConfig {
   enabled: boolean;
   /** Speak replies back via TTS (vs. text-only responses in chat). */
   respondWithVoice: boolean;
-  /** sherpa-onnx STT endpoint (HTTP). Empty → STT disabled. */
+  /** STT sidecar base URL (HTTP). Empty → STT disabled. Any engine: sherpa / stt-whisper / mock. */
   sttUrl: string;
-  /** Kokoro-FastAPI TTS base URL (OpenAI-compatible). Empty → TTS disabled. */
+  /** TTS base URL (OpenAI `/v1/audio/speech`). Empty → TTS disabled. Kokoro or piper-tts. */
   ttsUrl: string;
-  /** TTS voice name. */
+  /** TTS voice name (Kokoro id or Piper voice label). */
   ttsVoice: string;
   /** RMS threshold for energy VAD (0..32768). Lower = more sensitive. */
   energyThreshold?: number;
@@ -93,7 +93,8 @@ export function defaultVoiceConfig(): VoiceConfig {
     respondWithVoice: true,
     sttUrl: "",
     ttsUrl: "",
-    ttsVoice: "bf_emma",
+    // Piper default (British); Kokoro legacy uses e.g. bf_emma when ttsUrl points at kokoro.
+    ttsVoice: "en_GB-southern_english_female-low",
     energyThreshold: 200,
     watchword: "moneypenny",
     requireWatchword: true,
@@ -101,5 +102,7 @@ export function defaultVoiceConfig(): VoiceConfig {
     duckMusicVolume: 2,
     listenWindowMs: 15000,
     passiveKwsMaxSpeakers: 2,
+    // Whisper sidecars have no KWS — text wake matching is required for "Moneypenny …".
+    textWakeFallback: true,
   };
 }

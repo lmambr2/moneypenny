@@ -349,7 +349,7 @@ export function createBotRouter(
         active: false,
         sttUrl: config.voice?.sttUrl ?? "",
         ttsUrl: config.voice?.ttsUrl ?? "",
-        ttsVoice: config.voice?.ttsVoice ?? "bf_emma",
+        ttsVoice: config.voice?.ttsVoice ?? "en_GB-southern_english_female-low",
         respondWithVoice: config.voice?.respondWithVoice ?? true,
         sttAvailable: false,
         ttsAvailable: false,

@@ -14,9 +14,27 @@ import type {
   AuthStatus,
 } from "./provider.js";
 import { isYouTubeUrl, isXTwitterUrl, isBandcampUrl } from "./stream.js";
-import { isPublicPlaybackUrl } from "./url-guard.js";
+import { assertPublicPlaybackUrl, isPublicPlaybackUrl } from "./url-guard.js";
 import axios from "axios";
 import { errorMessage } from "../util/error.js";
+
+/**
+ * Only allow yt-dlp to fetch known media hosts (or a bare video/playlist id we
+ * rewrite to youtube.com). Blocks SSRF via arbitrary http(s) songId/playlistId.
+ */
+async function safeYtDlpMediaUrl(input: string): Promise<string | null> {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (!/^https?:\/\//i.test(trimmed)) {
+    // Bare id — caller rebuilds a youtube.com URL.
+    return trimmed;
+  }
+  if (!(isYouTubeUrl(trimmed) || isXTwitterUrl(trimmed) || isBandcampUrl(trimmed))) {
+    return null;
+  }
+  if (!(await assertPublicPlaybackUrl(trimmed))) return null;
+  return trimmed;
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -184,10 +202,12 @@ export class YouTubeProvider implements MusicProvider {
       if (isYouTubeUrl(query) || isXTwitterUrl(query) || isBandcampUrl(query)) {
         // Direct media URL (YouTube / X-Twitter / Bandcamp) — fetch details directly instead of ytsearch.
         // Support age-restricted videos via oEmbed fallback (no cookies required for metadata).
+        const safe = await safeYtDlpMediaUrl(query);
+        if (!safe) return { songs: [], playlists: [], albums: [] };
         const videoId = extractVideoId(query) ?? "";
         try {
           raw = await runYtDlp([
-            query,
+            safe,
             "--dump-json",
             "--no-warnings",
             "--quiet",
@@ -227,11 +247,15 @@ export class YouTubeProvider implements MusicProvider {
 
   async getSongUrl(songId: string): Promise<string | null> {
     try {
-      const url = /^https?:\/\//i.test(songId)
-        ? songId
-        : `https://www.youtube.com/watch?v=${songId}`;
-      if (/^https?:\/\//i.test(songId) && !isYouTubeUrl(songId)) return null;
-      if (!isPublicPlaybackUrl(url)) return null;
+      let url: string;
+      if (/^https?:\/\//i.test(songId)) {
+        const safe = await safeYtDlpMediaUrl(songId);
+        if (!safe) return null;
+        url = safe;
+      } else {
+        url = `https://www.youtube.com/watch?v=${songId}`;
+        if (!isPublicPlaybackUrl(url)) return null;
+      }
       const raw = await runYtDlp([
         url,
         "--get-url",
@@ -241,6 +265,8 @@ export class YouTubeProvider implements MusicProvider {
         "--quiet",
       ], 45_000);
       const audioUrl = raw.trim().split("\n")[0];
+      // CDN hop from yt-dlp — still reject private/literal targets if any slip through.
+      if (audioUrl && !isPublicPlaybackUrl(audioUrl)) return null;
       return audioUrl || null;
     } catch {
       return null;
@@ -255,7 +281,14 @@ export class YouTubeProvider implements MusicProvider {
    */
   async downloadAudioMp3(videoId: string, outDir: string, baseName: string): Promise<string> {
     mkdirSync(outDir, { recursive: true });
-    const url = /^https?:\/\//i.test(videoId) ? videoId : `https://www.youtube.com/watch?v=${videoId}`;
+    let url: string;
+    if (/^https?:\/\//i.test(videoId)) {
+      const safe = await safeYtDlpMediaUrl(videoId);
+      if (!safe) throw new Error("refusing yt-dlp download of non-public / non-media URL");
+      url = safe;
+    } else {
+      url = `https://www.youtube.com/watch?v=${videoId}`;
+    }
     const outTemplate = join(outDir, `${baseName}.%(ext)s`);
     await runYtDlp(
       [
@@ -282,14 +315,22 @@ export class YouTubeProvider implements MusicProvider {
 
   async getSongDetail(songId: string): Promise<Song | null> {
     try {
-      const url = /^https?:\/\//i.test(songId) ? songId : `https://www.youtube.com/watch?v=${songId}`;
+      let url: string;
+      if (/^https?:\/\//i.test(songId)) {
+        const safe = await safeYtDlpMediaUrl(songId);
+        if (!safe) return null;
+        url = safe;
+      } else {
+        url = `https://www.youtube.com/watch?v=${songId}`;
+      }
       const raw = await runYtDlp([url, "--dump-json", "--no-warnings", "--quiet"]);
       const entry = JSON.parse(raw.trim()) as YtDlpEntry;
       return entryToSong(entry);
     } catch (err: unknown) {
       const msg = errorMessage(err, "");
       if (msg.includes("age") || msg.includes("Sign in") || msg.includes("confirm your age")) {
-        const oembed = await getOEmbedEntry(songId);
+        const id = extractVideoId(songId) ?? songId;
+        const oembed = await getOEmbedEntry(id);
         if (oembed) return entryToSong(oembed);
       }
       return null;
@@ -298,9 +339,17 @@ export class YouTubeProvider implements MusicProvider {
 
   async getPlaylistSongs(playlistId: string): Promise<Song[]> {
     try {
-      const url = playlistId.startsWith("http")
-        ? playlistId
-        : `https://www.youtube.com/playlist?list=${playlistId}`;
+      let url: string;
+      if (/^https?:\/\//i.test(playlistId)) {
+        // Only YouTube playlist hosts — never arbitrary http(s).
+        if (!isYouTubeUrl(playlistId)) return [];
+        if (!(await assertPublicPlaybackUrl(playlistId))) return [];
+        url = playlistId;
+      } else {
+        // Sanitize playlist id (no path injection into the query string).
+        if (!/^[A-Za-z0-9_-]+$/.test(playlistId)) return [];
+        url = `https://www.youtube.com/playlist?list=${playlistId}`;
+      }
       const raw = await runYtDlp([
         url,
         "--dump-json",

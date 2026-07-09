@@ -18,11 +18,12 @@ describe("rights/subject", () => {
     expect(allowedClassificationsFor({ uid: "u", serverGroups: [] }, null)).toBeUndefined();
   });
 
-  it("nicknameMatchesUsername links web logins to TS nicknames", () => {
-    expect(nicknameMatchesUsername("Alice Field", "alice")).toBe(true);
+  it("nicknameMatchesUsername is exact (case-insensitive) only", () => {
     expect(nicknameMatchesUsername("Alice Field", "Alice Field")).toBe(true);
-    expect(nicknameMatchesUsername("Bob Cadet", "bob")).toBe(true);
-    expect(nicknameMatchesUsername("Bob Cadet", "cadet")).toBe(true);
+    expect(nicknameMatchesUsername("alice field", "Alice Field")).toBe(true);
+    expect(nicknameMatchesUsername("Alice Field", "alice")).toBe(false);
+    expect(nicknameMatchesUsername("Bob Cadet", "bob")).toBe(false);
+    expect(nicknameMatchesUsername("Bob Cadet", "cadet")).toBe(false);
     expect(nicknameMatchesUsername("Bob", "alice")).toBe(false);
   });
 
@@ -37,7 +38,7 @@ describe("rights/subject", () => {
     expect(subject.serverGroups).toEqual(["105", "106", "107", "108"]);
   });
 
-  it("resolveWebSubject inherits TS server groups for matched channel members", async () => {
+  it("resolveWebSubject inherits TS server groups only on exact nickname match", async () => {
     const tsClient = {
       getClientsInChannel: vi.fn(async () => [
         {
@@ -50,14 +51,23 @@ describe("rights/subject", () => {
         },
       ]),
     };
-    const subject = await resolveWebSubject(
+    const miss = await resolveWebSubject(
       { id: "7", username: "bob", role: "member" },
       tsClient,
       ["107"],
       console as any,
     );
-    expect(subject.serverGroups).toEqual(["105", "106"]);
-    expect(subject.uid).toBe("bob-uid");
+    expect(miss.serverGroups).toEqual([]);
+    expect(miss.uid).toBe("web:7");
+
+    const hit = await resolveWebSubject(
+      { id: "7", username: "Bob Cadet", role: "member" },
+      tsClient,
+      ["107"],
+      console as any,
+    );
+    expect(hit.serverGroups).toEqual(["105", "106"]);
+    expect(hit.uid).toBe("bob-uid");
   });
 
   it("allowedClassificationsFor always includes unclassified", () => {

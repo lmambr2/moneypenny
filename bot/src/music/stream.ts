@@ -198,7 +198,13 @@ export class StreamProvider implements MusicProvider {
         params: { uri: ref },
         timeout: this.timeoutMs,
       });
-      return data?.streamUrl ? data : null;
+      if (!data?.streamUrl) return null;
+      // Never feed ffmpeg a private/literal SSRF target from a poisoned bridge.
+      if (!isPublicPlaybackUrl(data.streamUrl)) {
+        this.logger?.warn({ streamUrl: data.streamUrl.slice(0, 80) }, "Stream bridge returned non-public streamUrl — dropped");
+        return null;
+      }
+      return data;
     } catch (err: unknown) {
       this.logger?.warn({ err: errorMessage(err), ref }, "Stream bridge resolve failed");
       return null;
@@ -237,6 +243,7 @@ export class StreamProvider implements MusicProvider {
   }
 
   async getSongUrl(songId: string): Promise<string | null> {
+    // isStreamableUrl already applies isPublicPlaybackUrl (literal/hostname denylist).
     if (isStreamableUrl(songId)) return songId;
     if (this.bridgeUrl && (isSpotifyRef(songId) || isTidalUrl(songId))) {
       const meta = await this.resolveBridge(songId);

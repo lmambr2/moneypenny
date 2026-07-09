@@ -118,6 +118,7 @@ function initTables(db: Database.Database): void {
       coverUrl TEXT NOT NULL,
       playedAt TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE INDEX IF NOT EXISTS idx_play_history_botId ON play_history(botId, id DESC);
 
     CREATE TABLE IF NOT EXISTS bot_instances (
       id TEXT PRIMARY KEY,

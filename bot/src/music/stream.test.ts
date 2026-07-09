@@ -101,8 +101,10 @@ describe("StreamProvider — Spotify bridge", () => {
   });
 
   it("resolves a Spotify ref via the bridge for metadata and playback", async () => {
+    // streamUrl must pass isPublicPlaybackUrl (no private/literal SSRF targets).
+    const publicStream = "https://cdn.example.com/stream/abc.ogg";
     mockedGet.mockResolvedValue({
-      data: { streamUrl: "http://bridge.local/stream/abc.ogg", title: "Song X", artist: "Artist Y", durationSec: 200 },
+      data: { streamUrl: publicStream, title: "Song X", artist: "Artist Y", durationSec: 200 },
     } as any);
 
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local/" });
@@ -114,8 +116,16 @@ describe("StreamProvider — Spotify bridge", () => {
     expect(res.songs[0].id).toBe("spotify:track:abc");
 
     const url = await provider.getSongUrl("spotify:track:abc");
-    expect(url).toBe("http://bridge.local/stream/abc.ogg");
+    expect(url).toBe(publicStream);
     expect(mockedGet).toHaveBeenLastCalledWith("http://bridge.local/resolve", expect.objectContaining({ params: { uri: "spotify:track:abc" } }));
+  });
+
+  it("drops bridge streamUrl that points at private/reserved targets", async () => {
+    mockedGet.mockResolvedValue({
+      data: { streamUrl: "http://127.0.0.1:6333/collections", title: "x", artist: "y" },
+    } as any);
+    const provider = new StreamProvider({ bridgeUrl: "http://bridge.local/" });
+    expect(await provider.getSongUrl("spotify:track:evil")).toBeNull();
   });
 
   it("degrades gracefully when the bridge fails", async () => {

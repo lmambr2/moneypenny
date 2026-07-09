@@ -8,6 +8,70 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Dual-track STT — RKNN on SBC, whisper.cpp on Server
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **SBC:** `services/stt-rknn` — Rockchip NPU RKNN Whisper with
+  **faster-whisper CPU fallback** until `.rknn` weights + full mel pipeline land
+- **Server:** `services/stt-whisper-cpp` — **whisper.cpp** (`whisper-cli`) with
+  optional **Vulkan** build (`WHISPER_VULKAN=1`) for AMD
+- Same compose service name `stt-whisper` / bot URL; overlays swap the image
+- Docs: `docs/voice-backends.md`, edition env examples, install voice defaults
+
+### Dual editions — SBC + Server product packaging
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+One repo, two releases ([docs/editions.md](./docs/editions.md), [RELEASES.md](./RELEASES.md)):
+
+- **SBC** (`docker-compose.sbc.yml`, `.env.example.sbc`): RK3588 edge — E2B
+  fallback + embeddinggemma, Whisper **tiny**, Piper British TTS; chat prefers LAN 12B
+- **Server** (`docker-compose.server.yml`, `.env.example.server`): x86 — Gemma 4
+  **12B** local, Whisper **small** / **large-v3**, same Piper voice
+- `install.sh --edition sbc|server|auto` writes `COMPOSE_FILE` + `COMPOSE_PROFILES`
+- `scripts/detect-edition.sh`, `scripts/package-release.sh` → `dist/release/*.tar.gz`
+- DESIGN v3, ROADMAP, README, AGENTS, remote-llm, voice-backends rethought for
+  dual-host product (NPU = offline opt-in, not day-to-day chat)
+
+### Security audit remediation + Pi perf + STT alias removal
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+Security (F1–F11):
+- **F1** yt-dlp: every HTTP input gated (`safeYtDlpMediaUrl` / YouTube host only)
+- **F2** web↔TS nickname: exact case-insensitive match only (no substring rank steal)
+- **F3/F4** `url-guard`: CGNAT, IPv4-mapped IPv6; `assertPublicPlaybackUrl` DNS check;
+  bridge `streamUrl` revalidated
+- **F5–F7** cover embed cap 48 KiB; music upload 40 MiB×5; queue-replace needs `clear`
+- **F8–F11** generic player 500s; history limit 1–200; CSRF before `/api/session`;
+  docs for unused `BOT_SESSION_SECRET`
+
+Pi perf:
+- Voice: demote hot-path logs; single-pass PCM peak + Int16Array; prune client maps;
+  cache passive KWS rank; cache-first subject; voice `allowedClassifications` parity
+- Player: chunk queue (no per-chunk concat); Int16 volume path
+- TagStore prepare-once ratings; `play_history(botId)` index
+
+Voice STT:
+- **Removed** `VOICE_COMMAND_ALIASES` / `COMMAND_MODE_ALIASES` and wake garble list
+  (no English-word → command translation). Shape checks + exact verbs only.
+
+### Voice false-positive hardening (follow-up)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+Corrected the earlier "0 voice commands executed" audit: Pi logs show
+`play Toto Africa` *did* start playback after `974ea1d`. Remaining failures were
+**false-positive command extraction** from channel banter and bare `play`.
+
+- **`voiceCommandShapeOk`:** zero-arg commands (`now`, `pause`, …) reject trailing
+  free-form junk; `forget` only accepts `all` / a number; `vol` needs digits.
+- **`extractPlaybackVerb`:** deep-scan only short utterances (≤5 tokens); long
+  speech only accepts leading/`play <title>`.
+- **Partial-safe set:** drop `now`/`queue` (common English false-fires).
+- **Silence-tail finals:** allow `play <title>` on peak-0 endpoint; still reject
+  bare play/search without a title.
+- **Tests:** live-log cases in `watchword.test.ts`.
+
+**Open:** re-smoke voice on opi5 after deploy; banter should not trigger `now`/`forget`.
+
 ### Session handoff + design-doc sync — `3e352cb`
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

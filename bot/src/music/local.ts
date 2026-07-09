@@ -186,11 +186,19 @@ export class LocalProvider implements MusicProvider {
     }
   }
 
+  /** Cap embedded covers so library/search JSON cannot bloat into multi‑MB responses. */
+  private static readonly MAX_EMBEDDED_COVER_BYTES = 48 * 1024;
+
   private extractCoverUrl(pictures?: musicMetadata.IPicture[]): string {
     if (!pictures || pictures.length === 0) {
       return "";
     }
     const pic = pictures[0];
+    if (!pic.data || pic.data.length === 0) return "";
+    if (pic.data.length > LocalProvider.MAX_EMBEDDED_COVER_BYTES) {
+      // Large art still lives in the file; omit from list payloads (audit F5).
+      return "";
+    }
     const mime = pic.format || "image/jpeg";
     const base64 = Buffer.from(pic.data).toString("base64");
     return `data:${mime};base64,${base64}`;

@@ -64,7 +64,9 @@ See `docker-compose.yml` and `install.sh --help` for the full matrix.
      ```
    Never expose plaintext HTTP to the internet — the session cookie won't carry
    `Secure` and credentials would transit in the clear.
-4. **Set a strong `BOT_SESSION_SECRET`** in `.env`.
+4. **Session tokens** are random (`crypto.randomBytes`) and stored as SHA-256 hashes
+   in SQLite — not JWT. `BOT_SESSION_SECRET` in `.env` is reserved/unused today
+   (installer still generates one for forward compatibility).
 5. **Dependency advisories.** Run `npm audit` periodically; watch the
    `@discordjs/opus → node-pre-gyp → tar` install-time chain.
 

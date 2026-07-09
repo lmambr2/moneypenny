@@ -299,10 +299,22 @@
         </div>
       </div>
 
-      <div v-if="ai.llmEnabled" class="form-row" style="margin: 4px 0">
+      <!-- Analyst 31B: opt-in only — keeps 12B chat from competing for VRAM unless enabled -->
+      <div v-if="ai.llmEnabled" class="form-row" style="margin: 8px 0 4px">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="ai.llmAnalystEnabled" @change="onAnalystToggle" />
+          Enable heavy analyst model (31B) for <code>!analyst</code> / <code>!agent</code>
+        </label>
+      </div>
+      <div v-if="ai.llmEnabled && ai.llmAnalystEnabled" class="form-row" style="margin: 4px 0">
         <div class="form-group" style="flex:2">
-          <label>Delegate analyst URL <span style="opacity:.6">(optional — heavy model for !analyst)</span></label>
-          <input v-model="ai.llmDelegateUrl" class="input" placeholder="http://analyst-host:11434" @input="ai.llmPreset = 'custom'" />
+          <label>Delegate analyst URL</label>
+          <input v-model="ai.llmDelegateUrl" class="input" placeholder="http://gpu-host:11434" @input="ai.llmPreset = 'custom'" />
+          <div class="profile-toggle-hint">
+            Off by default so 12B chat stays resident. Only enable if the GPU has enough VRAM for
+            <strong>both</strong> 12B + 31B (roughly 24&nbsp;GB+ for Q4), or accept that Ollama will
+            unload 12B while the analyst runs. Same host URL as chat is fine.
+          </div>
         </div>
         <div class="form-group" style="flex:1">
           <label>Delegate model</label>
@@ -1183,13 +1195,14 @@ const LLM_PRESETS: Record<LlmPresetId, {
     embeddingUrl: 'http://ollama:11434',
     embeddingModel: 'embeddinggemma',
   },
+  // Presets never enable 31B analyst — that is an explicit toggle (VRAM).
   remote_chat_local_embed: {
     llmUrl: 'http://gpu-host:11434',
     llmModel: 'hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL',
     llmFallbackUrl: 'http://ollama:11434',
     llmFallbackModel: 'hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL',
-    llmDelegateUrl: 'http://gpu-host:11434',
-    llmDelegateModel: 'hf.co/unsloth/gemma-4-31B-it-qat-GGUF:UD-Q4_K_XL',
+    llmDelegateUrl: '',
+    llmDelegateModel: '',
     embeddingUrl: 'http://ollama:11434',
     embeddingModel: 'embeddinggemma',
   },
@@ -1198,12 +1211,14 @@ const LLM_PRESETS: Record<LlmPresetId, {
     llmModel: 'hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL',
     llmFallbackUrl: 'http://ollama:11434',
     llmFallbackModel: 'hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL',
-    llmDelegateUrl: 'http://gpu-host:11434',
-    llmDelegateModel: 'hf.co/unsloth/gemma-4-31B-it-qat-GGUF:UD-Q4_K_XL',
+    llmDelegateUrl: '',
+    llmDelegateModel: '',
     embeddingUrl: 'http://gpu-host:11434',
     embeddingModel: 'embeddinggemma',
   },
 };
+
+const DEFAULT_ANALYST_MODEL = 'hf.co/unsloth/gemma-4-31B-it-qat-GGUF:UD-Q4_K_XL';
 
 const ai = reactive({
   llmEnabled: false,
@@ -1212,6 +1227,8 @@ const ai = reactive({
   llmModel: '',
   llmFallbackUrl: '',
   llmFallbackModel: '',
+  /** UI-only: maps to non-empty llmDelegateUrl/Model when saving. Off = no VRAM competition. */
+  llmAnalystEnabled: false,
   llmDelegateUrl: '',
   llmDelegateModel: '',
   llmSystemPrompt: '',
@@ -1326,6 +1343,7 @@ async function loadAiSettings() {
     ai.llmFallbackModel = res.data.llmFallbackModel ?? '';
     ai.llmDelegateUrl = res.data.llmDelegateUrl ?? '';
     ai.llmDelegateModel = res.data.llmDelegateModel ?? '';
+    ai.llmAnalystEnabled = !!(ai.llmDelegateUrl.trim() || ai.llmDelegateModel.trim());
     ai.llmSystemPrompt = res.data.llmSystemPrompt ?? '';
     ai.llmTemperature = res.data.llmTemperature ?? 0.2;
     ai.roastEnabled = !!res.data.roastEnabled;
@@ -1405,6 +1423,21 @@ function detectLlmPreset(): LlmPresetId {
   return 'custom';
 }
 
+function onAnalystToggle() {
+  if (ai.llmAnalystEnabled) {
+    if (!ai.llmDelegateUrl.trim()) {
+      ai.llmDelegateUrl = ai.llmUrl.trim() || 'http://127.0.0.1:11434';
+    }
+    if (!ai.llmDelegateModel.trim()) {
+      ai.llmDelegateModel = DEFAULT_ANALYST_MODEL;
+    }
+  } else {
+    ai.llmDelegateUrl = '';
+    ai.llmDelegateModel = '';
+  }
+  ai.llmPreset = 'custom';
+}
+
 function applyLlmPreset() {
   const preset = LLM_PRESETS[ai.llmPreset];
   if (ai.llmPreset === 'custom') return;
@@ -1412,8 +1445,10 @@ function applyLlmPreset() {
   ai.llmModel = preset.llmModel;
   ai.llmFallbackUrl = preset.llmFallbackUrl;
   ai.llmFallbackModel = preset.llmFallbackModel;
-  ai.llmDelegateUrl = preset.llmDelegateUrl;
-  ai.llmDelegateModel = preset.llmDelegateModel;
+  // Never auto-enable 31B via presets (VRAM competition with 12B).
+  ai.llmAnalystEnabled = false;
+  ai.llmDelegateUrl = '';
+  ai.llmDelegateModel = '';
   ai.embeddingUrl = preset.embeddingUrl;
   ai.embeddingModel = preset.embeddingModel;
 }
@@ -1728,8 +1763,9 @@ async function saveAiSettings() {
       llmModel: ai.llmModel.trim(),
       llmFallbackUrl: ai.llmFallbackUrl.trim(),
       llmFallbackModel: ai.llmFallbackModel.trim(),
-      llmDelegateUrl: ai.llmDelegateUrl.trim(),
-      llmDelegateModel: ai.llmDelegateModel.trim(),
+      // Analyst off → clear delegate so !analyst cannot hit a stale 31B endpoint.
+      llmDelegateUrl: ai.llmAnalystEnabled ? ai.llmDelegateUrl.trim() : '',
+      llmDelegateModel: ai.llmAnalystEnabled ? ai.llmDelegateModel.trim() : '',
       llmSystemPrompt: ai.llmSystemPrompt,
       llmTemperature: ai.llmTemperature,
       roastEnabled: ai.roastEnabled,

@@ -17,11 +17,17 @@ build/
 *.pem
 *.key
 
-# Models (large binaries)
-models/*.rkllm
-models/*.onnx
-models/*.bin
-!models/convert/
+# Models (large binaries — never commit weights)
+models/**/*.rkllm
+models/**/*.onnx
+models/**/*.bin
+models/**/*.gguf
+models/**/*.safetensors
+models/convert/hf/
+models/convert/.venv/
+models/npu-llm/**
+!models/**/README.md
+!models/**/Modelfile
 
 # Logs & runtime
 *.log

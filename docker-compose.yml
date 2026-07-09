@@ -1,21 +1,29 @@
 # Moneypenny — docker compose orchestration
 #
-# The bot needs an OpenAI-compatible LLM endpoint (RKLLAMA_URL); pick ONE LLM
-# backend profile for your hardware. ./install.sh selects these automatically
-# by architecture.
+# TWO EDITIONS (docs/editions.md, RELEASES.md):
+#   sbc:    -f docker-compose.yml -f docker-compose.sbc.yml
+#   server: -f docker-compose.yml -f docker-compose.server.yml
+# ./install.sh --edition sbc|server|auto writes COMPOSE_FILE + COMPOSE_PROFILES.
 #
 # Profiles:
-#   core     : the bot itself (always)
-#   npu      : rkllama on the RK3588 NPU   (aarch64 / Orange Pi)
-#   ollama   : Ollama CPU/GPU inference     (x86-64 / generic)
-#   voice    : sherpa STT + Kokoro TTS        (Phase 2; stt-mock in voice-dev)
-#   memory   : MemPalace semantic memory bridge (Phase 7)
-#   server   : optional TS6 server          (if you don't have one)
+#   core        : the bot itself (always)
+#   npu         : rkllama on the RK3588 NPU (SBC offline opt-in only)
+#   ollama      : Ollama CPU/GPU inference (embeddings both; chat on server)
+#   voice-edge  : Whisper STT tiny + piper-tts — SBC
+#   voice-server: Whisper STT small/large-v3 + piper-tts — Server
+#   voice       : LEGACY Moonshine sherpa + Kokoro (deprecated)
+#   voice-dev   : stt-mock only
+#   rag         : Qdrant vector store
+#   memory      : MemPalace semantic memory bridge
+#   stream      : Tidal bridge
+#   server      : optional TS6 server container
 #
 # Examples:
-#   x86-64:        docker compose --profile core --profile ollama up -d
-#   Orange Pi NPU: docker compose -f docker-compose.yml -f docker-compose.npu.yml \
-#                    --profile core --profile npu up -d
+#   Server:  docker compose -f docker-compose.yml -f docker-compose.server.yml \
+#              --profile core --profile ollama --profile rag --profile voice-server up -d
+#   SBC:     docker compose -f docker-compose.yml -f docker-compose.sbc.yml \
+#              --profile core --profile ollama --profile rag --profile voice-edge up -d
+#   NPU opt: ... -f docker-compose.npu.yml --profile npu
 
 services:
   # Optional: stand up a TS6 instance (use only if you don't already have one)
@@ -151,9 +159,37 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
-  # Phase 2: sherpa-onnx STT (Moonshine v2 tiny-en + Silero VAD streaming, CPU).
-  # SherpaSttClient at http://sherpa-stt:9000. First start downloads nothing —
-  # model is baked into the image.
+  # Dual-track STT (same service name → bot always uses http://stt-whisper:9000).
+  # Edition overlays swap the image:
+  #   SBC:    services/stt-rknn        (NPU RKNN → faster-whisper CPU fallback)
+  #   Server: services/stt-whisper-cpp (whisper.cpp + optional Vulkan)
+  # Base build = legacy faster-whisper (dev / unoverlaid).
+  # Bot: voice.sttUrl=http://stt-whisper:9000  + textWakeFallback=true
+  stt-whisper:
+    build:
+      context: ./services/stt-whisper
+      dockerfile: Dockerfile
+    profiles: ["voice-edge", "voice-server"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      - STT_MODEL=${STT_MODEL:-tiny}
+      - STT_DEVICE=${STT_DEVICE:-auto}
+      - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-}
+      - STT_BACKEND=${STT_BACKEND:-faster-whisper}
+      - STT_EAGER_LOAD=${STT_EAGER_LOAD:-1}
+      - STT_MODELS_DIR=${STT_MODELS_DIR:-/models}
+      - RKNN_MODELS_DIR=${RKNN_MODELS_DIR:-/models/rknn}
+      - STT_FALLBACK=${STT_FALLBACK:-faster-whisper}
+    volumes:
+      - whisper-models:/models
+      - whisper-fw-cache:/root/.cache
+    networks:
+      - moneypenny
+
+  # LEGACY only: sherpa-onnx Moonshine + KWS. Prefer stt-whisper (voice-edge/server).
+  # Profile: voice (legacy) — not started by --with-voice auto edge/server.
   sherpa-stt:
     build:
       context: ./services/sherpa-stt
@@ -161,7 +197,7 @@ services:
     profiles: ["voice"]
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9002:9000"
     environment:
       - NUM_THREADS=${SHERPA_NUM_THREADS:-4}
       - PASSIVE_KWS_ACCUM_S=${SHERPA_PASSIVE_KWS_ACCUM_S:-0.35}
@@ -174,7 +210,6 @@ services:
       - moneypenny
 
   # Dev-only STT mock (fixed transcript) — no model download, instant CI smoke.
-  # docker compose --profile voice-dev up -d stt-mock
   stt-mock:
     build:
       context: ./services/stt-mock
@@ -188,16 +223,35 @@ services:
     networks:
       - moneypenny
 
-  # Phase 2: Kokoro TTS (CPU, high quality)
+  # Piper / espeak TTS — OpenAI /v1/audio/speech (same client as Kokoro).
+  # Bot: voice.ttsUrl=http://piper-tts:8880
+  # Optional: mount a Piper .onnx and set PIPER_MODEL=/models/voice.onnx
+  piper-tts:
+    build:
+      context: ./services/piper-tts
+      dockerfile: Dockerfile
+    profiles: ["voice-edge", "voice-server"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8880:8880"
+    environment:
+      - PIPER_VOICE=${PIPER_VOICE:-en_GB-southern_english_female-low}
+      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-southern_english_female-low.onnx}
+      - PIPER_BIN=${PIPER_BIN:-piper}
+    volumes:
+      - piper-models:/models
+    networks:
+      - moneypenny
+
+  # Legacy: Kokoro TTS (CPU, high quality, ~1.4GiB)
   kokoro:
-    # CPU image — `kokoro-fastapi:latest` is GHCR-private; cpu tag is public.
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
     profiles: ["voice"]
     restart: unless-stopped
     ports:
       - "127.0.0.1:8880:8880"
     environment:
-      - MODEL_PATH=/app/models/kokoro-v0_19.onnx  # or whatever the image expects
+      - MODEL_PATH=/app/models/kokoro-v0_19.onnx
     volumes:
       - kokoro-models:/app/models
     networks:
@@ -252,6 +306,9 @@ volumes:
   rkllama-cache:
   ollama-models:
   kokoro-models:
+  whisper-models:
+  whisper-fw-cache:
+  piper-models:
   mempalace-data:
   qdrant-storage:
   tidal-session:

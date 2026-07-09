@@ -1,62 +1,94 @@
-# Project Moneypenny — Design Document (v2)
+# Project Moneypenny — Design Document (v3)
 
-> **Implementation Status Note:** See the "Current Implementation Status" section (added during active development) and the checkmarked phases below for what has been built vs. remaining gaps.
-
-> A self-hosted, NPU-accelerated **AI + music assistant** for a **TeamSpeak 6** server, running entirely on a single **Orange Pi 5 Max (RK3588, 16 GB)**. One repo, one `docker compose up`, no cloud.
+> **v3 supersedes v2.** Product is **two editions from one repo**: **SBC** (Orange Pi 5 Max / RK3588) and **Server** (x86_64, ideally GPU). Same bot and HTTP contracts; different compose overlays, model defaults, and host roles. See [docs/editions.md](./docs/editions.md) and [RELEASES.md](./RELEASES.md).
 >
-> **v2 supersedes v1.** The big change: the audio bot is no longer TS3AudioBot. The base is now a **fork of `ZHANGTIANYAO1/teamspeak-music-bot`** (TypeScript, native TS6, audited auth, web UI), with its music layer reworked to be **local-first** and an **in-process LLM module** added. Rationale captured in §5 and §10.
+> Base remains a **fork of `ZHANGTIANYAO1/teamspeak-music-bot`** (TypeScript, native TS6, audited auth, web UI), local-first music, in-process LLM module. Phases and security posture below still apply.
 
-**Status:** Implemented core (Phases 0–1 + RAG/voice/roast scaffolds); hardware validation and Phase 2 polish ongoing
-**Audience:** Claude Code (implementer) + maintainer
-**Codename:** *Moneypenny* (placeholder)
+**Status:** Core live (music, rank gating, RAG, roast, radio, split-brain LLM, Whisper+Piper voice sidecars). Dual-edition packaging shipped.
+**Audience:** Implementers + maintainer
+**Codename:** *Moneypenny*
+
+---
+
+## Editions (product shape)
+
+| | **SBC edition** | **Server edition** |
+|---|---|---|
+| Hardware | RK3588 arm64, 16 GB | x86_64 Linux (**AMD** first; NVIDIA untested) |
+| Bot primary host | **Yes** if `--edition sbc` | **Yes** if `--edition server` |
+| Role | Full bot stack on Pi; E2B offline backup | Full bot stack on x86; host Ollama + optional TS6 |
+| Chat default | LAN Gemma 4 **12B** (local E2B fallback) | Host Ollama **12B**; **31B analyst opt-in** (VRAM) |
+| Embeddings | On bot host (`embeddinggemma`) | On bot host |
+| STT | Whisper **tiny** → **RKNN** next | **whisper.cpp Vulkan** on AMD |
+| TTS | Piper `en_GB-southern_english_female-low` | Same |
+| NPU | **RKNN Whisper** priority; offline chat opt-in | N/A |
+| Not supported now | — | macOS / Apple Silicon |
+| Compose | `docker-compose.yml` + `docker-compose.sbc.yml` | + `docker-compose.server.yml` |
+| Install | `./install.sh --edition sbc` | `./install.sh --edition server` |
+
+**Topology A (production):** SBC runs bot + Qdrant + embeddings + tiny STT; Server runs Ollama 12B/31B.  
+**Topology B:** Server all-in-one (no Pi).  
+**Topology C:** SBC offline-only (slow E2B or opt-in NPU).
 
 ---
 
 ## 1. Summary
 
-Moneypenny adds two capabilities to an existing TeamSpeak 6 server, both running locally on one RK3588 board:
+Moneypenny adds two capabilities to a TeamSpeak 6 server, with **all inference under operator control** (no cloud required):
 
-1. **Play music on request — local library first**, with YouTube and (later) Spotify/Tidal as secondary sources.
-2. **Answer questions** (and, in Phase 2, accept voice) via a local LLM on the NPU, which can also drive music by natural language.
+1. **Play music on request — local library first**, with YouTube and Spotify/Tidal (resolve or stream-bridge) as secondary sources.
+2. **Answer questions and accept voice** via OpenAI-compatible LLMs and Whisper/Piper sidecars; natural language drives the same control router as typed commands.
 
-Central design idea — assign each workload to the silicon it suits, so they don't contend:
+Workloads are placed by edition:
 
-| Compute unit | Job |
-|---|---|
-| **NPU** (6 TOPS, 3 cores) | Optional LLM inference (Gemma 4 `.rkllm` via rkllama); LAN Gemma 4 GGUF is the primary chat path |
-| **CPU** (4× Cortex-A76) | The bot (Node), TS6 server, `LocalProvider` indexing, `yt-dlp`/`ffmpeg`, STT/VAD, Kokoro TTS |
-| **GPU** (Mali-G610) | Idle by default; reserved as an alternate LLM backend (MLC-LLM) |
+| Compute | SBC (RK3588) | Server (x86) |
+|---|---|---|
+| **Bot + music + rights + RAG index** | Always | Always (all-in-one) or none (LLM-only host) |
+| **Chat / tool-calling** | Prefer LAN 12B; E2B fallback | Local 12B (+ 31B delegate) |
+| **Embeddings + Qdrant** | On-device | On-device |
+| **STT** | Whisper tiny (CPU; RKNN later) | Whisper small → large-v3 (CUDA) |
+| **TTS** | Piper British female | Piper British female |
+| **NPU** | Optional offline LLM / future ASR | — |
 
 ---
 
 ## 2. Goals & Non-Goals
 
 ### Goals
-- Single repo, `docker compose` deploy, with a documented host NPU-driver prep step.
-- **Local music is the primary source.** YouTube secondary; Spotify/Tidal via a stream-bridge, third.
-- Phase 1: `!play` (local + YouTube), full queue control, and `!ask` → LLM text answer.
-- Natural-language music control via LLM tool-calling, *layered on top of* deterministic commands (see §9).
-- Phase 2: voice loop — speak in channel, get spoken answers; voice drives the same control router.
-- Permissions mapped to the existing TeamSpeak rank hierarchy (§8).
-- All inference local; no external keys required for core function.
+- **One repo, two editions**, `docker compose` deploy, documented host prep (NPU only when used).
+- **Local music is the primary source.** YouTube secondary; Spotify/Tidal via resolve or stream-bridge.
+- Deterministic commands first; LLM tool-calling for fuzzy intent (§9). Rights enforced in the executor, never by the model.
+- Voice loop via **Whisper ladder + Piper** HTTP sidecars ([docs/voice-backends.md](./docs/voice-backends.md)).
+- Rank gating mapped to TeamSpeak server-groups (§8).
+- All inference local/LAN; no external API keys for core function.
+- Split-brain LLM: chat URL ≠ embedding URL ([docs/remote-llm.md](./docs/remote-llm.md)).
 
 ### Non-Goals
-- Multi-server / multi-tenant.
-- Reimplementing TeamSpeak moderation (we integrate with its server-groups).
-- Native Tidal/Spotify support inside the bot (handled by external players exposed as streams).
-- Models larger than the board serves at usable speed.
+- Multi-tenant SaaS.
+- Reimplementing TeamSpeak moderation.
+- Native DRM Spotify/Tidal inside the bot process.
+- Day-to-day chat LLM on the RK3588 NPU (decode is memory-bandwidth-bound; NPU is for offline fallback / future STT).
+- English-word → command mishear tables for STT (no keyword alias maps).
 
 ---
 
 ## 3. Target Environment
 
+### SBC edition
 - **Board:** Orange Pi 5 Max, RK3588, 16 GB.
-- **OS:** Ubuntu 24.04 arm64 / Armbian (vendor 6.1 kernel).
-- **NPU stack:** RKNPU driver **v0.9.8**, `librkllmrt` **1.2.x–1.3.x** (1.2.3 known-good; 1.3.x for Gemma 4 `.rkllm`). Versions are coupled — see §14.
-- **Runtimes:** Docker + Compose v2; Node 20+ (the fork); FFmpeg + yt-dlp (system).
-- **Storage:** Models + music library on NVMe (cold-load time is I/O-bound).
-- **Cooling:** Active cooling **required** (Phase 2 lights up NPU + CPU together).
-- **Existing infra:** TS6 already runs in Docker behind the host firewall (UFW) with upstream port-forwarding. Adopt it or stand up a new instance via compose profile.
+- **OS:** Ubuntu 24.04 arm64 / Armbian / DietPi (vendor 6.1 kernel).
+- **NPU stack (optional):** RKNPU **v0.9.8**, `librkllmrt` **1.2.x–1.3.x** — only for `--llm npu` offline path (§14).
+- **Cooling:** Active cooling required when voice + embed + music run together.
+
+### Server edition
+- **CPU:** x86_64 Linux, 32 GB+ RAM recommended for 12B QAT.
+- **GPU:** **AMD** preferred (host Ollama ROCm + whisper.cpp Vulkan). NVIDIA paths untested.
+- **OS:** Docker-capable Linux with Compose v2. **macOS out of scope** for now.
+
+### Shared
+- **Runtimes:** Docker + Compose v2; Node 20+ in the bot image; FFmpeg + yt-dlp in-image.
+- **Storage:** Music library + models on fast disk (NVMe preferred on SBC).
+- **Existing infra:** TS6 may already run elsewhere; compose `server` profile is optional.
 
 ### Default ports
 
@@ -65,13 +97,15 @@ Central design idea — assign each workload to the silicon it suits, so they do
 | TS6 voice | 9987 | UDP | network-facing |
 | TS6 file transfer | 30033 | TCP | network-facing |
 | TS6 web query | 10080 | TCP | |
-| TS6 SSH query | 10022 | TCP | TS6 replaced legacy raw 10011 |
-| Bot web UI / API | 3000 | TCP | **bind localhost or LAN-only; see §11** |
-| RKLLama (LLM + opt TTS) | 8080 | TCP | OpenAI-compatible; internal |
-| Kokoro-FastAPI (P2 TTS) | 8880 | TCP | OpenAI-compatible; internal |
-| sherpa-onnx (P2 STT) | internal | — | in-process or local socket |
+| TS6 SSH query | 10022 | TCP | |
+| Bot web UI / API | 3000 | TCP | **localhost or LAN-only; see §11** |
+| Ollama | 11434 | TCP | localhost; LAN only if split-brain |
+| rkllama (optional NPU) | 8080 | TCP | localhost |
+| stt-whisper | 9000 | TCP | localhost |
+| piper-tts | 8880 | TCP | localhost |
+| Qdrant | 6333 | TCP | internal compose network |
 
-Only the TS6 ports face the network.
+Only TS6 (and intentionally firewalled LLM ports for split-brain) face the network.
 
 ---
 
@@ -79,47 +113,53 @@ Only the TS6 ports face the network.
 
 ```mermaid
 flowchart TD
-    subgraph TS["TeamSpeak 6 Server (CPU)"]
+    subgraph TS["TeamSpeak 6 Server"]
         CH[Voice + chat channels]
     end
 
-    subgraph BOT["Moneypenny — forked bot, single Node process (CPU)"]
-        CLIENT[TS6 dual-protocol client\nchat in/out + voice out]
-        ROUTER[Control router\ndeterministic-first]
+    subgraph BOT["Moneypenny bot — single Node process"]
+        CLIENT[TS6 dual-protocol client]
+        ROUTER[Control router deterministic-first]
         CMD[Command parser]
-        LLMOD[LLM module\nask + tool-calling]
+        LLMOD[LLM module ask + tools]
         RIGHTS[Rights / rank gating]
         subgraph PROV["Music providers"]
             LOCAL[LocalProvider PRIMARY]
             YT[YouTube / yt-dlp]
-            STREAM[StreamProvider\nSpotify/Tidal bridge]
+            STREAM[StreamProvider]
         end
         QUEUE[Queue + player + Opus]
         WEB[Vue web UI + auth API]
+        RAG[RAG retrieval + Qdrant client]
     end
 
-    subgraph LLM["RKLLama (NPU)"]
-        QWEN[Qwen3-1.7B/4B W8A8]
-        TOOLS[Tool/function calling]
+    subgraph EDGE["Edition sidecars"]
+        OLLAMA[ollama embed + optional chat]
+        QDRANT[qdrant]
+        STT[stt-whisper Whisper ladder]
+        TTS[piper-tts British female]
+        NPU[rkllama NPU optional SBC only]
     end
 
-    subgraph VOICE["Voice pipeline — Phase 2 (CPU)"]
-        VAD[sherpa-onnx VAD]
-        STT[sherpa-onnx ASR]
-        TTS[Kokoro TTS / RKLLama Piper]
+    subgraph LAN["Optional LAN Server edition host"]
+        BIG[ollama Gemma 4 12B / 31B]
     end
 
-    CH <-->|TS3/TS6 protocol| CLIENT
+    CH <-->|TS3/TS6| CLIENT
     CLIENT --> ROUTER
-    ROUTER -->|explicit intent| CMD
-    ROUTER -->|fuzzy intent / questions| LLMOD
-    LLMOD -->|/v1/chat/completions + tools| QWEN
+    ROUTER -->|explicit| CMD
+    ROUTER -->|fuzzy / ask| LLMOD
+    LLMOD -->|chat tools| BIG
+    LLMOD -->|fallback| OLLAMA
+    LLMOD -->|fallback NPU| NPU
+    RAG --> QDRANT
+    RAG --> OLLAMA
     CMD --> QUEUE
     LLMOD -->|tool results| QUEUE
     RIGHTS -. gates .-> ROUTER
     QUEUE --> PROV
     QUEUE -->|audio| CLIENT
-    VAD --> STT --> ROUTER
+    STT --> ROUTER
     LLMOD --> TTS --> QUEUE
 ```
 
@@ -145,18 +185,19 @@ Design rule: **never put the model between a user and the skip button.** Core tr
 
 | Layer | Project / approach | Role | License | Notes |
 |---|---|---|---|---|
-| Voice server | TeamSpeak 6 Server (official beta) | voice + chat | Proprietary, free ≤32 slots | TS6 still beta; validate first |
-| Bot base | fork of `teamspeak-music-bot` | TS6 client, queue, web UI, auth | MIT | our fork; first-party changes below |
-| LLM serving | RKLLama (`NotPunchnox/rkllama`) | OpenAI API over RKLLM on NPU; tools; opt TTS | OSS | primary LLM backend |
-| LLM model | Qwen3-1.7B (W8A8 `.rkllm`); opt 4B | brains + tool-calling | Apache-2.0 | ~13.6 tok/s @1.7B; `<think>` support |
-| Music: local | **LocalProvider** (new) | index + play local library | our code | primary source (§7) |
-| Music: youtube | existing YouTube provider (keep) | yt-dlp resolution | inherited MIT | already uses `execFile` safely |
-| Music: stream | **StreamProvider** (new) | play arbitrary HTTP/Icecast stream | our code | Spotify/Tidal bridge (§7) |
-| STT + VAD (P2) | sherpa-onnx | ASR + VAD, one ONNX toolkit | OSS | CPU; ported to RK35xx |
-| TTS (P2) | Kokoro-82M via Kokoro-FastAPI | high-quality TTS, OpenAI API | Apache-2.0 | CPU; or RKLLama Piper on NPU |
-| Pattern source (reimplement only) | TS3AudioBot | local-first + rights patterns | OSL-3.0 | **patterns, not code** |
-| Pattern source (reimplement only) | Bettehem ts3-musicbot | "legit Spotify" approach | GPL-3.0 | **concept, not code** |
-| Voice-loop reference | KokoDOS / dnhkng GLaDOS | VAD capture pipeline | — | reference only |
+| Voice server | TeamSpeak 6 Server | voice + chat | Proprietary, free ≤32 slots | optional compose profile |
+| Bot base | fork of `teamspeak-music-bot` | TS6 client, queue, web UI, auth | MIT | our fork |
+| LLM (primary) | Ollama OpenAI `/v1` | chat + tools; 12B server / E2B SBC | MIT | edition defaults differ |
+| LLM (SBC opt) | rkllama + `.rkllm` | offline NPU chat fallback | OSS | not day-to-day |
+| Embeddings | ollama `embeddinggemma` | RAG vectors | — | usually on SBC |
+| Vector DB | Qdrant | doc chunks | Apache-2.0 | profile `rag` |
+| Music: local | **LocalProvider** | index + play local library | our code | primary (§7) |
+| Music: youtube | YouTube provider | yt-dlp | MIT | `execFile` |
+| Music: stream | **StreamProvider** | HTTP/Icecast + optional Tidal bridge | our code | §7 |
+| STT | **Whisper** via `stt-whisper` | ASR ladder tiny→large-v3 | MIT (faster-whisper) | canonical; sherpa = legacy |
+| TTS | **Piper** via `piper-tts` | British female speech | MIT | `en_GB-southern_english_female-low` |
+| Pattern source (reimplement only) | TS3AudioBot | local-first + rights | OSL-3.0 | **patterns, not code** |
+| Pattern source (reimplement only) | Bettehem ts3-musicbot | stream-bridge concept | GPL-3.0 | **concept, not code** |
 
 ### 6.1 De-Sinicization — complete strip list (MANDATORY)
 
@@ -349,7 +390,7 @@ moneypenny/
 
 ---
 
-## Current Implementation Status (updated July 2026)
+## Current Implementation Status (updated 2026-07 — dual editions)
 
 **Shipped and tested (797 backend unit tests, 11 frontend unit tests, 110 test files, `tsc` clean):**
 - Full de-sinicization (§6.1) — CN providers, auth UI, and dead API stubs removed.
@@ -359,8 +400,9 @@ moneypenny/
 - **StreamProvider (§7.3)** — http(s)/Icecast + bridged Spotify/Tidal refs; `services/tidal-bridge` ships (`--profile stream`).
 - **RAG + doctrine (Phase 5–6)** — vector ingest/query, rank-gated retrieval, `!reindex`, four ingestion paths.
 - **Memory + roast (Phase 7–8)** — `!remember`/`!recall`; institutional KG via `!kg`/`!diary`; roast capture/grading/reel.
-- **Voice (§10)** — inbound Opus → STT → router → TTS; volume duck during capture; Opus decode hardened (`974ea1d`); gated off by default.
-- **Phase 4 split-brain** — primary `llmUrl` on a LAN workstation (Gemma 4 12B), embeddings on Pi, Pi ollama/Gemma E2B fallback; optional NPU Gemma 4 `.rkllm` via rkllama (`docs/remote-llm.md`).
+- **Voice** — Whisper ladder (`stt-whisper`) + Piper British TTS (`piper-tts`); profiles `voice-edge` / `voice-server`; sherpa+Kokoro legacy only; no STT English-alias command maps.
+- **Phase 4 split-brain** — `llmUrl` → LAN/Server Gemma 4 12B; embeddings on-device; E2B fallback; NPU rkllama offline opt-in (`docs/remote-llm.md`).
+- **Dual editions** — `sbc` + `server` compose overlays, `install.sh --edition`, `scripts/package-release.sh`, `docs/editions.md`, `RELEASES.md`.
 - **R1 analyst delegation** — `!analyst`/`!agent` + `delegate_to_agent` → `llmDelegateUrl`; R1b async ack + `postFollowUp`.
 - **R3 org docs** — `!intsum`/`!aar` templated workflows + Pandoc docx export (`docs/r3-workflows.md`).
 - **R4 client moves** — `!moveclient`, `!moveall`, NL `move_client` tools.
@@ -370,8 +412,8 @@ moneypenny/
 - **Security posture (§11)** — non-root Docker, CSRF, rate limits, session auth; see `docs/hardening.md`.
 
 **Remaining gaps (ordered):**
-- Phase 0 / voice live validation on opi5 TS6 (scaffolding ready; `PHASE0_AUTO_TEST=1` on Pi).
-- Live voice round-trip smoke with `voice` profile (Opus decode hardened; STT/TTS sidecar tuning).
+- Live voice round-trip on SBC with `voice-edge` (Whisper tiny + Piper); server `large-v3` GPU smoke.
+- Whisper **RKNN** backend on SBC (`STT_BACKEND=rknn`) — free NPU for ASR, not chat.
 - Radio live smoke on opi5 (`!radio ops`, bumper test); OQ3 re-run when full org library mounted.
 - R-R6 optional: Icecast tee, relay-in, Spotify/Tidal playlist expansion.
 - Spotify librespot bridge (external; Tidal bridge ships but `STREAM_BRIDGE_URL` is opt-in).

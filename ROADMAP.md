@@ -2,31 +2,33 @@
 
 Forward-looking plan. Continues the phase taxonomy of [`DESIGN.md`](./DESIGN.md)
 §13 (Phases 0–3 = validate → local music → LLM → rights → voice → polish, mostly
-shipped). This document covers **Phases 4–8**: turning Moneypenny from a music +
-`!ask` bot into the org's AI — music, a citeable knowledge base (doctrine /
-INTSUMs), and durable memory of people and events — runnable on either the local
-RK3588 NPU or a bigger remote/GPU model.
+shipped). This document covers **Phases 4–8**: org AI (citeable doctrine,
+memory, radio polish) on the **dual-edition** product.
 
-> Status note (2026-06): Phases 0–2 are live on the Orange Pi 5 Max. The NPU LLM
-> path (operator `.rkllm` via `models/npu-llm/`, rkllama native backend) is deployed and
-> serving tool-calls. Web upload + system-prompt/temperature controls landed.
+> Status note (2026-07): Phases 0–6 + split-brain R1 are live. Product ships as
+> **two editions** from one repo — **SBC** (RK3588 edge) and **Server** (x86
+> GPU-class). See [docs/editions.md](./docs/editions.md) and [RELEASES.md](./RELEASES.md).
+> Voice is **Whisper ladder + Piper** (sherpa/Kokoro legacy only). NPU chat is
+> offline opt-in, not the day-to-day path.
 
 ## Target architecture
 
 ```
-                 ┌──────────────── LLM endpoints (OpenAI /v1) ────────────────┐
-                 │  local: rkllama (RK3588 NPU, operator .rkllm, offline)   │
-   bot ───llmUrl─┤  remote: vLLM/ollama/TGI on x86+GPU (big model, heavy RAG) │
-    │            └────────────────────────────────────────────────────────────┘
-    │
-    ├─ ControlRouter ─ deterministic commands │ !ask / fuzzy intent → LLM
-    │
-    ├─ Retrieval (Phase 6) ── Vector DB + embeddings (Phase 5)
-    │      ▲ ingest (post-receive / webhook, diff→embed)
-    │      └─ wiki-as-code git repo: doctrine, INTSUMs, org docs
-    │           (on-device private git default; citeable-by-commit, rights-gated)
-    │
-    └─ Memory (Phase 7) ── MemPalace: per-user recall + temporal knowledge graph
+  ┌── SBC edition (RK3588) ──┐          ┌── Server edition (x86+GPU) ──┐
+  │ bot, rights, music       │  chat    │ ollama Gemma 4 12B (+ 31B)  │
+  │ ollama embeddinggemma    │ ───────► │ optional heavy STT large-v3 │
+  │ qdrant, Whisper tiny     │          └─────────────────────────────┘
+  │ piper-tts                │
+  │ (opt rkllama offline)    │   OR server all-in-one (Topology B)
+  └──────────────────────────┘
+
+  bot ─── llmUrl ─────────── OpenAI /v1 (LAN or local)
+      ─── embeddingUrl ───── ollama embeddinggemma (usually SBC)
+      ─── stt / tts ──────── stt-whisper + piper-tts
+
+  ControlRouter ─ deterministic │ !ask / fuzzy → LLM tools
+  Retrieval ─── Qdrant + rank-gated doctrine (Phase 5–6)
+  Memory ────── MemPalace + per-user facts (Phase 7)
 ```
 
 Two retrieval stores, deliberately separate and complementary:
@@ -36,26 +38,24 @@ Two retrieval stores, deliberately separate and complementary:
   graph (facts with validity windows: roster, roles, op history over time).
 
 ## Already in place (these phases build on, not replace)
-- **OpenAI-compatible `llmUrl`** (DESIGN §9) — pointing at a bigger remote model
-  is a config change, not code. The NPU stays as the local/fallback path.
-- **Web upload pipeline** (`/api/bot/upload` → `LocalProvider.uploadSong`,
-  isolated `uploads/` dir) — the ingestion seam doc-RAG extends to documents.
-- **SQLite** (`bot/src/data/`) — enough to ship the community/roast MVP without
-  any new infra.
-- **System-prompt + temperature controls** — per-persona prompting for the
-  specialist agents below.
+- **Dual editions** — `install.sh --edition sbc|server`, compose overlays,
+  package-release tarballs ([RELEASES.md](./RELEASES.md)).
+- **OpenAI-compatible `llmUrl`** (DESIGN §9) — split-brain + analyst delegate.
+- **Whisper + Piper voice** — [docs/voice-backends.md](./docs/voice-backends.md).
+- **Web upload pipeline** + doctrine git / file-drop / TS drop channel.
+- **SQLite** (`bot/src/data/`) — community/roast, sessions, config.
+- **System-prompt + temperature controls** — persona + specialist agents.
 
 ---
 
-## Phase 4 — Scalable / remote LLM
-> **Status (2026-06): SPLIT-BRAIN + R1 DELEGATION SHIPPED.** Chat/tool-calling can
-> point at a LAN workstation (`llmUrl`) while embeddings stay on the Pi
-> (`embeddingUrl=http://ollama:11434`). See `docs/remote-llm.md`. Production on
-> operator Pi: `hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL` on
-> LAN workstation @ 192.168.x.x (vs ~11 tok/s on-device Gemma E2B); analyst delegate
-> `hf.co/unsloth/gemma-4-31B-it-qat-GGUF:UD-Q4_K_XL` on the same or a second LAN host.
-> **DESIGN §R1:** `!analyst` / `!agent` + `delegate_to_agent` tool (`bot/src/llm/delegate.ts`).
-> Startup model pre-warm in `bot/src/llm/warmup.ts`.
+## Phase 4 — Scalable / remote LLM + dual editions
+> **Status (2026-07): SPLIT-BRAIN + R1 DELEGATION + EDITIONS SHIPPED.** Chat/tool-calling
+> points at LAN or local 12B (`llmUrl`); embeddings stay on-device
+> (`embeddingUrl=http://ollama:11434`). **SBC** and **Server** editions package
+> the two host roles ([docs/editions.md](./docs/editions.md)). Production:
+> Gemma 4 12B QAT on server, E2B fallback + embeddinggemma on SBC; analyst
+> Gemma 4 31B on the same or second host. **DESIGN §R1:** `!analyst` /
+> `delegate_to_agent` (`bot/src/llm/delegate.ts`); warmup in `bot/src/llm/warmup.ts`.
 
 ### R1b — async analyst jobs (shipped 2026-06-20)
 
@@ -64,17 +64,10 @@ full result via `postFollowUp` when the delegate model finishes (`bot/src/contro
 Voice uses the same pattern (spoken ack, text follow-up). Analyst commands are
 rank-gated (`@analyst` group — admins by default).
 
-**Goal:** select between the local NPU model and a bigger model on another host
-(or migrate the whole compose stack to a bigger server). The bot is
-arch-agnostic; swap the `rkllama` service for a GPU LLM service and keep the rest.
-**Why now:** serious RAG over doctrine/INTSUMs needs more than a 4B — the remote
-big model is what makes Phases 6–7 actually good.
-**Work:** document + script the remote-endpoint config (`llmUrl`); optional
-"local vs remote" selection; migration notes (x86+GPU running vLLM/ollama).
-**Open question:** is the bigger server **x86 + GPU** or another SBC? (Decides the
-serving stack: vLLM/TGI vs ollama.)
+**Goal (met):** run big models on Server edition; keep the bot arch-agnostic via
+OpenAI `/v1`. NPU remains SBC offline opt-in only.
 **Accept:** changing `llmUrl` routes `!ask`/intent to a remote big model with
-tool-calling intact; migration path documented and tried once.
+tool-calling intact; both editions installable from one tree.
 
 ### On-device LLM serving — decisions & benchmarks (2026-06-12)
 
@@ -93,11 +86,11 @@ optimized NPU runtime (native RKLLM) lands at the same ~4.9 tok/s as ollama on
 CPU. The only lever that actually moves decode is **model size**: dropping 4B→2B
 (Gemma E4B→E2B) ~doubles it to ~10 tok/s with tool-calling intact.
 
-**Current production choice:** **Gemma 4 E2B QAT GGUF on ollama** (`llmUrl=
-http://ollama:11434`, `llmModel=hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL`).
-ollama *is* a maintained OpenAI-compatible GGUF gateway, so this needs no custom
-code; Gemma 4 has native function-calling, so it drives music intent + grades the
-roast. The hand-rolled `services/rkllama/server.py` stays as the NPU/Qwen fallback.
+**Current production choice:**
+- **Server edition / LAN chat:** Gemma 4 **12B** QAT on ollama.
+- **SBC on-device fallback:** Gemma 4 **E2B** QAT on ollama (~10 tok/s).
+- **SBC NPU:** rkllama + operator `.rkllm` only when offline opt-in (`--llm npu`).
+- Day-to-day chat is **not** NPU-bound; free NPU for future Whisper RKNN / Piper.
 
 **NotPunchnox/rkllama** (`ghcr.io/notpunchnox/rkllama:main`) is validated as a
 drop-in maintained replacement for `server.py`: OpenAI `/v1`, model management,

@@ -1,8 +1,12 @@
-# Remote LLM (Phase 4) — split-brain on the Pi
+# Remote LLM (Phase 4) — split-brain across editions
 
-Point **chat / tool-calling / roast grading** at a faster LAN host while keeping
-**embeddings + Qdrant** on the Pi. The bot already supports different URLs for
-`llmUrl` and `embeddingUrl` in Settings → AI & Permissions.
+Point **chat / tool-calling / roast grading** at a faster host while keeping
+**embeddings + Qdrant** on the bot host. Different URLs for `llmUrl` and
+`embeddingUrl` in Settings → AI & Permissions.
+
+This is the **recommended production topology**: **SBC edition** on the Orange
+Pi + **Server** Ollama (or full Server edition) on the LAN. See
+[editions.md](./editions.md).
 
 ## When to use this
 
@@ -10,24 +14,24 @@ On-device benchmarks (Orange Pi 5 Max, 2026-06):
 
 | Backend | Model | Decode tok/s |
 |---------|-------|--------------|
-| Pi CPU (ollama) | Gemma 4 E2B QAT | ~11 |
-| LAN workstation (Ryzen 9800X3D) | Gemma 4 12B QAT Q4 | TBD |
+| SBC CPU (ollama) | Gemma 4 E2B QAT | ~10–11 |
+| Server / LAN workstation | Gemma 4 12B QAT Q4 | much faster (host-dependent) |
 
-Decode on the RK3588 is memory-bandwidth-bound; a bigger remote CPU box is the
-practical lever for `!ask`, fuzzy music intent, roast grading, and voice LLM
-replies.
+Decode on the RK3588 is memory-bandwidth-bound; NPU does **not** fix day-to-day
+chat. A Server edition (or bare Ollama on x86) is the lever for `!ask`, fuzzy
+music intent, roast grading, and voice LLM replies.
 
-## Split-brain layout
+## Split-brain layout (Topology A)
 
 ```
-Pi (docker)                         LAN workstation (e.g. llm-box)
+SBC edition (docker)                Server / LAN Ollama
 ├─ bot ──chat/tools──► http://192.168.x.x:11434  (gemma-4-12B QAT)
-├─ ollama ─embed────► http://ollama:11434        (embeddinggemma, 621 MB)
-└─ qdrant            (vectors stay on Pi)
+├─ ollama ─embed────► http://ollama:11434        (embeddinggemma)
+├─ qdrant            (vectors stay on SBC)
+└─ stt-whisper tiny + piper-tts
 ```
 
-Embeddings are small, frequent, and already tuned for `embeddinggemma` on the Pi.
-Chat payloads are larger and benefit most from the remote box.
+Embeddings stay on the SBC. Chat uses the Server.
 
 ## Workstation prep
 
@@ -66,8 +70,9 @@ shows 0.23.x from `/usr/local/bin/ollama`, run
    }'
    ```
 
-## Pi configuration
+## SBC configuration
 
+After `./install.sh --edition sbc --with-rag` (or release tarball), set
 Settings → AI & Permissions (or `bot/data/config.json`):
 
 ```json
@@ -75,13 +80,23 @@ Settings → AI & Permissions (or `bot/data/config.json`):
   "llmEnabled": true,
   "llmUrl": "http://192.168.x.x:11434",
   "llmModel": "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL",
+  "llmFallbackUrl": "http://ollama:11434",
+  "llmFallbackModel": "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL",
   "embeddingUrl": "http://ollama:11434",
   "embeddingModel": "embeddinggemma",
   "ragEnabled": true
 }
 ```
 
-Use the workstation's **LAN IP**, not `localhost` — the bot runs inside Docker.
+Use the Server's **LAN IP**, not `localhost` — the bot runs inside Docker.
+
+Or install with external LLM from day one:
+
+```bash
+./install.sh --edition sbc --with-rag --with-voice \
+  --llm http://192.168.x.x:11434 \
+  --model hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
+```
 
 Test from the bot container:
 
@@ -93,18 +108,25 @@ docker exec moneypenny-bot-1 node -e \
 Save settings (hot-reloads) or restart the bot. Check **LLM status** in Settings;
 run `!ask` — first reply should be seconds, not a minute.
 
-## Analyst delegation (DESIGN §R1)
+## Analyst delegation (DESIGN §R1) — **opt-in 31B**
 
-The bot can route heavy work to a **second** LAN host while keeping fast chat on
-the primary:
+| Role | Typical host | Model | Default |
+|------|--------------|-------|---------|
+| Fast chat / tools | Server / LAN | Gemma 4 **12B** QAT | **On** |
+| Analyst delegate | Same host (or second) | Gemma 4 **31B** QAT | **Off** |
+| Fallback + embed | SBC / bot host | E2B + embeddinggemma | as configured |
 
-| Role | Typical host | Model |
-|------|--------------|-------|
-| Fast chat / tools | LAN workstation | Gemma 4 12B QAT |
-| Analyst delegate | LAN workstation (same or second host) | Gemma 4 31B QAT |
-| Fallback + embed | Pi ollama | Gemma E2B + embeddinggemma |
+**Do not leave 12B and 31B both loaded unless VRAM can hold them.**
 
-Settings → **Delegate analyst URL/model**, or `config.json`:
+| VRAM (ballpark, Q4) | Policy |
+|---------------------|--------|
+| **&lt; ~20 GB** | 12B only. Do not enable analyst 31B (or use a second machine). |
+| **~20–24 GB** | Enable 31B only if you accept Ollama **swapping** (12B unloads during `!analyst`). |
+| **≥ ~28–32 GB** | Safe to enable both resident if you want zero swap (optional). |
+
+In the web UI: **Settings → AI → “Enable heavy analyst model (31B)”** (off by default).
+That toggle writes `llmDelegateUrl` / `llmDelegateModel`; when off, both are cleared
+so `!analyst` does not call a heavy model.
 
 ```json
 {
@@ -113,12 +135,15 @@ Settings → **Delegate analyst URL/model**, or `config.json`:
 }
 ```
 
-Pull the analyst model on the delegate host (same Ollama box as chat is fine —
-Ollama swaps models on demand):
+Pull 31B **only after** enabling the toggle (not part of default install):
 
 ```bash
 ollama pull hf.co/unsloth/gemma-4-31B-it-qat-GGUF:UD-Q4_K_XL
 ```
+
+**Ollama tips (same GPU as 12B):** keep `OLLAMA_MAX_LOADED_MODELS=1` if you want
+strict non-competition (swap on demand), or `2` only when VRAM truly fits both.
+Short `keep_alive` on the 31B side reduces lingering VRAM use after analyst jobs.
 
 Users invoke via `!analyst <task>` / `!agent <task>`, or the fast model can emit
 the `delegate_to_agent` tool during fuzzy intent. RAG context is injected on the

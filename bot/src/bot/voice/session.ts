@@ -10,7 +10,10 @@ import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { RightsEngine } from "../../rights/index.js";
 import type { Subject } from "../../rights/index.js";
-import { resolveSubject as resolveRightsSubject } from "../rights/subject.js";
+import {
+  allowedClassificationsFor,
+  resolveSubject as resolveRightsSubject,
+} from "../rights/subject.js";
 import type { ControlRouter, RouterContext } from "../../control/router.js";
 import { createOpusEncoder, type Encoder } from "../../audio/encoder.js";
 import { decodeVoiceOpusPacket } from "../../audio/opus-voice.js";
@@ -33,7 +36,9 @@ import {
   MIN_PCM_BOOST_PEAK,
   normalizePcmForStt,
   peakAmplitude16,
+  STT_TARGET_PEAK,
 } from "../../voice/pcm.js";
+import { isMusicSearchRouteText } from "../../voice/music-command.js";
 import {
   extractCommandSegment,
   extractWatchwordCommand,
@@ -130,6 +135,10 @@ export class VoiceSession {
   private passiveKwsMaxSpeakers = 2;
   private static readonly PASSIVE_ENERGY_DECAY_MS = 3000;
   private clientInfoCache = new Map<number, { uid: string; serverGroups: string[]; nickname: string }>();
+  /** Cached ranked passive KWS speakers; refreshed on score touch / prune. */
+  private rankedPassiveCache: number[] = [];
+  private rankedPassiveCacheAt = 0;
+  private static readonly RANKED_PASSIVE_TTL_MS = 200;
   private voiceHandler: ((v: TS3VoiceData) => void) | null = null;
   private inboundPackets = 0;
   private decodedFrames = 0;
@@ -159,13 +168,16 @@ export class VoiceSession {
   ): void {
     if (!this.pipeline) return;
     this.clientInfoCache.clear();
+    const live = new Set<number>();
     for (const c of clients) {
+      live.add(c.id);
       this.clientInfoCache.set(c.id, {
         uid: c.uid,
         serverGroups: c.serverGroups ?? [],
         nickname: c.nickname,
       });
     }
+    this.pruneClientMaps(live);
     this.deps.onClientList(
       clients.map((c) => ({
         id: c.id,
@@ -174,6 +186,31 @@ export class VoiceSession {
         nickname: c.nickname,
       })),
     );
+  }
+
+  /** Drop per-client maps for speakers no longer in channel (multi-day uptime leak). */
+  private pruneClientMaps(live: Set<number>): void {
+    const drop = (m: Map<number, unknown>) => {
+      for (const id of m.keys()) {
+        if (!live.has(id)) m.delete(id);
+      }
+    };
+    drop(this.streamBuffers as Map<number, unknown>);
+    drop(this.streamChains as Map<number, unknown>);
+    drop(this.decodeFailuresByClient as Map<number, unknown>);
+    drop(this.lastArmedInboundLog as Map<number, unknown>);
+    drop(this.voiceTurnGen as Map<number, unknown>);
+    drop(this.playInFlightUntil as Map<number, unknown>);
+    drop(this.armedUntil as Map<number, unknown>);
+    drop(this.commandCaptureReadyAt as Map<number, unknown>);
+    drop(this.passiveSpeakerScore as Map<number, unknown>);
+    for (const id of this.seenInboundClients) {
+      if (!live.has(id)) this.seenInboundClients.delete(id);
+    }
+    for (const id of this.passiveKwsEligible) {
+      if (!live.has(id)) this.passiveKwsEligible.delete(id);
+    }
+    this.rankedPassiveCacheAt = 0;
   }
 
   enable(): void {
@@ -410,15 +447,29 @@ export class VoiceSession {
         ? Math.max(rawPeak, Math.round(prev.score * 0.85))
         : rawPeak;
     this.passiveSpeakerScore.set(clientId, { score, updatedAt: now });
+    this.rankedPassiveCacheAt = 0;
   }
 
   private rankedPassiveSpeakers(): number[] {
     const now = Date.now();
-    return [...this.passiveSpeakerScore.entries()]
-      .filter(([, v]) => now - v.updatedAt < VoiceSession.PASSIVE_ENERGY_DECAY_MS)
+    if (
+      this.rankedPassiveCacheAt > 0 &&
+      now - this.rankedPassiveCacheAt < VoiceSession.RANKED_PASSIVE_TTL_MS
+    ) {
+      return this.rankedPassiveCache;
+    }
+    // Prune expired passive scores while ranking.
+    for (const [id, v] of this.passiveSpeakerScore) {
+      if (now - v.updatedAt >= VoiceSession.PASSIVE_ENERGY_DECAY_MS) {
+        this.passiveSpeakerScore.delete(id);
+      }
+    }
+    this.rankedPassiveCache = [...this.passiveSpeakerScore.entries()]
       .sort((a, b) => b[1].score - a[1].score)
       .slice(0, this.passiveKwsMaxSpeakers)
       .map(([id]) => id);
+    this.rankedPassiveCacheAt = now;
+    return this.rankedPassiveCache;
   }
 
   private isPassiveKwsEligible(clientId: number): boolean {
@@ -552,7 +603,7 @@ export class VoiceSession {
       const lastLog = this.lastArmedInboundLog.get(v.clientId) ?? 0;
       if (now - lastLog >= 250) {
         this.lastArmedInboundLog.set(v.clientId, now);
-        this.deps.logger.info({ clientId: v.clientId, rawPeak }, "Voice: armed inbound speech");
+        this.deps.logger.debug({ clientId: v.clientId, rawPeak }, "Voice: armed inbound speech");
       }
     }
 
@@ -681,14 +732,15 @@ export class VoiceSession {
       return;
     }
 
-    const pcmForStt = normalizePcmForStt(pcm);
-    const peak = peakAmplitude16(pcmForStt);
+    const rawPeakForNorm = peakAmplitude16(pcm);
+    const pcmForStt = normalizePcmForStt(pcm, STT_TARGET_PEAK, 120, MIN_PCM_BOOST_PEAK, rawPeakForNorm);
+    const peak = rawPeakForNorm < MIN_PCM_BOOST_PEAK ? rawPeakForNorm : peakAmplitude16(pcmForStt);
     buf.utterancePeak = Math.max(buf.utterancePeak, peak);
 
     const out = await this.sttClient.feedStream(clientId, pcmForStt, 48_000, channels);
     if (this.isArmed(clientId) && rawPeak >= VoiceSession.MIN_SPEECH_PEAK) {
       this.touchArmedWindow(clientId);
-      this.deps.logger.info({ clientId, peak, rawPeak, listening: out.listening }, "Voice: command capture audio");
+      this.deps.logger.debug({ clientId, peak, rawPeak, listening: out.listening }, "Voice: command capture audio");
     }
     this.applyStreamResult(clientId, out, { peak: buf.utterancePeak, pcmBytes: pcm.length, channels });
   }
@@ -774,21 +826,32 @@ export class VoiceSession {
     const silenceTailBytes =
       Math.floor(48_000 * (this.silenceTailMs / 1000)) * 2 * Math.max(1, meta.channels);
     if (meta.peak === 0 && meta.pcmBytes <= silenceTailBytes + 960 && !out.keyword) {
-      // A command finished naturally emits its final on the trailing-silence
-      // chunk (peak 0). Only discard the flush if it ISN'T an actual command —
-      // otherwise "moneypenny pause" (heard as "any pause") would be dropped.
+      // Finals often land on the trailing-silence chunk (peak 0). Keep transport
+      // verbs (pause) and play/search that still carry a title; drop bare play
+      // and conversational junk that only looks like a command.
+      const aliases = this.deps.config.commandAliases;
       const candidate = extractCommandSegment(out.final, this.watchword);
-      if (!isActionableVoiceCommand(candidate, this.deps.config.commandAliases)) {
+      if (!isActionableVoiceCommand(candidate, aliases)) {
         this.deps.logger.info(
           { clientId, transcript: out.final },
           "Voice: ignoring silence-tail flush",
         );
         return;
       }
-      if (!isPartialSafeVoiceCommand(candidate, this.deps.config.commandAliases)) {
+      const musicSearch = isMusicSearchRouteText(candidate, aliases);
+      if (musicSearch) {
+        const parsedArgs = candidate.replace(/^\S+\s*/, "").trim();
+        if (!parsedArgs) {
+          this.deps.logger.info(
+            { clientId, transcript: out.final, command: candidate },
+            "Voice: ignoring silence-tail bare play/search (needs title)",
+          );
+          return;
+        }
+      } else if (!isPartialSafeVoiceCommand(candidate, aliases)) {
         this.deps.logger.info(
           { clientId, transcript: out.final, command: candidate },
-          "Voice: ignoring silence-tail play/search (needs speech energy)",
+          "Voice: ignoring silence-tail non-transport command",
         );
         return;
       }
@@ -1247,6 +1310,7 @@ export class VoiceSession {
       logger: this.deps.logger,
       conversationId: `voice:${subject.uid}`,
       canRun,
+      allowedClassifications: allowedClassificationsFor(subject, engine),
       invokerUid: subject.uid,
       invokerName: subject.nickname,
       message: {
@@ -1263,12 +1327,24 @@ export class VoiceSession {
     };
   }
 
+  /**
+   * Prefer idle-poll clientInfoCache when groups are present; fall back to live
+   * resolve (HTTP group enrich) on miss / empty groups so rank gating stays correct.
+   */
   private async resolveSubject(clid: number): Promise<Subject> {
+    const cached = this.clientInfoCache.get(clid);
+    if (cached?.uid && cached.serverGroups.length > 0) {
+      return {
+        uid: cached.uid,
+        serverGroups: cached.serverGroups,
+        nickname: cached.nickname,
+      };
+    }
     return resolveRightsSubject(
-      `client:${clid}`,
+      cached?.uid ?? `client:${clid}`,
       this.deps.tsClient,
       this.deps.logger,
-      undefined,
+      cached?.serverGroups,
       clid,
     );
   }

@@ -4,18 +4,24 @@
 
 ## Sidecars
 
+**Multi-backend layout:** see **[voice-backends.md](./voice-backends.md)** (edge Pi vs x86 server).
+
 | Service | Profile | URL (Docker) | Purpose |
 |---------|---------|--------------|---------|
-| `sherpa-stt` | `voice` | `http://sherpa-stt:9000` | Moonshine **tiny-en** (quantized) + Silero VAD streaming (CPU) |
-| `kokoro` | `voice` | `http://kokoro:8880` | TTS (`ghcr.io/remsky/kokoro-fastapi-cpu`) |
-| `stt-mock` | `voice-dev` | `http://stt-mock:9000` (host `:9001`) | Fixed transcript for CI |
+| **`stt-whisper`** | **`voice-edge`**, **`voice-server`** | `http://stt-whisper:9000` | **Whisper ladder** (`tiny`→`large-v3`) |
+| **`piper-tts`** | edge + server | `http://piper-tts:8880` | British female Piper |
+| `sherpa-stt` | `voice` **legacy only** | host `:9002` | Moonshine + KWS (deprecated) |
+| `kokoro` | `voice` legacy | `http://kokoro:8880` | Heavy TTS (deprecated) |
+| `stt-mock` | `voice-dev` | host `:9001` | CI |
 
 ```bash
-# Production voice stack
-docker compose --profile voice up -d
-
-# Fast CI / dev mock (no model download)
-docker compose --profile voice-dev up -d
+./scripts/voice-profile.sh
+# Pi: Whisper tiny + Piper
+export STT_MODEL=tiny
+docker compose --profile voice-edge up -d --build
+# x86 GPU: Whisper large
+export STT_MODEL=large-v3 STT_DEVICE=cuda
+docker compose --profile voice-server up -d --build
 ```
 
 ## Smoke tests
@@ -31,10 +37,10 @@ docker compose --profile voice-dev up -d
 ## Enable in Settings
 
 1. Settings → AI & Permissions → **Voice loop** → enable.
-2. STT URL: `http://sherpa-stt:9000` (or `http://stt-mock:9000` with `voice-dev`).
-3. TTS URL: `http://kokoro:8880`
-4. **Watchword** defaults to `moneypenny` — say **“Moneypenny, pause”** (not bare `pause`).
-5. **Check** + synthetic **Test** (e.g. transcript `Moneypenny pause`).
+2. STT `http://stt-whisper:9000`, TTS `http://piper-tts:8880`, voice **`en_GB-southern_english_female-low`**.
+3. Turn on **text wake fallback** (`textWakeFallback: true`) — Whisper has no separate KWS.
+4. **Watchword** defaults to `moneypenny` — say **“Moneypenny, pause”**.
+5. **Check** + synthetic **Test** (transcript `Moneypenny pause`).
 
 ## HTTP contract
 

@@ -207,7 +207,8 @@ export function createMusicRouter(
   // in search/library immediately. Supports multiple files. No restart required.
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 100 * 1024 * 1024 }, // 100 MiB per file
+    // Cap memory DoS: 40 MiB × 5 files (admin-only). Disk streaming is a follow-up.
+    limits: { fileSize: 40 * 1024 * 1024, files: 5 },
     fileFilter: (_req, file, cb) => {
       const ext = path.extname(file.originalname || "").toLowerCase();
       const allowed = [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"];
@@ -222,9 +223,9 @@ export function createMusicRouter(
   router.post(
     "/upload",
     requireAdmin,
-    multerArray(upload, "files", 20, {
-      fileSizeMessage: "File too large (max 100 MB)",
-      unexpectedFileMessage: "Too many files (max 20 per upload)",
+    multerArray(upload, "files", 5, {
+      fileSizeMessage: "File too large (max 40 MB)",
+      unexpectedFileMessage: "Too many files (max 5 per upload)",
     }),
     async (req, res) => {
       try {

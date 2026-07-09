@@ -4,12 +4,10 @@ import type { TtsProvider } from "./types.js";
 import { normalizeLoudness } from "./loudness.js";
 
 /**
- * Text-to-speech client for Kokoro-FastAPI (DESIGN §10) — its OpenAI-compatible
- * `/v1/audio/speech` endpoint. Returns encoded audio bytes; the VoiceOutput
- * decodes/plays them (ffmpeg handles the container, so wav/mp3 both work).
- *
- * The same interface fits an NPU Piper backend later — only this client swaps.
- * NOTE: requires Kokoro-FastAPI running; unvalidated against real hardware.
+ * Text-to-speech client for OpenAI-compatible `/v1/audio/speech` (DESIGN §10).
+ * Works with Kokoro-FastAPI, piper-tts (services/piper-tts), or any drop-in.
+ * Returns encoded audio; VoiceOutput + ffmpeg play it (wav/mp3).
+ * See docs/voice-backends.md for edge vs server profiles.
  */
 /** Scale TTS HTTP timeout with reply length (long !ask answers need more than 20s). */
 export function ttsTimeoutForText(text: string, baseMs = 20_000, maxMs = 120_000): number {
@@ -37,8 +35,8 @@ export class KokoroTtsClient implements TtsProvider {
     normalize?: (audio: Buffer, format: string, logger?: Logger) => Promise<Buffer>;
   }) {
     this.url = opts.url.replace(/\/$/, "");
-    this.voice = opts.voice || "bf_emma";
-    this.model = opts.model || "kokoro";
+    this.voice = opts.voice || "en_GB-southern_english_female-low";
+    this.model = opts.model || "piper";
     this.format = opts.format || "wav";
     this.logger = opts.logger;
     this.timeoutMs = opts.timeoutMs ?? 20_000;

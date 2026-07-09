@@ -13,18 +13,16 @@ export function conversationKey(msg: TS3TextMessage): string {
   return msg.targetMode === 1 ? `dm:${msg.invokerUid}` : "channel";
 }
 
-/** Best-effort match between a TS nickname and a web login username. */
+/**
+ * Link a web login username to a TS nickname for rank inheritance.
+ * Exact match only (case-insensitive) — fuzzy/substring matching let low-privilege
+ * web accounts inherit high-rank TS server groups (security audit F2).
+ */
 export function nicknameMatchesUsername(nickname: string, username: string): boolean {
   const nick = nickname.trim().toLowerCase();
   const user = username.trim().toLowerCase();
   if (!nick || !user) return false;
-  if (nick === user) return true;
-  const words = nick.split(/\s+/).filter(Boolean);
-  const first = words[0] ?? "";
-  if (first === user || nick.includes(user) || user.includes(first)) return true;
-  return words.some(
-    (w) => w === user || (w.length >= 3 && user.includes(w)) || (user.length >= 3 && w.includes(user)),
-  );
+  return nick === user;
 }
 
 /**
@@ -77,13 +75,18 @@ export async function resolveWebSubject(
   }
   try {
     const clients = await tsClient.getClientsInChannel();
-    const match = clients.find((c) => nicknameMatchesUsername(c.nickname, user.username));
-    if (match) {
+    const matches = clients.filter((c) => nicknameMatchesUsername(c.nickname, user.username));
+    // Refuse ambiguous multi-match (shouldn't happen with exact nicknames, but fail closed).
+    if (matches.length === 1) {
+      const match = matches[0];
       return {
         uid: match.uid,
         serverGroups: (match.serverGroups ?? []).map(String),
         nickname: match.nickname,
       };
+    }
+    if (matches.length > 1) {
+      logger.warn({ username: user.username, n: matches.length }, "Web subject: ambiguous nickname match — using bare web subject");
     }
   } catch (err) {
     logger.debug({ err, username: user.username }, "Web subject: TS channel lookup failed");

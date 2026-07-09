@@ -1,0 +1,64 @@
+# Moneypenny — Server edition overlay (x86_64, ideally NVIDIA GPU)
+#
+# Use with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml \
+#     --profile core --profile ollama --profile rag --profile voice-server up -d
+#
+# Or: ./install.sh --edition server
+#
+# Defaults: local Gemma 4 12B chat, Whisper small|large-v3, Piper TTS.
+# Can also act as the LAN LLM host for an SBC edition (docs/editions.md).
+
+services:
+  bot:
+    environment:
+      - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL}
+      - EMBEDDING_URL=${EMBEDDING_URL:-http://ollama:11434}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
+      - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-120000}
+      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://qdrant:6333}
+      - MONEYPENNY_EDITION=server
+
+  ollama:
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-3}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-2}
+    # Uncomment when nvidia-container-toolkit is installed:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Dual-track STT: whisper.cpp (Vulkan on AMD when WHISPER_VULKAN=1 build)
+  stt-whisper:
+    build:
+      context: ./services/stt-whisper-cpp
+      dockerfile: Dockerfile
+      args:
+        WHISPER_VULKAN: ${WHISPER_VULKAN:-1}
+    environment:
+      - STT_MODEL=${STT_MODEL:-small}
+      - STT_DEVICE=${STT_DEVICE:-auto}
+      - STT_BACKEND=whisper-cpp
+      - STT_EAGER_LOAD=${STT_EAGER_LOAD:-1}
+      - STT_MODELS_DIR=/models
+      - STT_MODEL_PATH=${STT_MODEL_PATH:-}
+      - WHISPER_BIN=${WHISPER_BIN:-whisper-cli}
+    volumes:
+      - whisper-models:/models
+    # AMD / Intel iGPU Vulkan — pass render node
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      # Host gids: `getent group render video` — defaults vary by distro
+      - "${RENDER_GID:-992}"
+      - "${VIDEO_GID:-44}"
+
+  piper-tts:
+    environment:
+      - PIPER_VOICE=${PIPER_VOICE:-en_GB-southern_english_female-low}
+      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-southern_english_female-low.onnx}

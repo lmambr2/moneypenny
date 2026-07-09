@@ -19,21 +19,12 @@ describe("extractWatchwordCommand", () => {
     });
   });
 
-  it("accepts STT split variants via prefix aliases", () => {
+  it("accepts space-split watchword prefix", () => {
     expect(
       extractWatchwordCommand("money penny skip", "moneypenny", { textWakeFallback: true }),
     ).toEqual({
       matched: true,
       command: "skip",
-    });
-  });
-
-  it("maps money penny past to pause (common STT garble)", () => {
-    expect(
-      extractWatchwordCommand("Money, penny, past.", "moneypenny", { textWakeFallback: true }),
-    ).toEqual({
-      matched: true,
-      command: "pause",
     });
   });
 
@@ -71,15 +62,7 @@ describe("extractWatchwordCommand", () => {
       matched: true,
       command: "resume",
     });
-    expect(partialMentionsCommand("Rezoom.", "resume")).toBe(true);
-  });
-
-  it("pulls the verb from command-mode STT that bleeds the wake name back in", () => {
-    expect(extractCommandSegment("Honey penny pass.", "moneypenny")).toBe("pause");
-    expect(extractWatchwordCommand("Honey penny pass.", "moneypenny", { armed: true })).toEqual({
-      matched: true,
-      command: "pause",
-    });
+    expect(partialMentionsCommand("Resume.", "resume")).toBe(true);
   });
 
   it("keeps song args on play commands", () => {
@@ -90,16 +73,16 @@ describe("extractWatchwordCommand", () => {
     });
   });
 
-  it("does not treat wake-name peri as resume", () => {
+  it("does not invent commands from STT garble words", () => {
     expect(extractCommandSegment("Money peri, France, and.", "moneypenny")).toBe("");
     expect(isActionableVoiceCommand(extractCommandSegment("Money peri, France, and.", "moneypenny"))).toBe(
       false,
     );
+    // "pass" is not mapped to pause/resume — only exact verbs.
+    expect(extractCommandSegment("Honey penny pass.", "moneypenny")).toBe("");
   });
 
-  it("extracts a canonical verb after wake-bleed (the 'any pause' case)", () => {
-    // "moneypenny pause" → Moonshine "any pause" (…penny→any). "pause" is a
-    // canonical verb, not a mishear alias, so the verb scan must still catch it.
+  it("extracts a canonical verb after noise (exact 'pause')", () => {
     expect(extractCommandSegment("Any pause?", "moneypenny")).toBe("pause");
     expect(extractWatchwordCommand("Any pause?", "moneypenny", { kwsDetected: true })).toEqual({
       matched: true,
@@ -130,12 +113,12 @@ describe("normalizeVoiceCommand", () => {
     expect(normalizeVoiceCommand("the pause")).toBe("pause");
   });
 
-  it("maps playback verb mishears", () => {
-    expect(normalizeVoiceCommand("peri")).toBe("resume");
-    expect(normalizeVoiceCommand("pass")).toBe("resume");
-    expect(normalizeVoiceCommand("past")).toBe("pause");
-    expect(normalizeVoiceCommand("paws")).toBe("pause");
-    expect(normalizeVoiceCommand("ship")).toBe("skip");
+  it("does not map english garble to playback verbs", () => {
+    expect(normalizeVoiceCommand("peri")).toBe("peri");
+    expect(normalizeVoiceCommand("pass")).toBe("pass");
+    expect(normalizeVoiceCommand("past")).toBe("past");
+    expect(normalizeVoiceCommand("paws")).toBe("paws");
+    expect(normalizeVoiceCommand("ship")).toBe("ship");
   });
 });
 
@@ -144,24 +127,62 @@ describe("isPartialSafeVoiceCommand", () => {
     expect(isPartialSafeVoiceCommand("pause")).toBe(true);
     expect(isPartialSafeVoiceCommand("play toto africa")).toBe(false);
   });
+
+  it("does not partial-route high-frequency English words", () => {
+    expect(isPartialSafeVoiceCommand("now")).toBe(false);
+    expect(isPartialSafeVoiceCommand("queue")).toBe(false);
+  });
 });
 
 describe("isActionableVoiceCommand", () => {
   it("accepts playback verbs", () => {
     expect(isActionableVoiceCommand("pause")).toBe(true);
     expect(isActionableVoiceCommand("stop")).toBe(true);
+    expect(isActionableVoiceCommand("play toto africa")).toBe(true);
   });
 
   it("rejects lyric bleed", () => {
     expect(isActionableVoiceCommand("awesome")).toBe(false);
     expect(isActionableVoiceCommand("you")).toBe(false);
   });
+
+  it("rejects conversational false positives from live Pi logs", () => {
+    expect(isActionableVoiceCommand("now i need to go to a room")).toBe(false);
+    expect(isActionableVoiceCommand("forget it. i think the problem is she's slow")).toBe(false);
+    expect(isActionableVoiceCommand("forget all")).toBe(true);
+    expect(isActionableVoiceCommand("forget 3")).toBe(true);
+  });
+});
+
+describe("extractCommandSegment false positives", () => {
+  it("does not treat mid-sentence pod as pause", () => {
+    expect(
+      extractCommandSegment(
+        "I mean that's like the easiest way. There's also like a pod on should.",
+        "moneypenny",
+      ),
+    ).toBe("");
+  });
+
+  it("still extracts short transport and play+title", () => {
+    expect(extractCommandSegment("Any pause?", "moneypenny")).toBe("pause");
+    expect(extractCommandSegment("Money Penny, play Toto Africa.", "moneypenny")).toBe(
+      "play toto africa",
+    );
+  });
+
+  it("does not treat now+banter as now", () => {
+    expect(extractCommandSegment("Now I need to go to a room.", "moneypenny")).toBe("");
+  });
 });
 
 describe("watchwordAliases", () => {
-  it("includes default STT splits for moneypenny", () => {
+  it("includes exact and space-split form of moneypenny only", () => {
     expect(watchwordAliases("moneypenny")).toEqual(
-      expect.arrayContaining(["moneypenny", "money penny", "money petty", "mighty pretty"]),
+      expect.arrayContaining(["moneypenny", "money penny"]),
+    );
+    expect(watchwordAliases("moneypenny")).not.toEqual(
+      expect.arrayContaining(["money petty", "money peri", "honey penny"]),
     );
   });
 });

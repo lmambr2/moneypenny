@@ -107,11 +107,13 @@ export function createWebServer(options: WebServerOptions): WebServer {
   app.use("/api/session/login", loginLimit);
   app.use("/api/session/setup", setupLimit);
 
+  // CSRF before session mutators (login/setup/logout/change-password). First-run
+  // setup still works from the same origin as the SPA (audit F10).
+  app.use("/api", csrfOriginCheck);
   app.use("/api/session", express.json(), createSessionRouter(users, sessions, audit, logger));
 
   // ─── Gates for everything else under /api ───────────────────────────────
   const requireAuth = createRequireAuth(sessions);
-  app.use("/api", csrfOriginCheck);
   app.use("/api", requireAuth);
 
   // Authed-only body parsing. Only the (admin-gated) doctrine editor

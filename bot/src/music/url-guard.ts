@@ -1,7 +1,9 @@
 /**
  * SSRF guard for URLs passed to ffmpeg / yt-dlp / axios.
- * Blocks loopback, link-local, cloud metadata, and Docker-internal hostnames.
+ * Blocks loopback, link-local, cloud metadata, private ranges, and Docker-internal hostnames.
  */
+
+import { lookup } from "node:dns/promises";
 
 /** Sidecar hostnames from docker-compose — not valid public stream targets. */
 const BLOCKED_HOSTNAMES = new Set([
@@ -18,6 +20,7 @@ const BLOCKED_HOSTNAMES = new Set([
   "teamspeak",
   "host.docker.internal",
   "metadata.google.internal",
+  "metadata",
 ]);
 
 function parseIpv4(host: string): number[] | null {
@@ -38,21 +41,53 @@ function isPrivateOrReservedIpv4(octets: number[]): boolean {
   if (a === 0) return true;
   if (a === 10) return true;
   if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmark
+  if (a >= 224) return true; // multicast / reserved
   return false;
+}
+
+/** Parse IPv4-mapped IPv6 (::ffff:a.b.c.d or ::ffff:aabb:ccdd). */
+function ipv4MappedFromV6(host: string): number[] | null {
+  const h = host.toLowerCase();
+  const dotted = h.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dotted) return parseIpv4(dotted[1]);
+  const hex = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+    return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff];
+  }
+  return null;
 }
 
 function isBlockedIpv6(host: string): boolean {
-  const h = host.toLowerCase();
-  if (h === "::1") return true;
-  if (h.startsWith("fc") || h.startsWith("fd")) return true;
-  if (h.startsWith("fe80:")) return true;
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true;
+  if (h.startsWith("fe80:")) return true; // link-local
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // ULA
+  if (h.startsWith("ff")) return true; // multicast
+  const mapped = ipv4MappedFromV6(h);
+  if (mapped) return isPrivateOrReservedIpv4(mapped);
   return false;
 }
 
-/** True when ffmpeg/yt-dlp may safely fetch this URL (no SSRF to internal services). */
+function hostIsBlockedLiteral(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!h) return true;
+  if (BLOCKED_HOSTNAMES.has(h)) return true;
+
+  const ipv4 = parseIpv4(h);
+  if (ipv4) return isPrivateOrReservedIpv4(ipv4);
+  if (h.includes(":")) return isBlockedIpv6(h);
+  return false;
+}
+
+/** True when the hostname/IP literal itself is not a private/reserved target. */
 export function isPublicPlaybackUrl(input: string): boolean {
   let u: URL;
   try {
@@ -64,11 +99,47 @@ export function isPublicPlaybackUrl(input: string): boolean {
 
   const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (!host) return false;
-  if (BLOCKED_HOSTNAMES.has(host)) return false;
+  if (hostIsBlockedLiteral(host)) return false;
 
-  const ipv4 = parseIpv4(host);
-  if (ipv4) return !isPrivateOrReservedIpv4(ipv4);
-  if (host.includes(":")) return !isBlockedIpv6(host);
-
+  // Non-literal hostnames: allow here; callers that need DNS rebinding protection
+  // should use assertPublicPlaybackUrl (resolves A/AAAA).
   return true;
+}
+
+/**
+ * Like isPublicPlaybackUrl, but also resolves the hostname and rejects if any
+ * address is private/reserved. Use before ffmpeg/yt-dlp on user-supplied URLs.
+ */
+export async function assertPublicPlaybackUrl(input: string): Promise<boolean> {
+  if (!isPublicPlaybackUrl(input)) return false;
+  let u: URL;
+  try {
+    u = new URL(input.trim());
+  } catch {
+    return false;
+  }
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // Literal IPs already checked.
+  if (parseIpv4(host) || host.includes(":")) return true;
+
+  try {
+    const records = await Promise.race([
+      lookup(host, { all: true, verbatim: true }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("dns lookup timeout")), 1500),
+      ),
+    ]);
+    if (!records.length) return false;
+    for (const r of records) {
+      if (r.family === 4) {
+        const octets = parseIpv4(r.address);
+        if (!octets || isPrivateOrReservedIpv4(octets)) return false;
+      } else if (r.family === 6) {
+        if (isBlockedIpv6(r.address)) return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -74,6 +74,13 @@ export interface TagStoreOptions {
 export class TagStore {
   private db: Database.Database;
   private nowFn: () => number;
+  private rateUpsertStmt: Database.Statement;
+  private unrateStmt: Database.Statement;
+  private selectRowStmt: Database.Statement;
+  private globalMeanStmt: Database.Statement;
+  private ratingAggStmt: Database.Statement;
+  private updateRatingStmt: Database.Statement;
+  private insertRatingOnlyStmt: Database.Statement;
 
   constructor(opts: TagStoreOptions) {
     this.db = opts.db;
@@ -100,6 +107,22 @@ export class TagStore {
         PRIMARY KEY (track_key, rater)
       );
     `);
+    this.rateUpsertStmt = this.db.prepare(
+      `INSERT INTO track_ratings (track_key, rater, stars, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(track_key, rater) DO UPDATE SET stars = excluded.stars, updated_at = excluded.updated_at`,
+    );
+    this.unrateStmt = this.db.prepare(`DELETE FROM track_ratings WHERE track_key = ? AND rater = ?`);
+    this.selectRowStmt = this.db.prepare(`SELECT * FROM track_tags WHERE track_key = ?`);
+    this.globalMeanStmt = this.db.prepare(`SELECT AVG(stars) avg FROM track_ratings`);
+    this.ratingAggStmt = this.db.prepare(
+      `SELECT COUNT(*) n, AVG(stars) avg FROM track_ratings WHERE track_key = ?`,
+    );
+    this.updateRatingStmt = this.db.prepare(
+      `UPDATE track_tags SET rating_avg = ?, rating_count = ?, updated_at = ? WHERE track_key = ?`,
+    );
+    this.insertRatingOnlyStmt = this.db.prepare(
+      `INSERT INTO track_tags (track_key, rating_avg, rating_count, updated_at) VALUES (?, ?, ?, ?)`,
+    );
   }
 
   // --- ratings (§9.7): per-rater rows + a smoothed aggregate on track_tags ---
@@ -110,18 +133,13 @@ export class TagStore {
     const s = Math.round(stars);
     if (s < 1 || s > 5) throw new Error("rating must be 1..5"); // trust boundary
     const now = this.nowFn();
-    this.db
-      .prepare(
-        `INSERT INTO track_ratings (track_key, rater, stars, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(track_key, rater) DO UPDATE SET stars = excluded.stars, updated_at = excluded.updated_at`,
-      )
-      .run(trackKey, rater, s, now);
+    this.rateUpsertStmt.run(trackKey, rater, s, now);
     this.recomputeRating(trackKey, now);
   }
 
   /** Remove a rater's rating. Returns whether a rating existed. */
   unrate(trackKey: string, rater: string): boolean {
-    const info = this.db.prepare(`DELETE FROM track_ratings WHERE track_key = ? AND rater = ?`).run(trackKey, rater);
+    const info = this.unrateStmt.run(trackKey, rater);
     this.recomputeRating(trackKey, this.nowFn());
     return info.changes > 0;
   }
@@ -144,22 +162,16 @@ export class TagStore {
   }
 
   private globalMean(): number {
-    const r = this.db.prepare(`SELECT AVG(stars) avg FROM track_ratings`).get() as { avg: number | null };
+    const r = this.globalMeanStmt.get() as { avg: number | null };
     return r.avg ?? 3; // ponytail: mid-scale prior when nothing's rated yet
   }
 
   private recomputeRating(trackKey: string, now: number): void {
-    const r = this.db
-      .prepare(`SELECT COUNT(*) n, AVG(stars) avg FROM track_ratings WHERE track_key = ?`)
-      .get(trackKey) as { n: number; avg: number | null };
+    const r = this.ratingAggStmt.get(trackKey) as { n: number; avg: number | null };
     if (this.selectRow(trackKey)) {
-      this.db
-        .prepare(`UPDATE track_tags SET rating_avg = ?, rating_count = ?, updated_at = ? WHERE track_key = ?`)
-        .run(r.avg, r.n, now, trackKey);
+      this.updateRatingStmt.run(r.avg, r.n, now, trackKey);
     } else if (r.n > 0) {
-      this.db
-        .prepare(`INSERT INTO track_tags (track_key, rating_avg, rating_count, updated_at) VALUES (?, ?, ?, ?)`)
-        .run(trackKey, r.avg, r.n, now);
+      this.insertRatingOnlyStmt.run(trackKey, r.avg, r.n, now);
     }
   }
 
@@ -285,7 +297,7 @@ export class TagStore {
   // --- internals ---
 
   private selectRow(trackKey: string): Row | null {
-    return (this.db.prepare(`SELECT * FROM track_tags WHERE track_key = ?`).get(trackKey) as Row | undefined) ?? null;
+    return (this.selectRowStmt.get(trackKey) as Row | undefined) ?? null;
   }
 
   private toTags(row: Row): TrackTags {

@@ -6,7 +6,14 @@ import { createOpusEncoder, PCM_FRAME_BYTES, type Encoder } from "./encoder.js";
 import type { Logger } from "../logger.js";
 
 const require = createRequire(import.meta.url);
-const ffmpegPath: string | null = require("ffmpeg-static");
+/** Optional dep — prefer system ffmpeg on the Pi; ffmpeg-static is a large fallback. */
+const ffmpegPath: string | null = (() => {
+  try {
+    return require("ffmpeg-static") as string;
+  } catch {
+    return null;
+  }
+})();
 
 /** Global PID tracker — prevents processes from being orphaned when class instances are swapped. */
 const globalActivePids = new Set<number>();
@@ -96,7 +103,9 @@ export class AudioPlayer extends EventEmitter {
   /** Extra attenuation during voice capture — independent of the volume slider. */
   private sttDuckActive = false;
   private sttDuckLevel = 2;
-  private pcmBuffer: Buffer = Buffer.alloc(0);
+  /** Chunk queue avoids O(n) Buffer.concat on every ffmpeg data event. */
+  private pcmChunks: Buffer[] = [];
+  private pcmBuffered = 0;
   private logger: Logger;
   private frameLoopRunning = false;
   private nextFrameTime = 0;
@@ -165,9 +174,9 @@ export class AudioPlayer extends EventEmitter {
       if (this.sessionId !== currentSessionId) {
         return;
       }
-      
-      this.pcmBuffer = Buffer.concat([this.pcmBuffer, chunk]);
-      if (this.pcmBuffer.length > AudioPlayer.BUFFER_HIGH_WATER && !this.ffmpegPaused && this.ffmpeg?.stdout) {
+      this.pcmChunks.push(chunk);
+      this.pcmBuffered += chunk.length;
+      if (this.pcmBuffered > AudioPlayer.BUFFER_HIGH_WATER && !this.ffmpegPaused && this.ffmpeg?.stdout) {
         this.ffmpeg.stdout.pause();
         this.ffmpegPaused = true;
       }
@@ -202,7 +211,8 @@ export class AudioPlayer extends EventEmitter {
     this.frameLoopRunning = false;
     
     // Clear the buffer immediately so track switches are silent instantly.
-    this.pcmBuffer = Buffer.alloc(0);
+    this.pcmChunks = [];
+    this.pcmBuffered = 0;
 
     if (this.ffmpeg) {
       const procToKill = this.ffmpeg;
@@ -279,7 +289,7 @@ export class AudioPlayer extends EventEmitter {
       if (this.state === "playing") this.sendNextFrame();
       else if (this.state === "paused") this.nextFrameTime = performance.now();
 
-      // Detect a stall where pcmBuffer stays below PCM_FRAME_BYTES and the loop spins:
+      // Detect a stall where pcm stays below PCM_FRAME_BYTES and the loop spins:
       //   Cond 1: FFmpeg still running but buffer holds less than one frame, and data
       //           has been unavailable for many consecutive iterations.
       //   Cond 2: playback time is near the end of the song (last 5s) or duration unknown.
@@ -288,7 +298,7 @@ export class AudioPlayer extends EventEmitter {
         ? (this.currentSongDuration - elapsed) <= 5 // less than 5s from the end
         : true; // be conservative when duration is unknown
       
-      if (this.ffmpeg !== null && this.pcmBuffer.length < PCM_FRAME_BYTES) {
+      if (this.ffmpeg !== null && this.pcmBuffered < PCM_FRAME_BYTES) {
         this.emptyFrameAttempts++;
         
         // Only treat playback as finished when BOTH hold: empty-frame threshold reached AND near the end.
@@ -296,7 +306,7 @@ export class AudioPlayer extends EventEmitter {
           this.logger.info({ 
             sessionId: this.sessionId,
             emptyAttempts: this.emptyFrameAttempts,
-            bufferSize: this.pcmBuffer.length,
+            bufferSize: this.pcmBuffered,
             elapsed: Math.round(elapsed),
             duration: this.currentSongDuration,
             remaining: Math.round(this.currentSongDuration - elapsed)
@@ -323,7 +333,7 @@ export class AudioPlayer extends EventEmitter {
         this.emptyFrameAttempts = 0;
       }
 
-      if (!this.ffmpeg && this.pcmBuffer.length < PCM_FRAME_BYTES) {
+      if (!this.ffmpeg && this.pcmBuffered < PCM_FRAME_BYTES) {
         this.frameLoopRunning = false;
         if (this.state !== "idle") {
           this.state = "idle";
@@ -338,12 +348,30 @@ export class AudioPlayer extends EventEmitter {
     }, delay);
   }
 
-  private sendNextFrame(): void {
-    if (this.pcmBuffer.length < PCM_FRAME_BYTES) return;
-    const pcmFrame = this.pcmBuffer.subarray(0, PCM_FRAME_BYTES);
-    this.pcmBuffer = this.pcmBuffer.subarray(PCM_FRAME_BYTES);
+  /** Drain exactly one Opus-frame of PCM from the chunk list (no full-buffer concat). */
+  private takePcmFrame(): Buffer | null {
+    if (this.pcmBuffered < PCM_FRAME_BYTES) return null;
+    const frame = Buffer.allocUnsafe(PCM_FRAME_BYTES);
+    let filled = 0;
+    while (filled < PCM_FRAME_BYTES) {
+      const head = this.pcmChunks[0];
+      if (!head) break;
+      const need = PCM_FRAME_BYTES - filled;
+      const take = Math.min(need, head.length);
+      head.copy(frame, filled, 0, take);
+      filled += take;
+      if (take === head.length) this.pcmChunks.shift();
+      else this.pcmChunks[0] = head.subarray(take);
+    }
+    this.pcmBuffered -= filled;
+    return filled === PCM_FRAME_BYTES ? frame : null;
+  }
 
-    if (this.ffmpegPaused && this.pcmBuffer.length < AudioPlayer.BUFFER_LOW_WATER && this.ffmpeg?.stdout) {
+  private sendNextFrame(): void {
+    const pcmFrame = this.takePcmFrame();
+    if (!pcmFrame) return;
+
+    if (this.ffmpegPaused && this.pcmBuffered < AudioPlayer.BUFFER_LOW_WATER && this.ffmpeg?.stdout) {
       this.ffmpeg.stdout.resume();
       this.ffmpegPaused = false;
     }
@@ -370,11 +398,21 @@ export class AudioPlayer extends EventEmitter {
     // but a floored playback IS the bot talking (radio bumper/liner), and the
     // announcer doesn't duck for chatter: the floor beats the duck too.
     const effectiveVolume = this.sttDuckActive ? Math.max(this.sttDuckLevel, floor) : base;
-    if (effectiveVolume === 100) return Buffer.from(pcm);
+    // Historical volume curve multiplies by 0.2 — factor 1.0 never happens at slider≤100.
     const factor = (effectiveVolume / 100) * 0.2;
-    const out = Buffer.alloc(pcm.length);
+    if (factor >= 0.999) return pcm;
+    const out = Buffer.allocUnsafe(pcm.length);
+    if (pcm.byteOffset % 2 === 0 && pcm.length % 2 === 0) {
+      const src = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length / 2);
+      const dst = new Int16Array(out.buffer, out.byteOffset, out.length / 2);
+      for (let i = 0; i < src.length; i++) {
+        const sample = Math.round(src[i] * factor);
+        dst[i] = sample < -32768 ? -32768 : sample > 32767 ? 32767 : sample;
+      }
+      return out;
+    }
     for (let i = 0; i < pcm.length; i += 2) {
-      let sample = Math.round(pcm.readInt16LE(i) * factor);
+      const sample = Math.round(pcm.readInt16LE(i) * factor);
       out.writeInt16LE(Math.max(-32768, Math.min(32767, sample)), i);
     }
     return out;
