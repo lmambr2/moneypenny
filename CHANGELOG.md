@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to Moneypenny. Dates are when the work landed on `main`.
+Notable changes to Moneypenny. Dates are when the work landed on `master`/`dev`.
 
 This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a

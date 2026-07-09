@@ -165,7 +165,8 @@ SC Trade tools licence: [Patreon sc_trade_tools](https://www.patreon.com/cw/sc_t
            seed ores/methods + sc-wiki disk snippets (no network)
 ```
 
-Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights `bot/src/rights/migrations.ts` (v3 economy + v7 trade).
+Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights
+`bot/src/rights/migrations.ts` (v3 mine/refine/craft/econ · v7 trade · v8 workorder).
 
 ---
 
