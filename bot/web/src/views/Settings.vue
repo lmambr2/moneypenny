@@ -1250,7 +1250,7 @@
         <div class="form-group">
           <label>Duck volume (0–100)</label>
           <input v-model.number="ai.voiceDuckMusicVolume" type="number" min="0" max="100" class="input" />
-          <div class="profile-toggle-hint">Music level while listening (default 20 — soft duck). Only while music is playing.</div>
+          <div class="profile-toggle-hint">Music level while listening (default 15 — lower = more ducking). Only while music is playing.</div>
         </div>
         <div class="form-group">
           <label>Listen window (seconds)</label>
@@ -1784,7 +1784,7 @@ const ai = reactive({
   voiceWatchword: 'moneypenny',
   voiceRequireWatchword: true,
   voiceDuckMusicOnSpeech: true,
-  voiceDuckMusicVolume: 20,
+  voiceDuckMusicVolume: 15,
   voiceListenWindowSec: 15,
   voiceRespondWithVoice: true,
   radioEnabled: false,
@@ -2237,9 +2237,9 @@ async function loadAiSettings() {
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
     // Legacy default was 2 (near-mute); show soft default so next Save fixes config.json.
     {
-      const d = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 20;
-      // Legacy product defaults 2 (near-mute) and 25 (prior soft) → current soft 20
-      ai.voiceDuckMusicVolume = d === 2 || d === 25 ? 20 : d;
+      const d = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 15;
+      // Legacy product defaults 2 / 20 / 25 → current soft 15 (more ducking)
+      ai.voiceDuckMusicVolume = d === 2 || d === 20 || d === 25 ? 15 : d;
     }
     ai.voiceListenWindowSec = Math.max(
       5,
@@ -2785,7 +2785,7 @@ async function saveAiSettings() {
         watchword: ai.voiceWatchword.trim() || 'moneypenny',
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
-        duckMusicVolume: Math.max(0, Math.min(100, Number(ai.voiceDuckMusicVolume) || 20)),
+        duckMusicVolume: Math.max(0, Math.min(100, Number(ai.voiceDuckMusicVolume) || 15)),
         listenWindowMs: Math.max(
           5000,
           Math.min(60_000, (Number(ai.voiceListenWindowSec) || 15) * 1000),

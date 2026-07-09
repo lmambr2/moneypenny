@@ -29,8 +29,9 @@ export function defaultUnderMusicConfig(partial?: Partial<UnderMusicConfig>): Un
     duckMusicVolume: clamp(
       partial?.duckMusicVolume === undefined ||
         partial.duckMusicVolume === 2 ||
+        partial.duckMusicVolume === 20 ||
         partial.duckMusicVolume === 25
-        ? 20
+        ? 15
         : partial.duckMusicVolume,
       0,
       100,

@@ -117,7 +117,7 @@ For a planned listen-only delegate bot (Intercom), see [`docs/intercom.md`](./in
 ## Under-music tips (SBC)
 
 - Product STT: **Whisper base on NPU** (`STT_MODEL=base`, `STT_BACKEND=rknn`).
-- Keep **Duck music while listening** on; duck volume default **20** (soft). Raise toward 30–40 if music still drowns STT, lower toward 10 if the bot’s music bleeds into the mic.
+- Keep **Duck music while listening** on; duck volume default **15** (lower = quieter music / more ducking). Raise toward 25–40 if music is too quiet to enjoy; lower toward 10 if STT still struggles.
 - **Listen window** ≥ 15s so “Moneypenny” … “pause” works without re-saying the watchword.
 - Prefer short transport verbs: pause / skip / clear / next (no synonym maps).
 - Memory / roast: “Moneypenny, remember I like jazz” · “Moneypenny, roast”.

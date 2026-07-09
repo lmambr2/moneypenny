@@ -99,8 +99,8 @@ export function defaultVoiceConfig(): VoiceConfig {
     watchword: "moneypenny",
     requireWatchword: true,
     duckMusicOnSpeech: true,
-    // Soft duck: music stays audible; ~20% leaves more headroom for STT under loud mixes.
-    duckMusicVolume: 20,
+    // Soft duck target level while listening (lower = more ducking / quieter music).
+    duckMusicVolume: 15,
     listenWindowMs: 15000,
     passiveKwsMaxSpeakers: 2,
     // Whisper sidecars have no KWS — text wake matching is required for "Moneypenny …".
