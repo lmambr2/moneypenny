@@ -110,7 +110,7 @@ Chat commands (default prefix `!`):
 | `!radio ops <profile>` · `!radio bumper [topic]` · `!radio say <text>` · `!radio prewarm [doctrine]` · `!radio skip` · `!radio pin` · `!radio gen <prompt>` | Station programming (`@dj` + admin); `prewarm` fills TTS cache; `pin` → prerecorded pool |
 | `!selecttracks <json>` | Tag-driven local track selection (normally via the `select_tracks` LLM tool) |
 | `!intsum [-s] [class:<level>] <points>` · `!aar [-s] …` | Templated INTSUM / AAR generation (analyst delegate; `-s` saves to doctrine) |
-| `!mine` · `!refine` · `!craft` · `!trade` · `!econ` | Economy: seed mine/refine; live craft (sc-craft) + trade routes (sc-trade, token) + UEX prices — [docs/economy.md](docs/economy.md) |
+| `!mine` · `!refine` · `!craft` · `!workorder` · `!work-items` · `!trade` · `!econ` | Economy shopping lists + craft/trade/UEX — [docs/economy.md](docs/economy.md) |
 | `!kg remember <fact>` · `!kg who <name> [asof:date]` · `!kg list` · `!diary intel\|logistics <fact>` | Institutional knowledge graph (analyst-gated) |
 | `!rate <1-5> [song]` · `!unrate` | Star-rate the current (or a searched) track |
 | `!reindex` *(admin)* | Re-embed the doctrine corpus |

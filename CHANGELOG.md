@@ -8,6 +8,14 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Economy: !workorder / !work-items (org shopping list)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `!workorder <item> xN` — resolve sc-craft BOM, scale, save open work order
+- `!work-items` — aggregate org material totals (shopping list, not a guidebook)
+- `!workorder list|done <id>|clear` — manage board
+- SQLite `work_orders` table; public rights (migration v8)
+
 ### Economy: shared disk cache + SC Wiki enrichment
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

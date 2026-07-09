@@ -93,6 +93,11 @@ const DELTAS: readonly RightsDelta[] = [
     version: 7,
     defaultAllow: ["trade"],
   },
+  {
+    // Org work-order shopping list.
+    version: 8,
+    defaultAllow: ["workorder", "work-items", "workitems"],
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

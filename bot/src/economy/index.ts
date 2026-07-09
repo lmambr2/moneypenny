@@ -12,3 +12,5 @@ export * from "./service.js";
 export * from "./trade-parse.js";
 export * from "./trade-service.js";
 export * from "./uex.js";
+export * from "./work-order-service.js";
+export * from "./work-orders.js";

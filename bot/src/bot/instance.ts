@@ -38,6 +38,7 @@ import {
 } from "../radio/index.js";
 import { startEconomyCacheScheduler } from "../economy/cache/refresh.js";
 import { initEconomyDiskCache } from "../economy/cache/store.js";
+import { initWorkOrderStore } from "../economy/work-orders.js";
 import { DEFAULT_EVAL_CASES, type EvalCase, runEvalLoop } from "../rag/eval-loop.js";
 import type { RetrievalStore } from "../rag/index.js";
 import type { RightsConfig } from "../rights/index.js";
@@ -418,8 +419,9 @@ export class BotInstance extends EventEmitter {
     try {
       initEconomyDiskCache(dataDir);
       startEconomyCacheScheduler({ logger: this.logger });
+      initWorkOrderStore(this.database.db);
     } catch (err) {
-      this.logger.warn({ err }, "economy disk cache init skipped");
+      this.logger.warn({ err }, "economy disk cache / work orders init skipped");
     }
     const radioBumperDir = this.resolveBumperDir(dataDir);
     const radioTtsVoice = this.config.radio.ttsVoice ?? this.config.voice.ttsVoice;

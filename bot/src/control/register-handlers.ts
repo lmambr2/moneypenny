@@ -107,6 +107,20 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     craft: async (cmd) => handleEconomyCommand("craft" as EconomyCommand, cmd.args),
     econ: async (cmd) => handleEconomyCommand("econ" as EconomyCommand, cmd.args),
     trade: async (cmd) => handleEconomyCommand("trade" as EconomyCommand, cmd.args),
+    workorder: async (cmd, ctx) => {
+      const { handleWorkOrderCommand } = await import("../economy/work-order-service.js");
+      return handleWorkOrderCommand(cmd.args, "!", {
+        invokerUid: ctx.invokerUid ?? null,
+      });
+    },
+    "work-items": async () => {
+      const { handleWorkItemsCommand } = await import("../economy/work-order-service.js");
+      return handleWorkItemsCommand("!");
+    },
+    workitems: async () => {
+      const { handleWorkItemsCommand } = await import("../economy/work-order-service.js");
+      return handleWorkItemsCommand("!");
+    },
     reindex: async (cmd) =>
       host.knowledge.handleReindex(cmd.rawArgs.length ? cmd.rawArgs : undefined),
     ingeststatus: async () => host.knowledge.handleIngestStatus(),

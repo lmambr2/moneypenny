@@ -87,6 +87,10 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "craft", kind: "special" },
   { name: "econ", kind: "special" },
   { name: "trade", kind: "special" },
+  // Org work-order shopping list (aggregate materials).
+  { name: "workorder", kind: "special" },
+  { name: "work-items", kind: "special" },
+  { name: "workitems", kind: "special" },
   { name: "reindex", kind: "special", admin: true },
   { name: "ingeststatus", kind: "special", admin: true },
   // ACE-Step music gen (docs/ace-step.md) — @dj / admin via rights, not public.

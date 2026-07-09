@@ -12,6 +12,8 @@
 | `!mine <ore> [scu:N] [method:name]` | Mining pull + stability / souring clock | Offline seed (`catalog.ts`) |
 | `!refine <ore> [scu:N] [method:name]` | Refine yield / time / cost **estimates** | Offline seed |
 | `!craft <blueprint> [qty:N]` | Bill of materials for an **in-game** blueprint | **sc-craft.tools** (live) |
+| `!workorder <item> xN` | Save a craft BOM×qty as an org work order | sc-craft + SQLite |
+| `!work-items` | Sum open work orders → org material shopping list | SQLite aggregate |
 | `!trade …` | Trade routes, buyers, itinerary, circuit | **sc-trade.tools** (live; **token** for tools) |
 | `!econ ores` | List mineable ores | Offline seed |
 | `!econ methods` | List refine methods | Offline seed |
@@ -33,6 +35,10 @@ Public by default (rights: mine/refine/craft/econ v3, trade v7).
 !refine bexalite scu:32 method:cormack
 !craft P4-AR qty:1
 !craft Coda qty:2
+!workorder P4-AR x3
+!work-items
+!workorder list
+!workorder done 1
 !econ blueprints P4-AR
 !econ blueprints Coda
 !econ prices quantainium
@@ -185,7 +191,7 @@ Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights `bo
 
 ## 7. Acceptance checklist
 
-- [x] `!mine` / `!refine` / `!craft` / `!econ` / `!trade` registered + public
+- [x] `!mine` / `!refine` / `!craft` / `!workorder` / `!work-items` / `!econ` / `!trade` registered + public
 - [x] Seed ores/methods offline without network
 - [x] Craft examples and seed list use **in-game** blueprints only (sc-craft)
 - [x] Optional UEX prices with cache + attribution

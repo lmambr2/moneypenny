@@ -62,6 +62,7 @@ export function formatEconHelp(prefix = "!"): string {
     `${prefix}mine quantainium scu:32`,
     `${prefix}refine quantainium scu:32 method:dinyx`,
     `${prefix}craft P4-AR qty:1`,
+    `${prefix}workorder P4-AR x3 · ${prefix}work-items`,
     `${prefix}trade routes ship:Freelancer+MAX invest:200000`,
     `${prefix}econ prices quantainium · ${prefix}econ blueprints Coda · ${prefix}econ ores`,
     `${prefix}econ cache · ${prefix}econ refresh`,
