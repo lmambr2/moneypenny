@@ -129,10 +129,7 @@ export class ScOrgClient {
   }
 }
 
-export function parseStatusPayload(
-  data: Record<string, unknown>,
-  defaultOrg: string,
-): ScOrgStatus {
+export function parseStatusPayload(data: Record<string, unknown>, defaultOrg: string): ScOrgStatus {
   return {
     status: String(data.status ?? data.state ?? "ok"),
     membersOnline:

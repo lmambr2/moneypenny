@@ -23,9 +23,7 @@ export interface UnderMusicPlan {
   notes: string[];
 }
 
-export function defaultUnderMusicConfig(
-  partial?: Partial<UnderMusicConfig>,
-): UnderMusicConfig {
+export function defaultUnderMusicConfig(partial?: Partial<UnderMusicConfig>): UnderMusicConfig {
   return {
     duckMusicOnSpeech: partial?.duckMusicOnSpeech !== false,
     duckMusicVolume: clamp(

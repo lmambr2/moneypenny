@@ -99,7 +99,6 @@ export function buildScopesSnapshot(opts: {
     scopes: describeMemoryScopes(opts),
     privateCount: opts.privateCount,
     orgCount: opts.orgCount,
-    isolationRule:
-      "Private !remember rooms never feed radio memory bumpers. Org KG only (opt-in).",
+    isolationRule: "Private !remember rooms never feed radio memory bumpers. Org KG only (opt-in).",
   };
 }

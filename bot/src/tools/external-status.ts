@@ -65,9 +65,11 @@ export class ExternalStatusRegistry {
         id,
         label: id,
         ok: false,
-        text: `Unknown status source "${id}". Try: ${this.list()
-          .map((p) => p.id)
-          .join(", ") || "(none registered)"}`,
+        text: `Unknown status source "${id}". Try: ${
+          this.list()
+            .map((p) => p.id)
+            .join(", ") || "(none registered)"
+        }`,
         cached: false,
       };
     }

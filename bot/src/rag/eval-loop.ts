@@ -72,10 +72,7 @@ export const DEFAULT_EVAL_CASES: EvalCase[] = [
   },
 ];
 
-export async function runEvalCase(
-  c: EvalCase,
-  deps: EvalLoopDeps,
-): Promise<EvalCaseResult> {
+export async function runEvalCase(c: EvalCase, deps: EvalLoopDeps): Promise<EvalCaseResult> {
   const doctrine = deps.queryDoctrine ? await deps.queryDoctrine(c.query) : [];
   const org = deps.queryOrgMemory ? await deps.queryOrgMemory(c.query) : [];
   const doctrineHits = doctrine.length;
@@ -136,10 +133,7 @@ export async function runEvalCase(
   };
 }
 
-export async function runEvalLoop(
-  cases: EvalCase[],
-  deps: EvalLoopDeps,
-): Promise<EvalReport> {
+export async function runEvalLoop(cases: EvalCase[], deps: EvalLoopDeps): Promise<EvalReport> {
   const results: EvalCaseResult[] = [];
   for (const c of cases) {
     results.push(await runEvalCase(c, deps));

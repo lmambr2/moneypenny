@@ -1,14 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { createStarCitizenOrgStatusPlugin, ExternalStatusRegistry } from "./external-status.js";
 import {
   formatScOrgStatusLine,
   normalizeScOrgBaseUrl,
   parseStatusPayload,
   ScOrgClient,
 } from "./sc-org-client.js";
-import {
-  createStarCitizenOrgStatusPlugin,
-  ExternalStatusRegistry,
-} from "./external-status.js";
 
 describe("ScOrgClient (G2 depth)", () => {
   it("normalizeScOrgBaseUrl allows only http(s)", () => {

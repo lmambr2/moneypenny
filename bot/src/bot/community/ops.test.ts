@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ExternalStatusRegistry } from "../../tools/external-status.js";
 import { OpsService } from "./ops.js";
 

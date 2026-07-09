@@ -16,6 +16,7 @@ import { RoastStore } from "../data/roast.js";
 import type { WorkflowKind } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
 import { MemPalaceClient } from "../memory/mempalace-client.js";
+import { buildScopesSnapshot } from "../memory/scopes.js";
 import { AceStepClient } from "../music/ace-step-client.js";
 import { GenerateProvider } from "../music/generate-provider.js";
 import type { LocalProvider } from "../music/local.js";
@@ -35,33 +36,28 @@ import {
   SpeechSink,
   TagStore,
 } from "../radio/index.js";
+import { DEFAULT_EVAL_CASES, type EvalCase, runEvalLoop } from "../rag/eval-loop.js";
 import type { RetrievalStore } from "../rag/index.js";
 import type { RightsConfig } from "../rights/index.js";
+import {
+  createHostHealthPlugin,
+  createStarCitizenOrgStatusPlugin,
+  ExternalStatusRegistry,
+} from "../tools/external-status.js";
 import { TS3Client, type TS3ClientOptions, type TS3TextMessage } from "../ts-protocol/client.js";
 import { KokoroTtsClient, type TtsProvider } from "../voice/index.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
+import {
+  defaultUnderMusicConfig,
+  runUnderMusicSmoke,
+  type UnderMusicConfig,
+} from "../voice/under-music.js";
 import { CommandExecutor } from "./commands/executor.js";
 import type { ParsedCommand } from "./commands.js";
 import { KgService } from "./community/kg.js";
 import { MemoryService } from "./community/memory.js";
 import { OpsService } from "./community/ops.js";
 import { RoastService } from "./community/roast.js";
-import {
-  createHostHealthPlugin,
-  createStarCitizenOrgStatusPlugin,
-  ExternalStatusRegistry,
-} from "../tools/external-status.js";
-import { buildScopesSnapshot } from "../memory/scopes.js";
-import {
-  defaultUnderMusicConfig,
-  runUnderMusicSmoke,
-  type UnderMusicConfig,
-} from "../voice/under-music.js";
-import {
-  DEFAULT_EVAL_CASES,
-  runEvalLoop,
-  type EvalCase,
-} from "../rag/eval-loop.js";
 import { PokeHandler } from "./control/poke-handler.js";
 import { RoutedCommandExecutor } from "./control/routed-executor.js";
 import { TextMessageHandler } from "./control/text-handler.js";

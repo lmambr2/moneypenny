@@ -63,9 +63,7 @@ describe("RAG eval loop (R3)", () => {
           ? [{ text: `hit for ${q}`, source: "doc.md", score: 0.9 }]
           : [],
       queryOrgMemory: async (q) =>
-        q.includes("fleet") || q.includes("station")
-          ? [{ fact: `org fact ${q}` }]
-          : [],
+        q.includes("fleet") || q.includes("station") ? [{ fact: `org fact ${q}` }] : [],
     });
     expect(report.ok).toBe(true);
     expect(report.failed).toBe(0);

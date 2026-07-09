@@ -188,7 +188,8 @@ export class LlmRuntime {
     question: string,
     ctx?: { allowedClassifications?: string[]; userUid?: string },
   ): Promise<Array<{ text: string; source: string; score?: number; classification?: string }>> {
-    const out: Array<{ text: string; source: string; score?: number; classification?: string }> = [];
+    const out: Array<{ text: string; source: string; score?: number; classification?: string }> =
+      [];
     const retrieval = this.deps.getRetrieval();
     if (this.deps.config.ragEnabled && retrieval) {
       const chunks = await retrieval.query(

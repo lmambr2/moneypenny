@@ -211,7 +211,10 @@ async function submit() {
     }
     if (turn?.error && !turn.reply) formError.value = turn.error;
   } catch (err: unknown) {
-    const e = err as { response?: { data?: { error?: string; turn?: HarnessTurn } }; message?: string };
+    const e = err as {
+      response?: { data?: { error?: string; turn?: HarnessTurn } };
+      message?: string;
+    };
     if (e.response?.data?.turn) {
       turns.value = [e.response.data.turn, ...turns.value].slice(0, 40);
     }
@@ -273,9 +276,7 @@ async function loadPrivate() {
     });
     privateFacts.value = res.data.facts ?? [];
     privateMsg.value =
-      privateFacts.value.length === 0
-        ? 'No private facts for that uid.'
-        : (res.data.warning ?? '');
+      privateFacts.value.length === 0 ? 'No private facts for that uid.' : (res.data.warning ?? '');
   } catch (err: unknown) {
     const e = err as { response?: { data?: { error?: string } }; message?: string };
     privateMsg.value = e.response?.data?.error ?? e.message ?? 'Load failed';
@@ -310,13 +311,15 @@ async function runEval() {
     const r = res.data;
     const lines = [
       `RAG eval: ${r.ok ? 'PASS' : 'FAIL'} (${r.passed}/${r.passed + r.failed})`,
-      ...((r.results ?? []) as Array<{
-        id: string;
-        pass: boolean;
-        reason?: string;
-        doctrineHits: number;
-        orgHits: number;
-      }>).map(
+      ...(
+        (r.results ?? []) as Array<{
+          id: string;
+          pass: boolean;
+          reason?: string;
+          doctrineHits: number;
+          orgHits: number;
+        }>
+      ).map(
         (x) =>
           `${x.pass ? '✓' : '✗'} ${x.id} doc=${x.doctrineHits} org=${x.orgHits}${
             x.reason ? ` — ${x.reason}` : ''

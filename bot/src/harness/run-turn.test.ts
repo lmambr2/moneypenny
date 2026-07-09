@@ -13,7 +13,9 @@ describe("runHarnessTurn (H1/H2/H5)", () => {
         classification: "restricted",
       },
     ]);
-    const ask = vi.fn(async (q: string) => `About ${q}: dock at port A.\n\n📎 Sources: combat-doctrine.md`);
+    const ask = vi.fn(
+      async (q: string) => `About ${q}: dock at port A.\n\n📎 Sources: combat-doctrine.md`,
+    );
 
     const turn = await runHarnessTurn("where do we dock", "ask", {
       llm: { ask },

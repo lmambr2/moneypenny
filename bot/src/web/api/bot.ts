@@ -955,7 +955,10 @@ export function createBotRouter(
       res.json({ turns: [] });
       return;
     }
-    const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query.limit ?? "30"), 10) || 30));
+    const limit = Math.min(
+      50,
+      Math.max(1, Number.parseInt(String(req.query.limit ?? "30"), 10) || 30),
+    );
     res.json({ turns: bot.listHarnessTurns(limit) });
   });
 

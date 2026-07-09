@@ -16,8 +16,6 @@ describe("default radio topic packs (R1)", () => {
     expect(cfg.profiles.mining.bumper?.topics).toEqual(
       expect.arrayContaining(["mining", "logistics"]),
     );
-    expect(cfg.profiles.focus.bumper?.topics).toEqual(
-      expect.arrayContaining(["ops", "briefing"]),
-    );
+    expect(cfg.profiles.focus.bumper?.topics).toEqual(expect.arrayContaining(["ops", "briefing"]));
   });
 });
