@@ -47,6 +47,7 @@ export class RadioCommands {
         return `📻 Radio mode ON. ${this.summary(radio)} (runtime toggle — set a persistent default in Settings.)`;
       case "off":
         radio.enabled = false;
+        this.deps.onRelayChanged?.(null); // stop timer bumpers when leaving radio
         return "📻 Radio mode OFF.";
       case "ops":
         return this.ops(cmd, radio);
@@ -161,6 +162,8 @@ export class RadioCommands {
   private async programFromProfile(profile: RadioProfile): Promise<number> {
     const music = profile.music ?? {};
     const pool: QueuedSong[] = [];
+    /** Set only when the pool is the live relay URL (timer bumpers apply). */
+    let activeRelay: { relayUrl: string; bumperIntervalSec: number } | null = null;
 
     if (music.select && this.deps.tagStore) {
       const keys = this.deps.tagStore.selectTracks(parseTagFilters(music.select as Record<string, unknown>));
@@ -203,8 +206,7 @@ export class RadioCommands {
         if (relay) {
           const song = relaySongFromUrl(relay.relayUrl);
           pool.push({ ...song, platform: "stream" });
-          // Notify host to start timer bumpers when available
-          this.deps.onRelayStarted?.(relay);
+          activeRelay = relay;
         }
       } catch {
         /* fail-open */
@@ -218,13 +220,19 @@ export class RadioCommands {
         if (hit) pool.push({ ...hit.song, platform: hit.provider.platform });
       }
     }
-    if (pool.length === 0) return 0;
+    if (pool.length === 0) {
+      // No program → leave relay mode if we were on a timer.
+      this.deps.onRelayChanged?.(null);
+      return 0;
+    }
 
     this.deps.queue.clear();
     for (const song of pool) this.deps.queue.add(song);
     const first = this.deps.queue.play();
     this.deps.player.resetFailures();
     if (first) await this.deps.playback.resolveAndPlay(first);
+    // Start timer bumpers only for pure relay; stop when profile is library/spotify/etc.
+    this.deps.onRelayChanged?.(activeRelay);
     return pool.length;
   }
 

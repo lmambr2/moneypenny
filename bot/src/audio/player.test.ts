@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AudioPlayer, buildFfmpegArgs, cleanupTempDir } from "./player.js";
+import { PCM_FRAME_BYTES } from "./encoder.js";
 import type { Logger } from "../logger.js";
 
 const silentLogger = {
@@ -172,5 +173,37 @@ describe("speech floor vs STT courtesy duck", () => {
     (player as unknown as { playVolumeFloor: number | null }).playVolumeFloor = 85;
     const bumper = apply(pcm).readInt16LE(0); // bumper: floor beats duck
     expect(bumper).toBeGreaterThan(ducked * 10);
+  });
+});
+
+describe("AudioPlayer Icecast tee PCM emit (R-R6)", () => {
+  it("sendNextFrame emits volume-adjusted pcm then frame (real encode path)", () => {
+    const player = new AudioPlayer(silentLogger);
+    player.setVolume(50);
+    const onPcm = vi.fn();
+    const onFrame = vi.fn();
+    player.on("pcm", onPcm);
+    player.on("frame", onFrame);
+
+    // Stuff one Opus-period of s16le PCM into the internal buffer and drain.
+    const raw = Buffer.alloc(PCM_FRAME_BYTES);
+    raw.writeInt16LE(10000, 0);
+    const internal = player as unknown as {
+      pcmChunks: Buffer[];
+      pcmBuffered: number;
+      sendNextFrame: () => void;
+    };
+    internal.pcmChunks = [raw];
+    internal.pcmBuffered = PCM_FRAME_BYTES;
+    internal.sendNextFrame();
+
+    expect(onPcm).toHaveBeenCalledOnce();
+    const pcmOut = onPcm.mock.calls[0]![0] as Buffer;
+    expect(pcmOut).toBeInstanceOf(Buffer);
+    expect(pcmOut.length).toBe(PCM_FRAME_BYTES);
+    // Volume 50 → factor 0.1; first sample attenuated from 10000
+    expect(Math.abs(pcmOut.readInt16LE(0))).toBeLessThan(10000);
+    expect(onFrame).toHaveBeenCalledOnce();
+    expect(onFrame.mock.calls[0]![0]).toBeInstanceOf(Buffer);
   });
 });

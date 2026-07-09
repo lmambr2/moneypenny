@@ -285,8 +285,9 @@ export class BotInstance extends EventEmitter {
       getBumperDir: () => this.resolveBumperDir(dirname(this.database.db.name)),
       generateProvider: this.generateProvider,
       logger: this.logger,
-      onRelayStarted: (cfg) => {
-        this.relayScheduler.start(cfg);
+      onRelayChanged: (cfg) => {
+        if (cfg) this.relayScheduler.start(cfg);
+        else this.relayScheduler.stop();
       },
     });
 
@@ -472,6 +473,8 @@ export class BotInstance extends EventEmitter {
       radio: this.radio,
       logger: this.logger,
       playNext: () => this.playNext(),
+      // R-R6: same program PCM that becomes Opus for TS → Icecast when enabled.
+      onPcm: (pcm) => this.teeIcecastPcm(pcm),
     });
 
     bindTsEvents({

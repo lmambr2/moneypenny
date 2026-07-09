@@ -144,6 +144,72 @@ describe("cmdRadio ops (§8/§12)", () => {
     expect(ids).toContain("spotify:track:sp1"); // R-R6 spotify playlist via stream bridge
   });
 
+  it("starts relay timer on relay-only profile and stops when switching away", async () => {
+    const radio = defaultRadioConfig();
+    radio.profiles = {
+      relay: {
+        name: "relay",
+        music: { relayUrl: "https://icecast.example.org:8000/live.mp3", relayBumperIntervalSec: 60 },
+      },
+      library: {
+        name: "library",
+        music: {
+          playlistRefs: [{ platform: "local", ref: "ops-mining" }],
+        },
+      },
+    };
+    const onRelayChanged = vi.fn();
+    const localProvider = {
+      platform: "local",
+      getSongDetail: vi.fn(async (id: string) => ({
+        id, name: id, artist: "", album: "", duration: 1, coverUrl: "", platform: "local",
+      })),
+      search: vi.fn(async () => ({ songs: [], playlists: [{ id: "pl1", name: "ops-mining" }], albums: [] })),
+      getPlaylistSongs: vi.fn(async () => [
+        { id: "lib-1", name: "lib-1", artist: "", album: "", duration: 1, coverUrl: "", platform: "local" },
+      ]),
+    };
+    const queue = {
+      clear: vi.fn(),
+      add: vi.fn(),
+      play: vi.fn(() => ({ id: "x", platform: "stream" })),
+      current: vi.fn(),
+    };
+    const ex = new CommandExecutor({
+      playback: {
+        resolveAndPlay: vi.fn(async () => true),
+        extractId: (s: string) => s,
+        searchFirst: vi.fn(async () => null),
+      } as never,
+      player: { getState: () => "idle", resetFailures: vi.fn() } as never,
+      queue: queue as never,
+      config: { commandPrefix: "!", radio } as never,
+      profileManager: {} as never,
+      tsClient: {} as never,
+      isConnected: () => true,
+      playNext: vi.fn(),
+      getProvider: vi.fn(() => localProvider as never),
+      tagStore: new TagStore({ db: new Database(":memory:") }),
+      onRelayChanged,
+    });
+
+    await run(ex, ["ops", "relay"]);
+    expect(onRelayChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relayUrl: "https://icecast.example.org:8000/live.mp3",
+        bumperIntervalSec: 60,
+      }),
+    );
+
+    onRelayChanged.mockClear();
+    await run(ex, ["ops", "library"]);
+    expect(onRelayChanged).toHaveBeenCalledWith(null);
+
+    onRelayChanged.mockClear();
+    await run(ex, ["off"]);
+    expect(onRelayChanged).toHaveBeenCalledWith(null);
+  });
+
   it("a profile with no matching sources retunes bumpers without touching music", async () => {
     const { ex, radio, queue } = opsHarness();
     const out = await run(ex, ["ops", "empty"]);

@@ -16,11 +16,26 @@ export interface PlayerEventBindings {
   radio: RadioDirector;
   logger: Logger;
   playNext: () => Promise<boolean>;
+  /**
+   * Optional second sink for volume-adjusted PCM (Icecast tee R-R6).
+   * Called for every frame while the player is running; must never throw.
+   */
+  onPcm?: (pcm: Buffer) => void;
 }
 
 export function bindPlayerEvents(deps: PlayerEventBindings): void {
   deps.player.on("frame", (opusFrame: Buffer) => {
     deps.tsClient.sendVoiceData(opusFrame);
+  });
+
+  // Program PCM → Icecast tee (and any other secondary sink). Fail-open.
+  deps.player.on("pcm", (pcm: Buffer) => {
+    if (!deps.onPcm) return;
+    try {
+      deps.onPcm(pcm);
+    } catch (err) {
+      deps.logger.debug?.({ err }, "onPcm sink failed (ignored)");
+    }
   });
 
   deps.player.on("trackEnd", () => {

@@ -11,7 +11,7 @@ assistant** authored each batch of work, since not every commit carries a
 ### Backlog clear — feature-complete BUILD slice
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
-- **R-R6:** Icecast tee (`bot/src/radio/icecast-tee.ts`), relay-in timer bumpers (`relay.ts`), Settings Icecast toggle
+- **R-R6:** Icecast tee (`IcecastTee` + `player` `pcm` event → `teeIcecastPcm`), relay-in timer bumpers (`relay.ts`; stop on non-relay / radio off), Settings Icecast toggle
 - **Spotify:** `StreamProvider.getPlaylistSongs` via bridge `/playlist`; `services/spotify-bridge` + compose profiles `spotify`/`stream`
 - **STT:** `resolveSttModelSelection` large-v3 + RKNN INT8 paths; health exposes model/compute; server compose `STT_MODEL=large-v3` docs
 - **ACE-Step:** `docker-compose.ace-step.yml` + `services/ace-step-adapter` mock adapter

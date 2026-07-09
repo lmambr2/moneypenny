@@ -84,7 +84,13 @@ export function buildFfmpegArgs(url: string, seekSeconds: number): string[] {
 }
 
 export interface PlayerEvents {
+  /** Opus frame for TeamSpeak voice injection. */
   frame: (opusFrame: Buffer) => void;
+  /**
+   * Volume-adjusted s16le PCM (48k stereo, one Opus frame period) — same buffer
+   * that was encoded to `frame`. Used by optional Icecast tee (R-R6).
+   */
+  pcm: (pcmFrame: Buffer) => void;
   trackEnd: () => void;
   error: (err: Error) => void;
 }
@@ -378,6 +384,9 @@ export class AudioPlayer extends EventEmitter {
 
     try {
       const adjusted = this.applyVolume(pcmFrame);
+      // Tee PCM before Opus so Icecast (and any other sink) gets the same
+      // program as TS, volume-adjusted. Listeners must not throw.
+      this.emit("pcm", adjusted);
       const opusFrame = this.encoder.encode(adjusted);
       this.emit("frame", opusFrame);
       this.framesPlayed++;
