@@ -11,6 +11,7 @@ import {
   ORES,
   REFINE_METHODS,
 } from "./catalog.js";
+import { formatMaterialName, UNSTABLE_EMOJI } from "./material-flags.js";
 import type { CraftOrder, MineOrder, RefineOrder } from "./orders.js";
 import {
   blueprintToCraftOrder,
@@ -29,31 +30,45 @@ import {
 } from "./sc-trade.js";
 import type { UexPriceSnapshot } from "./uex.js";
 
-/** Shopping list — not a guidebook. */
+/** Shopping list — not a guidebook. Unstable ores get ⚠️ (TS6 emoji). */
 export function formatMineOrder(o: MineOrder): string {
+  const flag =
+    o.ore.stability === "critical" || o.ore.stability === "volatile"
+      ? ` ${UNSTABLE_EMOJI}`
+      : "";
   const clock = o.stabilityLine ? ` · ${o.stabilityLine}` : "";
   return [
-    `⛏ ${o.ore.name} — ${o.targetScu} SCU raw${clock}`,
+    `⛏ ${o.ore.name}${flag} — ${o.targetScu} SCU raw${clock}`,
     `Refine: !refine ${o.ore.id} scu:${o.targetScu} method:${o.suggestedMethod.id}`,
   ].join("\n");
 }
 
 export function formatRefineOrder(o: RefineOrder): string {
   const pct = Math.round(o.method.yieldRate * 100);
+  const flag =
+    o.ore.stability === "critical" || o.ore.stability === "volatile"
+      ? ` ${UNSTABLE_EMOJI}`
+      : "";
   return [
-    `⚗ ${o.ore.name} · ${o.method.name}`,
+    `⚗ ${o.ore.name}${flag} · ${o.method.name}`,
     `${o.inputScu} SCU raw → ~${o.outputScu} SCU refined (~${pct}%)`,
     `Yield is by method for every ore; station can change it.`,
   ].join("\n");
 }
 
 export function formatCraftOrder(o: CraftOrder): string {
-  const bom = o.bom.map((b) => `  • ${b.amount} ${b.unit} ${b.label}`);
+  const bom = o.bom.map(
+    (b) => `  • ${b.amount} ${b.unit} ${formatMaterialName(b.label)}`,
+  );
   const raw =
     o.impliedRawHint.length > 0
       ? ["Raw if refining first:", ...o.impliedRawHint.map((h) => `  • ${h}`)]
       : [];
-  return [`🔧 ${o.qty}× ${o.recipe.name}`, ...bom, ...raw].join("\n");
+  const unstable = o.bom.some((b) => formatMaterialName(b.label).includes(UNSTABLE_EMOJI));
+  const head = unstable
+    ? `🔧 ${o.qty}× ${o.recipe.name} ${UNSTABLE_EMOJI}`
+    : `🔧 ${o.qty}× ${o.recipe.name}`;
+  return [head, ...bom, ...raw].join("\n");
 }
 
 export function formatEconHelp(prefix = "!"): string {

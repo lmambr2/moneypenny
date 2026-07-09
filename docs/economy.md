@@ -192,6 +192,10 @@ someone actually wants them on the board.
 
 Do **not** expand `!mine` / `!refine` back into multi-step SOP text.
 
+**TS6 chat:** no reliable color BBCode. Unstable ores (Quantainium / other
+critical·volatile seed entries) are marked with **⚠️** emoji on shopping lists
+(`!craft`, `!workorder`, `!work-items`, `!mine`).
+
 ---
 
 ## 7. Non-goals

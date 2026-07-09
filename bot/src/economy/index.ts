@@ -3,6 +3,7 @@ export * from "./cache/store.js";
 export * from "./catalog.js";
 export * from "./context.js";
 export * from "./format.js";
+export * from "./material-flags.js";
 export * from "./orders.js";
 export * from "./parse.js";
 export * from "./sc-craft.js";

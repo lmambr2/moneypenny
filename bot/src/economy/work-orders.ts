@@ -5,6 +5,7 @@
  * !work-items           → sum open orders into org material totals
  */
 import type Database from "better-sqlite3";
+import { formatMaterialName } from "./material-flags.js";
 
 export interface WorkOrderLine {
   material: string;
@@ -61,13 +62,12 @@ export function aggregateWorkOrders(orders: WorkOrder[]): MaterialNeed[] {
   return [...map.values()].sort((a, b) => a.material.localeCompare(b.material));
 }
 
-/** Format "64 SCU of Ti, 26 SCU of Cu, and 13 SCU of Lindinium" */
+/** Format "64 SCU of Ti, 26 SCU of Cu, and 13 SCU of Quantainium ⚠️" */
 export function formatMaterialList(lines: WorkOrderLine[] | MaterialNeed[]): string {
   if (lines.length === 0) return "nothing";
   const parts = lines.map((l) => {
     const amt = Number.isInteger(l.amount) ? String(l.amount) : String(l.amount);
-    const unit = (l.unit || "SCU").replace(/^c/i, ""); // cSCU → SCU display
-    return `${amt} SCU of ${l.material}`;
+    return `${amt} SCU of ${formatMaterialName(l.material)}`;
   });
   if (parts.length === 1) return parts[0]!;
   if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
