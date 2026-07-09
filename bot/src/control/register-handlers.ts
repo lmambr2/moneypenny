@@ -17,6 +17,11 @@ export interface CommandHandlerHost {
   memory: MemoryService;
   kg: KgService;
   knowledge: KnowledgeService;
+  /** ACE-Step !generate (optional until configured). */
+  generate?: {
+    handleGenerate(args: string, invokerKey?: string): Promise<string>;
+    playGenerated?(song: import("../music/provider.js").Song): Promise<string>;
+  };
 }
 
 // All three lists are generated from the single command manifest
@@ -69,6 +74,21 @@ export function registerBotCommandHandlers(router: ControlRouter, host: CommandH
     econ: async (cmd) => handleEconomyCommand("econ" as EconomyCommand, cmd.args),
     reindex: async (cmd) => host.knowledge.handleReindex(cmd.rawArgs.length ? cmd.rawArgs : undefined),
     ingeststatus: async () => host.knowledge.handleIngestStatus(),
+    generate: async (cmd, ctx) => {
+      if (!host.generate) {
+        return "Music generation is not available on this bot.";
+      }
+      // Rank gate: need canRun("generate") when rights are on.
+      if (ctx.canRun && !ctx.canRun("generate")) {
+        return "You don't have permission to use !generate (DJ/admin).";
+      }
+      const msg = await host.generate.handleGenerate(
+        cmd.args,
+        ctx.invokerUid ?? ctx.invokerName ?? "anon",
+      );
+      // handleGenerate already queues play when wired via instance (message says queued).
+      return msg;
+    },
   };
 
   for (const name of SPECIAL_COMMANDS) {

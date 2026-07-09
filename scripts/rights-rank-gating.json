@@ -9,11 +9,11 @@
   "commandGroups": {
     "admin": [
       "stop", "clear", "move", "moveclient", "moveall", "vol", "mode",
-      "follow", "remove", "reindex", "ingeststatus",
+      "follow", "remove", "reindex", "ingeststatus", "generate",
       "radio.power", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags"
     ],
     "analyst": ["analyst", "agent", "intsum", "aar"],
-    "dj": ["stop", "clear", "vol", "mode", "remove", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags"],
+    "dj": ["stop", "clear", "vol", "mode", "remove", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags", "generate"],
     "mod": ["move", "moveclient", "moveall", "follow"],
     "doctrine_restricted": ["doctrine:restricted"],
     "doctrine_confidential": ["doctrine:confidential"],

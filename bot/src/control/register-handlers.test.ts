@@ -32,6 +32,9 @@ function makeHost(overrides: Partial<CommandHandlerHost> = {}): CommandHandlerHo
       handleReindex: vi.fn(),
       handleIngestStatus: vi.fn(),
     } as unknown as CommandHandlerHost["knowledge"],
+    generate: {
+      handleGenerate: vi.fn().mockResolvedValue("generated ok"),
+    },
     ...overrides,
   };
 }

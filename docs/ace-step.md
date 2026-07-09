@@ -1,8 +1,7 @@
 # ACE-Step music generation — design sketch
 
-> **Status:** design + **A1 client shipped** (`bot/src/music/ace-step-client.ts`,
-> config keys on `BotConfig`). Generation command / Settings / radio auto-fill
-> still queued (A2–A6). Optional DJ / library fill via
+> **Status:** **A1–A2 shipped** (client + `!generate` → library → play). Settings
+> UI / radio auto-fill still queued (A3–A6). Optional DJ / library fill via
 > [ACE-Step](https://ace-step.com/) / [ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5)
 > on a GPU host (e.g. AMD Server / LAN workstation).  
 > Related: [radio.md](./radio.md), [editions.md](./editions.md), [remote-llm.md](./remote-llm.md).
@@ -60,18 +59,16 @@ Split-brain style config (mirrors LLM):
 
 ```json
 {
-  "aceStep": {
-    "enabled": false,
-    "url": "http://192.168.1.89:7865",
-    "autoFill": false,
-    "timeoutMs": 300000,
-    "outputDir": "generated/ace-step",
-    "maxConcurrent": 1,
-    "defaultDurationSec": 120,
-    "promptTemplate": "{{profile}} {{slot}} {{tags}}"
-  }
+  "aceStepEnabled": false,
+  "aceStepUrl": "http://192.168.1.89:7865",
+  "aceStepAutoFill": false,
+  "aceStepTimeoutMs": 300000,
+  "aceStepOutputDir": "generated/ace-step"
 }
 ```
+
+**Command:** `!generate <prompt>` (rank-gated `@dj` / admin). Rate limit 3/hour per
+user; max 1 concurrent job. Files land in `MUSIC_DIR/generated/ace-step/`.
 
 Compose (optional profile, not edition-default):
 
@@ -227,8 +224,8 @@ Document next to [gpu-amd.md](./gpu-amd.md): “music-gen vs analyst concurrency
 
 | PR | Deliverable | Accept |
 |----|-------------|--------|
-| **A1** | `AceStepClient` + health probe + config keys | Unit tests with mock HTTP |
-| **A2** | `!generate` → job → save under `generated/ace-step/` → play | Manual on host with API |
+| **A1** | `AceStepClient` + health probe + config keys | Unit tests with mock HTTP — **done** |
+| **A2** | `!generate` → job → save under `generated/ace-step/` → play | Unit tests + manual on host with API — **done** |
 | **A3** | Settings panel (URL, enable, autoFill) | UI round-trip |
 | **A4** | Radio director auto-fill + bumper-while-wait | Dead air → gen → play |
 | **A5** | Prune + tags + `!radio gen` alias | Ops-ready |

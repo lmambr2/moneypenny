@@ -83,6 +83,8 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "econ", kind: "special" },
   { name: "reindex", kind: "special", admin: true },
   { name: "ingeststatus", kind: "special", admin: true },
+  // ACE-Step music gen (docs/ace-step.md) — @dj / admin via rights, not public.
+  { name: "generate", kind: "special", audio: true },
   // LLM / workflow intents routed inside ControlRouter.
   { name: "ask", kind: "router" },
   { name: "analyst", kind: "router" },

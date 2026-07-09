@@ -38,7 +38,7 @@ describe("AceStepClient", () => {
   });
 
   it("generate posts prompt and returns job id", async () => {
-    const post = vi.fn(async (_u: string, body: unknown) => {
+    const post = vi.fn((_u: string, body: unknown) => {
       expect((body as { prompt: string }).prompt).toBe("focus ambient 110bpm");
       return { status: 200, data: { id: "job-1", status: "queued" } };
     });

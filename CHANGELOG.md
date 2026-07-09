@@ -8,12 +8,19 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### ACE-Step A2 — !generate → library → play
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `GenerateProvider`: job poll, shared path or audio download, index under `generated/ace-step/`
+- `!generate <prompt>` (@dj/admin); 3/hour rate limit; max 1 concurrent
+- Config: `aceStepEnabled`, `aceStepUrl`, `aceStepTimeoutMs`, `aceStepOutputDir`
+
 ### Next-slice: @dj tags, deploy excludes, ACE-Step A1
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
 - PATCH `/api/music/tracks/:id/tags` allows admin **or** `radio.tags` (@dj) web users
 - `deploy-to-pi.sh` excludes convert `.venv` / vendor / hf
-- ACE-Step HTTP client + config keys (docs/ace-step.md A1); no generate command yet
+- ACE-Step HTTP client + config keys (docs/ace-step.md A1)
 
 ### Radio / DJ Settings: sources + org memory on air
 **Author: Grok (xAI), driven by Lane Ambrose.**

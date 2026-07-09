@@ -182,7 +182,7 @@ export function createMusicRouter(
         res.status(501).json({ error: "Delete not supported", code: "NOT_IMPLEMENTED" });
         return;
       }
-      const id = req.params.id;
+      const id = String(req.params.id ?? "");
       if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
         res.status(400).json({ error: "Invalid track id", code: "VALIDATION_ERROR" });
         return;

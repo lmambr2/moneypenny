@@ -55,6 +55,14 @@ const DELTAS: readonly RightsDelta[] = [
     version: 3,
     defaultAllow: ["mine", "refine", "craft", "econ"],
   },
+  {
+    // ACE-Step !generate (docs/ace-step.md A2) — DJ / admin only.
+    version: 4,
+    groups: {
+      dj: ["generate"],
+      admin: ["generate"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

@@ -120,6 +120,33 @@ export class AceStepClient {
   }
 
   /**
+   * Download finished audio when hosts do not share MUSIC_DIR.
+   * Response body is raw audio bytes (mp3/wav).
+   */
+  async downloadAudio(id: string): Promise<Buffer> {
+    if (!id?.trim()) throw new Error("job id required");
+    const { data, status, headers } = await this.http.get(
+      `/v1/jobs/${encodeURIComponent(id)}/audio`,
+      {
+        timeout: Math.max(this.timeoutMs, 120_000),
+        responseType: "arraybuffer",
+      },
+    );
+    if (status < 200 || status >= 300) {
+      throw new Error(`audio download HTTP ${status}`);
+    }
+    const buf = Buffer.from(data as ArrayBuffer);
+    if (buf.length === 0) throw new Error("empty audio response");
+    const max = 80 * 1024 * 1024; // 80 MiB hard cap
+    if (buf.length > max) throw new Error(`audio too large (${buf.length} bytes)`);
+    const ct = String(headers?.["content-type"] ?? "");
+    if (ct && !/audio|octet-stream|mpeg|wav|mp3/i.test(ct)) {
+      this.logger?.warn({ contentType: ct, id }, "ACE-Step audio unexpected content-type");
+    }
+    return buf;
+  }
+
+  /**
    * Poll until done/error or timeout. Fail-open callers should catch and continue.
    */
   async waitForJob(

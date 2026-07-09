@@ -21,6 +21,9 @@ import type { RetrievalStore } from "../rag/index.js";
 import { MemoryStore } from "../data/memory.js";
 import { KgStore } from "../data/kg.js";
 import { MemPalaceClient } from "../memory/mempalace-client.js";
+import { AceStepClient } from "../music/ace-step-client.js";
+import { GenerateProvider } from "../music/generate-provider.js";
+import { LocalProvider } from "../music/local.js";
 import type { DoctrineStore } from "../data/doctrine.js";
 import type { FileDropStore } from "../data/file-drop.js";
 import type { RightsConfig, Subject } from "../rights/index.js";
@@ -113,6 +116,8 @@ export class BotInstance extends EventEmitter {
   private rights: RightsRuntime;
   private routed: RoutedCommandExecutor;
   private mempalace: MemPalaceClient | null = null;
+  private aceStep: AceStepClient | null = null;
+  private generateProvider: GenerateProvider;
   private voice: VoiceSession;
   private connected = false;
   private disconnectEmitted = false;
@@ -173,6 +178,16 @@ export class BotInstance extends EventEmitter {
     this.rights.initialize();
 
     this.mempalace = this.createMemPalaceClient();
+    this.aceStep = this.createAceStepClient();
+    this.generateProvider = new GenerateProvider({
+      getConfig: () => this.config,
+      getClient: () => this.aceStep,
+      localProvider: this.localProvider as LocalProvider,
+      tagStore: radioTagStore,
+      logger: this.logger,
+      playSong: async (song) =>
+        this.playback.playResolvedItem({ type: "song", item: song }, "local"),
+    });
 
     this.kg = new KgService({
       store: kgStore,
@@ -393,6 +408,10 @@ export class BotInstance extends EventEmitter {
       memory: this.memory,
       kg: this.kg,
       knowledge: this.knowledge,
+      generate: {
+        handleGenerate: (args, invokerKey) =>
+          this.generateProvider.handleGenerate(args, invokerKey),
+      },
     });
 
     try {
@@ -592,6 +611,38 @@ export class BotInstance extends EventEmitter {
       this.config.mempalaceUrl = url;
     }
     return new MemPalaceClient({ url, logger: this.logger });
+  }
+
+  private createAceStepClient(): AceStepClient | null {
+    if (!this.config.aceStepEnabled) return null;
+    const url =
+      this.config.aceStepUrl?.trim() ||
+      (process.env.ACE_STEP_URL || "").trim();
+    if (!url) return null;
+    if (!this.config.aceStepUrl?.trim() && url) {
+      this.config.aceStepUrl = url;
+    }
+    return new AceStepClient({
+      url,
+      timeoutMs: this.config.aceStepTimeoutMs || 300_000,
+      logger: this.logger,
+    });
+  }
+
+  /** Hot-apply ACE-Step settings from the web UI (A3 can call this). */
+  updateAceStep(partial: {
+    enabled?: boolean;
+    url?: string;
+    autoFill?: boolean;
+    timeoutMs?: number;
+    outputDir?: string;
+  }): void {
+    if (partial.enabled !== undefined) this.config.aceStepEnabled = partial.enabled;
+    if (partial.url !== undefined) this.config.aceStepUrl = partial.url;
+    if (partial.autoFill !== undefined) this.config.aceStepAutoFill = partial.autoFill;
+    if (partial.timeoutMs !== undefined) this.config.aceStepTimeoutMs = partial.timeoutMs;
+    if (partial.outputDir !== undefined) this.config.aceStepOutputDir = partial.outputDir;
+    this.aceStep = this.createAceStepClient();
   }
 
   getLlmStatus() {
