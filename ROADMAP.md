@@ -237,6 +237,14 @@ saved local file, no re-download.
 
 ---
 
+## Feature roadmap (Station vs Harness)
+
+Product-facing tracks after the 2026-07 radio/TTS/doctrine arc — what to build
+next, what **not** to rewrite (TS spine + sidecars stay), when a Python “brain”
+service might appear:
+
+→ **[docs/feature-roadmap.md](./docs/feature-roadmap.md)**
+
 ## Build list (near-term)
 
 See **[docs/BUILD.md](./docs/BUILD.md)** for the living queue. Highlights:
