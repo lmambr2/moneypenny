@@ -179,9 +179,24 @@ Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights `bo
 
 ---
 
-## 6. Non-goals
+## 6. Backlog (ops feedback — not v1)
 
-- Live location heatmaps / signature scanners
+Parked after org feedback: **shopping list first**, not a guidebook. Build when
+someone actually wants them on the board.
+
+| ID | Item | Notes | Priority |
+|----|------|--------|----------|
+| **E-RAW** | Reverse refine → raw ore | From `!work-items` refined totals, work back via method yield (e.g. Dinyx ~45%) to raw SCU needed. Opt-in only (e.g. `!work-items raw method:dinyx`). **Not necessary soon** — quality friction means miners over-mine anyway. |
+| **E-SIG** | Node sensor signatures | For a given ore: possible rock/node signature combos + amount of rocks per node (planning helper). Ops already run a small offline Python script for “all possible node sigs for a given ore” — candidate to port or import as a seed/table, not a live scanner. **Useful, not first.** |
+| **E-STN** | Station refine modifiers | Yield can differ HUR-L1 vs Seraphim etc. Only after method-rate basics are trusted. |
+
+Do **not** expand `!mine` / `!refine` back into multi-step SOP text.
+
+---
+
+## 7. Non-goals
+
+- Live location heatmaps / in-world signature **scanners** (E-SIG is offline planning only)
 - Loadout optimizers (lasers/modules)
 - HTML scrape of scminer / star-crafting.com / SCMDB
 - Invented offline craft items (seed craft stays empty)
@@ -189,19 +204,22 @@ Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights `bo
 
 ---
 
-## 7. Acceptance checklist
+## 8. Acceptance checklist (shipped)
 
 - [x] `!mine` / `!refine` / `!craft` / `!workorder` / `!work-items` / `!econ` / `!trade` registered + public
+- [x] Shopping-list replies (no step guidebooks)
 - [x] Seed ores/methods offline without network
-- [x] Craft examples and seed list use **in-game** blueprints only (sc-craft)
+- [x] Craft via **in-game** blueprints only (sc-craft)
 - [x] Optional UEX prices with cache + attribution
 - [x] Optional sc-trade routes with token gate + attribution
-- [x] `!ask` economy keyword injection (seed)
+- [x] SC Wiki enrichment + disk cache refresh
+- [x] `!ask` economy keyword injection (seed + wiki cache)
 - [x] No scrapers
+- [ ] E-RAW / E-SIG / E-STN — see §6 backlog
 
 ---
 
-## 8. Org doctrine (private)
+## 9. Org doctrine (private)
 
 Real logistics doctrine (routes, pads, preferred BPs) belongs in your **private** knowledge base.
 
@@ -209,9 +227,10 @@ Templates: [`docs/examples/doctrine/`](./examples/doctrine/) — copy privately,
 
 ---
 
-## 9. References
+## 10. References
 
 - UEX: [uexcorp.space](https://uexcorp.space/)
 - SC Craft: [sc-craft.tools](https://sc-craft.tools/)
 - SC Trade: [sc-trade.tools](https://sc-trade.tools/) · [Swagger](https://sc-trade.tools/swagger-ui/index.html)
+- SC Wiki API: [api.star-citizen.wiki](https://api.star-citizen.wiki/)
 - Seed: `bot/src/economy/catalog.ts`

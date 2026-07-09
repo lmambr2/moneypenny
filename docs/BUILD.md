@@ -6,7 +6,7 @@ ordered **do list**, not full specs.
 Product sequence and locked decisions: **[feature-roadmap.md](./feature-roadmap.md)**
 (harness-first, Station via feedback, Vue polish, brain boundary plan-only).
 
-**Last updated:** 2026-07-09 (backlog ship: H6/G3–G4/R5/V2–V3 + hardening + recordings)
+**Last updated:** 2026-07-09 (economy shopping list + parked mine/refine depth)
 
 ---
 
@@ -14,6 +14,16 @@ Product sequence and locked decisions: **[feature-roadmap.md](./feature-roadmap.
 
 Harness-first queue from [feature-roadmap.md](./feature-roadmap.md) §6 — Station
 bugs still interrupt from live feedback.
+
+### Economy backlog (ops feedback — park until wanted)
+
+Full notes: [economy.md §6](./economy.md). Shopping list shipped (`!workorder` / `!work-items`); do not re-guidebook.
+
+| ID | Item | Notes | Status |
+|----|------|--------|--------|
+| **E-RAW** | Reverse refine → raw ore | From work-item totals × method yield → raw SCU; opt-in only. Miners over-mine for quality anyway. | **Backlog** |
+| **E-SIG** | Node sensor signatures | Possible rock/node sigs + rocks/node for a given ore (offline planning). Ops have a Python script — port/seed later. | **Backlog** |
+| **E-STN** | Station refine modifiers | HUR-L1 vs Seraphim-style yield deltas after method rates trusted. | **Backlog** |
 
 | ID | Item | Notes | Status |
 |----|------|--------|--------|
