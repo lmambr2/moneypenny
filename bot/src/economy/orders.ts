@@ -151,9 +151,10 @@ export function buildRefineOrder(
 export function buildCraftOrder(recipeQuery: string, qty?: number): CraftOrder | OrderError {
   const recipe = findRecipe(recipeQuery);
   if (!recipe) {
-    const names = CRAFT_RECIPES.map((r) => r.aliases[0] ?? r.id).join(", ");
     return {
-      error: `Unknown recipe "${recipeQuery}". Try: ${names}. List all with !econ recipes.`,
+      error:
+        `No offline seed recipe for "${recipeQuery}". ` +
+        `Use an in-game blueprint name via sc-craft (e.g. !craft P4-AR or !econ blueprints Coda).`,
     };
   }
   const n = Math.max(1, Math.floor(parsePositive(qty, 1)));

@@ -87,12 +87,15 @@ export const CATALOG_AS_OF = "2026-07-08 one-shot seed (DataHub + UEX snapshot)"
 export const CATALOG_SOURCES = [
   "SC DataHub mining ores/refining (one-shot HTML parse → seed JSON; not runtime)",
   "UEX Corp public API commodities (live optional prices; snapshot flags in import JSON)",
+  "SC Craft Tools blueprints (live optional; sc-craft.tools JSON API)",
+  "SC Trade Tools routes (live optional; token for /api/tools/*)",
 ] as const;
 
 export const CATALOG_DISCLAIMER =
   `Seed catalog (${CATALOG_AS_OF}). Rock stats/values are a frozen snapshot for ` +
-  `planning — not cockpit-live. Refine yields are qualitative. Live sell prices: ` +
-  `!econ prices (UEX). Locations/full craft BOMs: org doctrine. We do not scrape at runtime.`;
+  `planning — not cockpit-live. Refine yields are qualitative. Live: !econ prices ` +
+  `(UEX), !craft / !econ blueprints (sc-craft), !trade (sc-trade, token). ` +
+  `No HTML scrapers at runtime.`;
 
 /**
  * Mineable materials from one-shot DataHub import (ship + FPS).
@@ -899,71 +902,11 @@ export const REFINE_METHODS: readonly RefineMethod[] = [
 ];
 
 /**
- * Illustrative craft BOMs for org order practice — not full fabricator graph.
- * Put real blueprints in doctrine (SCMDB is a human reference, not scraped).
+ * Offline craft seed is intentionally empty.
+ * Live BOMs come from sc-craft.tools (`!craft` / `!econ blueprints`) — real
+ * in-game blueprint names only. Org-specific notes go in doctrine, not here.
  */
-export const CRAFT_RECIPES: readonly CraftRecipe[] = [
-  {
-    id: "comp-structural-frame",
-    name: "Structural Frame Kit",
-    aliases: ["frame", "structural", "hull-frame"],
-    ingredients: [
-      { materialId: "refined-titanium", amount: 4, unit: "scu" },
-      { materialId: "refined-aluminum", amount: 2, unit: "scu" },
-      { materialId: "refined-tungsten", amount: 1, unit: "scu" },
-    ],
-    stationHint: "Industrial fabricator / org workshop",
-    notes: "Illustrative BOM — replace with org doctrine recipe for live patch.",
-  },
-  {
-    id: "comp-quantum-core",
-    name: "Quantum Drive Core Blank",
-    aliases: ["qd-core", "quantum-core", "qdrive"],
-    ingredients: [
-      { materialId: "refined-quantainium", amount: 2, unit: "scu" },
-      { materialId: "refined-bexalite", amount: 1, unit: "scu" },
-      { materialId: "refined-taranite", amount: 1, unit: "scu" },
-    ],
-    stationHint: "Advanced fabricator",
-    notes: "Premium blank — schedule quantainium refine just-in-time.",
-  },
-  {
-    id: "comp-weapon-housing",
-    name: "Weapon Housing",
-    aliases: ["weapon-housing", "gun-housing", "housing"],
-    ingredients: [
-      { materialId: "refined-tungsten", amount: 1.5, unit: "scu" },
-      { materialId: "refined-titanium", amount: 1, unit: "scu" },
-      { materialId: "refined-agricium", amount: 0.5, unit: "scu" },
-    ],
-    stationHint: "Weapons fabricator",
-    notes: "Illustrative mid-tier combat component BOM.",
-  },
-  {
-    id: "comp-power-plant-cell",
-    name: "Power Plant Cell",
-    aliases: ["pp-cell", "power-cell", "plant-cell"],
-    ingredients: [
-      { materialId: "refined-hephaestanite", amount: 1, unit: "scu" },
-      { materialId: "refined-laranite", amount: 1, unit: "scu" },
-      { materialId: "refined-borase", amount: 2, unit: "scu" },
-    ],
-    stationHint: "Power systems fabricator",
-    notes: "Illustrative BOM.",
-  },
-  {
-    id: "comp-shield-emitter",
-    name: "Shield Emitter Plate",
-    aliases: ["shield-plate", "emitter", "shield-emitter"],
-    ingredients: [
-      { materialId: "refined-bexalite", amount: 0.75, unit: "scu" },
-      { materialId: "refined-corundum", amount: 2, unit: "scu" },
-      { materialId: "refined-quartz", amount: 1, unit: "scu" },
-    ],
-    stationHint: "Shield fabricator",
-    notes: "Illustrative mix of premium + bulk feedstock.",
-  },
-];
+export const CRAFT_RECIPES: readonly CraftRecipe[] = [];
 
 function norm(s: string): string {
   return s
@@ -1039,13 +982,13 @@ export function catalogBrief(maxOres = 10): string {
   const methods = REFINE_METHODS.map(
     (m) => `${m.name}≈${Math.round(m.yieldRate * 100)}%yield`,
   ).join("; ");
-  const crafts = CRAFT_RECIPES.map((r) => r.name).join("; ");
   return [
     CATALOG_DISCLAIMER,
     `Sources: ${CATALOG_SOURCES.join(" · ")}`,
     `Top ship ores (snapshot): ${top}`,
     `Refine methods: ${methods}`,
-    `Craft recipes (illustrative): ${crafts}`,
-    "Prefer !mine / !refine / !craft / !econ for order math. !econ prices uses UEX when enabled.",
+    "Craft BOMs: !craft <in-game blueprint> or !econ blueprints <name> (sc-craft.tools).",
+    "Trade: !trade routes ship:<name> invest:<aUEC> (sc-trade.tools; SC_TRADE_API_TOKEN).",
+    "Prefer !mine / !refine / !craft / !trade / !econ for order math.",
   ].join("\n");
 }

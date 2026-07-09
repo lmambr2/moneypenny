@@ -1,5 +1,9 @@
 /**
- * Economy command surface — seed orders + optional UEX prices + sc-craft blueprints.
+ * Economy command surface:
+ *  !mine / !refine — offline seed ores + refine methods
+ *  !craft / !econ blueprints — sc-craft.tools in-game blueprints
+ *  !econ prices — UEX averages
+ *  !trade — sc-trade.tools routes (API token)
  */
 
 import {
@@ -68,7 +72,12 @@ export async function handleEconomyCommand(
 function handleMine(args: string, prefix: string): string {
   const { subject, scu, method } = parseEconomyArgs(args);
   if (!subject) {
-    return `Usage: ${prefix}mine <ore> [scu:N] [method:name]\nExample: ${prefix}mine quantainium scu:32\n${formatOreList()}`;
+    return (
+      `Usage: ${prefix}mine <ore> [scu:N] [method:name]\n` +
+      `Example: ${prefix}mine quantainium scu:32\n` +
+      `Example: ${prefix}mine stileron scu:16 method:ferron\n` +
+      `${formatOreList()}`
+    );
   }
   const order = buildMineOrder(subject, scu, method);
   if (isOrderError(order)) return order.error;
@@ -78,7 +87,11 @@ function handleMine(args: string, prefix: string): string {
 function handleRefine(args: string, prefix: string): string {
   const { subject, scu, method } = parseEconomyArgs(args);
   if (!subject) {
-    return `Usage: ${prefix}refine <ore> [scu:N] [method:name]\nExample: ${prefix}refine quantainium scu:32 method:dinyx`;
+    return (
+      `Usage: ${prefix}refine <ore> [scu:N] [method:name]\n` +
+      `Example: ${prefix}refine quantainium scu:32 method:dinyx\n` +
+      `Example: ${prefix}refine bexalite scu:32 method:cormack`
+    );
   }
   const order = buildRefineOrder(subject, scu, method);
   if (isOrderError(order)) return order.error;
@@ -89,26 +102,25 @@ async function handleCraft(args: string, prefix: string, scCraft: ScCraftClient)
   const { subject, qty } = parseEconomyArgs(args);
   if (!subject) {
     return (
-      `Usage: ${prefix}craft <recipe|blueprint> [qty:N]\n` +
-      `Example: ${prefix}craft quantum-core qty:2 · ${prefix}craft greatsword\n` +
-      `${formatRecipeList()}\n` +
-      `Live blueprints: ${prefix}econ blueprints <query> (sc-craft.tools when enabled).`
+      `Usage: ${prefix}craft <in-game blueprint> [qty:N]\n` +
+      `Example: ${prefix}craft P4-AR qty:1\n` +
+      `Example: ${prefix}craft Coda qty:2\n` +
+      `Browse: ${prefix}econ blueprints greatsword\n` +
+      `${formatRecipeList()}`
     );
   }
-  // 1) Seed catalog (offline, always available).
+  // Offline seed (empty by design) then sc-craft.tools live blueprints.
   const seed = buildCraftOrder(subject, qty);
   if (!isOrderError(seed)) return formatCraftOrder(seed);
 
-  // 2) Optional live blueprints from SC Craft Tools.
   if (!scCraft.isEnabled()) {
-    return `${seed.error}\n(sc-craft live blueprints disabled — ECONOMY_SCCRAFT=0)`;
+    return `${seed.error}\n(sc-craft disabled — ECONOMY_SCCRAFT=0)`;
   }
   const bp = await scCraft.resolveBlueprint(subject);
   if (!bp) {
     return (
-      `${seed.error}\n` +
-      `No sc-craft blueprint match for "${subject}" (or API unreachable). ` +
-      `Try ${prefix}econ blueprints <query> or ${prefix}econ recipes.`
+      `No sc-craft blueprint match for "${subject}" (or API unreachable).\n` +
+      `Try ${prefix}econ blueprints <name> with an in-game item (e.g. Coda, P4-AR, Agricium).`
     );
   }
   return formatCraftOrder(blueprintToCraftOrder(bp, qty ?? 1));
@@ -136,6 +148,7 @@ async function handleEcon(
       return formatMethodList();
     case "recipes":
     case "recipe":
+      // Alias: no offline craft seed — point operators at live blueprints.
       return formatRecipeList();
     case "blueprints":
     case "blueprint":
@@ -160,20 +173,21 @@ async function lookupBlueprints(
   scCraft: ScCraftClient,
 ): Promise<string> {
   if (!query) {
-    return `Usage: ${prefix}econ blueprints <name>\nExample: ${prefix}econ blueprints greatsword`;
+    return (
+      `Usage: ${prefix}econ blueprints <in-game name>\n` +
+      `Example: ${prefix}econ blueprints P4-AR\n` +
+      `Example: ${prefix}econ blueprints Coda`
+    );
   }
   if (!scCraft.isEnabled()) {
-    return "sc-craft blueprints disabled (ECONOMY_SCCRAFT=0). Seed recipes: !econ recipes.";
+    return "sc-craft blueprints disabled (ECONOMY_SCCRAFT=0).";
   }
   const res = await scCraft.search(query, 8);
   if (!res) {
-    return (
-      `sc-craft unreachable or empty for "${query}". ` +
-      `Seed recipes still work: !econ recipes / !craft <seed-id>.`
-    );
+    return `sc-craft unreachable for "${query}". Check network; retry later.`;
   }
   if (res.items.length === 0) {
-    return `No sc-craft blueprints matching "${query}". Try a shorter name (e.g. sniper, iron).`;
+    return `No sc-craft blueprints matching "${query}". Try an in-game name (Coda, P4-AR, Greatsword).`;
   }
   // Single strong hit → full BOM; otherwise list matches.
   if (res.items.length === 1 || res.total === 1) {
@@ -185,7 +199,11 @@ async function lookupBlueprints(
 
 async function lookupPrices(query: string, prefix: string, uex: UexClient): Promise<string> {
   if (!query) {
-    return `Usage: ${prefix}econ prices <ore>\nExample: ${prefix}econ prices bexalite`;
+    return (
+      `Usage: ${prefix}econ prices <commodity>\n` +
+      `Example: ${prefix}econ prices quantainium\n` +
+      `Example: ${prefix}econ prices bexalite`
+    );
   }
   if (!uex.isEnabled()) {
     return "UEX prices are disabled (ECONOMY_UEX=0). Seed catalog still works via !mine/!refine/!craft.";

@@ -27,13 +27,11 @@ describe("economy orders", () => {
     expect(isOrderError(buildRefineOrder("bexalite", 8, "not-a-method"))).toBe(true);
   });
 
-  it("builds craft BOM with implied raw", () => {
-    const o = buildCraftOrder("quantum-core", 2);
-    expect(isOrderError(o)).toBe(false);
-    if (isOrderError(o)) return;
-    expect(o.qty).toBe(2);
-    expect(o.bom.some((b) => b.materialId === "refined-quantainium")).toBe(true);
-    expect(o.impliedRawHint.length).toBeGreaterThan(0);
+  it("has no offline seed craft recipes (live via sc-craft)", () => {
+    const o = buildCraftOrder("P4-AR", 1);
+    expect(isOrderError(o)).toBe(true);
+    if (!isOrderError(o)) return;
+    expect(o.error).toMatch(/sc-craft|blueprint/i);
   });
 
   it("resolves quantanium alias to quantainium", () => {

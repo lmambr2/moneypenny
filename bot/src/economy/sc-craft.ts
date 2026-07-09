@@ -130,7 +130,9 @@ export function blueprintToCraftOrder(bp: ScCraftBlueprint, qty = 1): CraftOrder
   const steps = [
     `Source BOM: SC Craft Tools${bp.version ? ` (${bp.version})` : ""}.`,
     `Craft qty ${n} × ${bp.name}.`,
-    craftMin != null ? `Est. craft time (seed): ~${craftMin} min for qty ${n}.` : "Craft time not listed.",
+    craftMin != null
+      ? `Est. craft time (sc-craft): ~${craftMin} min for qty ${n}.`
+      : "Craft time not listed.",
     bp.category ? `Category: ${bp.category}.` : "Stage materials at industrial fabricator.",
     "Verify quantities in-game before committing rare stock.",
   ];

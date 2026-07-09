@@ -1,218 +1,176 @@
-# Org economy — mining / refining / crafting orders
+# Org economy — mining, refining, craft, trade
 
-**Status:** shipped on `dev` — deterministic order builders + optional UEX prices.  
-**Policy:** sustainable, no scrapers, polite to data owners.
-
----
-
-## 1. Summary
-
-Moneypenny’s org assistant includes a **seed economy layer** for Star Citizen–style
-industrial loops:
-
-| Command | Purpose |
-|---------|---------|
-| `!mine <ore> [scu:N] [method:name]` | Mining pull order + stability / souring clock |
-| `!refine <ore> [scu:N] [method:name]` | Refine yield / time / cost **estimates** |
-| `!craft <recipe> [qty:N]` | Bill of materials + implied raw |
-| `!econ …` | Browse catalog / UEX prices |
-
-These are **deterministic** (no LLM). `!ask` still injects seed catalog context when
-the question matches mining/refining/crafting keywords.
+**Status:** shipped on `dev`  
+**Policy:** sustainable data use — public JSON APIs only, long cache, fail-open, attribution. **No HTML scrapers.**
 
 ---
 
-## 2. Data policy
+## 1. Commands (what operators type)
 
-| Source | Role |
-|--------|------|
-| **In-repo seed catalog** (`bot/src/economy/catalog.ts`) | Ore roster, rock stats snapshot, refine methods, illustrative craft BOMs |
-| **Seed import JSON** (`bot/src/economy/data/`) | Frozen one-shot import artifact (not read at runtime) |
-| **UEX Corp public API** (`api.uexcorp.space`) | Optional **live** sell/buy averages + commodity flags |
-| **SC Craft Tools API** (`sc-craft.tools`) | Optional **live** craft blueprints / BOMs (`!craft` fallback, `!econ blueprints`) |
-| **SC Trade Tools API** (`sc-trade.tools`) | Optional **trade routes / buyers / itinerary** (`!trade`) — **requires API token** |
-| **Org doctrine** (Library → Doctrine / RAG) | Real SOPs, locations, org-specific craft notes |
-| Community UIs (scminer, star-crafting.com, SCMDB, …) | Human bookmarks; **no runtime scrape** |
+| Command | Purpose | Data source |
+|---------|---------|-------------|
+| `!mine <ore> [scu:N] [method:name]` | Mining pull + stability / souring clock | Offline seed (`catalog.ts`) |
+| `!refine <ore> [scu:N] [method:name]` | Refine yield / time / cost **estimates** | Offline seed |
+| `!craft <blueprint> [qty:N]` | Bill of materials for an **in-game** blueprint | **sc-craft.tools** (live) |
+| `!trade …` | Trade routes, buyers, itinerary, circuit | **sc-trade.tools** (live; **token** for tools) |
+| `!econ ores` | List mineable ores | Offline seed |
+| `!econ methods` | List refine methods | Offline seed |
+| `!econ recipes` | Points at live craft (no offline fake BOMs) | Help text |
+| `!econ blueprints <name>` | Search live blueprints | sc-craft.tools |
+| `!econ prices <commodity>` | Sell/buy averages | **UEX** API |
+| `!econ search <q>` | Search seed ores / methods | Offline seed |
 
-### One-shot seed import (allowed)
+All are **deterministic** (no LLM). `!ask` can inject seed ore/method context when the question matches industrial keywords.
 
-A **rare, targeted, maintainer-triggered** HTML parse of public DataHub mining
-pages was used to freeze rock stats into the seed (`seed-import-2026-07.json` →
-`catalog.ts`). That is intentional and attributed — not a product dependency.
+Public by default (rights: mine/refine/craft/econ v3, trade v7).
 
-| Rule | |
-|------|--|
-| Runtime bot | **Never** scrapes community sites |
-| Live prices | UEX API only (cached, polite) |
-| Refresh seed | Manual, infrequent, clear User-Agent, new snapshot file |
-| SCMDB / scminer | Not scraped; operators use them in a browser |
-
-See `bot/src/economy/data/README.md`.
-
-### UEX client etiquette
-
-- Long cache TTL (default **6 hours**)
-- Short HTTP timeout
-- Identifiable `User-Agent`: `Moneypenny-OrgEconomy/…`
-- Fail soft if offline
-- Attribution line on every price reply
-
-| Env | Default | Meaning |
-|-----|---------|---------|
-| `ECONOMY_UEX` | `1` | Set `0` / `false` / `off` to disable prices |
-| `UEX_API_BASE` | `https://api.uexcorp.space` | API host |
-| `UEX_CACHE_TTL_MS` | `21600000` (6h) | Commodity list cache |
-| `UEX_TIMEOUT_MS` | `8000` | Request timeout |
-| `UEX_API_KEY` | _(empty)_ | Optional if UEX requires a key later |
-| `ECONOMY_SCCRAFT` | `1` | Set `0` / `false` / `off` to disable sc-craft blueprints |
-| `SCCRAFT_API_BASE` | `https://sc-craft.tools` | API host |
-| `SCCRAFT_CACHE_TTL_MS` | `21600000` (6h) | Search/detail cache |
-| `SCCRAFT_TIMEOUT_MS` | `8000` | Request timeout |
-| `ECONOMY_SCTRADE` | `1` | Set `0` to disable `!trade` |
-| `SC_TRADE_API_TOKEN` | _(empty)_ | **Required** for route tools (header `token`) — Patreon API licence |
-| `SCTRADE_API_BASE` | `https://sc-trade.tools` | API host |
-| `SCTRADE_CACHE_TTL_MS` | `1800000` (30m) | Route result cache |
-| `SCTRADE_TIMEOUT_MS` | `45000` | Route search timeout |
-
-### SC Craft Tools etiquette
-
-Same posture as UEX: public JSON only (`/api/blueprints`, `/api/blueprints/:id`),
-long cache, short timeout, `User-Agent: Moneypenny-OrgEconomy/…`, fail soft,
-attribution on every blueprint reply. Fan project (Norkaan / HTTPS org) — not CIG.
-**Not** star-crafting.com (no public API; do not scrape).
-
-### SC Trade Tools etiquette
-
-Official OpenAPI ([Swagger UI](https://sc-trade.tools/swagger-ui/index.html)).
-Ship/location **catalog** GETs are open; **`/api/tools/*`** (routes, buyers,
-itinerary, circuits) require header **`token`** (Patreon API licence).
-
-| Rule | |
-|------|--|
-| Auth | `SC_TRADE_API_TOKEN` → request header `token` |
-| Cache | Routes ~30 min; ship list ~6 h |
-| Fail soft | Missing token / 403 / 429 → clear message, music unaffected |
-| Attribution | Every `!trade` reply |
-| Data quality | Community-reported prices — verify in-game |
-
-Licence: [Patreon sc_trade_tools](https://www.patreon.com/cw/sc_trade_tools/membership).
-
----
-
-## 3. Commands
-
-Public by default (rights migration v3 + rank template).
+### Example commands (in-game names only)
 
 ```
 !mine quantainium scu:32
-!refine bexalite scu:32 method:dinyx
-!craft quantum-core qty:2
-!craft greatsword qty:1
-!trade routes ship:Freelancer+MAX invest:200000 stops:2 loc:Stanton
-!trade buyers Agricium scu:32
-!trade ships hercules
+!mine stileron scu:16
+!refine quantainium scu:32 method:dinyx
+!refine bexalite scu:32 method:cormack
+!craft P4-AR qty:1
+!craft Coda qty:2
+!econ blueprints P4-AR
+!econ blueprints Coda
+!econ prices quantainium
+!econ prices agricium
 !econ ores
 !econ methods
-!econ recipes
-!econ blueprints greatsword
-!econ prices bexalite
 !econ search stileron
+!trade routes ship:Freelancer+MAX invest:200000 stops:2 profit:time loc:Stanton
+!trade buyers Agricium scu:32 loc:Stanton
+!trade ships Caterpillar
+!trade itinerary from:Stanton+>+microTech+>+Port+Tressler+>+Platinum+Bay to:Stanton+>+Crusader+>+Yela+>+Grim+HEX ship:Freelancer invest:100000
 ```
 
-Flags: `scu:N`, `qty:N`, `method:name` (or `m:name`).  
-Trade flags: `ship:`, `invest:`, `stops:`, `profit:time|pure`, `loc:`, `box:`, `from:`, `to:`, `id:`.
+**Spelling:** seed ore **Quantainium** (game form); aliases `quantanium` / `qt` work.
 
-**Spelling:** catalog canonical is **Quantainium**; `quantanium` / `qt` are aliases.
+**Flags**
 
-`!craft` tries the **seed catalog** first, then **sc-craft.tools** when enabled.
-`!trade` uses **sc-trade.tools** (token required for routes).
-Seed refine numbers remain planning placeholders; live feeds are community data
-(verify in-game for rare stock / hauling).
+| Surface | Flags |
+|---------|--------|
+| mine / refine / craft | `scu:N`, `qty:N`, `method:name` (or `m:name`) |
+| trade | `ship:`, `invest:`, `stops:`, `profit:time\|pure`, `loc:`, `box:`, `from:`, `to:`, `id:`, `scu:` |
+| Multi-word values | Use `+` for spaces: `ship:Freelancer+MAX`, `from:Stanton+>+…` |
+
+---
+
+## 2. Data sources
+
+| Source | Role |
+|--------|------|
+| **Seed catalog** `bot/src/economy/catalog.ts` | Ores + rock stats snapshot + refine methods (offline) |
+| **Seed import JSON** `bot/src/economy/data/` | Frozen one-shot import artifact (not read at runtime) |
+| **UEX** `api.uexcorp.space` | Optional live commodity averages (`!econ prices`) |
+| **SC Craft Tools** `sc-craft.tools` | Optional live **in-game** craft blueprints (`!craft`, `!econ blueprints`) |
+| **SC Trade Tools** `sc-trade.tools` | Optional trade routes / buyers (`!trade`) — tools need **API token** |
+| **Org doctrine** | Real SOPs, pads, org craft notes (Library / private store) |
+| scminer, star-crafting.com, SCMDB, … | Human bookmarks only — **not** wired at runtime |
+
+### Offline craft seed
+
+`CRAFT_RECIPES` is **empty on purpose**. Fake “structural frame kit” / “quantum-core blank” recipes were removed so operators never see non-game items as examples. Craft always resolves through **sc-craft.tools** (or fails open with a clear message).
+
+### One-shot mining seed import
+
+Rare maintainer HTML parse of public DataHub mining pages → `seed-import-*.json` → merge into `catalog.ts`. Not a product dependency. See `bot/src/economy/data/README.md`.
+
+---
+
+## 3. Env / etiquette
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `ECONOMY_UEX` | `1` | `0` disables UEX prices |
+| `UEX_API_BASE` | `https://api.uexcorp.space` | |
+| `UEX_CACHE_TTL_MS` | `21600000` (6h) | |
+| `UEX_TIMEOUT_MS` | `8000` | |
+| `UEX_API_KEY` | _(empty)_ | Optional |
+| `ECONOMY_SCCRAFT` | `1` | `0` disables sc-craft |
+| `SCCRAFT_API_BASE` | `https://sc-craft.tools` | |
+| `SCCRAFT_CACHE_TTL_MS` | `21600000` (6h) | |
+| `SCCRAFT_TIMEOUT_MS` | `8000` | |
+| `ECONOMY_SCTRADE` | `1` | `0` disables `!trade` |
+| `SC_TRADE_API_TOKEN` | _(empty)_ | **Required** for `/api/tools/*` (header `token`) |
+| `SCTRADE_API_BASE` | `https://sc-trade.tools` | |
+| `SCTRADE_CACHE_TTL_MS` | `1800000` (30m) | Route cache |
+| `SCTRADE_TIMEOUT_MS` | `45000` | Route search can be heavy |
+
+Shared rules for every remote client:
+
+- Identifiable `User-Agent: Moneypenny-OrgEconomy/…`
+- Long cache, short timeout
+- Fail soft (never block music)
+- Attribution on every live reply
+- Public JSON only — never scrape SPAs (including star-crafting.com)
+
+SC Trade tools licence: [Patreon sc_trade_tools](https://www.patreon.com/cw/sc_trade_tools/membership) · [Swagger](https://sc-trade.tools/swagger-ui/index.html)
 
 ---
 
 ## 4. Architecture
 
 ```
-!mine / !refine / !craft / !econ
-        │
-        ▼
-bot/src/economy/service.ts   (handlers)
-        │
-        ├─▶ catalog.ts + orders.ts   (pure, offline)
-        ├─▶ uex.ts                   (optional prices, cached)
-        ├─▶ sc-craft.ts              (optional blueprints, cached)
-        └─▶ sc-trade.ts              (optional routes; token for /tools)
+!mine / !refine          → catalog.ts + orders.ts (offline)
+!craft / !econ blueprints → sc-craft.ts (optional, cached)
+!econ prices             → uex.ts (optional, cached)
+!trade                   → sc-trade.ts (optional; token for tools)
+!econ ores|methods|search → catalog.ts
 
 !ask "how do I refine quantainium?"
-        │
-        ▼
-LlmRuntime.retrieveContext
-        └─▶ economyContextForQuestion()  (static seed only)
+        → economyContextForQuestion()  (static seed ores/methods)
 ```
 
-Implementation:
-
-- `bot/src/economy/*`
-- `COMMAND_MANIFEST` specials: `mine`, `refine`, `craft`, `econ`
-- Rights delta v3 (`defaultAllow`)
-- `docs/economy.md` (this file)
+Code: `bot/src/economy/*` · commands in `bot/src/bot/commands.ts` · rights `bot/src/rights/migrations.ts` (v3 economy + v7 trade).
 
 ---
 
-## 5. Maintaining the catalog after a patch
+## 5. Maintaining after a patch
 
-1. Prefer hand edits or doctrine for org-specific SOPs.
-2. Optional: one-shot re-import of DataHub ores/refining → new `seed-import-*.json` → merge into `catalog.ts` (see `data/README.md`).
-3. Confirm sell prices with `!econ prices <ore>` (UEX).
-4. Do **not** add runtime scrapers or scheduled hammers against community UIs.
-
-Illustrative craft recipes stay tiny on purpose — full fabricator graphs belong in
-org doctrine or specialist sites operators open in a browser.
+1. Hand-edit ore/method seed or re-import DataHub snapshot → `catalog.ts`.
+2. Craft BOMs: refresh via sc-craft (no seed craft list to maintain).
+3. Prices: `!econ prices <commodity>` (UEX).
+4. Trade: set `SC_TRADE_API_TOKEN`; use exact ship/shop names from `!trade ships` / sc-trade UI.
+5. Do **not** add scrapers or cron hammers against community UIs.
 
 ---
 
 ## 6. Non-goals
 
-- Live location heatmaps / RS signature scanners
+- Live location heatmaps / signature scanners
 - Loadout optimizers (lasers/modules)
-- Terminal-level trade route engines (use UEX in browser)
-- Runtime scrape of any community SPA
-- Full mission → blueprint graph (SCMDB is a human reference)
+- HTML scrape of scminer / star-crafting.com / SCMDB
+- Invented offline craft items (seed craft stays empty)
+- Full mission → blueprint ownership graph as a second product
 
 ---
 
 ## 7. Acceptance checklist
 
-- [x] `!mine` / `!refine` / `!craft` / `!econ` registered + public
-- [x] Seed catalog offline without network
+- [x] `!mine` / `!refine` / `!craft` / `!econ` / `!trade` registered + public
+- [x] Seed ores/methods offline without network
+- [x] Craft examples and seed list use **in-game** blueprints only (sc-craft)
 - [x] Optional UEX prices with cache + attribution
-- [x] `!ask` economy keyword injection
-- [x] Rights migration v3 for frozen rulesets
+- [x] Optional sc-trade routes with token gate + attribution
+- [x] `!ask` economy keyword injection (seed)
 - [x] No scrapers
 
 ---
 
-## 8. Org doctrine (private — examples only in-repo)
+## 8. Org doctrine (private)
 
-Real logistics doctrine (routes, pads, BOMs) should live in your **private**
-knowledge base, not a public git tree.
+Real logistics doctrine (routes, pads, preferred BPs) belongs in your **private** knowledge base.
 
-**Templates** (copy → private Library / private wiki / `bot/data/doctrine/`):
-
-| Example file | Contents |
-|--------------|----------|
-| [`docs/examples/doctrine/economy-orders.example.md`](./examples/doctrine/economy-orders.example.md) | Commands, refine policy, QT rules, route/BOM placeholders |
-| [`docs/examples/doctrine/mining-crew-brief.example.md`](./examples/doctrine/mining-crew-brief.example.md) | Mining flight checklist |
-| [`docs/examples/doctrine/logistics-glossary.example.md`](./examples/doctrine/logistics-glossary.example.md) | Shared vocabulary |
-
-See [`docs/examples/doctrine/README.md`](./examples/doctrine/README.md). After
-copying privately: RAG on → reindex → `!ask` grounds on your edits.
+Templates: [`docs/examples/doctrine/`](./examples/doctrine/) — copy privately, fill Routes / craft notes, reindex.
 
 ---
 
 ## 9. References
 
-UEX: [uexcorp.space](https://uexcorp.space/) · seed: `bot/src/economy/catalog.ts` ·
-commands: `bot/src/bot/commands.ts` · rights: `bot/src/rights/migrations.ts` ·
-examples: `docs/examples/doctrine/`
+- UEX: [uexcorp.space](https://uexcorp.space/)
+- SC Craft: [sc-craft.tools](https://sc-craft.tools/)
+- SC Trade: [sc-trade.tools](https://sc-trade.tools/) · [Swagger](https://sc-trade.tools/swagger-ui/index.html)
+- Seed: `bot/src/economy/catalog.ts`

@@ -91,31 +91,30 @@ export function formatCraftOrder(o: CraftOrder): string {
 
 export function formatEconHelp(prefix = "!"): string {
   return [
-    "Org economy orders (seed + optional UEX prices + sc-craft blueprints):",
-    `${prefix}mine <ore> [scu:N] [method:name] — mining pull order + stability clock`,
-    `${prefix}refine <ore> [scu:N] [method:name] — refine yield / time / cost estimate`,
-    `${prefix}craft <recipe|blueprint> [qty:N] — seed BOM or live sc-craft blueprint`,
-    `${prefix}trade … — SC Trade Tools routes (needs SC_TRADE_API_TOKEN)`,
-    `${prefix}econ ores|methods|recipes — seed catalog`,
-    `${prefix}econ blueprints <q> — live blueprints (sc-craft.tools)`,
-    `${prefix}econ prices <ore> — UEX averages`,
-    `${prefix}econ search <q> — seed search`,
+    "Org economy (mine/refine seed · craft/trade live APIs):",
+    `${prefix}mine quantainium scu:32 — mining pull + stability clock`,
+    `${prefix}refine bexalite scu:32 method:dinyx — refine yield/time estimate`,
+    `${prefix}craft P4-AR qty:1 — in-game blueprint BOM (sc-craft.tools)`,
+    `${prefix}trade routes ship:Freelancer+MAX invest:200000 — routes (needs SC_TRADE_API_TOKEN)`,
+    `${prefix}econ ores|methods — seed catalog`,
+    `${prefix}econ blueprints Coda — live blueprints`,
+    `${prefix}econ prices quantainium — UEX averages`,
+    `${prefix}econ search stileron — seed search`,
     "",
     CATALOG_DISCLAIMER,
-    "Live blueprints: sc-craft.tools. Trade routes: sc-trade.tools (token). No HTML scrapers.",
   ].join("\n");
 }
 
 export function formatTradeHelp(prefix = "!"): string {
   return [
-    "Trade routes via SC Trade Tools (community prices):",
-    `${prefix}trade routes ship:Freelancer invest:100000 [stops:1] [profit:time|pure] [loc:Stanton] [box:32]`,
-    `${prefix}trade itinerary from:ShopA to:ShopB ship:Freelancer invest:50000`,
-    `${prefix}trade buyers Agricium scu:32 [loc:Stanton]`,
-    `${prefix}trade circuit id:12345 ship:Freelancer invest:100000`,
-    `${prefix}trade ships [query]`,
+    "Trade routes via SC Trade Tools (community prices, not CIG live market):",
+    `${prefix}trade routes ship:Freelancer+MAX invest:200000 stops:2 profit:time loc:Stanton`,
+    `${prefix}trade buyers Agricium scu:32 loc:Stanton`,
+    `${prefix}trade itinerary from:Stanton+>+microTech+>+Port+Tressler+>+Platinum+Bay to:Stanton+>+Crusader+>+Yela+>+Grim+HEX ship:Freelancer invest:100000`,
+    `${prefix}trade circuit id:<from-routes> ship:Freelancer+MAX invest:200000`,
+    `${prefix}trade ships Caterpillar`,
     "",
-    "Ship multi-word: ship:Freelancer+MAX or ship:C2+Hercules+Starlifter",
+    "Ships/locations/commodities must match sc-trade.tools names. Spaces in flags: use +",
     "Requires SC_TRADE_API_TOKEN (Patreon API licence).",
     SC_TRADE_ATTRIBUTION,
   ].join("\n");
@@ -260,15 +259,27 @@ export function formatMethodList(): string {
 }
 
 export function formatRecipeList(): string {
+  if (CRAFT_RECIPES.length === 0) {
+    return [
+      "No offline seed craft recipes (by design).",
+      "Use in-game blueprint names from sc-craft.tools:",
+      "  !craft P4-AR qty:1",
+      "  !craft Coda qty:2",
+      "  !econ blueprints greatsword",
+      "  !econ blueprints Coda",
+      "",
+      CATALOG_DISCLAIMER,
+    ].join("\n");
+  }
   const rows = CRAFT_RECIPES.map((r) => {
     const alias = r.aliases[0] ? ` (${r.aliases[0]})` : "";
     return `  ${r.id}${alias}`;
   });
   return [
-    "Craft recipes (illustrative — put live BOMs in doctrine):",
+    "Offline seed craft recipes:",
     ...rows,
     "",
-    "Detail: !craft <id|alias> [qty:N]",
+    "Detail: !craft <id|alias> [qty:N] — also searches sc-craft for live blueprints.",
     "",
     CATALOG_DISCLAIMER,
   ].join("\n");

@@ -30,7 +30,7 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 | **Radio** | `bot/src/radio/` | Program director, format clock, bumper factory, tag overlay, analyzer |
 | **LLM client** | `bot/src/llm/` | OpenAI-compatible HTTP client, tool schema, conversation history |
 | **RAG** | `bot/src/rag/` | Chunking, embeddings HTTP client, Qdrant client, `RetrievalStore` |
-| **Economy** | `bot/src/economy/` | Org mine/refine/craft orders (seed catalog); optional UEX prices — **no scrapers** (`docs/economy.md`) |
+| **Economy** | `bot/src/economy/` | Seed mine/refine; live `!craft` (sc-craft) + `!trade` (sc-trade, token) + UEX prices — **no scrapers** (`docs/economy.md`) |
 | **Rights** | `bot/src/rights/` | Declarative rank gating (chat + voice scopes) |
 | **Voice pipeline** | `bot/src/voice/` | VAD, STT/TTS **HTTP clients**, `VoicePipeline` — not the sidecar processes |
 | **Web API** | `bot/src/web/` | Express app, session auth, CSRF, rate limits, REST + WebSocket — **all HTTP input validation lives here or in called modules** |

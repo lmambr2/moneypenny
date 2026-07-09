@@ -77,7 +77,7 @@ in-game tables.
 |----------|----------------|
 | “Mining order” | `!mine` |
 | “Refinery job” | `!refine` |
-| “What do we need to craft X” | `!craft` then doctrine craft overrides |
+| “What do we need to craft X” | `!craft <in-game blueprint>` (e.g. P4-AR) then doctrine craft notes |
 | “Market price” | `!econ prices` (UEX), not seed snapshot |
 | “Where do we mine X” | private economy-orders **Routes** (edit when changed) |
 | “Write it up for the library” | `!intsum -s` / `!aar -s` / Library → Doctrine |

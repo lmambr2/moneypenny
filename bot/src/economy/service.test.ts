@@ -27,14 +27,13 @@ describe("handleEconomyCommand", () => {
     expect(refine).toContain("Refine order");
     expect(refine).toContain("Cormack");
 
-    const craft = await handleEconomyCommand("craft", "frame qty:1", "!", {
+    const craftOffline = await handleEconomyCommand("craft", "P4-AR qty:1", "!", {
       scCraft: new ScCraftClient({ enabled: false }),
     });
-    expect(craft).toContain("Craft order");
-    expect(craft).toContain("Bill of materials");
+    expect(craftOffline).toMatch(/disabled|sc-craft/i);
   });
 
-  it("craft falls back to sc-craft when seed misses", async () => {
+  it("craft resolves in-game blueprint via sc-craft", async () => {
     const scCraft = new ScCraftClient({
       enabled: true,
       fetchSearch: async () => [sampleBp],

@@ -44,7 +44,11 @@ export async function handleTradeCommand(
   if (f.sub === "buyers") {
     const commodity = f.commodity || f.rest;
     if (!commodity) {
-      return `Usage: ${prefix}trade buyers <commodity> [scu:32] [loc:Stanton]\nExample: ${prefix}trade buyers Agricium scu:32`;
+      return (
+        `Usage: ${prefix}trade buyers <commodity> [scu:N] [loc:Stanton]\n` +
+        `Example: ${prefix}trade buyers Agricium scu:32\n` +
+        `Example: ${prefix}trade buyers Quantainium scu:16 loc:Stanton`
+      );
     }
     const scu = f.scu ?? 32;
     const res = await client.findBuyers({
@@ -64,7 +68,8 @@ export async function handleTradeCommand(
     if (!from || !to) {
       return (
         `Usage: ${prefix}trade itinerary from:<shop> to:<shop> ship:<name> invest:N\n` +
-        `Shop names from sc-trade (full path). Example flags: from:Stanton+>+... (use exact shop string).`
+        `Shop names must match sc-trade.tools (spaces → +).\n` +
+        `Example: ${prefix}trade itinerary from:Stanton+>+microTech+>+Port+Tressler+>+Platinum+Bay to:Stanton+>+Crusader+>+Yela+>+Grim+HEX ship:Freelancer invest:100000`
       );
     }
     const shipName = await resolveShipName(client, f.ship || DEFAULT_SHIP);
