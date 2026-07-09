@@ -27,7 +27,10 @@ services:
       - OUTPUT_DIR=/music/generated/ace-step
       - HOST=0.0.0.0
       - PORT=7865
+      # Mock=1 (default): silent stub for CI/bot path tests.
+      # Mock=0: set ACE_STEP_WORKER_URL to a real upstream; adapter refuses silent success.
       - ACE_STEP_MOCK=${ACE_STEP_MOCK:-1}
+      - ACE_STEP_WORKER_URL=${ACE_STEP_WORKER_URL:-}
     # Uncomment for NVIDIA:
     # deploy:
     #   resources:

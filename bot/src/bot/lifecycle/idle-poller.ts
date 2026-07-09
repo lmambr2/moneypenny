@@ -7,11 +7,29 @@ export type ChannelClient = Awaited<ReturnType<TS3Client["getClientsInChannel"]>
 export interface IdlePollerDeps {
   config: BotConfig;
   logger: Logger;
-  tsClient: Pick<TS3Client, "getClientsInChannel">;
+  tsClient: Pick<TS3Client, "getClientsInChannel" | "getClientId">;
   isConnected: () => boolean;
   onDisconnect: () => void;
   onPoll: (clients: ChannelClient[], humanCount: number) => void;
   pollIntervalMs?: number;
+}
+
+/**
+ * Humans present for radio gates / idle disconnect.
+ * - Skip TS query clients (`type === 1`)
+ * - Skip our own full-client clid (bot is type 0 like listeners)
+ * Do **not** use `length - 1` — if the bot is missing from the list, that
+ * undercounts and permanently blocks scheduled bumpers (minPresent).
+ */
+export function countChannelHumans(
+  clients: Array<{ id?: number; type?: number }>,
+  selfClientId = 0,
+): number {
+  return clients.filter((c) => {
+    if (c.type === 1) return false; // query / server
+    if (selfClientId > 0 && c.id === selfClientId) return false;
+    return true;
+  }).length;
 }
 
 /**
@@ -33,7 +51,11 @@ export class IdlePoller {
       if (this.deps.isConnected()) {
         try {
           const clients = await this.deps.tsClient.getClientsInChannel();
-          const humanCount = clients.length - 1;
+          const selfId =
+            typeof this.deps.tsClient.getClientId === "function"
+              ? this.deps.tsClient.getClientId()
+              : 0;
+          const humanCount = countChannelHumans(clients, selfId);
           this.deps.onPoll(clients, humanCount);
           if (humanCount <= 0) {
             this.scheduleIdleCheck();

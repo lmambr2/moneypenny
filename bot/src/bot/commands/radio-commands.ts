@@ -1,5 +1,6 @@
 import type { QueuedSong } from "../../audio/queue.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
+import { orderKeysHarmonically } from "../../radio/harmonic.js";
 import {
   isUnderBumperDir,
   pinBumperToPool,
@@ -7,6 +8,7 @@ import {
   type RadioProfile,
   type TagStore,
 } from "../../radio/index.js";
+import { orderKeysByRatingWeight } from "../../radio/rating-weight.js";
 import type { TS3TextMessage } from "../../ts-protocol/client.js";
 import type { ParsedCommand } from "../commands.js";
 import type { CommandExecutorDeps } from "./executor.js";
@@ -98,6 +100,20 @@ export class RadioCommands {
         if (!r.ok) return `Could not pin bumper: ${r.error}`;
         return `📌 Pinned to prerecorded pool: ${r.dest}`;
       }
+      case "prewarm": {
+        if (!this.deps.prewarmRadioBumpers) {
+          return "Bumper pre-generate is not available.";
+        }
+        const rest = cmd.rawArgs.slice(1).map((s) => s.toLowerCase());
+        const includeDoctrine = rest.includes("doctrine") || rest.includes("with-doctrine");
+        const r = await this.deps.prewarmRadioBumpers({
+          includeDoctrine,
+          hoursAhead: 12,
+        });
+        return `📻 Pre-generated ${r.rendered} bumper(s)${r.failed ? `, ${r.failed} failed/skipped` : ""}${
+          includeDoctrine ? " (incl. doctrine)" : ""
+        }. Live slots use the TTS cache when text matches.`;
+      }
       case "gen":
       case "generate": {
         // Alias of !generate — same rights token "generate" checked by router for
@@ -129,7 +145,7 @@ export class RadioCommands {
         return `📻 Radio mode ON. ${this.summary(radio)}${this.countdown()}`;
       }
       default:
-        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip|pin|gen <prompt>]`;
+        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip|pin|prewarm [doctrine]|gen <prompt>]`;
     }
   }
 
@@ -178,9 +194,10 @@ export class RadioCommands {
     let activeRelay: { relayUrl: string; bumperIntervalSec: number } | null = null;
 
     if (music.select && this.deps.tagStore) {
-      const keys = this.deps.tagStore.selectTracks(
+      let keys = this.deps.tagStore.selectTracks(
         parseTagFilters(music.select as Record<string, unknown>),
       );
+      keys = this.applyPoolOrdering(keys);
       pool.push(...(await this.tagKeysToSongs(keys)));
     }
     for (const ref of music.playlistRefs ?? []) {
@@ -359,7 +376,8 @@ export class RadioCommands {
     } catch {
       return 'Usage: selecttracks {"genreAny":["ambient"],"bpmMax":110}';
     }
-    const keys = this.deps.tagStore.selectTracks(parseTagFilters(raw));
+    let keys = this.deps.tagStore.selectTracks(parseTagFilters(raw));
+    keys = this.applyPoolOrdering(keys);
     const songs = await this.tagKeysToSongs(keys);
     if (songs.length === 0) return "No tracks match those tags.";
 
@@ -371,6 +389,42 @@ export class RadioCommands {
       await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
     }
     return `Queued ${songs.length} track${songs.length === 1 ? "" : "s"} by tags.`;
+  }
+
+  /**
+   * OQ7 rating weight + OQ5 harmonic sequencing on a selected key list.
+   * Rating weight reorders first (preference bag); harmonic then smooths neighbors.
+   */
+  applyPoolOrdering(keys: string[]): string[] {
+    if (keys.length <= 1 || !this.deps.tagStore) return keys;
+    const radio = this.deps.config.radio ?? {};
+    const store = this.deps.tagStore;
+    let ordered = keys;
+    const rw = radio.ratingWeight;
+    // Default on when radio config omits ratingWeight (matches defaultRadioConfig).
+    const weightEnabled = rw?.enabled !== false;
+    if (weightEnabled) {
+      ordered = orderKeysByRatingWeight(ordered, (k) => store.smoothedScore(k), {
+        enabled: true,
+        exponent: rw?.exponent ?? 1,
+        maxRatio: rw?.maxRatio ?? 3,
+      });
+    }
+    const harmonicOn = !!(
+      radio.harmonicSequencing ||
+      radio.profiles?.[radio.activeProfile ?? ""]?.music?.harmonicSequencing
+    );
+    if (harmonicOn) {
+      ordered = orderKeysHarmonically(
+        ordered,
+        (k) => {
+          const t = store.get(k);
+          return t ? { musicalKey: t.musicalKey, keyScale: t.keyScale } : null;
+        },
+        true,
+      );
+    }
+    return ordered;
   }
 
   /** Overlay keys → playable local Songs; stale rows (deleted files) skipped. */

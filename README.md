@@ -64,7 +64,7 @@ Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
 **Community & ops**
 - **Roast** — captures chat lines, AI-grades them for cringe, auto-posts a "greatest hits" reel when enough people are present; opt out + purge with `!roastout`.
 - **Rank gating** — declarative rights mapped to TS server-groups; gates typed + voice + LLM-driven commands (no escalation via natural language); rules can be **scoped to voice or chat**. Verify with `GET /api/bot/rights/debug`.
-- **Radio mode (autonomous DJ)** — off by default; between songs or on dead air she drops a short bumper: a prerecorded jingle, a spoken station ID/time check, or a doctrine tip rewritten by the LLM and TTS'd in persona, gated to the **least-cleared listener present**. `!radio ops <profile>` retunes music + bumper topics in one switch. → **[docs/radio.md](./docs/radio.md)**
+- **Radio mode (autonomous DJ)** — off by default; every *N* songs (or dead air) she drops a short bumper: prerecorded jingle, station ID/time check, or doctrine/org tip (LLM + TTS). Scheduled bumpers need a human in-channel; **Test bumper** / `!radio bumper` force a break. Optional **music color** (AM/FM/…) and **pre-generate** TTS cache. → **[docs/radio.md](./docs/radio.md)**
 - Optional **voice loop** — **Whisper** STT (`tiny` on SBC → `large-v3` on Server) + **Piper** British TTS ([docs/voice-backends.md](./docs/voice-backends.md)); watchdog; localhost-bound web UI.
 
 All AI/community features are **off by default** — toggle them in **Settings → AI & Permissions**.
@@ -107,7 +107,7 @@ Chat commands (default prefix `!`):
 | `!remember <fact>` · `!recall` | Per-user memory |
 | `!roast` · `!roastout` | Show the roast reel · opt out + purge |
 | `!radio [on\|off\|status]` | Autonomous DJ — bumpers between tracks ([docs](docs/radio.md)); `on/off` admin |
-| `!radio ops <profile>` · `!radio bumper [topic]` · `!radio say <text>` · `!radio skip` · `!radio pin` | Station programming (`@dj` + admin); `pin` promotes last bumper to prerecorded pool |
+| `!radio ops <profile>` · `!radio bumper [topic]` · `!radio say <text>` · `!radio prewarm [doctrine]` · `!radio skip` · `!radio pin` · `!radio gen <prompt>` | Station programming (`@dj` + admin); `prewarm` fills TTS cache; `pin` → prerecorded pool |
 | `!selecttracks <json>` | Tag-driven local track selection (normally via the `select_tracks` LLM tool) |
 | `!intsum [-s] [class:<level>] <points>` · `!aar [-s] …` | Templated INTSUM / AAR generation (analyst delegate; `-s` saves to doctrine) |
 | `!mine` · `!refine` · `!craft` · `!econ` | Org economy orders (seed catalog; `!econ prices` via UEX) — [docs/economy.md](docs/economy.md) |

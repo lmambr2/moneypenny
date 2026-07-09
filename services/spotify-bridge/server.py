@@ -150,14 +150,29 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path == "/health":
+            web_api = bool(CLIENT_ID and (ACCESS_TOKEN or REFRESH_TOKEN or CLIENT_SECRET))
+            # webApi usable when we have client + refresh/access; secret alone insufficient
+            web_ready = bool(
+                (ACCESS_TOKEN)
+                or (CLIENT_ID and CLIENT_SECRET and REFRESH_TOKEN)
+            )
             _json(
                 self,
                 200,
                 {
                     "ok": True,
                     "engine": "spotify-bridge",
+                    # Clear split: metadata/playlist vs real audio
                     "librespot": bool(LIBRESPOT),
-                    "webApi": bool(CLIENT_ID and (ACCESS_TOKEN or REFRESH_TOKEN)),
+                    "audioAvailable": bool(LIBRESPOT),
+                    "webApi": web_ready,
+                    "playlistExpandAvailable": web_ready,
+                    "metadataAvailable": web_ready,
+                    "note": (
+                        "Set LIBRESPOT_HTTP_BASE for audio /resolve; "
+                        "SPOTIFY_CLIENT_ID/SECRET + refresh token for /playlist metadata. "
+                        "Without librespot, /resolve returns 503 (bot fails open)."
+                    ),
                 },
             )
             return

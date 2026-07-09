@@ -45,6 +45,12 @@ export interface CommandExecutorDeps {
   };
   /** Absolute path to prerecorded bumper assets (`!radio pin`, §6.5). */
   getBumperDir?: () => string;
+  /** Pre-render liners into TTS cache (`!radio prewarm`). */
+  prewarmRadioBumpers?: (opts?: {
+    includeDoctrine?: boolean;
+    hoursAhead?: number;
+    lines?: string[];
+  }) => Promise<{ rendered: number; failed: number; details: string[] }>;
   /** ACE-Step generate → library (docs/ace-step.md A4 radio auto-fill). */
   generateProvider?: {
     isConfigured(): boolean;

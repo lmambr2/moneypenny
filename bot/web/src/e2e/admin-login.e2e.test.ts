@@ -1,7 +1,7 @@
 /**
- * Vue E2E-style critical admin flow: Login form → session.login → navigate.
+ * Critical-path component test (not browser E2E): Login form → session.login → navigate.
  * Drives the real Login.vue + useSession.login path with mocked axios (network
- * boundary only). Runs under vitest/happy-dom (no separate browser harness).
+ * boundary only). Runs under vitest/happy-dom — no Playwright/Cypress harness.
  */
 
 import { flushPromises, mount } from '@vue/test-utils';

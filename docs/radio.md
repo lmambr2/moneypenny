@@ -13,35 +13,56 @@
 > tags, not a third-party API**.
 
 **Status:** backend **implemented** (R-R1 – R-R6 on `dev`/`main`, 2026-07).
-Dashboard: Settings **Radio / DJ**, Library **Track tags** + stars, `!radio pin`.
+Dashboard: Settings **Radio / DJ** (tooltips on controls), Library **Track tags** +
+stars + bulk/LLM guess, `!radio pin`.
 **Analyzer** (keyfinder+aubio) in the bot image + analyze API. **R-R6:** Icecast
 tee, relay-in, Spotify/Tidal playlist expand via stream bridge (fail-open).
-**ACE-Step** radio auto-fill / `!radio gen` / `!generate` ship when enabled —
+**Music color** (`radio.audioColor`: am/fm/… ffmpeg on music only).
+**Bumper prewarm** (`!radio prewarm`, Settings **Pre-generate bumpers**).
+**ACE-Step** radio auto-fill / `!radio gen` / `!generate` when enabled —
 [ace-step.md](./ace-step.md), [ace-step-host.md](./ace-step-host.md).
 **Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
 and **`focus`** in `defaultRadioConfig()`; add custom profiles before `!radio ops`.
 
 ### Dashboard (Settings → Radio / DJ)
 
-- Enable radio, N / dead-air / bumper length / speech floor, profile picker
-- **Bumper sources** checkboxes: prerecorded · stationId · timeCheck · nowPlaying · doctrine · memory
+- Enable radio, **every N songs** (N=3 → bumper on the **4th** track boundary),
+  dead-air, bumper length, speech volume floor, profile picker
+- **Rating-weighted rotation** / **harmonic sequencing** / **analyzer on ingest**
+- **Music color / quality** (clean · AM · FM · telephone · vinyl · lofi)
+- **Bumper sources:** prerecorded · stationId · timeCheck · nowPlaying · doctrine · memory
 - **Org memory on air** (`memoryBroadcastOptIn`) — KG/diary only; never private `!remember`
-- Test bumper + status buttons
+- **Refresh status** · **Test bumper now** (forced, bypasses every-N / presence) ·
+  **Pre-generate bumpers** (+ doctrine) — TTS cache warm
+- Hover labels for native browser tooltips
+
+### Presence gate (scheduled bumpers)
+
+Scheduled bumpers require **≥ `minPresentToBroadcast` humans** in the channel
+(default 1), plus cooldown / max-per-hour. Presence is refreshed on each skip /
+track end (not only the 30s idle poll). Humans are counted as non-query clients
+excluding the bot’s own clid — **not** `clients.length - 1` (that undercounted
+when the bot was missing from the list and blocked all scheduled bumpers).
+
+- **Test bumper** / `!radio bumper` / `!radio say` **bypass** the presence gate.
+- Logs: `radio: bumper injected` on success;  
+  `radio: bumper slot skipped — broadcast gate …` if presence/cooldown blocked;  
+  `… no source produced audio` if prerecorded empty and TTS failed.
 
 ### Operator smoke
 
 ```text
-# Settings: Radio on + TTS (Piper) + at least prerecorded/stationId/timeCheck
+# Settings: Radio on + Save + TTS (Piper) + data/bumpers/*.mp3 (or stationId)
 !radio on
 !radio status
-!radio bumper
+!radio prewarm              # optional: warm TTS cache
+!radio bumper               # forced break (works even if every-N not due)
 !radio say This is Moneypenny Radio
 !radio ops lobby
-!radio skip
+!skip                       # × (N+1) times with everyNSongs=N to hit a scheduled bumper
+!radio skip                 # drop the *next* scheduled bumper only
 ```
-**Note:** command registration now goes through the single `COMMAND_MANIFEST`
-(`bot/src/bot/commands.ts`); the multi-list registration described against
-older revisions no longer exists.
+**Note:** commands go through `COMMAND_MANIFEST` (`bot/src/bot/commands.ts`).
 
 ---
 
@@ -407,13 +428,20 @@ bumper-eligible asset, optionally filtered by kind/op profile, and plays it dire
 (no LLM/TTS). Bumper-flagged assets are **excluded from music search/queue** so
 they never surface as songs.
 
-### 9.3 Editing tags from the dashboard (build it)
-- **`PATCH /api/music/tracks/:id/tags`** (admin-gated in v1; `@dj`/`radio.tags` planned
-  for web parity), plus bulk endpoints and a "mark bumper-eligible" action.
-- UI: an edit affordance on `SongCard.vue` + a Library **Tracks** tab (mirrors the
-  existing doctrine Tracks/Doctrine layout) with inline fields for genre/subgenre/
-  mood/key/BPM/energy and the bumper flag.
-- A **"re-analyze"** button to (re)run the analyzer (§9.5) for selected tracks.
+### 9.3 Editing tags from the dashboard
+- **`PATCH /api/music/tracks/:id/tags`** (admin or `@dj` / `radio.tags` via `canEditTags`).
+- **`POST /api/music/tracks/:id/tags/guess`** — LLM best-guess genre/subgenre/mood from
+  title + artist (`source: api`); see §9.5.
+- UI: Library **Track tags** with inline genre/mood, bumper flag, star ratings,
+  per-row **Guess**, **Guess missing (LLM)**, and **Analyze library** (key/BPM).
+
+### Bumper pre-generate (TTS cache warm)
+Live generated liners (station ID, time check, doctrine) go through TTS. To avoid
+waiting on synthesis at the track boundary:
+- **Dashboard:** Settings → Radio/DJ → **Pre-generate bumpers** (+ optional **+ doctrine**)
+- **API:** `POST /api/bot/radio/prewarm-bumpers` `{ includeDoctrine?, hoursAhead?, lines? }`
+- **Chat:** `!radio prewarm` / `!radio prewarm doctrine`
+- Fills `BumperCache` (unclassified only). Matching live text hits cache instantly.
 
 ### 9.4 The `select_tracks` tool (how the AI actually picks music)
 A new tool alongside `play_music` (`bot/src/llm/tools.ts`), keeping the surface tiny
@@ -471,9 +499,12 @@ by file hash, never blocking playback:
   MBIDs, with stale-coverage caveats.
 
 **AI-assisted (cheap heuristic, human-overridable):** for mood/subgenre, the LLM can
-infer from *text* (title + artist + existing genre) — a guess, flagged
-`source: manual`-reviewable, never ground truth. Text→text classification, distinct
-from audio analysis.
+infer from *text* (title + artist + existing genre) — a guess, never ground truth.
+Text→text classification, distinct from audio analysis.
+- **API:** `POST /api/music/tracks/:id/tags/guess` (admin / `radio.tags`) →
+  `bot.askLlm` → parse JSON → `TagStore.upsert(..., "api")` so manual edits still win.
+- **Dashboard:** Library → Track tags → per-row **Guess** and **Guess missing (LLM)**
+  for the visible list. Requires Settings → LLM enabled.
 
 ### 9.6 Can the AI use Tidal/Spotify/Bandcamp API data to pull desired music?
 - **In the codebase today: no.** `StreamProvider` resolves a *specific link* to a
@@ -550,12 +581,15 @@ interface RadioConfig {
   classificationFloor?: string[]; // override; default = lowest-present
   activeProfile: string; profiles: Record<string, RadioProfile>;
   clock?: FormatClock; ttsVoice?: string;
-  // OQ2: keyfinder+aubio first; essentia is the opt-in second pass.
-  analyzer?: { enabled: boolean; tool: "keyfinder"|"essentia"|"bliss"; onIngest: boolean };
+  // OQ2: keyfinder+aubio only (product surface). Essentia/bliss are not shipped tools.
+  analyzer?: { enabled: boolean; tool: "keyfinder"; onIngest: boolean };
   // OQ7: gentle rating-weighted rotation, radio-mode only.
   ratingWeight?: { enabled: boolean; exponent: number; maxRatio: number }; // default {true, ~1, 3}
   // OQ5: harmonic ordering of the upcoming queue window, per profile, default off.
   harmonicSequencing?: boolean;
+  // Music color overlay (ffmpeg -af on decode): off | am | fm | telephone | vinyl | lofi.
+  // Music only — spoken bumpers stay full-band. Default off.
+  audioColor?: "off" | "am" | "fm" | "telephone" | "vinyl" | "lofi";
   icecast?: { enabled: boolean; mountUrl: string };
 }
 ```
@@ -598,34 +632,22 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
   *Accept:* a prerecorded/canned bumper plays every N tracks; a fill fires after
   `deadAirSeconds`; radio-off is byte-identical to today; a TTS outage never opens a
   music gap.
-- [x] **R-R2 — TagStore + analyzer** (`e9d0e4a`, `846d32d`, `ba02614`, `85eaf6e`, `0184783`). Overlay table,
-  `indexFile` reads embedded tags, analyzer sidecar (**keyfinder+aubio default**, OQ2)
-  batch + on-ingest, `bumper`-eligible flag + the prerecorded source consuming it.
-  *Accept:* a re-analyze pass populates key/BPM (+ mood/genre if Essentia opt-in);
-  an uploaded jingle marked `bumper` plays as a bumper and never appears in music
-  search.
-- [x] **R-R3 — backend + Vue** (`a13cba6`, `52c309b`, `a7811f9` + Library track-tags + star widget). `PATCH …/tags` +
-  Library Tracks tab + bulk + bumper-flag actions; `@dj` rights entry + granular
-  `radio.*` tokens; the `track_ratings` table + `!rate`/`!unrate` + star widget +
-  `POST …/rating` + denormalized aggregate (§9.7). *Accept:* a `@dj` user sets tags
-  and runs `!radio ops`/`!radio bumper` but cannot toggle power or run
-  transport-admin commands; tag edits + ratings persist across re-index;
-  `select_tracks ratingMin: 4` returns only station favorites.
-- [x] **R-R4 — content engine + select_tracks + profiles** (`d528dbe`, `c0014ca`, `fd03d8b`). Doctrine/memory
-  → LLM script (`tool_choice:"none"`, capped) with the **classification floor**;
-  `select_tracks` tool; profiles bind `music.select` + `playlistRefs` (local + YouTube,
-  §8.1) + bumper themes; `!radio ops`. *Accept:* a doctrine note becomes a ≤cap spoken
-  bumper; an uncleared member present forces unclassified-only (adversarial floor
-  test); `!radio ops mining` shifts both music and bumper topics; LLM/RAG down →
-  prerecorded/canned fallback.
-- [x] **R-R5 — backend + Settings panel** (`e851666` + Radio/DJ panel, test-bumper, status API). Custom wheels, quiet hours,
-  limits, the Radio/DJ panel + harmonic-sequencing toggle (OQ5). *Accept:* a custom
-  wheel honored; quiet hours suppress; limits hold under flood.
-- [x] **R-R6 — Broadcast out / relay in + streaming providers (OQ8).**
-  Icecast tee (`IcecastTee` + Settings); `relayUrl` + timer bumpers (`RelayScheduler`);
-  Spotify/Tidal playlist expand via stream bridge `GET /playlist` + `services/spotify-bridge`.
-  *Accept:* optional Icecast sink when enabled; relay profile queues stream URL + timer
-  bumpers; Spotify playlist ref expands when bridge returns tracks (fail-open when off).
+- [x] **R-R2 — TagStore + analyzer**. Overlay table; **LocalProvider seeds embedded
+  genre/BPM/key** into TagStore (`source: embedded`, never clobbers manual/analyzer);
+  analyzer sidecar is **keyfinder+aubio only** (no Essentia product surface);
+  bumper-eligible flag + prerecorded source. Mood/genre DSP remains non-goals unless
+  a future opt-in second pass is added honestly.
+- [x] **R-R3 — backend + Vue**. `PATCH …/tags` + **`PATCH …/tracks/tags/bulk`** + Library
+  bulk genre/mood + bumper + ratings + LLM guess; `@dj` / `radio.tags` gating.
+- [x] **R-R4 — content engine + select_tracks + profiles**. Doctrine/memory bumpers,
+  `select_tracks`, profiles, `!radio ops`. Rating-weighted pool ordering (OQ7) and
+  optional harmonic sequencing (OQ5) apply when enabled.
+- [x] **R-R5 — Settings Radio/DJ panel**. Custom wheels, quiet hours, limits,
+  **rating-weight + harmonic sequencing toggles**, analyzer on-ingest (key/BPM).
+- [x] **R-R6 — Broadcast out / relay in + streaming providers.** Icecast tee; relay-in
+  timer bumpers; Spotify + **Tidal** `GET /playlist` on bridges; bot fail-open empty
+  when bridge/audio unavailable. Spotify **audio** still needs operator librespot
+  (`LIBRESPOT_HTTP_BASE`); health JSON splits metadata vs audio.
 
 ---
 
@@ -635,6 +657,8 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
 | TTS down | Use prerecorded assets; optionally post liner text in chat; `playNext()`. |
 | LLM down | Skip generated sources; prerecorded + `stationId`/`timeCheck`. |
 | RAG/Qdrant down | `doctrine` weight → 0; other sources/prerecorded. |
+| No humans in channel | Scheduled bumper **skipped** (gate); music continues. Forced/test still play. |
+| Cooldown / max bumpers/hour | Same — gate log; music continues. |
 | Analyzer down/missing tags | `select_tracks` returns sparse → fall back to playlists/seeds. |
 | Bumper not ready by the boundary | Skip this boundary (music first); pre-fetch earlier. |
 | Classification floor uncertain | Default `["unclassified"]`; if unresolved → prerecorded/canned only. |

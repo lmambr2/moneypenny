@@ -4,6 +4,7 @@ import multer from "multer";
 import type { Logger } from "../../logger.js";
 import type { LocalProvider } from "../../music/local.js";
 import type { MusicProvider } from "../../music/provider.js";
+import { guessTrackTags } from "../../music/tag-guess.js";
 import type { RadioAnalyzer, TagStore, TrackTags } from "../../radio/index.js";
 import type { RadioConfig } from "../../radio/types.js";
 import { errorCode, errorMessage } from "../../util/error.js";
@@ -31,6 +32,11 @@ export interface MusicRouterOptions {
     username: string;
     role: "admin" | "member";
   }) => boolean | Promise<boolean>;
+  /**
+   * One-shot LLM Q&A (bot.askLlm). Enables POST /tracks/:id/tags/guess
+   * (docs/radio.md §9.5 AI-assisted genre/mood).
+   */
+  askLlm?: (question: string) => Promise<string | null>;
 }
 
 const MAX_SEARCH_LIMIT = 50;
@@ -56,7 +62,7 @@ export function createMusicRouter(
   logger: Logger,
   options: MusicRouterOptions = {},
 ): Router {
-  const { tagStore, radioAnalyzer, getRadioConfig, canEditTags } = options;
+  const { tagStore, radioAnalyzer, getRadioConfig, canEditTags, askLlm } = options;
   const router = Router();
 
   /** Admin always; optional canEditTags for @dj / radio.tags web editors. */
@@ -497,14 +503,7 @@ export function createMusicRouter(
     const STRING_TAGS = ["genre", "subgenre", "mood", "musicalKey", "keyScale"] as const;
     const NUMBER_TAGS = ["bpm", "energy", "danceability"] as const;
 
-    router.get("/tracks/:id/tags", (req, res) => {
-      const id = String(req.params.id);
-      res.json({ id, tags: tagStore.get(id), rating: tagStore.getRating(id) });
-    });
-
-    router.patch("/tracks/:id/tags", requireTagEditor, (req, res) => {
-      const id = String(req.params.id);
-      const body = (req.body ?? {}) as Record<string, unknown>;
+    function parseTagBody(body: Record<string, unknown>): Partial<TrackTags> {
       const tags: Partial<TrackTags> = {};
       for (const f of STRING_TAGS) {
         if (typeof body[f] === "string")
@@ -514,6 +513,68 @@ export function createMusicRouter(
         if (body[f] != null && Number.isFinite(Number(body[f])))
           (tags as Record<string, unknown>)[f] = Number(body[f]);
       }
+      return tags;
+    }
+
+    // Bulk apply (registered before :id so "bulk" is not captured as an id).
+    router.patch("/tracks/tags/bulk", requireTagEditor, (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const idsRaw = body.ids;
+      const ids = Array.isArray(idsRaw)
+        ? idsRaw
+            .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+            .map((s) => s.trim())
+        : [];
+      if (ids.length === 0) {
+        res
+          .status(400)
+          .json({ error: "ids must be a non-empty string array", code: "VALIDATION_ERROR" });
+        return;
+      }
+      if (ids.length > 200) {
+        res.status(400).json({ error: "ids limited to 200 per request", code: "VALIDATION_ERROR" });
+        return;
+      }
+      const tags = parseTagBody(body);
+      const hasBumper = typeof body.bumper === "boolean";
+      if (Object.keys(tags).length === 0 && !hasBumper) {
+        res.status(400).json({
+          error: "provide at least one tag field or bumper",
+          code: "VALIDATION_ERROR",
+        });
+        return;
+      }
+      try {
+        let updated = 0;
+        for (const id of ids) {
+          if (Object.keys(tags).length > 0) tagStore.upsert(id, tags, "manual");
+          if (hasBumper) {
+            tagStore.setBumper(id, {
+              bumper: body.bumper as boolean,
+              bumperKind: typeof body.bumperKind === "string" ? body.bumperKind : undefined,
+              opsScope: typeof body.opsScope === "string" ? body.opsScope : undefined,
+            });
+          }
+          updated++;
+        }
+        res.json({ success: true, updated, ids });
+      } catch (err) {
+        logger.error({ err }, "bulk tag edit failed");
+        res
+          .status(500)
+          .json({ error: errorMessage(err, "Bulk tag edit failed"), code: "INTERNAL_ERROR" });
+      }
+    });
+
+    router.get("/tracks/:id/tags", (req, res) => {
+      const id = String(req.params.id);
+      res.json({ id, tags: tagStore.get(id), rating: tagStore.getRating(id) });
+    });
+
+    router.patch("/tracks/:id/tags", requireTagEditor, (req, res) => {
+      const id = String(req.params.id);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const tags = parseTagBody(body);
       try {
         if (Object.keys(tags).length > 0) tagStore.upsert(id, tags, "manual");
         // Bumper flag is orthogonal (§9.2) — set only when the field is present.
@@ -530,6 +591,59 @@ export function createMusicRouter(
         res
           .status(500)
           .json({ error: errorMessage(err, "Tag edit failed"), code: "INTERNAL_ERROR" });
+      }
+    });
+
+    // LLM best-guess genre/subgenre/mood from title+artist (not audio). source=api.
+    const guessLimit = createRateLimit({
+      capacity: 12,
+      refillPerSec: 0.25,
+      message: (waitSec) => `Tag guess rate limited (LLM). Please wait ${waitSec}s.`,
+    });
+    router.post("/tracks/:id/tags/guess", requireTagEditor, guessLimit, async (req, res) => {
+      if (!askLlm) {
+        res.status(503).json({
+          error: "LLM tag guess is unavailable (bot not wired)",
+          code: "LLM_UNAVAILABLE",
+        });
+        return;
+      }
+      const id = String(req.params.id);
+      try {
+        const detail = await localProvider.getSongDetail(id);
+        if (!detail) {
+          res.status(404).json({ error: "Track not found in library index", code: "NOT_FOUND" });
+          return;
+        }
+        const existing = tagStore.get(id) ?? undefined;
+        const guessed = await guessTrackTags(askLlm, {
+          name: detail.name,
+          artist: detail.artist,
+          album: detail.album,
+          existing: existing
+            ? { genre: existing.genre, subgenre: existing.subgenre, mood: existing.mood }
+            : undefined,
+        });
+        if (!guessed) {
+          res.status(502).json({
+            error:
+              "LLM returned no usable tags (disabled, empty reply, or unparseable). Check Settings → LLM.",
+            code: "LLM_GUESS_FAILED",
+          });
+          return;
+        }
+        tagStore.upsert(id, guessed, "api");
+        res.json({
+          success: true,
+          id,
+          guessed,
+          tags: tagStore.get(id),
+        });
+      } catch (err) {
+        logger.error({ err, id }, "LLM tag guess failed");
+        res
+          .status(500)
+          .json({ error: errorMessage(err, "Tag guess failed"), code: "INTERNAL_ERROR" });
       }
     });
 

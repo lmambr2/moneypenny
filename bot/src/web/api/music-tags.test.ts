@@ -23,7 +23,11 @@ const stub = (platform: MusicProvider["platform"]): MusicProvider =>
 
 function build(
   role: "admin" | "member" | null,
-  opts: { canEditTags?: (u: { role: string }) => boolean | Promise<boolean> } = {},
+  opts: {
+    canEditTags?: (u: { role: string }) => boolean | Promise<boolean>;
+    askLlm?: (q: string) => Promise<string | null>;
+    local?: MusicProvider;
+  } = {},
 ) {
   const tagStore = new TagStore({ db: new Database(":memory:") });
   const app = express();
@@ -34,10 +38,17 @@ function build(
       next();
     });
   app.use(
-    createMusicRouter(stub("local"), stub("youtube"), stub("stream"), console as never, {
-      tagStore,
-      canEditTags: opts.canEditTags as never,
-    }),
+    createMusicRouter(
+      opts.local ?? stub("local"),
+      stub("youtube"),
+      stub("stream"),
+      console as never,
+      {
+        tagStore,
+        canEditTags: opts.canEditTags as never,
+        askLlm: opts.askLlm,
+      },
+    ),
   );
   return { app, tagStore };
 }
@@ -93,6 +104,111 @@ describe("PATCH /tracks/:id/tags", () => {
       .patch("/tracks/abc/tags")
       .send({ bpm: "not-a-number", evil: "x", genre: "ambient" });
     expect(tagStore.get("abc")).toMatchObject({ genre: "ambient", bpm: undefined });
+  });
+});
+
+describe("PATCH /tracks/tags/bulk", () => {
+  it("admin applies genre/mood to many ids", async () => {
+    const { app, tagStore } = build("admin");
+    const res = await request(app)
+      .patch("/tracks/tags/bulk")
+      .send({ ids: ["a", "b", "c"], genre: "ambient", mood: "calm" });
+    expect(res.status).toBe(200);
+    expect(res.body.updated).toBe(3);
+    expect(tagStore.get("a")).toMatchObject({ genre: "ambient", mood: "calm", source: "manual" });
+    expect(tagStore.get("c")?.genre).toBe("ambient");
+  });
+
+  it("rejects empty ids", async () => {
+    const { app } = build("admin");
+    expect((await request(app).patch("/tracks/tags/bulk").send({ genre: "x" })).status).toBe(400);
+  });
+
+  it("rejects non-editor", async () => {
+    const { app } = build("member");
+    expect(
+      (
+        await request(app)
+          .patch("/tracks/tags/bulk")
+          .send({ ids: ["a"], genre: "x" })
+      ).status,
+    ).toBe(403);
+  });
+});
+
+describe("POST /tracks/:id/tags/guess", () => {
+  it("admin guesses tags via LLM and upserts source=api", async () => {
+    const local = stub("local");
+    local.getSongDetail = vi.fn(async () => ({
+      id: "abc",
+      name: "Neon Drift",
+      artist: "Vapor Cats",
+      album: "Night Drive",
+      duration: 180,
+      coverUrl: "",
+      platform: "local" as const,
+    }));
+    const { app, tagStore } = build("admin", {
+      local,
+      askLlm: async () => '{"genre":"synthwave","mood":"energetic","subgenre":"outrun"}',
+    });
+    const res = await request(app).post("/tracks/abc/tags/guess");
+    expect(res.status).toBe(200);
+    expect(res.body.guessed).toEqual({
+      genre: "synthwave",
+      subgenre: "outrun",
+      mood: "energetic",
+    });
+    expect(tagStore.get("abc")).toMatchObject({
+      genre: "synthwave",
+      mood: "energetic",
+      source: "api",
+    });
+  });
+
+  it("rejects a non-admin without canEditTags", async () => {
+    const { app } = build("member", {
+      askLlm: async () => '{"genre":"x"}',
+    });
+    expect((await request(app).post("/tracks/abc/tags/guess")).status).toBe(403);
+  });
+
+  it("returns 503 when askLlm is not wired", async () => {
+    const { app } = build("admin");
+    const res = await request(app).post("/tracks/abc/tags/guess");
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("LLM_UNAVAILABLE");
+  });
+
+  it("returns 404 when the track is not in the library index", async () => {
+    const local = stub("local");
+    local.getSongDetail = vi.fn(async () => null);
+    const { app } = build("admin", {
+      local,
+      askLlm: async () => '{"genre":"ambient"}',
+    });
+    const res = await request(app).post("/tracks/missing/tags/guess");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 502 when the LLM reply is unusable", async () => {
+    const local = stub("local");
+    local.getSongDetail = vi.fn(async () => ({
+      id: "abc",
+      name: "X",
+      artist: "Y",
+      album: "",
+      duration: 1,
+      coverUrl: "",
+      platform: "local" as const,
+    }));
+    const { app } = build("admin", {
+      local,
+      askLlm: async () => null,
+    });
+    const res = await request(app).post("/tracks/abc/tags/guess");
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe("LLM_GUESS_FAILED");
   });
 });
 

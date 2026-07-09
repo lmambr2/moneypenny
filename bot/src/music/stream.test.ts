@@ -213,4 +213,35 @@ describe("StreamProvider — Spotify bridge", () => {
     const provider = new StreamProvider();
     expect(await provider.getPlaylistSongs("spotify:playlist:x")).toEqual([]);
   });
+
+  it("expands a Tidal playlist when the bridge returns tracks", async () => {
+    vi.mocked(axios.get).mockResolvedValue({
+      data: {
+        tracks: [
+          {
+            uri: "https://tidal.com/browse/track/99",
+            title: "Tidal Tune",
+            artist: "Artist",
+            durationSec: 120,
+          },
+        ],
+      },
+    });
+    const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
+    const songs = await provider.getPlaylistSongs(
+      "https://tidal.com/browse/playlist/abc-def-12345678",
+    );
+    expect(songs).toHaveLength(1);
+    expect(songs[0]!.name).toBe("Tidal Tune");
+    expect(songs[0]!.platform).toBe("stream");
+    expect(vi.mocked(axios.get).mock.calls[0]![0]).toContain("/playlist");
+  });
+
+  it("fails open empty when Tidal bridge returns 503 body", async () => {
+    vi.mocked(axios.get).mockResolvedValue({
+      data: { error: "not logged in", tracks: [] },
+    });
+    const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
+    expect(await provider.getPlaylistSongs("https://tidal.com/browse/playlist/x")).toEqual([]);
+  });
 });

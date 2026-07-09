@@ -83,12 +83,17 @@ export interface RadioConfig {
   /** Directory holding prerecorded bumper assets (R-R1 pool; R-R2 adds the
    *  tag-flagged overlay). Relative paths resolve against the data dir. */
   bumperDir?: string;
-  // OQ2: keyfinder+aubio first; essentia is the opt-in second pass.
-  analyzer?: { enabled: boolean; tool: "keyfinder" | "essentia" | "bliss"; onIngest: boolean };
+  // OQ2: keyfinder+aubio is the only shipped analyzer tool (essentia/bliss removed from product surface).
+  analyzer?: { enabled: boolean; tool: "keyfinder"; onIngest: boolean };
   // OQ7: gentle rating-weighted rotation, radio-mode only.
   ratingWeight?: { enabled: boolean; exponent: number; maxRatio: number };
   // OQ5: harmonic ordering of the upcoming queue window (per profile).
   harmonicSequencing?: boolean;
+  /**
+   * Music "color" overlay (ffmpeg -af): off | am | fm | telephone | vinyl | lofi.
+   * Applied to music decode only; spoken bumpers stay clean. Default off.
+   */
+  audioColor?: import("./audio-color.js").AudioColorPreset;
   /** Optional Icecast tee (R-R6) — second PCM sink; default off. */
   icecast?: { enabled: boolean; mountUrl: string; format?: "mp3" | "ogg" | "opus" };
 }
@@ -126,5 +131,6 @@ export function defaultRadioConfig(): RadioConfig {
     ratingWeight: { enabled: true, exponent: 1, maxRatio: 3 },
     harmonicSequencing: false,
     analyzer: { enabled: false, tool: "keyfinder", onIngest: true },
+    audioColor: "off",
   };
 }

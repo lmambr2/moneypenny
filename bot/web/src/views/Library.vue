@@ -146,14 +146,18 @@
         <span class="section-count">{{ Math.min(libraryTracks.length, 40) }}</span>
       </h2>
       <p class="upload-hint" style="margin-bottom:10px">
-        Tag local tracks for <code>select_tracks</code> / radio profiles. Star ratings feed rotation weighting. Admins can edit tags and mark bumper-eligible assets.
+        Tag local tracks for radio <code>select_tracks</code> / profiles.
+        <strong>Stars</strong> feed rating-weighted rotation (Settings → Radio).
+        <strong>Bumper</strong> hides a track from music search and makes it eligible as a jingle.
+        <strong>Guess</strong> = LLM from title+artist only (not audio). Embedded ID3 genre/BPM/key seed on index automatically.
+        Hover controls for more.
       </p>
       <div v-if="session.isAdmin.value" class="analyzer-row">
         <button
           class="refresh-btn"
           @click="runAnalyzer(false)"
           :disabled="analyzerBusy || !analyzerStatus?.enabled"
-          title="Run keyfinder+aubio over the full library (enable analyzer in Settings → Radio/DJ first)"
+          title="Run keyfinder+aubio over the library for musical key + BPM. Enable “Analyzer on ingest” in Settings → Radio/DJ first. Skips tracks that already have analyzer tags."
         >
           {{ analyzerBusy ? 'Analyzing…' : '⟳ Analyze library' }}
         </button>
@@ -162,9 +166,37 @@
           class="clear-btn"
           @click="runAnalyzer(true)"
           :disabled="analyzerBusy"
-          title="Re-run key/BPM even when tags already exist"
+          title="Re-run key/BPM even when tags already exist (force). Still does not set genre/mood."
         >
           Force re-analyze
+        </button>
+        <button
+          class="refresh-btn"
+          @click="guessMissingTags"
+          :disabled="guessBusy || analyzerBusy"
+          title="For each visible track missing genre or mood: ask the LLM using title + artist. Needs Settings → LLM. Writes source=api (manual edits still win)."
+        >
+          {{ guessBusy ? 'Guessing…' : '✦ Guess missing (LLM)' }}
+        </button>
+        <input
+          v-model="bulkGenre"
+          class="input tag-input"
+          placeholder="bulk genre"
+          title="Genre to apply to all visible rows below (then click Apply bulk tags)"
+        />
+        <input
+          v-model="bulkMood"
+          class="input tag-input"
+          placeholder="bulk mood"
+          title="Mood to apply to all visible rows below (then click Apply bulk tags)"
+        />
+        <button
+          class="refresh-btn"
+          @click="applyBulkTags"
+          :disabled="bulkBusy || (!bulkGenre.trim() && !bulkMood.trim())"
+          title="Apply bulk genre/mood to the visible track list (up to 40). Manual source — overrides empty or lower-precedence tags."
+        >
+          {{ bulkBusy ? 'Applying…' : 'Apply bulk tags' }}
         </button>
         <span class="upload-hint analyzer-hint">
           <template v-if="analyzerStatus?.enabled && analyzerStatus.available">
@@ -177,6 +209,7 @@
             Enable <strong>Radio analyzer</strong> in Settings → Radio/DJ to populate key/BPM tags.
           </template>
           <span v-if="analyzerMsg"> — {{ analyzerMsg }}</span>
+          <span v-if="guessMsg"> — {{ guessMsg }}</span>
         </span>
       </div>
       <div class="track-tags-table track-tags-scroll">
@@ -205,15 +238,28 @@
               v-model="trackTags[song.id]!.genre"
               class="input tag-input"
               placeholder="genre"
+              title="Selection tag for radio select_tracks / profiles (e.g. ambient, synthwave). Blur to save."
               @blur="saveTrackTags(song.id)"
             />
             <input
               v-model="trackTags[song.id]!.mood"
               class="input tag-input"
               placeholder="mood"
+              title="Mood tag (e.g. calm, energetic). Blur to save."
               @blur="saveTrackTags(song.id)"
             />
-            <label class="bumper-flag">
+            <button
+              class="clear-btn tag-guess-btn"
+              :disabled="trackTags[song.id]!.guessBusy || guessBusy"
+              title="LLM best-guess genre/mood from title + artist only (not audio). Needs LLM enabled."
+              @click="guessTrackTags(song.id)"
+            >
+              {{ trackTags[song.id]!.guessBusy ? '…' : 'Guess' }}
+            </button>
+            <label
+              class="bumper-flag"
+              title="Jingle/ID asset: excluded from music search; eligible for radio prerecorded bumper pool."
+            >
               <input type="checkbox" v-model="trackTags[song.id]!.bumper" @change="saveTrackTags(song.id)" />
               bumper
             </label>
@@ -486,6 +532,7 @@ interface TrackTagRow {
   myStars: number | null;
   ratingLabel: string;
   ratingBusy: boolean;
+  guessBusy: boolean;
   loaded: boolean;
 }
 const trackTags = ref<Record<string, TrackTagRow>>({});
@@ -494,6 +541,11 @@ const analyzerStatus = ref<{ enabled: boolean; available: boolean; onIngest?: bo
 );
 const analyzerBusy = ref(false);
 const analyzerMsg = ref('');
+const guessBusy = ref(false);
+const guessMsg = ref('');
+const bulkGenre = ref('');
+const bulkMood = ref('');
+const bulkBusy = ref(false);
 
 const history = ref<Song[]>([]);
 const historyLoading = ref(true);
@@ -901,6 +953,7 @@ function ensureTagRow(id: string): TrackTagRow {
       myStars: null,
       ratingLabel: '',
       ratingBusy: false,
+      guessBusy: false,
       loaded: false,
     };
   }
@@ -964,6 +1017,101 @@ async function saveTrackTags(id: string) {
     });
   } catch (err: any) {
     store.notify(err?.response?.data?.error ?? 'Tag save failed (admin only)', 'error');
+  }
+}
+
+/** Apply a successful guess response onto the local row. */
+function applyGuessedTags(
+  id: string,
+  data: { tags?: Record<string, unknown>; guessed?: Record<string, unknown> },
+) {
+  const row = ensureTagRow(id);
+  const t = data.tags ?? data.guessed ?? {};
+  if (typeof t.genre === 'string') row.genre = t.genre;
+  if (typeof t.mood === 'string') row.mood = t.mood;
+}
+
+async function guessTrackTags(id: string) {
+  const row = ensureTagRow(id);
+  if (row.guessBusy || guessBusy.value) return;
+  row.guessBusy = true;
+  try {
+    const res = await api.post(`/api/music/tracks/${encodeURIComponent(id)}/tags/guess`);
+    applyGuessedTags(id, res.data ?? {});
+    store.notify(
+      `Guessed: ${res.data?.guessed?.genre ?? '—'} / ${res.data?.guessed?.mood ?? '—'}`,
+      'info',
+    );
+  } catch (err: any) {
+    store.notify(
+      err?.response?.data?.error ?? 'LLM tag guess failed (enable LLM in Settings)',
+      'error',
+    );
+  } finally {
+    row.guessBusy = false;
+  }
+}
+
+/** Apply bulkGenre/bulkMood to all visible track rows via bulk API. */
+async function applyBulkTags() {
+  const genre = bulkGenre.value.trim();
+  const mood = bulkMood.value.trim();
+  if ((!genre && !mood) || bulkBusy.value) return;
+  const ids = libraryTracks.value.slice(0, 40).map((s) => s.id);
+  if (ids.length === 0) return;
+  bulkBusy.value = true;
+  try {
+    const body: Record<string, unknown> = { ids };
+    if (genre) body.genre = genre;
+    if (mood) body.mood = mood;
+    const res = await api.patch('/api/music/tracks/tags/bulk', body);
+    for (const id of ids) {
+      const row = ensureTagRow(id);
+      if (genre) row.genre = genre;
+      if (mood) row.mood = mood;
+    }
+    store.notify(`Bulk tags applied to ${res.data?.updated ?? ids.length} tracks`, 'info');
+  } catch (err: any) {
+    store.notify(err?.response?.data?.error ?? 'Bulk tag apply failed', 'error');
+  } finally {
+    bulkBusy.value = false;
+  }
+}
+
+/** Batch-guess tracks in the visible tag list that lack genre or mood. */
+async function guessMissingTags() {
+  if (guessBusy.value) return;
+  const targets = libraryTracks.value.slice(0, 40).filter((s) => {
+    const row = ensureTagRow(s.id);
+    return !row.genre.trim() || !row.mood.trim();
+  });
+  if (targets.length === 0) {
+    guessMsg.value = 'All visible tracks already have genre and mood.';
+    return;
+  }
+  guessBusy.value = true;
+  guessMsg.value = `Guessing 0/${targets.length}…`;
+  let ok = 0;
+  let fail = 0;
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      const song = targets[i]!;
+      guessMsg.value = `Guessing ${i + 1}/${targets.length}…`;
+      const row = ensureTagRow(song.id);
+      row.guessBusy = true;
+      try {
+        const res = await api.post(`/api/music/tracks/${encodeURIComponent(song.id)}/tags/guess`);
+        applyGuessedTags(song.id, res.data ?? {});
+        ok++;
+      } catch {
+        fail++;
+      } finally {
+        row.guessBusy = false;
+      }
+    }
+    guessMsg.value = `LLM guess done — ${ok} ok${fail ? `, ${fail} failed` : ''}.`;
+  } finally {
+    guessBusy.value = false;
   }
 }
 
@@ -1897,6 +2045,11 @@ async function refreshIndex() {
   width: 90px;
   padding: 4px 8px;
   font-size: 12px;
+}
+.tag-guess-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 .bumper-flag {
   display: inline-flex;

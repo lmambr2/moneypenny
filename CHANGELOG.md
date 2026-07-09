@@ -8,6 +8,36 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-08
 
+### Radio: docs scrub, tooltips, presence gate, prewarm, color
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **Presence gate fix:** count humans excluding bot/query (`countChannelHumans`);
+  refresh presence on each track boundary; log gate / empty-source skips
+- **Pre-generate bumpers:** Settings + `!radio prewarm` → TTS cache
+- **Music color / quality:** AM/FM/telephone/vinyl/lofi on music decode
+- **Dashboard tooltips:** Settings → Radio/DJ + Library Track tags (`title` + hints)
+- **docs/radio.md** operator section (every-N, forced vs scheduled, log lines)
+ 
+### Flesh-out: thin-feature audit findings
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **Embedded tags:** LocalProvider seeds TagStore from ID3 genre/BPM/key (`source: embedded`)
+- **Bulk tags:** `PATCH /api/music/tracks/tags/bulk` + Library bulk genre/mood apply
+- **ratingWeight / harmonicSequencing:** real pool ordering (`rating-weight.ts`, `harmonic.ts`) + Settings harmonic toggle
+- **Analyzer honesty:** product tool surface is keyfinder only (no fake essentia/bliss)
+- **Tidal `/playlist`** on tidal-bridge; **Spotify health** splits librespot audio vs Web API metadata
+- **ACE-Step:** non-mock requires `ACE_STEP_WORKER_URL` (no silent stub success)
+- Docs: BUILD/ROADMAP/radio phasing honesty; Vue test not marketed as browser E2E;
+  `stt-whisper` rknn error points at `stt-rknn`
+
+### Library: LLM genre/mood guess
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `POST /api/music/tracks/:id/tags/guess` — title+artist → LLM → genre/subgenre/mood
+  (`source: api`; manual edits still win)
+- Library Track tags: per-row **Guess** + **Guess missing (LLM)** batch
+- Module `bot/src/music/tag-guess.ts` + tests; docs/radio.md §9.5
+
 ### NPU STT runtime opts (stt-rknn)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

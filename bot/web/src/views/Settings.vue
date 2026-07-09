@@ -489,39 +489,42 @@
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.youtubeSaveEnabled" />
       </label>
 
-      <label class="profile-toggle">
+      <label class="profile-toggle" title="Master switch for the autonomous DJ. Save to apply. Off = normal music-only bot (no bumpers).">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">
             <Icon icon="mdi:radio" class="setting-icon" /> Radio / DJ mode
           </div>
           <div class="profile-toggle-hint">
-            Autonomous program director: bumpers every N songs and on dead air, op-context profiles (<code>!radio ops</code>), tag-driven selection. Requires voice TTS for generated liners. Off by default.
+            Program director: inserts short bumpers every N songs or on dead air, profiles (<code>!radio ops</code>), tag selection.
+            Needs TTS for spoken liners; put a jingle in <code>data/bumpers/</code> for prerecorded.
+            Scheduled bumpers need ≥1 human in the channel (presence gate). Off by default — Save to apply.
           </div>
         </div>
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioEnabled" />
       </label>
 
       <div v-if="ai.radioEnabled" class="form-row" style="margin: 8px 0 4px">
-        <div class="form-group">
+        <div class="form-group" title="Wheel is N song slots then one bumper. With N=3 you need the 4th skip/track end for a bumper (song×3 → bumper). 0 = never inject by count (dead-air only).">
           <label>Bumpers every N songs</label>
           <input v-model.number="ai.radioEveryNSongs" type="number" min="0" step="1" class="input" />
+          <p class="profile-toggle-hint" style="margin:4px 0 0">N=3 → bumper on the 4th boundary. <code>!skip</code> counts as a boundary.</p>
         </div>
-        <div class="form-group">
+        <div class="form-group" title="If the queue is empty and the channel has listeners, wait this long then try a fill bumper and/or reprogram from the active profile.">
           <label>Dead air (seconds)</label>
           <input v-model.number="ai.radioDeadAirSeconds" type="number" min="5" step="1" class="input" />
         </div>
-        <div class="form-group">
+        <div class="form-group" title="Word budget for TTS/doctrine liners (~2.5 words/sec). Truncates long scripts so bumpers stay short.">
           <label>Max bumper length (s)</label>
           <input v-model.number="ai.radioMaxBumperSeconds" type="number" min="5" step="1" class="input" />
         </div>
-        <div class="form-group">
+        <div class="form-group" title="Spoken bumpers play at max(music volume, this %). Keeps announcements audible when the music fader is low. Does not apply the music-color filter.">
           <label>Speech volume floor (%)</label>
           <input v-model.number="ai.radioSpeechVolumePct" type="number" min="1" max="100" step="1" class="input" />
         </div>
       </div>
 
       <div v-if="ai.radioEnabled" class="form-row" style="margin: 0 0 8px">
-        <div class="form-group" style="flex:1">
+        <div class="form-group" style="flex:1" title="Op context for seedQueries / bumper topics. Same as !radio ops <name>.">
           <label>Active profile</label>
           <select v-model="ai.radioActiveProfile" class="input">
             <option v-for="p in ai.radioProfileNames" :key="p" :value="p">{{ p }}</option>
@@ -529,15 +532,34 @@
         </div>
         <div class="form-group" style="flex:1">
           <label>&nbsp;</label>
-          <label class="profile-toggle" style="margin:0">
+          <label
+            class="profile-toggle"
+            style="margin:0"
+            title="When selecting a tag pool, prefer higher star ratings (Bayesian-smoothed). Off = unweighted order then optional harmonic."
+          >
             <span>Rating-weighted rotation</span>
             <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioRatingWeight" />
           </label>
         </div>
         <div class="form-group" style="flex:1">
           <label>&nbsp;</label>
-          <label class="profile-toggle" style="margin:0">
-            <span>Analyzer on ingest</span>
+          <label
+            class="profile-toggle"
+            style="margin:0"
+            title="After rating weight, reorder the pool by Camelot-adjacent keys when tracks have musicalKey/keyScale (from analyzer or tags)."
+          >
+            <span>Harmonic sequencing</span>
+            <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioHarmonicSequencing" />
+          </label>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>&nbsp;</label>
+          <label
+            class="profile-toggle"
+            style="margin:0"
+            title="On upload/index, run keyfinder+aubio for key/BPM into the tag overlay. Does not invent genre/mood (use LLM Guess or manual tags)."
+          >
+            <span>Analyzer on ingest (key/BPM)</span>
             <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioAnalyzerEnabled" />
           </label>
         </div>
@@ -545,39 +567,77 @@
 
       <div v-if="ai.radioEnabled" class="form-row" style="margin: 0 0 8px">
         <div class="form-group" style="flex:1">
-          <label class="profile-toggle" style="margin:0">
+          <label title="ffmpeg -af on music decode only. Spoken bumpers stay full-band. Needs radio ON + Save; next music track applies."
+            >Music color / quality</label
+          >
+          <select
+            v-model="ai.radioAudioColor"
+            class="input"
+            title="Station vibe for music. Clean = no filter. AM ≈ narrow band + mid punch."
+          >
+            <option value="off" title="No filter">Clean (no overlay)</option>
+            <option value="am" title="Narrow band ~200–4.5 kHz, mid boost, compression">AM radio</option>
+            <option value="fm" title="Wide band, light compression">FM radio</option>
+            <option value="telephone" title="Voice-band only">Telephone</option>
+            <option value="vinyl" title="Rolled highs + light slap echo">Vinyl</option>
+            <option value="lofi" title="Soft bandlimit + light bit crush">Lo-fi</option>
+          </select>
+          <p class="profile-toggle-hint" style="margin:4px 0 0">
+            Music only (ffmpeg). Bumpers stay clean. Radio must be enabled. Applies after <strong>Save</strong> on the next track.
+          </p>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label
+            class="profile-toggle"
+            style="margin:0"
+            title="Second PCM sink via ffmpeg → Icecast. Does not replace TeamSpeak audio. Off by default."
+          >
             <span>Icecast tee (broadcast out)</span>
             <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioIcecastEnabled" />
           </label>
           <p class="profile-toggle-hint" style="margin:4px 0 0">
-            Optional second sink → Icecast mount (R-R6). Off by default. Needs ffmpeg + a reachable source URL.
+            Optional Icecast mount (R-R6). Needs ffmpeg + a reachable source URL. Fail-open if misconfigured.
           </p>
         </div>
         <div v-if="ai.radioIcecastEnabled" class="form-group" style="flex:2">
-          <label>Icecast mount URL</label>
+          <label title="e.g. icecast://source:password@host:8000/live">Icecast mount URL</label>
           <input
             v-model="ai.radioIcecastMountUrl"
             class="input"
             placeholder="icecast://source:hackme@127.0.0.1:8000/live"
+            title="Source-protocol URL. Credentials go here — keep the dashboard private."
           />
         </div>
       </div>
 
       <div v-if="ai.radioEnabled" class="form-group" style="margin: 0 0 10px">
-        <label>Bumper sources</label>
+        <label title="Tried in listed order until one produces audio. Fail-open to next source, then music."
+          >Bumper sources</label
+        >
         <div class="form-row" style="flex-wrap:wrap;gap:10px 16px">
-          <label v-for="src in RADIO_SOURCE_OPTIONS" :key="src.id" class="profile-toggle" style="margin:0;flex:0 0 auto">
+          <label
+            v-for="src in RADIO_SOURCE_OPTIONS"
+            :key="src.id"
+            class="profile-toggle"
+            style="margin:0;flex:0 0 auto"
+            :title="src.tip"
+          >
             <span>{{ src.label }}</span>
             <input type="checkbox" class="profile-toggle-switch" v-model="ai.radioSources[src.id]" />
           </label>
         </div>
         <div class="profile-toggle-hint" style="margin-top:6px">
-          Tried in priority order for each bumper slot. <strong>Doctrine</strong> needs RAG;
-          <strong>Org memory</strong> needs MemPalace + the opt-in below (never private <code>!remember</code>).
+          Hover each source for details. <strong>Prerecorded</strong> = files in <code>data/bumpers/</code> or Library “bumper” flags.
+          <strong>Doctrine</strong> needs RAG; <strong>Org memory</strong> needs MemPalace + opt-in (never private <code>!remember</code>).
         </div>
       </div>
 
-      <label v-if="ai.radioEnabled" class="profile-toggle" style="margin: 0 0 10px">
+      <label
+        v-if="ai.radioEnabled"
+        class="profile-toggle"
+        style="margin: 0 0 10px"
+        title="Only org KG / diary facts via MemPalace kgSearch. Never per-user !remember rooms."
+      >
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">Org memory on air</div>
           <div class="profile-toggle-hint">
@@ -589,12 +649,50 @@
       </label>
 
       <div v-if="ai.radioEnabled" class="llm-status-card" style="margin-bottom:12px">
-        <button type="button" class="btn-sm" :disabled="radioPanel.busy" @click="refreshRadioStatus">
+        <button
+          type="button"
+          class="btn-sm"
+          :disabled="radioPanel.busy"
+          title="Shows enabled, profile, songs until next bumper slot, last bumper label."
+          @click="refreshRadioStatus"
+        >
           {{ radioPanel.busy ? 'Checking…' : 'Refresh radio status' }}
         </button>
-        <button type="button" class="btn-sm" style="margin-left:8px" :disabled="radioPanel.testing" @click="testRadioBumper">
+        <button
+          type="button"
+          class="btn-sm"
+          style="margin-left:8px"
+          :disabled="radioPanel.testing"
+          title="Force a bumper now (bypasses every-N count and presence cooldown). Good for smoke-testing prerecorded/TTS. Needs radio ON + Save."
+          @click="testRadioBumper"
+        >
           {{ radioPanel.testing ? 'Cueing…' : 'Test bumper now' }}
         </button>
+        <button
+          type="button"
+          class="btn-sm"
+          style="margin-left:8px"
+          :disabled="radioPanel.prewarming"
+          title="TTS-cache station ID + next 12h of time checks so live slots don't wait on synthesis. Needs Piper/TTS up. Chat: !radio prewarm"
+          @click="prewarmRadioBumpers(false)"
+        >
+          {{ radioPanel.prewarming ? 'Generating…' : 'Pre-generate bumpers' }}
+        </button>
+        <button
+          type="button"
+          class="btn-sm"
+          style="margin-left:8px"
+          :disabled="radioPanel.prewarming"
+          title="Also pre-render doctrine liners for the active profile's topics (LLM + RAG). Chat: !radio prewarm doctrine"
+          @click="prewarmRadioBumpers(true)"
+        >
+          + doctrine
+        </button>
+        <p class="profile-toggle-hint" style="margin:8px 0 0">
+          <strong>Test</strong> = play a bumper immediately (forced). <strong>Pre-generate</strong> = fill TTS cache for later.
+          Scheduled bumpers need someone in the channel; logs show
+          <code>bumper injected</code> or <code>broadcast gate</code> if presence/cooldown blocked them.
+        </p>
         <p v-if="radioPanel.statusText" class="profile-toggle-hint" style="margin:8px 0 0">{{ radioPanel.statusText }}</p>
         <p v-if="radioPanel.error" class="user-error">{{ radioPanel.error }}</p>
       </div>
@@ -1442,6 +1540,8 @@ const ai = reactive({
   radioActiveProfile: 'lobby',
   radioProfileNames: ['lobby', 'focus'] as string[],
   radioRatingWeight: true,
+  radioHarmonicSequencing: false,
+  radioAudioColor: 'off' as 'off' | 'am' | 'fm' | 'telephone' | 'vinyl' | 'lofi',
   radioAnalyzerEnabled: false,
   radioMemoryBroadcastOptIn: false,
   radioIcecastEnabled: false,
@@ -1457,14 +1557,39 @@ const ai = reactive({
 });
 
 const RADIO_SOURCE_OPTIONS = [
-  { id: 'prerecorded', label: 'Prerecorded' },
-  { id: 'stationId', label: 'Station ID' },
-  { id: 'timeCheck', label: 'Time check' },
-  { id: 'nowPlaying', label: 'Now playing' },
-  { id: 'doctrine', label: 'Doctrine (RAG)' },
-  { id: 'memory', label: 'Org memory' },
+  {
+    id: 'prerecorded',
+    label: 'Prerecorded',
+    tip: 'Audio files in data/bumpers/ or Library tracks flagged “bumper”. Fastest, no TTS.',
+  },
+  {
+    id: 'stationId',
+    label: 'Station ID',
+    tip: 'Spoken “This is <bot name>.” Uses TTS (cacheable). Pre-generate warms this.',
+  },
+  {
+    id: 'timeCheck',
+    label: 'Time check',
+    tip: 'Spoken clock. Pre-generate fills :00/:30 for the next 12h.',
+  },
+  {
+    id: 'nowPlaying',
+    label: 'Now playing',
+    tip: '“That was X / up next Y” from the queue. Needs recent track metadata.',
+  },
+  {
+    id: 'doctrine',
+    label: 'Doctrine (RAG)',
+    tip: 'Floored RAG → LLM rewrite → TTS. Needs knowledge base + LLM + profile topics.',
+  },
+  {
+    id: 'memory',
+    label: 'Org memory',
+    tip: 'Org KG only (MemPalace). Requires “Org memory on air”. Never private !remember.',
+  },
 ] as const;
 const radioPanel = reactive({
+  prewarming: false,
   busy: false,
   testing: false,
   error: '',
@@ -1610,6 +1735,12 @@ async function loadAiSettings() {
       ? Object.keys(radio.profiles)
       : ['lobby', 'focus'];
     ai.radioRatingWeight = radio.ratingWeight?.enabled !== false;
+    ai.radioHarmonicSequencing = !!radio.harmonicSequencing;
+    ai.radioAudioColor = (
+      ['off', 'am', 'fm', 'telephone', 'vinyl', 'lofi'].includes(radio.audioColor)
+        ? radio.audioColor
+        : 'off'
+    ) as typeof ai.radioAudioColor;
     ai.radioAnalyzerEnabled = !!radio.analyzer?.enabled;
     ai.radioMemoryBroadcastOptIn = !!radio.memoryBroadcastOptIn;
     ai.radioIcecastEnabled = !!radio.icecast?.enabled;
@@ -1903,6 +2034,27 @@ async function testRadioBumper() {
   }
 }
 
+/** Pre-render station/time (and optional doctrine) bumpers into TTS cache. */
+async function prewarmRadioBumpers(includeDoctrine: boolean) {
+  radioPanel.prewarming = true;
+  radioPanel.error = '';
+  try {
+    const res = await api.post('/api/bot/radio/prewarm-bumpers', {
+      includeDoctrine,
+      hoursAhead: 12,
+    });
+    const r = res.data?.rendered ?? 0;
+    const f = res.data?.failed ?? 0;
+    radioPanel.statusText = `Pre-generate: ${r} cached${f ? `, ${f} failed/skipped` : ''}${
+      includeDoctrine ? ' (incl. doctrine)' : ''
+    }.`;
+  } catch (e: any) {
+    radioPanel.error = e?.response?.data?.error ?? 'Bumper pre-generate failed (check TTS)';
+  } finally {
+    radioPanel.prewarming = false;
+  }
+}
+
 async function testVoiceTurn() {
   if (!voicePanel.transcript.trim()) return;
   voicePanel.testing = true;
@@ -2102,6 +2254,8 @@ async function saveAiSettings() {
         speechVolumePct: ai.radioSpeechVolumePct,
         activeProfile: ai.radioActiveProfile,
         ratingWeight: { enabled: ai.radioRatingWeight, exponent: 1, maxRatio: 3 },
+        harmonicSequencing: ai.radioHarmonicSequencing,
+        audioColor: ai.radioAudioColor,
         analyzer: {
           enabled: ai.radioAnalyzerEnabled,
           tool: 'keyfinder',

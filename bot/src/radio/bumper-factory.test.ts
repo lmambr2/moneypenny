@@ -26,7 +26,11 @@ function harness(opts: {
   const prerecorded = {
     pick: vi.fn(() => opts.prerecordedPick ?? null),
   } as unknown as PrerecordedPool;
-  const renderFn = vi.fn(opts.render ?? (async (t: string) => `/cache/${t.length}.wav`));
+  const renderFn = vi.fn(
+    opts.render ??
+      (async (t: string, _source?: string, _opts?: { floor?: string[] }) =>
+        `/cache/${t.length}.wav`),
+  );
   const speech = { render: renderFn } as unknown as SpeechSink;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
   const factory = new RadioBumperFactory({
@@ -44,6 +48,41 @@ function harness(opts: {
   });
   return { factory, prerecorded, renderFn };
 }
+
+describe("RadioBumperFactory.prewarm", () => {
+  it("renders station liners and upcoming time checks into the speech cache", async () => {
+    const { factory, renderFn } = harness({});
+    const result = await factory.prewarm({ hoursAhead: 2 });
+    expect(result.rendered).toBeGreaterThan(3);
+    expect(result.failed).toBe(0);
+    // station IDs + at least one time check
+    expect(renderFn).toHaveBeenCalledWith(
+      expect.stringContaining("This is Moneypenny Radio."),
+      "stationId",
+      expect.anything(),
+    );
+    expect(renderFn.mock.calls.some((c) => c[1] === "timeCheck")).toBe(true);
+  });
+
+  it("optionally prewarms doctrine per profile topic", async () => {
+    const retrieval = {
+      query: vi.fn(async () => [{ text: "Refineries run cool.", source: "ops.md" }]),
+    };
+    const llm = {
+      complete: vi.fn(async () => "Refineries are running cool out there."),
+    };
+    const { factory, renderFn } = harness({
+      sources: ["doctrine"],
+      retrieval,
+      llm,
+      profile: { topics: ["refinery"] },
+    });
+    const result = await factory.prewarm({ includeDoctrine: true, hoursAhead: 1 });
+    expect(result.rendered).toBeGreaterThan(0);
+    expect(llm.complete).toHaveBeenCalled();
+    expect(renderFn.mock.calls.some((c) => c[1] === "doctrine" || c[1] === "stationId")).toBe(true);
+  });
+});
 
 describe("RadioBumperFactory", () => {
   it("prefers prerecorded when an asset is available", async () => {

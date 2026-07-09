@@ -77,6 +77,62 @@ def track_id(ref: str) -> str | None:
     return ref if ref.strip().isdigit() else None
 
 
+def playlist_id(ref: str) -> str | None:
+    """Extract a Tidal playlist UUID or numeric id from a URL/uri."""
+    ref = (ref or "").strip()
+    m = re.search(r"playlist[/:]+([0-9a-fA-F\-]{8,})", ref) or re.search(
+        r"playlists?/([0-9a-fA-F\-]+)", ref
+    )
+    if m:
+        return m.group(1)
+    # bare uuid
+    if re.fullmatch(r"[0-9a-fA-F\-]{16,}", ref):
+        return ref
+    return None
+
+
+def list_playlist_tracks(pid: str) -> list[dict]:
+    """Return bridge-shaped track rows for a Tidal playlist (requires login)."""
+    pl = session.playlist(pid)
+    items = []
+    # python-tidal: playlist.tracks() or .items()
+    try:
+        tracks = pl.tracks() if callable(getattr(pl, "tracks", None)) else list(pl.tracks)
+    except Exception:
+        tracks = getattr(pl, "items", lambda: [])()
+    for t in tracks or []:
+        try:
+            tid = getattr(t, "id", None)
+            if tid is None:
+                continue
+            artist = "Tidal"
+            if getattr(t, "artist", None):
+                artist = getattr(t.artist, "name", None) or artist
+            elif getattr(t, "artists", None):
+                arts = t.artists
+                if arts:
+                    artist = getattr(arts[0], "name", None) or artist
+            cover = ""
+            if getattr(t, "album", None) and hasattr(t.album, "image"):
+                try:
+                    cover = t.album.image(640) or ""
+                except Exception:
+                    cover = ""
+            items.append(
+                {
+                    "uri": f"https://tidal.com/browse/track/{tid}",
+                    "id": str(tid),
+                    "title": getattr(t, "name", None) or f"Tidal {tid}",
+                    "artist": artist,
+                    "durationSec": int(getattr(t, "duration", 0) or 0),
+                    "coverUrl": cover,
+                }
+            )
+        except Exception:
+            continue
+    return items
+
+
 def stream_url(track) -> str | None:
     # API shape varies across python-tidal versions — try the simple URL first,
     # then the stream manifest (BTS/LOSSLESS exposes a direct URL list).
@@ -105,8 +161,32 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         u = urlparse(self.path)
+        q = parse_qs(u.query)
         if u.path == "/health":
-            self._json(200, {"ok": True, "loggedIn": _logged_in()})
+            self._json(200, {
+                "ok": True,
+                "loggedIn": _logged_in(),
+                "playlistExpandAvailable": _logged_in(),
+            })
+            return
+        if u.path == "/playlist":
+            # Same contract as Spotify bridge: { tracks: [{ uri, title, artist, ... }] }
+            if not _logged_in():
+                self._json(503, {
+                    "error": "Tidal not logged in — see bridge logs for link.tidal.com",
+                    "tracks": [],
+                })
+                return
+            ref = (q.get("uri") or [""])[0]
+            pid = playlist_id(ref)
+            if not pid:
+                self._json(400, {"error": f"no Tidal playlist id in '{ref}'", "tracks": []})
+                return
+            try:
+                tracks = list_playlist_tracks(pid)
+                self._json(200, {"tracks": tracks})
+            except Exception as e:
+                self._json(503, {"error": str(e), "tracks": []})
             return
         if u.path != "/resolve":
             self._json(404, {"error": "not found"})
@@ -114,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
         if not _logged_in():
             self._json(503, {"error": "Tidal not logged in — see the bridge logs for the link.tidal.com URL"})
             return
-        ref = parse_qs(u.query).get("uri", [""])[0]
+        ref = (q.get("uri") or [""])[0]
         tid = track_id(ref)
         if not tid:
             self._json(400, {"error": f"no Tidal track id in '{ref}'"})

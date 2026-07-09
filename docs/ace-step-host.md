@@ -51,9 +51,15 @@ Repo files:
 ```bash
 # On the GPU host (shared MUSIC_DIR with the bot mount recommended)
 export MUSIC_DIR=/srv/moneypenny-music
-export ACE_STEP_MOCK=1   # stub audio without a full ACE-Step GPU stack
+export ACE_STEP_MOCK=1   # CI/dev stub audio (silent) without a full ACE-Step GPU stack
 docker compose -f docker-compose.ace-step.yml --profile ace-step up -d --build
 # → http://<gpu-host>:7865/health
+
+# Real generation (no silent stub):
+export ACE_STEP_MOCK=0
+export ACE_STEP_WORKER_URL=http://127.0.0.1:7860   # upstream that speaks /v1/generate + /v1/jobs/:id
+docker compose -f docker-compose.ace-step.yml --profile ace-step up -d --build
+# Without WORKER_URL, non-mock POST /v1/generate returns 503.
 ```
 
 GPU drivers vary — edit the compose file for NVIDIA (`deploy.resources`) or AMD

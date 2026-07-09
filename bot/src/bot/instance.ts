@@ -22,11 +22,13 @@ import type { LocalProvider } from "../music/local.js";
 import type { MusicProvider } from "../music/provider.js";
 import { StreamProvider } from "../music/stream.js";
 import {
+  audioColorFilter,
   BumperCache,
   floorFromMembers,
   IcecastTee,
   PrerecordedPool,
   type PresentMember,
+  parseAudioColorPreset,
   RadioBumperFactory,
   RadioDirector,
   RelayScheduler,
@@ -49,7 +51,7 @@ import { TextMessageHandler } from "./control/text-handler.js";
 import { createYtLibrary } from "./factory/yt-library.js";
 import { KnowledgeService } from "./knowledge/service.js";
 import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
-import { IdlePoller } from "./lifecycle/idle-poller.js";
+import { countChannelHumans, IdlePoller } from "./lifecycle/idle-poller.js";
 import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
 import { LlmRuntime } from "./llm/runtime.js";
 import { PlaybackEngine } from "./playback/engine.js";
@@ -110,6 +112,7 @@ export class BotInstance extends EventEmitter {
   private llm: LlmRuntime;
   private idlePoller: IdlePoller;
   private radio: RadioDirector;
+  private bumperFactory: RadioBumperFactory;
   private text: TextMessageHandler;
   private poke: PokeHandler;
   private rights: RightsRuntime;
@@ -273,6 +276,7 @@ export class BotInstance extends EventEmitter {
     });
     // Apply optional Icecast tee from config (default off).
     this.icecastTee.apply(this.config.radio?.icecast ?? null);
+    this.applyAudioColor(this.config.radio?.audioColor);
 
     this.commands = new CommandExecutor({
       playback: this.playback,
@@ -295,6 +299,7 @@ export class BotInstance extends EventEmitter {
         status: () => this.radio.status(),
       },
       getBumperDir: () => this.resolveBumperDir(dirname(this.database.db.name)),
+      prewarmRadioBumpers: (opts) => this.prewarmRadioBumpers(opts),
       generateProvider: this.generateProvider,
       logger: this.logger,
       onRelayChanged: (cfg) => {
@@ -345,7 +350,7 @@ export class BotInstance extends EventEmitter {
       voice: radioTtsVoice,
       player: this.player,
     });
-    const bumperFactory = new RadioBumperFactory({
+    this.bumperFactory = new RadioBumperFactory({
       getConfig: () => this.config.radio,
       prerecorded: new PrerecordedPool({ dir: radioBumperDir, logger: this.logger }),
       speech: speechSink,
@@ -381,7 +386,7 @@ export class BotInstance extends EventEmitter {
     this.radio = new RadioDirector({
       getConfig: () => this.config.radio,
       player: this.player,
-      bumperFactory,
+      bumperFactory: this.bumperFactory,
       playNext: () => this.playNext(),
       autoProgram: () => this.commands.autoProgramRadio(),
       // §6.3: broadcast floor = intersection of every present member's clearance
@@ -392,6 +397,12 @@ export class BotInstance extends EventEmitter {
         return floorFromMembers(clients as PresentMember[], (subject) =>
           allowedClassificationsFor(subject, engine),
         );
+      },
+      // Refresh humans before each bumper decision (!skip / trackEnd).
+      refreshPresence: async () => {
+        const clients = await this.tsClient.getClientsInChannel();
+        const humans = countChannelHumans(clients, this.tsClient.getClientId());
+        this.radio.onPoll(clients, humans);
       },
       logger: this.logger,
     });
@@ -809,6 +820,14 @@ export class BotInstance extends EventEmitter {
     return this.radio.cueBumper(topic);
   }
 
+  /**
+   * Pre-render station/time (and optional doctrine) bumpers into TTS cache
+   * so the next live bumper doesn't wait on synthesis.
+   */
+  prewarmRadioBumpers(opts?: { includeDoctrine?: boolean; hoursAhead?: number; lines?: string[] }) {
+    return this.bumperFactory.prewarm(opts ?? {});
+  }
+
   getRadioStatus() {
     return {
       enabled: this.config.radio.enabled,
@@ -826,6 +845,19 @@ export class BotInstance extends EventEmitter {
     partial?: { enabled?: boolean; mountUrl?: string; format?: "mp3" | "ogg" | "opus" } | null,
   ) {
     return this.icecastTee.apply(partial ?? this.config.radio?.icecast ?? null);
+  }
+
+  /**
+   * Hot-apply radio music color overlay (AM/FM/… ffmpeg -af).
+   * Takes effect on the next music track (speech/bumpers stay clean).
+   */
+  applyAudioColor(preset?: string | null): void {
+    const p = parseAudioColorPreset(preset ?? this.config.radio?.audioColor ?? "off");
+    if (this.config.radio) this.config.radio.audioColor = p;
+    // Color is a DJ/station vibe — only when radio mode is enabled.
+    const active = !!this.config.radio?.enabled && p !== "off";
+    this.player.setMusicAudioFilter(active ? audioColorFilter(p) : null);
+    this.logger.info({ audioColor: p, active }, "radio music audio color applied");
   }
 
   /** Tee PCM to Icecast when running (fail-open). */

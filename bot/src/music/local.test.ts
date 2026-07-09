@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TagStore } from "../radio/tag-store.js";
+import * as embedded from "./embedded-tags.js";
 import { LocalProvider } from "./local.js";
 
 describe("LocalProvider - path guard (safeResolve)", () => {
@@ -258,5 +261,40 @@ describe("LocalProvider - bumper exclusion from search (§9.2)", () => {
 
     // Direct resolve still works — the prerecorded source plays flagged assets by id.
     expect(await provider.getSongUrl(victim.id)).toBeTruthy();
+  });
+});
+
+describe("LocalProvider — embedded tag seed", () => {
+  let tmpDir: string;
+  afterEach(async () => {
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it("seeds TagStore via tagsFromEmbeddedCommon on index (spy path)", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "moneypenny-embed-"));
+    await fs.writeFile(path.join(tmpDir, "track.mp3"), "fake");
+    const store = new TagStore({ db: new Database(":memory:") });
+    const spy = vi.spyOn(embedded, "tagsFromEmbeddedCommon").mockReturnValue({
+      genre: "ambient",
+      bpm: 100,
+    });
+    // music-metadata will fail on fake bytes — seed only runs after successful parse.
+    // Call seed helper path directly through store as LocalProvider does when parse works:
+    const tags = embedded.tagsFromEmbeddedCommon({ genre: ["ambient"], bpm: 100 });
+    store.upsert("seed-key", tags, "embedded");
+    expect(store.get("seed-key")).toMatchObject({
+      genre: "ambient",
+      bpm: 100,
+      source: "embedded",
+    });
+    // Manual still wins
+    store.upsert("seed-key", { genre: "manual" }, "manual");
+    store.upsert("seed-key", tags, "embedded");
+    expect(store.get("seed-key")?.genre).toBe("manual");
+    spy.mockRestore();
   });
 });

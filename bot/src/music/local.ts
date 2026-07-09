@@ -3,6 +3,8 @@ import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as musicMetadata from "music-metadata";
+import type { TagStore } from "../radio/tag-store.js";
+import { tagsFromEmbeddedCommon } from "./embedded-tags.js";
 import type {
   AuthStatus,
   LyricLine,
@@ -20,6 +22,11 @@ export interface LocalProviderOptions {
    *  so they never surface as songs (docs/radio.md §9.2). Resolved lazily so a
    *  live TagStore can back it. */
   excludedIds?: () => Set<string>;
+  /**
+   * When set, index/refresh seeds the overlay from embedded ID3/vorbis tags
+   * with source="embedded" (docs/radio.md §9.1). Never clobbers higher sources.
+   */
+  tagStore?: TagStore;
 }
 
 interface IndexedSong extends Song {
@@ -40,10 +47,12 @@ export class LocalProvider implements MusicProvider {
 
   private readonly supportedExtensions: Set<string>;
   private readonly excludedIds?: () => Set<string>;
+  private readonly tagStore?: TagStore;
 
   constructor(options: LocalProviderOptions) {
     this.musicDir = path.resolve(options.musicDir);
     this.excludedIds = options.excludedIds;
+    this.tagStore = options.tagStore;
     this.supportedExtensions = new Set(
       (
         options.extensions ?? [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"]
@@ -179,9 +188,27 @@ export class LocalProvider implements MusicProvider {
       };
 
       this.songs.push(song);
+      this.seedEmbeddedTags(id, common);
     } catch (_err) {
       // Skip unreadable or non-audio files silently in production
       // console.debug(`[LocalProvider] Could not parse ${absolutePath}:`, err);
+    }
+  }
+
+  /** Seed TagStore from embedded metadata (source=embedded; precedence-safe). */
+  private seedEmbeddedTags(trackKey: string, common: musicMetadata.ICommonTagsResult): void {
+    if (!this.tagStore) return;
+    try {
+      const tags = tagsFromEmbeddedCommon({
+        genre: common.genre,
+        bpm: typeof common.bpm === "number" ? common.bpm : undefined,
+        key: typeof common.key === "string" ? common.key : undefined,
+        // music-metadata may expose mood via native frames; treat as optional string[]
+        mood: (common as { mood?: string | string[] }).mood,
+      });
+      if (Object.keys(tags).length > 0) this.tagStore.upsert(trackKey, tags, "embedded");
+    } catch {
+      /* never break indexing on tag seed */
     }
   }
 

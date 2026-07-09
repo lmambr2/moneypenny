@@ -97,6 +97,7 @@ async function main() {
   const localProvider = new LocalProvider({
     musicDir,
     excludedIds: () => tagStore.bumperKeySet(), // hide bumper-flagged assets from music search (§9.2)
+    tagStore, // seed genre/BPM/key from embedded ID3 on index/refresh (§9.1)
   });
   const youtubeProvider = new YouTubeProvider();
   const streamProvider = new StreamProvider({

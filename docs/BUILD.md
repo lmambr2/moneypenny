@@ -3,7 +3,7 @@
 Living backlog of next implementation work. Design sketches link out; this is the
 ordered **do list**, not full specs.
 
-**Last updated:** 2026-07-08 (feature-complete backlog clear)
+**Last updated:** 2026-07-08 (docs scrub + radio tooltips + presence fix)
 
 ---
 
@@ -16,17 +16,22 @@ ordered **do list**, not full specs.
 | **A3** | Settings panel for ACE-Step | Enable, URL, Check status | **Shipped** |
 | **A4** | Radio auto-fill | Dead air empty pool → gen; `!radio gen` | **Shipped** |
 | **A5** | Prune + tags | Max files, `!generate prune`, prompt tags | **Shipped** |
-| **A6** | Host docs | [ace-step-host.md](./ace-step-host.md) | **Shipped** |
+| **A6** | Host docs + adapter | Mock CI stub; non-mock needs `ACE_STEP_WORKER_URL` | **Shipped** (worker contract; no GPU weights in CI) |
 | **Duck** | Softer music duck default 25 | Migrates legacy 2 | **Shipped** |
 | **Web-gen** | Library Generate button | `POST /api/bot/ace-step/generate` | **Shipped** |
-| **R-R6** | Icecast tee + relay-in + Spotify playlist | `icecast-tee`, `relay`, stream `/playlist` | **Shipped** |
-| **Spotify** | librespot bridge service | `services/spotify-bridge` + compose profiles | **Shipped** |
+| **R-R6** | Icecast tee + relay-in + Spotify/Tidal playlist | Bridges + bot fail-open; Spotify audio needs librespot | **Shipped** (contract + unit tests; live audio/ops optional) |
+| **Spotify** | librespot bridge service | Metadata/playlist via Web API; audio via `LIBRESPOT_HTTP_BASE` | **Shipped** (health splits audio vs metadata) |
+| **Tags-depth** | Embedded ID3 seed + bulk tags + rating weight + harmonic | See CHANGELOG flesh-out | **Shipped** |
+| **Radio-color** | Music AM/FM/… color overlay | Settings + `radio.audioColor` | **Shipped** |
+| **Bumper-prewarm** | TTS cache pre-generate | Settings + `!radio prewarm` | **Shipped** |
+| **Presence-gate** | Human count for scheduled bumpers | `countChannelHumans` + refresh on boundary | **Shipped** (fixes silent skip of every-N bumpers) |
+| **Docs-UI** | radio.md scrub + Settings/Library tooltips | Hover titles on Radio/DJ + Track tags | **Shipped** |
 | **STT-large** | Whisper large-v3 selectable | `stt-models.ts` + server compose | **Shipped** |
 | **STT-int8** | RKNN INT8 quant path | `STT_COMPUTE_TYPE=int8` + health | **Shipped** |
 | **ACE-compose** | Adapter compose profile | `docker-compose.ace-step.yml` | **Shipped** |
-| **Vue-E2E** | Admin login critical path | `bot/web/src/e2e/admin-login.e2e.test.ts` | **Shipped** |
-| **R-live** | Radio live smoke on opi5 | Host health + STT/TTS; in-repo `!radio ops` | **Shipped** (ops 2026-07-08 + unit substitutes) |
-| **V-live** | Voice under music on Pi | base NPU loaded; duck 25; command-shape tests | **Shipped** (ops 2026-07-08 + unit substitutes) |
+| **Vue-crit** | Admin login critical path | `bot/web/src/e2e/admin-login.e2e.test.ts` (vitest/happy-dom, **not** browser E2E) | **Shipped** |
+| **R-live** | Radio live smoke on opi5 | Host health + STT/TTS; in-repo `!radio ops` | **Partial** (ops notes + unit substitutes; full TS under-music smoke optional) |
+| **V-live** | Voice under music on Pi | base NPU loaded; duck 25; command-shape tests | **Partial** (same) |
 
 ---
 
@@ -34,6 +39,7 @@ ordered **do list**, not full specs.
 
 | Item | Notes |
 |------|--------|
+| Radio presence gate fix + gate logging | See [docs/radio.md](./radio.md) “Presence gate” |
 | Library scroll + track delete | Full library panel, admin delete |
 | Phase 7 memory A1–A5 | docs/memory.md, voice remember, radio org bumper, install `--with-memory` |
 | Phase 8 roast polish | `!roastin`, capture hygiene, docs/roast.md |

@@ -100,6 +100,99 @@ export class RadioBumperFactory implements BumperFactory {
     return path ? { path, label: "say" } : null;
   }
 
+  /**
+   * Pre-render common liners into the TTS bumper cache so live slots don't wait
+   * on synthesis. Safe / fail-open: never throws; returns a tally.
+   *
+   * - stationId + canned welcomes
+   * - timeCheck phrases for the next N hours (top of hour + :30)
+   * - optional free-text lines (operator pack)
+   * - optional doctrine (LLM rewrite + TTS per profile topic, unclassified floor)
+   */
+  async prewarm(
+    opts: { includeDoctrine?: boolean; hoursAhead?: number; lines?: string[] } = {},
+  ): Promise<{
+    rendered: number;
+    failed: number;
+    details: string[];
+  }> {
+    const details: string[] = [];
+    let rendered = 0;
+    let failed = 0;
+    const render = async (text: string, source: string) => {
+      try {
+        const path = await this.deps.speech.render(text, source, { floor: ["unclassified"] });
+        if (path) {
+          rendered++;
+          details.push(`${source}: ok`);
+        } else {
+          failed++;
+          details.push(`${source}: tts-null`);
+        }
+      } catch {
+        failed++;
+        details.push(`${source}: error`);
+      }
+    };
+
+    const cfg = this.deps.getConfig();
+    const name = this.deps.stationName || "Moneypenny";
+
+    // Station ID + a few canned liners (always useful; cheap if already cached).
+    await render(`This is ${name}.`, "stationId");
+    await render(`You're listening to ${name}.`, "stationId");
+    await render(`Stay tuned on ${name}.`, "stationId");
+
+    // Time checks for the next hoursAhead hours (default 12) at :00 and :30.
+    const hours = Math.max(1, Math.min(opts.hoursAhead ?? 12, 24));
+    const base = (this.deps.now ?? Date.now)();
+    const seen = new Set<string>();
+    for (let h = 0; h < hours; h++) {
+      for (const min of [0, 30]) {
+        const t = new Date(base);
+        t.setMinutes(min, 0, 0);
+        t.setHours(t.getHours() + h);
+        const label = this.formatTimeAt(t.getTime());
+        if (seen.has(label)) continue;
+        seen.add(label);
+        await render(`The time is ${label}.`, "timeCheck");
+      }
+    }
+
+    // Operator-supplied pack
+    for (const line of opts.lines ?? []) {
+      const clean = line.trim();
+      if (!clean) continue;
+      const cap = wordCap(cfg.maxBumperSeconds);
+      const capped = clean.split(/\s+/).slice(0, cap).join(" ");
+      await render(capped, "prewarm");
+    }
+
+    // Doctrine: one TTS-ready bumper per profile topic (needs LLM + RAG).
+    if (opts.includeDoctrine) {
+      const profile = cfg.profiles[cfg.activeProfile];
+      const topics = profile?.bumper?.topics ?? [];
+      for (const topic of topics.slice(0, 8)) {
+        try {
+          const built = await this.doctrineBumper(["unclassified"], topic);
+          if (built) {
+            rendered++;
+            details.push(`doctrine:${topic}: ok`);
+          } else {
+            failed++;
+            details.push(`doctrine:${topic}: skip`);
+          }
+        } catch {
+          failed++;
+          details.push(`doctrine:${topic}: error`);
+        }
+      }
+    }
+
+    this.deps.logger.info({ rendered, failed }, "radio: bumper prewarm complete");
+    return { rendered, failed, details };
+  }
+
   private async buildOne(
     source: BumperSource,
     floor: string[],
@@ -233,7 +326,12 @@ export class RadioBumperFactory implements BumperFactory {
   }
 
   private formatTime(): string {
-    const d = new Date((this.deps.now ?? Date.now)());
+    return this.formatTimeAt((this.deps.now ?? Date.now)());
+  }
+
+  /** Same spoken time format as live timeCheck, for an arbitrary timestamp. */
+  formatTimeAt(ms: number): string {
+    const d = new Date(ms);
     let h = d.getHours();
     const m = d.getMinutes();
     const ampm = h >= 12 ? "PM" : "AM";

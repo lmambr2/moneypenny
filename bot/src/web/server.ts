@@ -154,6 +154,12 @@ export function createWebServer(options: WebServerOptions): WebServer {
           if (!bot) return false;
           return bot.canWebUserRunCommand(user, "radio.tags");
         },
+        // Library "Guess (LLM)" genre/mood from title+artist (docs/radio.md §9.5).
+        askLlm: async (question) => {
+          const bot = options.botManager.getAllBots()[0];
+          if (!bot) return null;
+          return bot.askLlm(question);
+        },
       },
     ),
   );

@@ -70,8 +70,10 @@ def get_model():
             return _MODEL
         if STT_BACKEND in ("rknn", "rknpu", "npu"):
             raise RuntimeError(
-                "STT_BACKEND=rknn is not implemented yet — use faster-whisper "
-                "(STT_MODEL=tiny on Pi). See services/stt-whisper/README.md"
+                "STT_BACKEND=rknn is not supported in services/stt-whisper "
+                "(faster-whisper only). Use the stt-rknn service image instead "
+                "(docker compose profile with services/stt-rknn). "
+                "See services/stt-rknn/README.md and docs/voice-backends.md."
             )
         if STT_BACKEND not in ("faster-whisper", "faster_whisper", "cpu", "cuda", ""):
             raise RuntimeError(f"Unknown STT_BACKEND={STT_BACKEND!r}")

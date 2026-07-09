@@ -64,7 +64,19 @@ export function cleanupTempDir(dir: string): void {
   }
 }
 
-export function buildFfmpegArgs(url: string, seekSeconds: number): string[] {
+export interface BuildFfmpegArgsOpts {
+  /**
+   * Optional lavfi filter graph applied after decode (e.g. radio "AM" color).
+   * Inserted as a single `-af <graph>` before PCM encode.
+   */
+  audioFilter?: string | null;
+}
+
+export function buildFfmpegArgs(
+  url: string,
+  seekSeconds: number,
+  opts?: BuildFfmpegArgsOpts,
+): string[] {
   const args: string[] = [];
   const isHttp = /^https?:\/\//i.test(url);
 
@@ -83,7 +95,15 @@ export function buildFfmpegArgs(url: string, seekSeconds: number): string[] {
     );
   }
   if (seekSeconds > 0) args.push("-ss", String(seekSeconds));
-  args.push("-i", url, "-f", "s16le", "-ar", "48000", "-ac", "2", "-acodec", "pcm_s16le", "-");
+  args.push("-i", url);
+  const af = typeof opts?.audioFilter === "string" ? opts.audioFilter.trim() : "";
+  if (af) {
+    // Reject newlines / control chars that could break argv; allow ,=: for lavfi graphs.
+    if (!/[\n\r\0]/.test(af) && af.length < 2000) {
+      args.push("-af", af);
+    }
+  }
+  args.push("-f", "s16le", "-ar", "48000", "-ac", "2", "-acodec", "pcm_s16le", "-");
 
   return args;
 }
@@ -137,11 +157,29 @@ export class AudioPlayer extends EventEmitter {
   private emptyFrameAttempts = 0;
   private static readonly MAX_EMPTY_ATTEMPTS = 250; // ~5s of the 20ms frame loop (extra fault tolerance)
   private currentSongDuration = 0; // total duration of the current song (seconds)
+  /**
+   * Optional music-only ffmpeg -af graph (radio AM/FM color, etc.).
+   * Spoken bumpers (volumePctFloor set) skip this so announcements stay clear.
+   */
+  private musicAudioFilter: string | null = null;
 
   constructor(logger: Logger) {
     super();
     this.encoder = createOpusEncoder();
     this.logger = logger;
+  }
+
+  /**
+   * Set the music color/quality filter (ffmpeg -af). Pass null/empty to clear.
+   * Takes effect on the next `play()` of non-speech audio.
+   */
+  setMusicAudioFilter(filter: string | null | undefined): void {
+    const f = typeof filter === "string" ? filter.trim() : "";
+    this.musicAudioFilter = f && !/[\n\r\0]/.test(f) && f.length < 2000 ? f : null;
+  }
+
+  getMusicAudioFilter(): string | null {
+    return this.musicAudioFilter;
   }
 
   play(url: string, seekSeconds = 0, songDuration = 0, opts?: { volumePctFloor?: number }): void {
@@ -169,7 +207,10 @@ export class AudioPlayer extends EventEmitter {
       return;
     }
 
-    const args = buildFfmpegArgs(url, seekSeconds);
+    // Speech / bumper plays: keep full band. Music: optional radio color overlay.
+    const isSpeech = this.playVolumeFloor != null;
+    const af = !isSpeech ? this.musicAudioFilter : null;
+    const args = buildFfmpegArgs(url, seekSeconds, { audioFilter: af });
 
     const ffmpegBin = getFfmpegCommand();
     this.ffmpeg = spawn(ffmpegBin, args, { stdio: ["ignore", "pipe", "pipe"] });

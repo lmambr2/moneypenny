@@ -7,7 +7,7 @@ import type { BotConfig } from "../../data/config.js";
 import { saveConfig } from "../../data/config.js";
 import type { BotDatabase } from "../../data/database.js";
 import type { Logger } from "../../logger.js";
-import { defaultRadioConfig, type RadioConfig } from "../../radio/index.js";
+import { defaultRadioConfig, parseAudioColorPreset, type RadioConfig } from "../../radio/index.js";
 import { isRightsConfig } from "../../rights/index.js";
 import { errorMessage } from "../../util/error.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../../voice/types.js";
@@ -444,6 +444,7 @@ export function createBotRouter(
         "analyzer",
         "ratingWeight",
         "harmonicSequencing",
+        "audioColor",
         "icecast",
       ]);
       const unknown = Object.keys(patch).filter((k) => !KNOWN_RADIO_KEYS.has(k));
@@ -454,6 +455,10 @@ export function createBotRouter(
         });
         return;
       }
+      // Normalize audio color preset (unknown → off).
+      if (patch.audioColor !== undefined) {
+        patch.audioColor = parseAudioColorPreset(patch.audioColor);
+      }
       // The director reads config.radio live at every boundary, so replacing
       // the block hot-applies with no per-bot re-init (unlike voice/llm).
       config.radio = { ...defaultRadioConfig(), ...config.radio, ...patch };
@@ -463,6 +468,11 @@ export function createBotRouter(
           bot.applyIcecastTee?.(config.radio.icecast ?? null);
         } catch {
           /* optional method on fakes */
+        }
+        try {
+          bot.applyAudioColor?.(config.radio.audioColor);
+        } catch {
+          /* optional */
         }
       }
     }
@@ -673,6 +683,40 @@ export function createBotRouter(
       res.json({ ok: true, result });
     } catch (err: unknown) {
       res.status(502).json({ error: errorMessage(err, "bumper cue failed"), code: "RADIO_ERROR" });
+    }
+  });
+
+  // POST /api/bot/radio/prewarm-bumpers — TTS-cache station/time liners (and optional
+  // doctrine) so live bumpers hit cache instead of waiting on synthesis.
+  router.post("/radio/prewarm-bumpers", requireAdmin, async (req, res) => {
+    const bot = botManager.getAllBots()[0];
+    if (!bot) {
+      res.status(409).json({ error: "No bot instance available", code: "NO_BOT" });
+      return;
+    }
+    const body = (req.body ?? {}) as {
+      includeDoctrine?: boolean;
+      hoursAhead?: number;
+      lines?: unknown;
+    };
+    const lines = Array.isArray(body.lines)
+      ? body.lines.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+      : undefined;
+    const hoursAhead =
+      typeof body.hoursAhead === "number" && Number.isFinite(body.hoursAhead)
+        ? Math.max(1, Math.min(24, Math.floor(body.hoursAhead)))
+        : 12;
+    try {
+      const result = await bot.prewarmRadioBumpers({
+        includeDoctrine: !!body.includeDoctrine,
+        hoursAhead,
+        lines,
+      });
+      res.json({ ok: true, ...result });
+    } catch (err: unknown) {
+      res
+        .status(502)
+        .json({ error: errorMessage(err, "bumper prewarm failed"), code: "RADIO_ERROR" });
     }
   });
 

@@ -51,6 +51,12 @@ export interface RadioDirectorDeps {
   /** Dead-air self-heal (§7 thenAutoProgram): reprogram + start music from the
    *  active profile. Resolves false when no profile/source matched. */
   autoProgram?: () => Promise<boolean>;
+  /**
+   * Optional presence refresh right before a bumper decision (e.g. after !skip).
+   * Should call onPoll with a fresh human count — keeps minPresent accurate
+   * without waiting for the 30s idle poller tick.
+   */
+  refreshPresence?: () => Promise<void>;
   /** Injectable clock (ms epoch) for cooldown/rate tests. */
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -104,6 +110,14 @@ export class RadioDirector {
       await this.deps.playNext();
       return "advanced";
     }
+    // Fresh presence before gate — skip/trackEnd often arrive between 30s polls.
+    if (this.deps.refreshPresence) {
+      try {
+        await this.deps.refreshPresence();
+      } catch (err) {
+        this.deps.logger.debug?.({ err }, "radio: presence refresh failed");
+      }
+    }
     if (this.pendingAfterBumper) {
       // Our own bumper just ended (§5.2) — consume the boundary, don't re-inject.
       this.pendingAfterBumper = false;
@@ -130,11 +144,32 @@ export class RadioDirector {
     }
     if (this.skipNext) {
       this.skipNext = false; // `!radio skip` — drop this bumper slot, music instead
+      this.deps.logger.info("radio: bumper slot dropped (!radio skip)");
       await this.advance();
       return "advanced";
     }
-    if (!this.canBroadcast(cfg) || !(await this.tryBumper(cfg, slot))) {
-      await this.advance(); // gate failed or bumper unready → music first
+    if (!this.canBroadcast(cfg)) {
+      this.deps.logger.info(
+        {
+          humans: this.lastHumanCount,
+          minPresent: cfg.minPresentToBroadcast,
+          cooldownSec: cfg.cooldownSeconds,
+          sinceLastBumperSec:
+            this.lastBumperAt > 0 ? Math.round((this.now() - this.lastBumperAt) / 1000) : null,
+          maxPerHour: cfg.maxBumpersPerHour,
+          bumperTimesInWindow: this.bumperTimes.length,
+        },
+        "radio: bumper slot skipped — broadcast gate (presence/cooldown/rate)",
+      );
+      await this.advance(); // gate failed → music first
+      return "advanced";
+    }
+    if (!(await this.tryBumper(cfg, slot))) {
+      this.deps.logger.info(
+        { sources: cfg.sources, slot: slot.slot },
+        "radio: bumper slot skipped — no source produced audio (prerecorded empty / TTS down)",
+      );
+      await this.advance(); // bumper unready → music first
       return "advanced";
     }
     // The bumper is playing; its trackEnd will drive the next advance.

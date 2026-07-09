@@ -70,6 +70,31 @@ describe("buildFfmpegArgs", () => {
     expect(args).toContain("s16le");
     expect(args[args.length - 1]).toBe("-");
   });
+
+  it("inserts -af after -i when audioFilter is set", () => {
+    const af = "highpass=f=200,lowpass=f=4500";
+    const args = buildFfmpegArgs("https://example.com/x.mp3", 0, { audioFilter: af });
+    const iIdx = args.indexOf("-i");
+    const afIdx = args.indexOf("-af");
+    expect(afIdx).toBeGreaterThan(iIdx);
+    expect(args[afIdx + 1]).toBe(af);
+    expect(args).toContain("s16le");
+  });
+
+  it("omits -af when filter is empty", () => {
+    expect(buildFfmpegArgs("/tmp/a.mp3", 0, { audioFilter: "  " })).not.toContain("-af");
+    expect(buildFfmpegArgs("/tmp/a.mp3", 0)).not.toContain("-af");
+  });
+});
+
+describe("AudioPlayer music audio filter", () => {
+  it("stores filter and applies only when not speech-floored", () => {
+    const player = new AudioPlayer(silentLogger);
+    player.setMusicAudioFilter("highpass=f=200,lowpass=f=4500");
+    expect(player.getMusicAudioFilter()).toContain("highpass");
+    player.setMusicAudioFilter(null);
+    expect(player.getMusicAudioFilter()).toBeNull();
+  });
 });
 
 describe("AudioPlayer STT duck", () => {

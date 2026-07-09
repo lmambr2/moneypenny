@@ -1,5 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IdlePoller } from "./idle-poller.js";
+import { countChannelHumans, IdlePoller } from "./idle-poller.js";
+
+describe("countChannelHumans", () => {
+  it("excludes query clients and self clid", () => {
+    expect(
+      countChannelHumans(
+        [
+          { id: 1, type: 0 }, // bot
+          { id: 2, type: 0 }, // human
+          { id: 3, type: 1 }, // query
+        ],
+        1,
+      ),
+    ).toBe(1);
+  });
+
+  it("does not undercount when the bot is missing from the list", () => {
+    // Old formula `length - 1` would return 0 here and block bumpers forever.
+    expect(countChannelHumans([{ id: 9, type: 0 }], 1)).toBe(1);
+  });
+});
 
 describe("IdlePoller", () => {
   beforeEach(() => {
@@ -17,7 +37,10 @@ describe("IdlePoller", () => {
     const poller = new IdlePoller({
       config,
       logger: { info: vi.fn() } as any,
-      tsClient: { getClientsInChannel: vi.fn().mockResolvedValue([{ uid: "bot" }]) },
+      tsClient: {
+        getClientsInChannel: vi.fn().mockResolvedValue([{ uid: "bot", id: 1, type: 0 }]),
+        getClientId: () => 1,
+      },
       isConnected: () => true,
       onDisconnect,
       onPoll,
@@ -41,9 +64,11 @@ describe("IdlePoller", () => {
       config: { idleTimeoutMinutes: 1 } as any,
       logger: { info: vi.fn() } as any,
       tsClient: {
+        getClientId: () => 1,
         getClientsInChannel: vi.fn().mockImplementation(async () => {
-          const clients = [{ uid: "bot" }];
-          for (let i = 0; i < humans; i++) clients.push({ uid: `u${i}` } as any);
+          const clients = [{ uid: "bot", id: 1, type: 0 }];
+          for (let i = 0; i < humans; i++)
+            clients.push({ uid: `u${i}`, id: 10 + i, type: 0 } as any);
           return clients;
         }),
       },
