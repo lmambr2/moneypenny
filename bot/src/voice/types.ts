@@ -85,6 +85,11 @@ export interface VoiceConfig {
   passiveKwsMaxSpeakers?: number;
   /** Prefix text wake matching for stt-mock / smoke tests. Off in production (KWS only). */
   textWakeFallback?: boolean;
+  /**
+   * When true (default), inbound speech aborts bot TTS/acks mid-utterance (S-OC1).
+   * Program music is not stopped unless it was paused for that TTS (savedMusic).
+   */
+  ttsBargeIn?: boolean;
 }
 
 export function defaultVoiceConfig(): VoiceConfig {
@@ -105,5 +110,6 @@ export function defaultVoiceConfig(): VoiceConfig {
     passiveKwsMaxSpeakers: 2,
     // Whisper sidecars have no KWS — text wake matching is required for "Moneypenny …".
     textWakeFallback: true,
+    ttsBargeIn: true,
   };
 }

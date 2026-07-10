@@ -38,6 +38,7 @@ import {
   serverGroupsByClidFromRows,
 } from "./move-resolver.js";
 import { detectServerProtocol, type ServerProtocol } from "./protocol-detect.js";
+import { VoiceTransportHealth } from "./voice-transport-health.js";
 
 export type { FileUploadInfo } from "@honeybbq/teamspeak-client";
 export type { ServerProtocol } from "./protocol-detect.js";
@@ -168,6 +169,8 @@ export class TS3Client extends EventEmitter {
   private inboundVoiceConsumers = 0;
   private libraryVoiceBridge: ((v: VoiceData) => void) | null = null;
   private inboundVoicePackets = 0;
+  /** S-OC2 — sendVoice failure window → voiceTransportUnhealthy once. */
+  private voiceTransportHealth = new VoiceTransportHealth();
 
   constructor(
     private options: TS3ClientOptions,
@@ -822,6 +825,7 @@ export class TS3Client extends EventEmitter {
     try {
       this.client.sendVoice(opusFrame, 5);
       this.voiceFramesSent++;
+      this.voiceTransportHealth.noteSuccess();
       if (this.voiceFramesSent === 1) {
         this.logger.info(
           { opusBytes: opusFrame.length, clientId: this.clientId },
@@ -831,8 +835,20 @@ export class TS3Client extends EventEmitter {
     } catch (err) {
       if (this.voiceFramesSent === 0) {
         this.logger.error({ err }, "Failed to send first voice packet");
+      } else {
+        this.logger.warn({ err }, "sendVoice failed");
+      }
+      // S-OC2: transport/session send failures only (not Opus decode).
+      if (this.voiceTransportHealth.noteError()) {
+        this.logger.warn("Voice transport unhealthy — requesting reconnect");
+        this.emit("voiceTransportUnhealthy");
       }
     }
+  }
+
+  /** After a reconnect cycle so the threshold can fire again. */
+  resetVoiceTransportHealth(): void {
+    this.voiceTransportHealth.clearRecoveryLatch();
   }
 
   getIdentityExport(): string {

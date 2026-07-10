@@ -18,6 +18,7 @@ import {
   isPlaybackStartReply,
   KokoroTtsClient,
   SherpaSttClient,
+  SpeechQueue,
   type StreamSttResult,
   type TtsProvider,
   type Utterance,
@@ -103,6 +104,11 @@ export class VoiceSession {
     null;
   private tempDir: string | null = null;
   private savedMusic: { song: QueuedSong; elapsed: number } | null = null;
+  /** S-OC1 — serial TTS jobs; barge-in only while this marks active TTS. */
+  private speechQueue = new SpeechQueue();
+  private ttsBargeIn = true;
+  /** True while bot TTS/ack is playing via createOutput (not pure music). */
+  private ttsPlaybackActive = false;
   /** Music volume-ducked at speech onset so bot output does not drown STT. */
   private captureDuck: { song: QueuedSong; elapsed: number } | null = null;
   /** Client whose wake word triggered captureDuck (for multi-speaker duck ownership). */
@@ -237,6 +243,7 @@ export class VoiceSession {
 
     this.voiceDecoder = createOpusEncoder(1);
     this.duckMusicOnSpeech = vc.duckMusicOnSpeech !== false;
+    this.ttsBargeIn = vc.ttsBargeIn !== false;
     // Legacy defaults 2 / 20 / 25 → current soft 15 (more ducking under music).
     const rawDuck = vc.duckMusicVolume;
     const duck =
@@ -586,6 +593,8 @@ export class VoiceSession {
       }
     }
     const isSpeech = rawPeak >= VoiceSession.MIN_SPEECH_PEAK;
+    // S-OC1: user speech interrupts bot TTS only (not pure program music).
+    if (isSpeech) this.maybeBargeInOnSpeech(rawPeak);
 
     if (!inCapture && isSpeech) {
       this.touchPassiveEnergy(v.clientId, rawPeak);
@@ -1442,32 +1451,76 @@ export class VoiceSession {
     return {
       speak: async (audio: Buffer, format: string) => {
         if (!this.deps.isConnected()) return;
-        if (!this.tempDir) this.tempDir = mkdtempSync(join(tmpdir(), "moneypenny-tts-"));
-        const file = join(this.tempDir, `reply.${format}`);
-        writeFileSync(file, audio);
-        if (this.captureDuck) {
-          this.deps.player.restoreFromSttDuck();
-          this.savedMusic = this.captureDuck;
-          this.captureDuck = null;
-          this.captureDuckClientId = null;
-          this.clearDuckWatchdog();
-        } else {
-          const currentSong = this.deps.queue.current();
-          if (currentSong) {
-            const elapsed = Math.floor(this.deps.player.getElapsed?.() ?? 0);
-            this.savedMusic = { song: currentSong, elapsed };
+        await this.speechQueue.play(async (signal) => {
+          if (signal.aborted || !this.deps.isConnected()) return;
+          if (!this.tempDir) this.tempDir = mkdtempSync(join(tmpdir(), "moneypenny-tts-"));
+          const file = join(this.tempDir, `reply.${format}`);
+          writeFileSync(file, audio);
+          if (this.captureDuck) {
+            this.deps.player.restoreFromSttDuck();
+            this.savedMusic = this.captureDuck;
+            this.captureDuck = null;
+            this.captureDuckClientId = null;
+            this.clearDuckWatchdog();
+          } else {
+            const currentSong = this.deps.queue.current();
+            if (currentSong) {
+              const elapsed = Math.floor(this.deps.player.getElapsed?.() ?? 0);
+              this.savedMusic = { song: currentSong, elapsed };
+            }
           }
-        }
-        this.deps.player.resetFailures();
-        this.deps.player.play(file);
-        setTimeout(() => {
-          try {
-            rmSync(file, { force: true });
-          } catch {
-            /* ignore */
-          }
-        }, 3000);
+          this.ttsPlaybackActive = true;
+          this.deps.player.resetFailures();
+          this.deps.player.play(file);
+          // Wait until track ends or barge-in aborts.
+          await new Promise<void>((resolve) => {
+            const onEnd = () => {
+              cleanup();
+              resolve();
+            };
+            const onAbort = () => {
+              cleanup();
+              try {
+                this.deps.player.stop();
+              } catch {
+                /* ignore */
+              }
+              resolve();
+            };
+            const cleanup = () => {
+              this.deps.player.off?.("trackEnd", onEnd);
+              signal.removeEventListener("abort", onAbort);
+              this.ttsPlaybackActive = false;
+            };
+            // AudioPlayer uses EventEmitter-style on/off.
+            this.deps.player.on("trackEnd", onEnd);
+            if (signal.aborted) {
+              onAbort();
+              return;
+            }
+            signal.addEventListener("abort", onAbort, { once: true });
+            setTimeout(() => {
+              try {
+                rmSync(file, { force: true });
+              } catch {
+                /* ignore */
+              }
+            }, 3000);
+          });
+        });
       },
     };
+  }
+
+  /**
+   * S-OC1 soft barge-in: if bot TTS is playing and real speech arrives, interrupt.
+   * Does not stop pure music (ttsPlaybackActive false).
+   */
+  private maybeBargeInOnSpeech(peak: number): void {
+    if (!this.ttsBargeIn) return;
+    if (!this.ttsPlaybackActive && !this.speechQueue.isSpeaking) return;
+    if (peak < VoiceSession.MIN_SPEECH_PEAK) return;
+    this.deps.logger.info({ peak }, "Voice: barge-in — interrupting bot TTS");
+    this.speechQueue.interrupt();
   }
 }

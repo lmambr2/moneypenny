@@ -68,6 +68,19 @@ describe("Watchdog — reconnection", () => {
     expect(reconnect).toHaveBeenCalledTimes(2);
   });
 
+  it("skips targets with event reconnect already in flight", async () => {
+    const reconnect = vi.fn().mockResolvedValue(undefined);
+    const t: WatchdogTarget = {
+      id: "a",
+      isConnected: () => false,
+      isReconnecting: () => true,
+      reconnect,
+    };
+    const wd = new Watchdog({ getTargets: () => [t], logger: fakeLogger() });
+    await wd.tick();
+    expect(reconnect).not.toHaveBeenCalled();
+  });
+
   it("keeps going if one reconnect throws", async () => {
     const bad = target("bad", false, vi.fn().mockRejectedValue(new Error("nope")));
     const good = target("good", false);

@@ -1357,6 +1357,13 @@
         </div>
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.voiceRespondWithVoice" />
       </label>
+      <label v-if="ai.voiceEnabled && ai.voiceRespondWithVoice" class="profile-toggle" style="margin-top: 4px">
+        <div class="profile-toggle-text">
+          <div class="profile-toggle-label">Barge-in (interrupt TTS)</div>
+          <div class="profile-toggle-hint">Stop bot speech when someone talks. Program music keeps playing (or stays under duck rules).</div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.voiceTtsBargeIn" />
+      </label>
 
       <div v-if="ai.voiceEnabled" class="llm-status-card">
         <div class="llm-status-row">
@@ -1872,6 +1879,7 @@ const ai = reactive({
   voiceDuckMusicVolume: 15,
   voiceListenWindowSec: 15,
   voiceRespondWithVoice: true,
+  voiceTtsBargeIn: true,
   radioEnabled: false,
   radioEveryNSongs: 4,
   radioDeadAirSeconds: 25,
@@ -2339,6 +2347,7 @@ async function loadAiSettings() {
       Math.round((typeof voice.listenWindowMs === 'number' ? voice.listenWindowMs : 15000) / 1000),
     );
     ai.voiceRespondWithVoice = voice.respondWithVoice !== false;
+    ai.voiceTtsBargeIn = voice.ttsBargeIn !== false;
     const radio = res.data.radio ?? {};
     ai.radioEnabled = !!radio.enabled;
     ai.radioEveryNSongs = radio.everyNSongs ?? 4;
@@ -2894,6 +2903,7 @@ async function saveAiSettings() {
           5000,
           Math.min(60_000, (Number(ai.voiceListenWindowSec) || 15) * 1000),
         ),
+        ttsBargeIn: ai.voiceTtsBargeIn,
       },
       radio: {
         enabled: ai.radioEnabled,

@@ -75,6 +75,8 @@ export interface TsEventBindings {
   isDisconnectEmitted: () => boolean;
   setDisconnectEmitted: (v: boolean) => void;
   emitDisconnected: () => void;
+  /** S-OC2 — wedged sendVoice path (optional). */
+  onVoiceTransportUnhealthy?: () => void;
 }
 
 export function bindTsEvents(deps: TsEventBindings): void {
@@ -106,5 +108,13 @@ export function bindTsEvents(deps: TsEventBindings): void {
   deps.tsClient.on("connected", () => {
     deps.idlePoller.start();
     deps.knowledge.startFileDropWatcher();
+    deps.tsClient.resetVoiceTransportHealth();
   });
+
+  // S-OC2: repeated sendVoice failures → manager event-reconnect.
+  if (deps.onVoiceTransportUnhealthy) {
+    deps.tsClient.on("voiceTransportUnhealthy", () => {
+      deps.onVoiceTransportUnhealthy?.();
+    });
+  }
 }

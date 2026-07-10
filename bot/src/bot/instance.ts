@@ -145,6 +145,11 @@ export class BotInstance extends EventEmitter {
   private voice: VoiceSession;
   private connected = false;
   private disconnectEmitted = false;
+  /**
+   * Set when disconnect() is invoked by us (stop/restart). Remote drops leave this
+   * false so BotManager can event-reconnect (S-OC3).
+   */
+  private localDisconnect = false;
   private isAdvancing = false;
   private profileManager: BotProfileManager;
   private controlRouter: ControlRouter;
@@ -635,11 +640,13 @@ export class BotInstance extends EventEmitter {
         this.disconnectEmitted = v;
       },
       emitDisconnected: () => this.emit("disconnected"),
+      onVoiceTransportUnhealthy: () => this.emit("voiceTransportUnhealthy"),
     });
   }
 
   async connect(): Promise<void> {
     this.disconnectEmitted = false;
+    this.localDisconnect = false;
     await this.tsClient.connect();
     if (this.disconnectEmitted) {
       throw new Error("Connect aborted by concurrent disconnect");
@@ -654,7 +661,18 @@ export class BotInstance extends EventEmitter {
     });
   }
 
+  /**
+   * True when the last disconnect was initiated by `disconnect()` (stop/restart),
+   * not a remote/network drop. Consumed once by the manager reconnect path.
+   */
+  consumeLocalDisconnect(): boolean {
+    const v = this.localDisconnect;
+    this.localDisconnect = false;
+    return v;
+  }
+
   disconnect(): void {
+    this.localDisconnect = true;
     this.idlePoller.stop();
     this.knowledge.stopFileDropWatcher();
     this.player.stop();

@@ -164,6 +164,18 @@ export interface BotConfig {
   aceStepOutputDir: string;
   /** Keep at most this many files in the output dir (oldest pruned after gen). 0 = no prune. */
   aceStepMaxFiles: number;
+  /**
+   * Event-driven reconnect after unexpected TS drops (S-OC3).
+   * Watchdog remains a backup; this recovers in seconds with exp backoff.
+   */
+  reconnect: {
+    /** Default true — schedule reconnect on remote disconnect for autoStart bots. */
+    eventDriven: boolean;
+    /** First retry delay ms (default 2000). */
+    baseMs: number;
+    /** Cap delay ms (default 60000). */
+    maxMs: number;
+  };
 }
 
 export function getDefaultConfig(): BotConfig {
@@ -228,6 +240,11 @@ export function getDefaultConfig(): BotConfig {
     aceStepTimeoutMs: 300_000,
     aceStepOutputDir: "generated/ace-step",
     aceStepMaxFiles: 40,
+    reconnect: {
+      eventDriven: true,
+      baseMs: 2_000,
+      maxMs: 60_000,
+    },
   };
 }
 

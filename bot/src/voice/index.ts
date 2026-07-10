@@ -21,6 +21,7 @@ export {
   voiceSpokenAck,
 } from "./playback-reply.js";
 export { probeHttpHealth, probeKokoroTts, probeSherpaStt } from "./probe.js";
+export { SpeechQueue } from "./speech-queue.js";
 export { SherpaSttClient } from "./stt.js";
 export { KokoroTtsClient } from "./tts.js";
 export type {

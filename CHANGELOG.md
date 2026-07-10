@@ -8,6 +8,26 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Reliability: event-driven reconnect + exp backoff (S-OC3)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `ReconnectScheduler` on remote disconnect for `autoStart` bots (`2s → 60s`)
+- Intentional `stopBot` / `disconnect()` does not bounce; watchdog skips in-flight
+- Config: `reconnect.eventDriven` (default true), `baseMs`, `maxMs`
+
+### Reliability: voice transport self-heal (S-OC2)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `sendVoice` failures: 5 in 30s → `voiceTransportUnhealthy` → event reconnect
+- Does **not** trip on Opus decode/DTX; healthy send streak clears window
+
+### Reliability: speech barge-in (S-OC1)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `SpeechQueue` serializes TTS; inbound speech aborts bot TTS when `ttsBargeIn`
+- Program music not stopped unless it was held for that TTS (`savedMusic`)
+- Settings: Voice → Barge-in
+
 ### Docs: TS6 ServerQuery command reference
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
@@ -23,6 +43,14 @@ assistant** authored each batch of work, since not every commit carries a
 - [docs/openclaw-teamspeak-steal-notes.md](./docs/openclaw-teamspeak-steal-notes.md) —
   keep S-OC1 barge-in, S-OC3 reconnect backoff, S-OC2 narrow transport self-heal;
   dump identity/VoiceBuffer/global STT queue/OpenClaw host (already better)
+
+### Docs: five RAG/memory/intent upgrades (design only)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- [docs/rag-claim-check-and-typed-memory.md](./docs/rag-claim-check-and-typed-memory.md) —
+  **P1** claim-check re-retrieve, **P2** typed budgets + injection dedup,
+  **P3** procedural playbooks, **P4** clarify-once, **P5** R3 memory eval axes;
+  all flags default off; music fail-open unchanged
 
 ### Radio: alone-stop via honeybbq enter/leave/moved
 **Author: Grok (xAI), driven by Lane Ambrose.**

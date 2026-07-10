@@ -14,37 +14,30 @@ or weaker than what we already ship.
 
 ## Keep (3)
 
-### S-OC1 — Speech barge-in queue
+### S-OC1 — Speech barge-in queue — **shipped** (soft v1)
 
 | | |
 |--|--|
 | **Their idea** | Serial TTS `PlaybackQueue` + `interrupt()` when inbound voice arrives |
-| **Us today** | Duck / `savedMusic` so the bot can speak **over music**; TTS uses `AudioPlayer` with **no** abort when a member starts talking |
-| **Why keep** | Real UX gap: cannot cancel **bot speech** mid-utterance |
-| **Constraint** | Speech lane only — never default barge-in on program music (codec 5 radio) |
-| **Homes** | New speech-queue helper; `VoiceSession` / `VoiceOutput` (+ optional radio speech); Settings `voice.ttsBargeIn` |
-| **Accept** | User talks during a voice ack → ack stops; music continues or stays under existing duck rules; radio bumper can opt out of barge-in |
+| **Us now** | `SpeechQueue` + `ttsPlaybackActive`; speech peak → interrupt TTS only; music continues under duck/savedMusic rules |
+| **Homes** | `voice/speech-queue.ts`, `VoiceSession.createOutput`, Settings `ttsBargeIn` |
 
-### S-OC3 — Event-driven reconnect + backoff
+### S-OC3 — Event-driven reconnect + backoff — **shipped**
 
 | | |
 |--|--|
 | **Their idea** | On disconnect / connect fail: exp backoff `2s → 60s` inside the client manager |
-| **Us today** | `TS3Client` emits `disconnected` only; **Watchdog** polls ~30s with **60s** per-bot cooldown (`bot/src/watchdog.ts`) |
-| **Why keep** | Worse MTTR: we can sit offline until the next poll + cooldown |
-| **Homes** | Single-flight reconnect with backoff on `BotInstance` / client path; watchdog remains a safety net (skip or soft-pedal while reconnect already in flight) |
-| **Accept** | Unexpected drop recovers in seconds on first try, backs off on flap; watchdog still catches stuck cases |
+| **Us now** | `ReconnectScheduler` + remote `disconnected` on autoStart bots; intentional stop skips; watchdog skips `isReconnecting` |
+| **Homes** | `bot/src/bot/reconnect-scheduler.ts`, `manager.ts`, `watchdog.ts`, `config.reconnect` |
 
-### S-OC2 — Transport self-heal (narrow)
+### S-OC2 — Transport self-heal (narrow) — **shipped**
 
 | | |
 |--|--|
 | **Their idea** | N voice errors in a window → full client restart |
-| **Us today** | Decode-failure **counters for logs** only (`VoiceSession`) — no recovery action |
-| **Why keep** | Rare “connected but voice path wedged” on Pi |
-| **Narrow hard** | **Do not** reconnect on ordinary Opus decode fails, DTX, or one bad speaker (thrashing would make us worse). Count only **transport/session** failures: `sendVoice` throws, library voice pipeline errors, or total decode collapse across many speakers |
-| **Homes** | Threshold + single-flight near client / `bot.reconnect()`, not in the STT packet hot path |
-| **Accept** | Synthetic transport error storm → one reconnect; single bad packet → no reconnect |
+| **Us now** | `VoiceTransportHealth` on `sendVoice` throw (5/30s) → `voiceTransportUnhealthy` → same event reconnect as S-OC3 |
+| **Narrow hard** | Decode/DTX not counted — only send failures |
+| **Homes** | `ts-protocol/voice-transport-health.ts`, `client.sendVoiceData`, `manager` listener |
 
 ---
 

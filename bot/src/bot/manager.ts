@@ -12,6 +12,7 @@ import type { TagStore } from "../radio/index.js";
 import type { RetrievalStore } from "../rag/index.js";
 import type { ServerProtocol } from "../ts-protocol/client.js";
 import { BotInstance } from "./instance.js";
+import { ReconnectScheduler } from "./reconnect-scheduler.js";
 
 /**
  * Run bot.connect() with a hard deadline. If the handshake hangs (e.g. the
@@ -71,6 +72,8 @@ export class BotManager extends EventEmitter {
   private tsFilesDir?: string;
   private tsVirtualServerId?: number;
   private tagStore?: TagStore;
+  /** S-OC3 — event-driven reconnect with exp backoff. */
+  private reconnectScheduler: ReconnectScheduler;
 
   constructor(
     localProvider: MusicProvider,
@@ -102,6 +105,18 @@ export class BotManager extends EventEmitter {
     this.tsFilesDir = tsFilesDir;
     this.tsVirtualServerId = tsVirtualServerId;
 
+    const rc = config.reconnect ?? { eventDriven: true, baseMs: 2_000, maxMs: 60_000 };
+    this.reconnectScheduler = new ReconnectScheduler({
+      reconnect: (id) => this.startBot(id),
+      baseMs: rc.baseMs ?? 2_000,
+      maxMs: rc.maxMs ?? 60_000,
+      logger: {
+        info: (o, m) => this.logger.info(o, m),
+        warn: (o, m) => this.logger.warn(o, m),
+        error: (o, m) => this.logger.error(o, m),
+      },
+    });
+
     // Share the RAG retrieval + doctrine stores (Phase 5/6) and the file-drop
     // seen-set with every bot as it's created — createBot/startBot/loadSavedBots
     // all emit "botInstance", so this one listener covers all construction paths
@@ -111,6 +126,44 @@ export class BotManager extends EventEmitter {
       if (this.doctrine) bot.setDoctrine(this.doctrine);
       if (this.fileDropStore) bot.setFileDropStore(this.fileDropStore);
       if (this.tsFilesDir) bot.setTsFilesDir(this.tsFilesDir, this.tsVirtualServerId);
+      this.wireEventReconnect(bot);
+    });
+  }
+
+  /** Whether event reconnect is busy for this bot (watchdog should skip). */
+  isReconnecting(id: string): boolean {
+    return this.reconnectScheduler.isBusy(id);
+  }
+
+  private wireEventReconnect(bot: BotInstance): void {
+    // Each BotInstance is wired once at construction. When startBot replaces the
+    // instance, the new object gets its own listeners; the old one's localDisconnect
+    // path skips scheduling.
+    bot.on("disconnected", () => {
+      // Stale instance after startBot swap — ignore.
+      if (this.bots.get(bot.id) !== bot) return;
+      // Intentional stop/restart — do not bounce.
+      if (bot.consumeLocalDisconnect()) return;
+      const cfg = this.config.reconnect ?? { eventDriven: true };
+      if (cfg.eventDriven === false) return;
+      const saved = this.database.getBotInstances().find((i) => i.id === bot.id);
+      if (!saved?.autoStart) return;
+      this.reconnectScheduler.schedule(bot.id, "remote-disconnect");
+    });
+
+    bot.on("connected", () => {
+      if (this.bots.get(bot.id) !== bot) return;
+      this.reconnectScheduler.reset(bot.id);
+    });
+
+    // S-OC2: sendVoice transport wedge → same reconnect path as remote drop.
+    bot.on("voiceTransportUnhealthy", () => {
+      if (this.bots.get(bot.id) !== bot) return;
+      const cfg = this.config.reconnect ?? { eventDriven: true };
+      if (cfg.eventDriven === false) return;
+      const saved = this.database.getBotInstances().find((i) => i.id === bot.id);
+      if (!saved?.autoStart) return;
+      this.reconnectScheduler.schedule(bot.id, "voice-transport-unhealthy");
     });
   }
 
@@ -164,6 +217,7 @@ export class BotManager extends EventEmitter {
   }
 
   async removeBot(id: string): Promise<void> {
+    this.reconnectScheduler.cancel(id);
     const bot = this.bots.get(id);
     if (bot) {
       bot.disconnect();
@@ -223,6 +277,7 @@ export class BotManager extends EventEmitter {
     id: string;
     name: string;
     isConnected: () => boolean;
+    isReconnecting?: () => boolean;
     reconnect: () => Promise<void>;
   }> {
     return this.database
@@ -232,6 +287,8 @@ export class BotManager extends EventEmitter {
         id: s.id,
         name: s.name,
         isConnected: () => this.bots.get(s.id)?.isConnected() ?? false,
+        // Skip when event-driven scheduler already owns recovery (S-OC3).
+        isReconnecting: () => this.reconnectScheduler.isBusy(s.id),
         reconnect: () => this.startBot(s.id),
       }));
   }
@@ -298,13 +355,14 @@ export class BotManager extends EventEmitter {
   stopBot(id: string): void {
     const bot = this.bots.get(id);
     if (!bot) throw new Error(`Bot ${id} not found`);
-    bot.disconnect();
-
-    // Mark as not autoStart so it stays stopped on Docker restart
+    // Cancel event reconnect before disconnect so a race can't re-schedule.
+    this.reconnectScheduler.cancel(id);
+    // Mark as not autoStart so it stays stopped on Docker restart / event reconnect
     const saved = this.database.getBotInstances().find((i) => i.id === id);
     if (saved) {
       this.database.saveBotInstance({ ...saved, autoStart: false });
     }
+    bot.disconnect();
   }
 
   async loadSavedBots(): Promise<void> {
@@ -380,6 +438,7 @@ export class BotManager extends EventEmitter {
   }
 
   shutdown(): void {
+    this.reconnectScheduler.dispose();
     for (const bot of this.bots.values()) {
       bot.disconnect();
     }

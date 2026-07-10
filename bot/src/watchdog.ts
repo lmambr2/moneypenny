@@ -19,6 +19,8 @@ export interface WatchdogTarget {
   name?: string;
   isConnected(): boolean;
   reconnect(): Promise<void>;
+  /** When true, event-driven reconnect already owns recovery — skip this tick. */
+  isReconnecting?: () => boolean;
 }
 
 export interface WatchdogOptions {
@@ -108,6 +110,14 @@ export class Watchdog {
     for (const t of this.opts.getTargets()) {
       if (t.isConnected()) {
         this.lastAttempt.delete(t.id); // healthy — reset backoff
+        continue;
+      }
+      // S-OC3: event-driven scheduler may already be backing off / connecting.
+      if (t.isReconnecting?.()) {
+        this.logger.debug?.(
+          { botId: t.id, name: t.name },
+          "Bot disconnected — event reconnect in progress, watchdog skipping",
+        );
         continue;
       }
       const last = this.lastAttempt.get(t.id);
