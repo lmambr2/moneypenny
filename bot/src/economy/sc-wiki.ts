@@ -12,7 +12,8 @@ import type { Logger } from "../logger.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 
 const DEFAULT_BASE = "https://api.star-citizen.wiki";
-const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000; // 12h — game data is patch-stable
+/** Game data is patch-stable (major patches ~monthly). */
+const DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 const DEFAULT_TIMEOUT_MS = 12_000;
 const USER_AGENT =
   "Moneypenny-OrgEconomy/1.0 (+https://github.com; api.star-citizen.wiki client; cache-friendly)";

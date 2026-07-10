@@ -110,8 +110,11 @@ All live economy clients write through a **SQLite** table `economy_cache`
 |--------|------------------|
 | UEX | Full commodities list (SWR on stale) |
 | sc-craft | Search results + **blueprint detail** by id |
-| sc-trade | Ships + locations + **route/buyer** bodies (TTL 30m) |
-| sc-wiki | Game version, search + item detail for warm names |
+| sc-trade | Ships + locations + **route/buyer** bodies (TTL **3d** routes / **7d** catalog) |
+| sc-wiki | Game version, search + item detail for warm names (**14d**) |
+
+TTLs assume **org planning, not live arb**, and SC **major patches ~monthly**.
+After a big economy patch: run `!econ refresh` (or Cache tab) once.
 
 **Stale-while-revalidate:** serve expired L2 immediately where implemented (UEX,
 ships/locations); always fail-open to last good payload if network fails.
@@ -124,7 +127,7 @@ ships/locations); always fail-open to last good payload if network fails.
 | Trigger | When |
 |---------|------|
 | Bot boot | Warm starts ~15s after start (non-blocking) |
-| Interval | `ECONOMY_CACHE_REFRESH_MS` (default **6 hours**) |
+| Interval | `ECONOMY_CACHE_REFRESH_MS` (default **7 days**) |
 | Manual | `!econ refresh` · status: `!econ cache` · dashboard Cache tab |
 
 `!ask` economy grounding reads **L2 only** (no network on the ask path).
@@ -145,26 +148,27 @@ Rare maintainer HTML parse of public DataHub mining pages → `seed-import-*.jso
 |-----|---------|---------|
 | `ECONOMY_UEX` | `1` | `0` disables UEX prices |
 | `UEX_API_BASE` | `https://api.uexcorp.space` | |
-| `UEX_CACHE_TTL_MS` | `21600000` (6h) | Commodities list L2 TTL |
-| `UEX_PRICES_CACHE_TTL_MS` | `43200000` (12h) | Per-commodity terminal prices (supply) L2 TTL |
+| `UEX_CACHE_TTL_MS` | `604800000` (**7d**) | Commodities list L2 TTL |
+| `UEX_PRICES_CACHE_TTL_MS` | `604800000` (**7d**) | Per-commodity terminal prices (supply) L2 TTL |
 | `UEX_TIMEOUT_MS` | `8000` | |
 | `UEX_API_KEY` | _(empty)_ | Optional Bearer — see **Decision: UEX key** below |
 | `ECONOMY_SCCRAFT` | `1` | `0` disables sc-craft |
 | `SCCRAFT_API_BASE` | `https://sc-craft.tools` | |
-| `SCCRAFT_CACHE_TTL_MS` | `21600000` (6h) | |
+| `SCCRAFT_CACHE_TTL_MS` | `604800000` (**7d**) | |
 | `SCCRAFT_TIMEOUT_MS` | `8000` | |
 | `ECONOMY_SCTRADE` | `1` | `0` disables `!trade` |
 | `SC_TRADE_API_TOKEN` | _(empty)_ | **Required** for `/api/tools/*` (header `token`) |
 | `SCTRADE_API_BASE` | `https://sc-trade.tools` | |
-| `SCTRADE_CACHE_TTL_MS` | `1800000` (30m) | Route cache |
+| `SCTRADE_CACHE_TTL_MS` | `259200000` (**3d**) | Route cache |
+| `SCTRADE_CATALOG_TTL_MS` | `604800000` (**7d**) | Ships/locations catalog |
 | `SCTRADE_TIMEOUT_MS` | `45000` | Route search can be heavy |
 | `ECONOMY_SCWIKI` | `1` | `0` disables SC Wiki enrichment |
 | `SCWIKI_API_BASE` | `https://api.star-citizen.wiki` | |
-| `SCWIKI_CACHE_TTL_MS` | `43200000` (12h) | Wiki game-data TTL |
+| `SCWIKI_CACHE_TTL_MS` | `1209600000` (**14d**) | Wiki game-data TTL |
 | `ECONOMY_CACHE_DIR` | `{dataDir}/economy-cache` | Legacy JSON dir (migrate only) |
 | `ECONOMY_CACHE_DB` | _(empty → main bot DB)_ | Optional dedicated sqlite path for cache table |
 | `ECONOMY_CACHE_MAX_ROWS` | `2000` | Soft cap; oldest `fetched_at` pruned |
-| `ECONOMY_CACHE_REFRESH_MS` | `21600000` (6h) | Background re-warm interval |
+| `ECONOMY_CACHE_REFRESH_MS` | `604800000` (**7d**) | Background re-warm interval |
 
 Shared rules for every remote client:
 

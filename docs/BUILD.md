@@ -47,7 +47,7 @@ criteria: [economy.md §6a](./economy.md).
 |------:|----|------|--------|--------|
 | 1 | **E-BOX** | SCU → fewest crates | Pure `calculateBoxes` / `splitIntoContainers` style: e.g. `64` → `2×32`. Surface on `!work-items` / craft totals + dashboard shopping list. Standard crate sizes only (1–32 SCU). | **Shipped** 2026-07-09 |
 | 2 | **E-FUZZY** | Fuzzy name match | Typo/confusable match for seed ores, trade ships/shops, craft search — SuperCargo `fuzzy.ts` idea, small pure function. | **Shipped** 2026-07-09 |
-| 3 | **E-UEX-SUP** | UEX supply / richer prices | Per-commodity `commodities_prices` + supply % + top terminals; 12h L2 TTL (`UEX_PRICES_CACHE_TTL_MS`). | **Shipped** 2026-07-09 |
+| 3 | **E-UEX-SUP** | UEX supply / richer prices | Per-commodity `commodities_prices` + supply % + top terminals; long L2 TTL (`UEX_PRICES_CACHE_TTL_MS`, default **7d**). | **Shipped** 2026-07-09 |
 | 4 | **E-FOOT** | Box footprints + "fits ship?" | Crate grid cells + ship max-box helpers; trade ships list shows largest crate; `GET /api/economy/boxes`. | **Shipped** 2026-07-09 |
 | — | **E-SNAP** | Ships/locations offline seed | SuperCargo snapshot pattern — largely covered by **E-CACHE** SWR; only if cold-start still hurts. | **Optional / park** |
 

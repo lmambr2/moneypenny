@@ -16,9 +16,10 @@ import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 import { fuzzyBestMatch, fuzzyScore } from "./fuzzy.js";
 
 const DEFAULT_BASE = "https://api.uexcorp.space";
-const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
-/** Terminal prices are heavier — longer L2 TTL (E-UEX-SUP). */
-const DEFAULT_PRICES_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+/** Org planning, not arb — SC major patches ~monthly. */
+const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+/** Terminal prices — same long TTL; refresh manually after patches. */
+const DEFAULT_PRICES_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_TIMEOUT_MS = 8_000;
 const USER_AGENT = "Moneypenny-OrgEconomy/1.0 (+https://github.com; UEX client; cache-friendly)";
 
@@ -97,7 +98,7 @@ export interface UexClientOptions {
   enabled?: boolean;
   baseUrl?: string;
   ttlMs?: number;
-  /** TTL for per-commodity terminal prices (default 12h). */
+  /** TTL for per-commodity terminal prices (default 7d). */
   pricesTtlMs?: number;
   timeoutMs?: number;
   /** Optional API key (Bearer / header if UEX requires it later). */
@@ -246,7 +247,7 @@ export class UexClient {
 
   /**
    * Terminal prices for one commodity id — `/2.0/commodities_prices?id_commodity=`.
-   * Long TTL (default 12h). Fail-soft → empty array.
+   * Long TTL (default 7d). Fail-soft → empty array.
    */
   async getTerminalPrices(commodityId: number): Promise<UexTerminalPrice[]> {
     if (!this.enabled || !Number.isFinite(commodityId) || commodityId <= 0) return [];

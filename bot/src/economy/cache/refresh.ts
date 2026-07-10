@@ -149,7 +149,7 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
             "sc-wiki",
             `commodities:page:${page}`,
             list,
-            parseTtl("SCWIKI_CACHE_TTL_MS", 12 * 3600_000),
+            parseTtl("SCWIKI_CACHE_TTL_MS", 14 * 24 * 3600_000),
           );
           if (list.length === 0) break;
           await sleep(200); // be polite
@@ -212,7 +212,7 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
             "sc-craft",
             `blueprints:page:${page}`,
             items,
-            parseTtl("SCCRAFT_CACHE_TTL_MS", 6 * 3600_000),
+            parseTtl("SCCRAFT_CACHE_TTL_MS", 7 * 24 * 3600_000),
           );
           if (items.length === 0) break;
           await sleep(200);
@@ -296,7 +296,8 @@ export function startEconomyCacheScheduler(opts: {
 }): void {
   stopEconomyCacheScheduler();
   const intervalMs =
-    opts.intervalMs ?? (parseInt(process.env.ECONOMY_CACHE_REFRESH_MS || "", 10) || 6 * 3600_000);
+    opts.intervalMs ??
+    (parseInt(process.env.ECONOMY_CACHE_REFRESH_MS || "", 10) || 7 * 24 * 3600_000);
   const run = () => {
     void runEconomyCacheRefresh({ logger: opts.logger });
   };
@@ -347,6 +348,8 @@ export function formatCacheStatus(): string {
   } else {
     lines.push("Last refresh: never (will warm shortly after boot, or !econ refresh)");
   }
-  lines.push("Refresh: automatic (ECONOMY_CACHE_REFRESH_MS, default 6h) or !econ refresh");
+  lines.push(
+    "Refresh: automatic (ECONOMY_CACHE_REFRESH_MS, default 7d) or !econ refresh after patches",
+  );
   return lines.join("\n");
 }

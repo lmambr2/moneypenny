@@ -17,8 +17,9 @@ import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 import { fuzzyBestMatch } from "./fuzzy.js";
 
 const DEFAULT_BASE = "https://sc-trade.tools";
-const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 min for route results
-const DEFAULT_CATALOG_TTL_MS = 6 * 60 * 60 * 1000; // 6h for ships/locations
+/** Routes for org planning — not live arb (major patches ~monthly). */
+const DEFAULT_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3 days for route results
+const DEFAULT_CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7d for ships/locations
 const DEFAULT_TIMEOUT_MS = 45_000; // route search can be heavy
 const USER_AGENT =
   "Moneypenny-OrgEconomy/1.0 (+https://github.com; sc-trade.tools client; cache-friendly)";

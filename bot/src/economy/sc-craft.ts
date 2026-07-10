@@ -15,7 +15,8 @@ import { fuzzyScore } from "./fuzzy.js";
 import type { CraftBomLine, CraftOrder } from "./orders.js";
 
 const DEFAULT_BASE = "https://sc-craft.tools";
-const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+/** Blueprint catalog is patch-stable (major patches ~monthly). */
+const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_TIMEOUT_MS = 8_000;
 const USER_AGENT =
   "Moneypenny-OrgEconomy/1.0 (+https://github.com; sc-craft.tools client; cache-friendly)";

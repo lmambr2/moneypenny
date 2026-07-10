@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Economy: longer cache TTLs (org planning, monthly patches)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Defaults: UEX + craft **7d**, wiki **14d**, trade routes **3d**, catalog **7d**
+- Background re-warm `ECONOMY_CACHE_REFRESH_MS` default **7d** (was 6h)
+- After major SC patches: `!econ refresh` once
+
 ### Security: remediate Medium/Low from reliability+RAG audit
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
