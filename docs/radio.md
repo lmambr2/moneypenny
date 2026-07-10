@@ -457,8 +457,10 @@ dry, poised British secretary wit — mock-formal, teasing, brief, never crude.
 
 | Profile field | Purpose |
 |---|---|
-| `music.seedQueries` | Local multi-hit search for auto-program (§ above); no YouTube fallback |
-| `music.playlistRefs` / `select` / `relayUrl` | Primary music pool |
+| `music.seedQueries` | Multi-hit search for auto-program; default **~33% local / ~66% YouTube** (mega-mix filtered) |
+| `music.seedSources` | Optional `["local","youtube","stream"]` (default local+youtube). `stream` = Spotify/Tidal/Icecast **URLs** in a seed line |
+| `music.seedExternalRatio` | Target non-local share of seed pool (0–1; default **⅔**) |
+| `music.playlistRefs` / `select` / `relayUrl` | Primary music pool (playlist refs still best for Tidal/Spotify catalogs) |
 | `music.shuffle` | Shuffle programmed pool |
 | `music.aceStepAutoFill` | If true, ACE-Step when pool empty (service must be on); `false` never; omit → global `aceStepAutoFill` |
 | `bumper.topics` | Doctrine / memory retrieval phrases (see **Bumper topics**) |
@@ -469,10 +471,10 @@ Starter profiles: `combat`, `mining`, `salvage`, `hauling`, `lobby`/`idle` (code
 defaults ship `lobby` + `focus`; live config is editable in Settings).
 
 **Selection precedence:** `music.select` (tag query, §9.4) + `playlistRefs`
-(expanded, §8.1) form the primary pool; `seedQueries` (local multi-hit search,
-duration/mega-mix filtered, shuffled, soft anti-repeat — **no YouTube fallback**) is the
-sparse-data fallback; `relayUrl` is last (hand off to a live stream). Dead-air
-auto-program uses the same selection.
+(expanded, §8.1) form the primary pool; `seedQueries` (multi-source multi-hit search,
+duration/mega-mix filtered, interleaved ~33% local / ~66% external by default, soft
+anti-repeat) is the sparse-data fallback; `relayUrl` is last (hand off to a live stream).
+Dead-air auto-program uses the same selection.
 
 ### 8.1 Playlist sources (per profile)
 `playlistRefs` are expanded once via the provider's `getPlaylistSongs(ref)` and merged

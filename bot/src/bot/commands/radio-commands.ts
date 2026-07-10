@@ -38,8 +38,15 @@ export function parseTagFilters(
 /** Multi-hour mixes / full albums hog the channel — skip for seed auto-program. */
 export const RADIO_SEED_MAX_DURATION_SEC = 15 * 60;
 const SEED_SEARCH_LIMIT = 30;
+/** Smaller YT pull per seed — yt-dlp is slower and mega-mixes are common. */
+const SEED_YT_SEARCH_LIMIT = 12;
 const SEED_POOL_CAP = 18;
 const RECENT_SEED_MEMORY = 16;
+const DEFAULT_SEED_SOURCES: Array<"local" | "youtube" | "stream"> = ["local", "youtube"];
+/** ~33% library / ~66% external (YouTube / stream URLs) when both have hits. */
+const DEFAULT_SEED_EXTERNAL_RATIO = 2 / 3;
+
+export type RadioSeedSource = "local" | "youtube" | "stream";
 
 /** True when a track is short enough (or duration unknown) and not an obvious mega-mix title. */
 export function isRadioSeedFriendlySong(
@@ -92,6 +99,70 @@ export function orderSeedCandidates<T extends { id: string }>(
     ? [...shuffleSongs(fresh, rng), ...shuffleSongs(stale, rng)]
     : [...fresh, ...stale];
   return ordered.slice(0, Math.max(1, cap));
+}
+
+/**
+ * Interleave local + external seed hits toward `externalRatio`, then fill any
+ * remaining slots from whichever side still has tracks (thin library → more YT).
+ */
+export function mixLocalAndExternalSeeds<T extends { id: string; platform?: string }>(
+  local: T[],
+  external: T[],
+  opts: {
+    cap?: number;
+    externalRatio?: number;
+    recentIds?: readonly string[];
+    shuffle?: boolean;
+    rng?: () => number;
+  } = {},
+): T[] {
+  const cap = Math.max(1, opts.cap ?? SEED_POOL_CAP);
+  const ratio = Math.min(1, Math.max(0, opts.externalRatio ?? DEFAULT_SEED_EXTERNAL_RATIO));
+  const recent = opts.recentIds ?? [];
+  const orderOpts = { cap: Math.max(cap * 2, 40), shuffle: opts.shuffle, rng: opts.rng };
+  const locals = orderSeedCandidates(local, recent, orderOpts);
+  const exts = orderSeedCandidates(external, recent, orderOpts);
+
+  if (locals.length === 0) return exts.slice(0, cap);
+  if (exts.length === 0) return locals.slice(0, cap);
+
+  // Target split e.g. ratio=2/3 → ~33% local / ~66% external when both sides are full.
+  let maxExt = Math.round(cap * ratio);
+  if (ratio > 0 && exts.length > 0) maxExt = Math.max(1, maxExt);
+  if (ratio < 1 && locals.length > 0) maxExt = Math.min(maxExt, cap - 1);
+  maxExt = Math.min(maxExt, exts.length);
+  let maxLocal = Math.min(locals.length, cap - maxExt);
+  // Thin library → let external fill; thin external → let local fill.
+  if (maxLocal + maxExt < cap) {
+    maxExt = Math.min(exts.length, cap - maxLocal);
+  }
+  if (maxLocal + maxExt < cap) {
+    maxLocal = Math.min(locals.length, cap - maxExt);
+  }
+
+  const out: T[] = [];
+  let li = 0;
+  let ei = 0;
+  // Density-aware interleave: e.g. 1 local then 2 external for a 33/66 split.
+  const extPerLocal =
+    maxLocal > 0 ? Math.max(1, Math.round(maxExt / Math.max(1, maxLocal))) : maxExt;
+  while (out.length < cap && (li < maxLocal || ei < maxExt)) {
+    if (li < maxLocal && locals[li]) out.push(locals[li++]!);
+    for (let k = 0; k < extPerLocal && out.length < cap && ei < maxExt; k++) {
+      if (exts[ei]) out.push(exts[ei++]!);
+    }
+  }
+  while (out.length < cap && li < locals.length) out.push(locals[li++]!);
+  while (out.length < cap && ei < exts.length) out.push(exts[ei++]!);
+  return out;
+}
+
+export function normalizeSeedSources(raw?: readonly string[] | null): RadioSeedSource[] {
+  const allowed = new Set<RadioSeedSource>(["local", "youtube", "stream"]);
+  const list = (Array.isArray(raw) ? raw : DEFAULT_SEED_SOURCES).filter(
+    (s): s is RadioSeedSource => typeof s === "string" && allowed.has(s as RadioSeedSource),
+  );
+  return list.length > 0 ? [...new Set(list)] : [...DEFAULT_SEED_SOURCES];
 }
 
 /**
@@ -325,9 +396,9 @@ export class RadioCommands {
       }
     }
     if (pool.length === 0) {
-      // Seed queries: local-only multi-hit search + duration filter + shuffle.
-      // Never YouTube-fallback here — that re-saved multi-hour mixes every restock.
-      const seeded = await this.expandSeedQueries(music.seedQueries ?? [], music.shuffle !== false);
+      // Seed queries: multi-source mix (default ~33% local / ~66% YouTube+stream),
+      // mega-mix filtered, shuffled, soft anti-repeat.
+      const seeded = await this.expandSeedQueries(music.seedQueries ?? [], music);
       pool.push(...seeded);
     }
     if (pool.length === 0) {
@@ -352,58 +423,93 @@ export class RadioCommands {
   }
 
   /**
-   * Expand profile seedQueries into a diverse local pool.
-   * - Local library only (no YouTube fallback → no re-download of mega-mixes)
-   * - Multiple hits per seed (not searchFirst limit 1)
-   * - Drop multi-hour / full-album titles and over-long durations
-   * - Soft anti-repeat of recently programmed ids + shuffle
-   * - If seeds match nothing usable, sample short local library tracks
+   * Expand profile seedQueries into a mixed auto-DJ pool.
+   * - Default sources: local + youtube (~33% / ~66% when both hit)
+   * - stream source: Spotify/Tidal/Icecast **URLs** in a seed line (bridge)
+   * - Multi-hit per seed; drop multi-hour / full-album titles
+   * - Soft anti-repeat + shuffle; thin library → more external
    */
-  private async expandSeedQueries(seeds: string[], shuffle: boolean): Promise<QueuedSong[]> {
-    const local = this.deps.getProvider(new Set(["l"]));
-    const byId = new Map<string, QueuedSong>();
+  private async expandSeedQueries(
+    seeds: string[],
+    music: NonNullable<RadioProfile["music"]>,
+  ): Promise<QueuedSong[]> {
+    const sources = normalizeSeedSources(music.seedSources);
+    const shuffle = music.shuffle !== false;
+    const externalRatio =
+      typeof music.seedExternalRatio === "number" && Number.isFinite(music.seedExternalRatio)
+        ? Math.min(1, Math.max(0, music.seedExternalRatio))
+        : DEFAULT_SEED_EXTERNAL_RATIO;
 
-    const absorb = (songs: Song[]) => {
+    const localById = new Map<string, QueuedSong>();
+    const externalById = new Map<string, QueuedSong>();
+
+    const absorb = (
+      songs: Song[],
+      platform: "local" | "youtube" | "stream",
+      into: Map<string, QueuedSong>,
+    ) => {
       for (const song of songs) {
         if (!isRadioSeedFriendlySong(song)) continue;
-        if (byId.has(song.id)) continue;
-        byId.set(song.id, { ...song, platform: "local" });
+        const id = song.id;
+        if (!id || into.has(id) || localById.has(id) || externalById.has(id)) continue;
+        into.set(id, { ...song, platform });
       }
     };
+
+    const flagFor = (src: RadioSeedSource): string =>
+      src === "youtube" ? "y" : src === "stream" ? "s" : "l";
+    const limitFor = (src: RadioSeedSource): number =>
+      src === "youtube" || src === "stream" ? SEED_YT_SEARCH_LIMIT : SEED_SEARCH_LIMIT;
 
     for (const seed of seeds) {
       const q = seed.trim();
       if (!q) continue;
-      try {
-        const result = await local.search(q, SEED_SEARCH_LIMIT);
-        absorb(result.songs ?? []);
-      } catch (err) {
-        this.deps.logger?.debug?.({ err, seed: q }, "radio: seed search failed");
+      for (const src of sources) {
+        try {
+          const provider = this.deps.getProvider(new Set([flagFor(src)]));
+          const result = await provider.search(q, limitFor(src));
+          const platform =
+            (provider.platform as "local" | "youtube" | "stream") ||
+            (src === "local" ? "local" : src === "youtube" ? "youtube" : "stream");
+          absorb(result.songs ?? [], platform, src === "local" ? localById : externalById);
+        } catch (err) {
+          this.deps.logger?.debug?.({ err, seed: q, src }, "radio: seed search failed");
+        }
       }
     }
 
-    // Seeds empty or only mega-mixes matched — sample the library instead of
-    // locking onto one YouTube "synthwave mix" forever.
-    if (byId.size === 0) {
+    // No usable hits — sample the local library (still no mega-mix lock-in).
+    if (localById.size === 0 && sources.includes("local")) {
       try {
+        const local = this.deps.getProvider(new Set(["l"]));
         const browse = await local.search("", Math.max(SEED_SEARCH_LIMIT, 60));
-        absorb(browse.songs ?? []);
+        absorb(browse.songs ?? [], "local", localById);
       } catch (err) {
         this.deps.logger?.debug?.({ err }, "radio: library sample for seeds failed");
       }
     }
 
-    const ordered = orderSeedCandidates([...byId.values()], this.recentSeedSongIds, {
+    const ordered = mixLocalAndExternalSeeds([...localById.values()], [...externalById.values()], {
       cap: SEED_POOL_CAP,
+      externalRatio,
+      recentIds: this.recentSeedSongIds,
       shuffle,
     });
+
     if (ordered.length > 0) {
+      const localN = ordered.filter((s) => s.platform === "local").length;
+      const extN = ordered.length - localN;
       this.deps.logger?.info?.(
         {
           seeds,
-          candidates: byId.size,
+          sources,
+          externalRatio,
+          localCandidates: localById.size,
+          externalCandidates: externalById.size,
           queued: ordered.length,
-          sample: ordered.slice(0, 3).map((s) => s.name),
+          localQueued: localN,
+          externalQueued: extN,
+          sample: ordered.slice(0, 4).map((s) => `${s.platform}:${s.name}`),
         },
         "radio: seed pool built",
       );

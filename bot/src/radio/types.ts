@@ -48,6 +48,18 @@ export interface RadioProfile {
     playlistRefs?: { platform: "local" | "youtube" | "spotify" | "tidal"; ref: string }[];
     shuffle?: boolean;
     seedQueries?: string[];
+    /**
+     * Where seedQueries may pull from when building the auto-DJ pool.
+     * Default: `["local", "youtube"]` — ~33% library / ~66% short YT tracks when both hit.
+     * `stream` only matches Spotify/Tidal/Icecast **URLs** in a seed line (bridge).
+     * Free-text Tidal/Spotify rotation still uses `playlistRefs`.
+     */
+    seedSources?: Array<"local" | "youtube" | "stream">;
+    /**
+     * Target share of the seed pool from non-local sources (0–1). Default **⅔** (~66%).
+     * Thin library → external may exceed this; no external hits → all local.
+     */
+    seedExternalRatio?: number;
     relayUrl?: string | null;
     /** Seconds between timer bumpers while relaying (R-R6; default 300). */
     relayBumperIntervalSec?: number;

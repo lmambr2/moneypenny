@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Radio: auto-DJ seed mix ~33% local / ~66% YouTube
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Seed restock searches local **and** YouTube (mega-mix filtered); default **⅔** external
+- Profile knobs: `seedSources`, `seedExternalRatio`; Settings toggles + external %
+- Spotify/Tidal free-text still via `playlistRefs`; seed **URLs** can use stream bridge
+
 ### Radio: stop speaking agent/rewrite instructions as bumpers
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

@@ -731,7 +731,7 @@
 
           <div class="form-group" style="margin:0 0 8px">
             <label
-              title="Local-library searches for auto-program (dead air / !radio ops). No YouTube fallback. Multi-hit + shuffle; multi-hour mixes filtered out."
+              title="Searches for auto-program (dead air / !radio ops). Default mix: ~33% local library + ~66% YouTube (short tracks only). Multi-hit + shuffle; multi-hour mixes filtered out."
               >Music seed queries</label
             >
             <textarea
@@ -741,10 +741,62 @@
               placeholder="synthwave&#10;chill electronic&#10;retrowave"
             />
             <p class="profile-toggle-hint" style="margin:4px 0 0">
-              One search per line. <strong>Local library only</strong> (no YouTube re-download).
-              Builds a shuffled multi-track pool; drops multi-hour mixes / full albums.
-              Prefer short-track terms over “mix” / “hours”.
+              One search per line. Default pool is a <strong>~33% local / ~66% YouTube</strong> mix
+              (mega-mix / full-album titles dropped). Spotify/Tidal free-text still needs
+              <code>playlistRefs</code>; a seed line that is a Spotify/Tidal URL uses the stream
+              bridge. Prefer short-track terms over “mix” / “hours”.
             </p>
+          </div>
+          <div class="form-row" style="margin:0 0 8px; gap:12px; flex-wrap:wrap">
+            <label
+              class="profile-toggle"
+              style="margin:0"
+              title="Search the local music library for seed queries"
+            >
+              <span>Seed: local</span>
+              <input
+                type="checkbox"
+                class="profile-toggle-switch"
+                v-model="editedRadioProfile.seedSourceLocal"
+              />
+            </label>
+            <label
+              class="profile-toggle"
+              style="margin:0"
+              title="Search YouTube for seed queries (short tracks only)"
+            >
+              <span>Seed: YouTube</span>
+              <input
+                type="checkbox"
+                class="profile-toggle-switch"
+                v-model="editedRadioProfile.seedSourceYoutube"
+              />
+            </label>
+            <label
+              class="profile-toggle"
+              style="margin:0"
+              title="Allow Spotify/Tidal/Icecast URLs in seed lines (stream bridge)"
+            >
+              <span>Seed: stream URLs</span>
+              <input
+                type="checkbox"
+                class="profile-toggle-switch"
+                v-model="editedRadioProfile.seedSourceStream"
+              />
+            </label>
+            <div class="form-group" style="flex:0 0 9rem; margin:0">
+              <label title="Target share of the seed pool from non-local sources (default 66%)"
+                >External %</label
+              >
+              <input
+                v-model.number="editedRadioProfile.seedExternalPct"
+                class="input"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+              />
+            </div>
           </div>
 
           <div class="form-group" style="margin:0 0 8px">
@@ -1922,6 +1974,12 @@ interface RadioProfileEdit {
   /** When true, ACE-Step fill if pool empty and service available. */
   aceStepAutoFill: boolean;
   playlistRefsText: string;
+  /** Seed search sources (default local+youtube → ~33/66 mix). */
+  seedSourceLocal: boolean;
+  seedSourceYoutube: boolean;
+  seedSourceStream: boolean;
+  /** Target % of seed pool from non-local (default 66). */
+  seedExternalPct: number;
   /** Original profile blob minus fields we edit — re-merged on save so select/relay/weights survive. */
   extra: Record<string, unknown>;
 }
@@ -2022,10 +2080,19 @@ function profileFromApi(key: string, raw: unknown): RadioProfileEdit {
     playlistRefs: _pl,
     shuffle: _sh,
     aceStepAutoFill: _ace,
+    seedSources: _ss,
+    seedExternalRatio: _ser,
     ...musicRest
   } = music;
   const { topics: _t, tone: _tone, ...bumperRest } = bumper;
   const { name: _n, music: _m, bumper: _b, ...topRest } = p;
+  const sources = Array.isArray(music.seedSources)
+    ? (music.seedSources as string[])
+    : ['local', 'youtube'];
+  const extRatio =
+    typeof music.seedExternalRatio === 'number' && Number.isFinite(music.seedExternalRatio)
+      ? music.seedExternalRatio
+      : 2 / 3;
   return {
     name: typeof p.name === 'string' && p.name.trim() ? p.name : key,
     seedQueriesText: linesToText(music.seedQueries),
@@ -2034,6 +2101,10 @@ function profileFromApi(key: string, raw: unknown): RadioProfileEdit {
     shuffle: music.shuffle !== false,
     aceStepAutoFill: music.aceStepAutoFill === true,
     playlistRefsText: playlistRefsToText(music.playlistRefs),
+    seedSourceLocal: sources.includes('local'),
+    seedSourceYoutube: sources.includes('youtube'),
+    seedSourceStream: sources.includes('stream'),
+    seedExternalPct: Math.round(Math.min(1, Math.max(0, extRatio)) * 100),
     extra: {
       ...topRest,
       ...(Object.keys(musicRest).length ? { music: musicRest } : {}),
@@ -2066,6 +2137,20 @@ function profileToApi(key: string, edit: RadioProfileEdit): Record<string, unkno
   else delete music.seedQueries;
   if (refs.length) music.playlistRefs = refs;
   else delete music.playlistRefs;
+  const seedSources: string[] = [];
+  if (edit.seedSourceLocal) seedSources.push('local');
+  if (edit.seedSourceYoutube) seedSources.push('youtube');
+  if (edit.seedSourceStream) seedSources.push('stream');
+  // Default when all unchecked: local+youtube (same as bot default).
+  music.seedSources = seedSources.length > 0 ? seedSources : ['local', 'youtube'];
+  const pct = Number(edit.seedExternalPct);
+  if (Number.isFinite(pct) && pct !== 66) {
+    music.seedExternalRatio = Math.min(1, Math.max(0, pct / 100));
+  } else if (Number.isFinite(pct) && pct === 66) {
+    music.seedExternalRatio = 2 / 3;
+  } else {
+    delete music.seedExternalRatio; // bot default ⅔
+  }
   const bumper: Record<string, unknown> = { ...extraBumper };
   if (topics.length) bumper.topics = topics;
   else delete bumper.topics;
@@ -2146,6 +2231,10 @@ function addRadioProfile() {
     shuffle: true,
     aceStepAutoFill: false,
     playlistRefsText: '',
+    seedSourceLocal: true,
+    seedSourceYoutube: true,
+    seedSourceStream: false,
+    seedExternalPct: 66,
     extra: {},
   };
   ai.radioEditKey = id;
