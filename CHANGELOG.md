@@ -8,6 +8,13 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Security: remediate Medium/Low from reliability+RAG audit
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Deep-merge nested config (`mergeBotConfig`); claim-check AbortSignal + delimited revise
+- Barge-in restores `savedMusic`; doctrine ids by content hash; injection log LRU
+- Clarify pending per invoker; playbook tool-name allowlist; voiceError* knobs
+
 ### Security audit: reliability + RAG/memory (findings + H-REL-1 fix)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

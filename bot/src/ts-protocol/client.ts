@@ -851,6 +851,15 @@ export class TS3Client extends EventEmitter {
     this.voiceTransportHealth.clearRecoveryLatch();
   }
 
+  /** M-REL-2: apply operator knobs from config.reconnect.voiceError*. */
+  configureVoiceTransportHealth(opts: {
+    threshold?: number;
+    windowMs?: number;
+    healthyReset?: number;
+  }): void {
+    this.voiceTransportHealth = new VoiceTransportHealth(opts);
+  }
+
   getIdentityExport(): string {
     return this.identity.toString();
   }

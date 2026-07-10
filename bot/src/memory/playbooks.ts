@@ -1,6 +1,7 @@
 /**
  * Procedural playbook store (P3) — capture successful tool patterns, retrieve by hints.
  * No LoRA; pure retrieval for small-model prompts.
+ * L-PB-1: store tool names only; strip secrets aggressively; never free-form args.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,11 +21,27 @@ export interface PlaybookStoreOptions {
   maxStore?: number;
 }
 
-const SECRETISH = /(password|token|secret|api[_-]?key|authorization)/i;
+/** Whole-string secret keywords. */
+const SECRETISH = /(password|token|secret|api[_-]?key|authorization|bearer|credential)/i;
+/** Inline secret-like assignments / long hex blobs. */
+const INLINE_SECRET = /(?:password|token|secret|api[_-]?key|authorization|bearer)\s*[:=]\s*\S+/gi;
+const LONG_HEX = /\b[a-f0-9]{32,}\b/gi;
+const SAFE_TOOL = /^[a-z][a-z0-9_.-]{0,63}$/i;
 
 export function stripSecrets(text: string): string {
-  if (SECRETISH.test(text)) return "[redacted]";
-  return text.slice(0, 500);
+  if (!text || SECRETISH.test(text)) return "[redacted]";
+  let out = text.slice(0, 500);
+  out = out.replace(INLINE_SECRET, "[redacted]");
+  out = out.replace(LONG_HEX, "[redacted]");
+  return out;
+}
+
+/** Only allow safe tool identifiers — never raw arguments. */
+export function sanitizeToolName(name: string): string | null {
+  const n = name.trim().toLowerCase();
+  if (!SAFE_TOOL.test(n)) return null;
+  if (SECRETISH.test(n)) return null;
+  return n;
 }
 
 export class PlaybookStore {
@@ -64,12 +81,24 @@ export class PlaybookStore {
     outcome?: "ok" | "fail";
   }): Playbook | null {
     if (input.outcome === "fail") return null;
-    const tools = input.tools.map(stripSecrets).filter(Boolean);
+    // L-PB-1: tool names only — never store free-form argument strings as tools
+    const tools = input.tools.map((t) => sanitizeToolName(t)).filter((t): t is string => !!t);
     if (tools.length === 0) return null;
-    const hints = input.hints.map(stripSecrets).filter(Boolean);
+    const hints = input.hints
+      .map((h) => stripSecrets(h))
+      .filter((h) => h && h !== "[redacted]")
+      .slice(0, 8);
     if (hints.length === 0) return null;
 
-    // Template dedup: same tools+first hint
+    // Steps default to tool names only (not raw LLM prose)
+    const steps = (input.steps ?? tools)
+      .map((s) => {
+        const asTool = sanitizeToolName(s);
+        return asTool ?? stripSecrets(s);
+      })
+      .filter((s) => s && s !== "[redacted]")
+      .slice(0, 12);
+
     const key = `${tools.join(",")}|${hints[0]}`;
     const existing = this.items.find((p) => `${p.tools.join(",")}|${p.triggerHints[0]}` === key);
     if (existing) {
@@ -80,8 +109,8 @@ export class PlaybookStore {
 
     const pb: Playbook = {
       id: `pb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-      triggerHints: hints.slice(0, 8),
-      steps: (input.steps ?? tools).map(stripSecrets).slice(0, 12),
+      triggerHints: hints,
+      steps: steps.length ? steps : tools,
       tools,
       outcome: "ok",
       createdAt: Date.now(),
@@ -92,7 +121,6 @@ export class PlaybookStore {
     return pb;
   }
 
-  /** Keyword/hint overlap retrieve (no embeddings required). */
   retrieve(query: string, k = 2): Playbook[] {
     const q = query.toLowerCase();
     const words = q.split(/\s+/).filter((w) => w.length > 2);

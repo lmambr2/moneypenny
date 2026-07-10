@@ -175,6 +175,12 @@ export interface BotConfig {
     baseMs: number;
     /** Cap delay ms (default 60000). */
     maxMs: number;
+    /** S-OC2: sendVoice errors in window before reconnect (default 5). */
+    voiceErrorThreshold?: number;
+    /** S-OC2: window ms for voice errors (default 30000). */
+    voiceErrorWindowMs?: number;
+    /** S-OC2: successful sends to clear latch (default 20). */
+    voiceHealthyReset?: number;
   };
   /**
    * Typed memory budgets + injection dedup (P2). All optional; defaults in turn-context.
@@ -267,6 +273,9 @@ export function getDefaultConfig(): BotConfig {
       eventDriven: true,
       baseMs: 2_000,
       maxMs: 60_000,
+      voiceErrorThreshold: 5,
+      voiceErrorWindowMs: 30_000,
+      voiceHealthyReset: 20,
     },
     memoryContext: {
       workingTurns: 6,
@@ -280,12 +289,48 @@ export function getDefaultConfig(): BotConfig {
   };
 }
 
+/** Nested objects that must deep-merge so sparse Settings saves keep sibling defaults (M-CFG-1). */
+const DEEP_MERGE_KEYS = [
+  "reconnect",
+  "memoryContext",
+  "ragClaimCheck",
+  "voice",
+  "radio",
+  "scope",
+] as const;
+
+/**
+ * Merge partial config onto defaults. Top-level is shallow; known nested keys
+ * deep-merge one level so `{ reconnect: { eventDriven: false } }` keeps baseMs/maxMs.
+ */
+export function mergeBotConfig(defaults: BotConfig, partial: Partial<BotConfig>): BotConfig {
+  const out = { ...defaults, ...partial } as BotConfig;
+  for (const key of DEEP_MERGE_KEYS) {
+    const d = defaults[key as keyof BotConfig];
+    const p = partial[key as keyof BotConfig];
+    if (
+      d &&
+      typeof d === "object" &&
+      !Array.isArray(d) &&
+      p &&
+      typeof p === "object" &&
+      !Array.isArray(p)
+    ) {
+      (out as unknown as Record<string, unknown>)[key] = {
+        ...(d as Record<string, unknown>),
+        ...(p as Record<string, unknown>),
+      };
+    }
+  }
+  return out;
+}
+
 export function loadConfig(path: string): BotConfig {
   const defaults = getDefaultConfig();
   try {
     const raw = readFileSync(path, "utf-8");
     const partial = JSON.parse(raw) as Partial<BotConfig>;
-    return { ...defaults, ...partial };
+    return mergeBotConfig(defaults, partial);
   } catch {
     return defaults;
   }

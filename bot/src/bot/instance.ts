@@ -178,6 +178,14 @@ export class BotInstance extends EventEmitter {
     });
 
     this.tsClient = new TS3Client(options.tsOptions, this.logger);
+    const rc = options.config.reconnect;
+    if (rc) {
+      this.tsClient.configureVoiceTransportHealth({
+        threshold: rc.voiceErrorThreshold,
+        windowMs: rc.voiceErrorWindowMs,
+        healthyReset: rc.voiceHealthyReset,
+      });
+    }
     this.player = new AudioPlayer(this.logger);
     this.queue = new PlayQueue();
 

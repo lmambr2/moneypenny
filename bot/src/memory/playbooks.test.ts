@@ -2,11 +2,23 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { PlaybookStore, stripSecrets } from "./playbooks.js";
+import { PlaybookStore, sanitizeToolName, stripSecrets } from "./playbooks.js";
 
 describe("stripSecrets", () => {
   it("redacts secret-ish strings", () => {
     expect(stripSecrets("password=foo")).toBe("[redacted]");
+  });
+
+  it("redacts inline token assignments", () => {
+    expect(stripSecrets("set token: abcdef and continue")).toContain("[redacted]");
+  });
+});
+
+describe("sanitizeToolName", () => {
+  it("allows safe tool ids only", () => {
+    expect(sanitizeToolName("pause")).toBe("pause");
+    expect(sanitizeToolName("play music; rm -rf")).toBeNull();
+    expect(sanitizeToolName("password")).toBeNull();
   });
 });
 
@@ -34,5 +46,17 @@ describe("PlaybookStore", () => {
     dir = mkdtempSync(join(tmpdir(), "pb-"));
     const store = new PlaybookStore({ path: join(dir, "playbooks.json") });
     expect(store.capture({ hints: ["x"], tools: ["play"], outcome: "fail" })).toBeNull();
+  });
+
+  it("rejects tool names that look like args/secrets", () => {
+    dir = mkdtempSync(join(tmpdir(), "pb-"));
+    const store = new PlaybookStore({ path: join(dir, "playbooks.json") });
+    expect(
+      store.capture({
+        hints: ["play jazz"],
+        tools: ["play query=jazz secret=abc"],
+        outcome: "ok",
+      }),
+    ).toBeNull();
   });
 });

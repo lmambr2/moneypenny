@@ -181,7 +181,7 @@ export class ControlRouter {
   private llm?: LlmAssist;
   /** P4 — clarify-once on ambiguous fuzzy intent (default off). */
   private clarifyOnceEnabled = false;
-  /** Conversation ids that already received a clarify-once this session (P4). */
+  /** L-CL-1: conversationId + invokerUid keys that already got a clarify-once. */
   private clarifyPending = new Set<string>();
 
   constructor(logger: Logger, llm?: LlmAssist) {
@@ -509,20 +509,22 @@ export class ControlRouter {
       return result.content;
     }
 
-    // P4 clarify-once (optional).
+    // P4 clarify-once (optional). Key by conversation + invoker (L-CL-1).
     try {
       const { decideClarifyOnce } = await import("./clarify.js");
       const conv = context.conversationId ?? "default";
+      const invoker = context.invokerUid ?? context.invokerName ?? "anon";
+      const pendingKey = `${conv}::${invoker}`;
       const decision = decideClarifyOnce(toolCalls, {
         enabled: this.clarifyOnceEnabled,
-        clarifyPending: this.clarifyPending.has(conv),
+        clarifyPending: this.clarifyPending.has(pendingKey),
       });
       if (decision.action === "clarify") {
-        this.clarifyPending.add(conv);
+        this.clarifyPending.add(pendingKey);
         return decision.question;
       }
-      // User answered after clarify — clear pending for this conv.
-      this.clarifyPending.delete(conv);
+      // User answered after clarify — clear pending for this invoker only.
+      this.clarifyPending.delete(pendingKey);
     } catch {
       /* fail-open */
     }

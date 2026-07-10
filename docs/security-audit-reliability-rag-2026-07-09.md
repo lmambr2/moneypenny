@@ -199,11 +199,15 @@
 ## 5. Recommended fix order
 
 1. ~~**H-REL-1** stop vs reconnect~~ **Done**  
-2. **M-RAG-2** AbortSignal for claim-check when enabling in prod  
-3. **L-REL-1** Explicit music restore on barge-in  
-4. **L-RAG-3** Stable chunk ids for dedup  
-5. **M-CFG-1** Deep-merge nested config  
-6. **L-CL-1** Per-user clarify pending  
+2. ~~**M-RAG-2** AbortSignal for claim-check~~ **Done** (abort on timeout; work checks signal)  
+3. ~~**L-REL-1** Explicit music restore on barge-in~~ **Done**  
+4. ~~**L-RAG-3** Stable chunk ids for dedup~~ **Done** (sha1 of text)  
+5. ~~**M-CFG-1** Deep-merge nested config~~ **Done** (`mergeBotConfig`)  
+6. ~~**L-CL-1** Per-user clarify pending~~ **Done** (`conversationId::invokerUid`)  
+7. ~~**M-RAG-1** Delimit revise prompts~~ **Done** (`buildRevisePrompt` / untrusted_* tags)  
+8. ~~**M-REL-2** Configurable voice error thresholds~~ **Done** (`reconnect.voiceError*`)  
+9. ~~**L-RAG-4** Injection log LRU~~ **Done** (max 64)  
+10. ~~**L-PB-1** Stronger playbook redaction~~ **Done** (tool-name allowlist + inline strip)  
 
 ---
 

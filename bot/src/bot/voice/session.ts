@@ -1515,6 +1515,7 @@ export class VoiceSession {
   /**
    * S-OC1 soft barge-in: if bot TTS is playing and real speech arrives, interrupt.
    * Does not stop pure music (ttsPlaybackActive false).
+   * L-REL-1: after interrupt, resume saved music explicitly (player.stop has no trackEnd).
    */
   private maybeBargeInOnSpeech(peak: number): void {
     if (!this.ttsBargeIn) return;
@@ -1522,5 +1523,11 @@ export class VoiceSession {
     if (peak < VoiceSession.MIN_SPEECH_PEAK) return;
     this.deps.logger.info({ peak }, "Voice: barge-in — interrupting bot TTS");
     this.speechQueue.interrupt();
+    // stop() does not emit trackEnd — restore interrupted music if we held it for TTS.
+    if (this.savedMusic) {
+      void this.tryResumeMusic(async () => false).catch((err) => {
+        this.deps.logger.warn({ err }, "Voice: barge-in music restore failed");
+      });
+    }
   }
 }
