@@ -170,15 +170,22 @@ export async function runClaimCheck(
     };
   };
 
+  // Soft timeout: prefer timed-out draft over hanging the ask path.
+  // Note: work() may still finish in the background (extra retrieve/LLM cost);
+  // that is accepted fail-open tradeoff vs AbortSignal plumbing through deps.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       work(),
       new Promise<ClaimCheckResult>((resolve) => {
-        setTimeout(() => resolve({ ...base, ran: true, timedOut: true }), timeoutMs);
+        timer = setTimeout(() => resolve({ ...base, ran: true, timedOut: true }), timeoutMs);
       }),
     ]);
+    return result;
   } catch (err) {
     deps.logger?.warn({ err }, "claim-check failed open");
     return base;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }

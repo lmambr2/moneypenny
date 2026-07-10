@@ -120,4 +120,35 @@ describe("ReconnectScheduler", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(reconnect).toHaveBeenCalledTimes(2);
   });
+
+  it("cancel during in-flight reconnect prevents retry-after-fail reschedule", async () => {
+    vi.useFakeTimers();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const reconnect = vi.fn().mockImplementation(async () => {
+      await gate;
+      throw new Error("still down");
+    });
+    const s = new ReconnectScheduler({
+      reconnect,
+      baseMs: 1000,
+      setTimeoutFn: setTimeout,
+      clearTimeoutFn: clearTimeout,
+    });
+
+    s.schedule("e");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    // Operator stop while startBot still running
+    s.cancel("e");
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    // Advance past any retry-after-fail base delay
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(s.isBusy("e")).toBe(false);
+  });
 });

@@ -8,6 +8,12 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Security audit: reliability + RAG/memory (findings + H-REL-1 fix)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- [docs/security-audit-reliability-rag-2026-07-09.md](./docs/security-audit-reliability-rag-2026-07-09.md)
+- **Fixed:** stopBot mid-reconnect could revive bot / force autoStart — generation cancel + `startBot({ fromReconnect })`
+
 ### Reliability: event-driven reconnect + exp backoff (S-OC3)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

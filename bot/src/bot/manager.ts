@@ -107,7 +107,8 @@ export class BotManager extends EventEmitter {
 
     const rc = config.reconnect ?? { eventDriven: true, baseMs: 2_000, maxMs: 60_000 };
     this.reconnectScheduler = new ReconnectScheduler({
-      reconnect: (id) => this.startBot(id),
+      // fromReconnect: do not re-assert autoStart if operator stopped mid-flight
+      reconnect: (id) => this.startBot(id, { fromReconnect: true }),
       baseMs: rc.baseMs ?? 2_000,
       maxMs: rc.maxMs ?? 60_000,
       logger: {
@@ -293,9 +294,23 @@ export class BotManager extends EventEmitter {
       }));
   }
 
-  async startBot(id: string): Promise<void> {
+  /**
+   * @param opts.fromReconnect — event/watchdog recovery path: honor DB autoStart
+   *   after connect (stopBot mid-flight must not leave the bot online or flip autoStart).
+   *   Operator Start always sets autoStart true.
+   */
+  async startBot(id: string, opts?: { fromReconnect?: boolean }): Promise<void> {
     const oldBot = this.bots.get(id);
     if (!oldBot) throw new Error(`Bot ${id} not found`);
+
+    // Reconnect path: abort early if operator already stopped this bot.
+    if (opts?.fromReconnect) {
+      const pre = this.database.getBotInstances().find((i) => i.id === id);
+      if (!pre?.autoStart) {
+        this.logger.info({ botId: id }, "Skipping reconnect — autoStart is false");
+        return;
+      }
+    }
 
     // Always tear down the outgoing instance before creating a replacement.
     // Covers three cases:
@@ -312,6 +327,11 @@ export class BotManager extends EventEmitter {
     // Reload config from database so updated settings (channel, nickname, etc.) take effect
     const saved = this.database.getBotInstances().find((i) => i.id === id);
     if (saved) {
+      // stopBot raced with us between pre-check and here
+      if (opts?.fromReconnect && !saved.autoStart) {
+        this.logger.info({ botId: id }, "Skipping reconnect — autoStart cleared mid-flight");
+        return;
+      }
       const proto = saved.serverProtocol as "ts3" | "ts6" | "" | undefined;
       const bot = new BotInstance({
         id: saved.id,
@@ -344,9 +364,22 @@ export class BotManager extends EventEmitter {
       this.bots.set(id, bot);
       this.emit("botInstance", bot);
       await connectWithTimeout(bot, 15_000, this.logger);
-      // Mark as autoStart so it reconnects on Docker restart, and persist identity
-      this.database.saveBotInstance({ ...saved, autoStart: true });
-      this.persistBotIdentity(saved, bot);
+      const after = this.database.getBotInstances().find((i) => i.id === id);
+      if (opts?.fromReconnect) {
+        if (!after?.autoStart) {
+          this.logger.info(
+            { botId: id },
+            "Reconnect connected but autoStart is false — disconnecting",
+          );
+          bot.disconnect();
+          return;
+        }
+        this.persistBotIdentity(after, bot);
+      } else {
+        // Operator Start / manual restart — mark autoStart so watchdog keeps it up.
+        this.database.saveBotInstance({ ...(after ?? saved), autoStart: true });
+        this.persistBotIdentity({ ...(after ?? saved), autoStart: true }, bot);
+      }
     } else {
       await connectWithTimeout(oldBot, 15_000, this.logger);
     }

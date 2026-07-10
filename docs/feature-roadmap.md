@@ -257,6 +257,7 @@ docs.
 | 2026-07-09 | **Query verb cheat sheet (design only):** [ts6-serverquery-commands.md](./ts6-serverquery-commands.md) — command list adapted from [jxcsx/ts6-query-web-interface](https://github.com/jxcsx/ts6-query-web-interface) `cmds.txt` (MIT). Not a dependency; full client stays primary for voice/presence. |
 | 2026-07-09 | **Watch (3 real gaps only):** [HoneyBBQ/openclaw-teamspeak](https://github.com/HoneyBBQ/openclaw-teamspeak) — [steal notes](./openclaw-teamspeak-steal-notes.md). Keep: speech barge-in (S-OC1), event reconnect+backoff (S-OC3), narrow transport self-heal (S-OC2). Dump the rest (we already match/beat). No OpenClaw host. |
 | 2026-07-09 | **Design only (RAG/memory/intent) — five ideas:** [rag-claim-check-and-typed-memory.md](./rag-claim-check-and-typed-memory.md) — **P1** claim-check, **P2** typed budgets+dedup, **P3** playbooks, **P4** clarify-once, **P5** R3 memory eval axes. Flags default off; no implement until pain. |
+| 2026-07-09 | **Audit:** [security-audit-reliability-rag-2026-07-09.md](./security-audit-reliability-rag-2026-07-09.md) on S-OC + P1–P5; fixed H-REL-1 stop/reconnect race. |
 
 ### Watchlist — TeamSpeak libraries
 
