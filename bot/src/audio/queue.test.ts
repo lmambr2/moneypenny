@@ -35,6 +35,31 @@ describe("PlayQueue", () => {
     expect(queue.list()[1].name).toBe("Song B");
   });
 
+  it("user add jumps ahead of radio fill tracks", () => {
+    queue.add({ ...makeSong("now"), source: "radio" });
+    queue.play();
+    queue.add({ ...makeSong("r1"), source: "radio" });
+    queue.add({ ...makeSong("r2"), source: "radio" });
+    // Human !add should sit after now-playing, before radio fillers
+    const at = queue.add({ ...makeSong("user1"), source: "user" });
+    expect(at).toBe(1);
+    expect(queue.list().map((s) => s.id)).toEqual(["now", "user1", "r1", "r2"]);
+    // Second user add stacks after first user, still before radio
+    queue.add({ ...makeSong("user2"), source: "user" });
+    expect(queue.list().map((s) => s.id)).toEqual(["now", "user1", "user2", "r1", "r2"]);
+    // Radio fill still goes to the end
+    queue.add({ ...makeSong("r3"), source: "radio" });
+    expect(queue.list().map((s) => s.id)).toEqual(["now", "user1", "user2", "r1", "r2", "r3"]);
+  });
+
+  it("omitted source is treated as human (not radio)", () => {
+    queue.add({ ...makeSong("now"), source: "radio" });
+    queue.play();
+    queue.add({ ...makeSong("r1"), source: "radio" });
+    queue.add(makeSong("implicit-user"));
+    expect(queue.list().map((s) => s.id)).toEqual(["now", "implicit-user", "r1"]);
+  });
+
   it("plays first song when starting", () => {
     queue.add(makeSong("1"));
     queue.add(makeSong("2"));

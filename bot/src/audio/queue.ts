@@ -5,6 +5,14 @@ export enum PlayMode {
   RandomLoop = "rloop",
 }
 
+/**
+ * Who put the track on the queue.
+ * - `user` / omitted: human request (!add, web, tools) — jumps ahead of radio fill
+ * - `radio`: auto-DJ / profile restock filler
+ * - `system`: bot-internal (rarely used)
+ */
+export type QueueSource = "user" | "radio" | "system";
+
 export interface QueuedSong {
   id: string;
   name: string;
@@ -14,6 +22,13 @@ export interface QueuedSong {
   url?: string; // resolved lazily at play time
   coverUrl: string;
   duration: number; // seconds
+  /** Defaults to human priority when omitted. */
+  source?: QueueSource;
+}
+
+/** Auto-DJ fill tracks lose to any human add. */
+export function isRadioFill(song: QueuedSong): boolean {
+  return song.source === "radio";
 }
 
 export class PlayQueue {
@@ -33,12 +48,43 @@ export class PlayQueue {
     }
   }
 
-  add(song: QueuedSong): void {
-    this.songs.push(song);
+  /**
+   * Enqueue a song.
+   * - **Radio fill** (`source: "radio"`): always append at the end.
+   * - **Human / default**: insert after the current track and after any other
+   *   human-priority tracks, but **before** the first radio-fill track so
+   *   `!add` jumps the auto-DJ queue.
+   * @returns index where the song was placed
+   */
+  add(song: QueuedSong): number {
+    if (isRadioFill(song) || this.songs.length === 0) {
+      this.songs.push(song);
+      return this.songs.length - 1;
+    }
+
+    // After now-playing (or at 0 if nothing active), skip past human tracks,
+    // stop at the first radio filler.
+    const start = this.currentIndex < 0 ? 0 : this.currentIndex + 1;
+    let insertAt = this.songs.length;
+    for (let i = start; i < this.songs.length; i++) {
+      if (isRadioFill(this.songs[i]!)) {
+        insertAt = i;
+        break;
+      }
+    }
+
+    if (insertAt >= this.songs.length) {
+      this.songs.push(song);
+      return this.songs.length - 1;
+    }
+
+    this.songs.splice(insertAt, 0, song);
+    this.shiftIndicesAfterInsert(insertAt);
+    return insertAt;
   }
 
   addMany(songs: QueuedSong[]): void {
-    this.songs.push(...songs);
+    for (const s of songs) this.add(s);
   }
 
   /**
@@ -51,22 +97,26 @@ export class PlayQueue {
    * their references stay valid after the splice.
    */
   addNext(song: QueuedSong): void {
+    const withSource: QueuedSong = song.source ? song : { ...song, source: "user" };
     if (this.currentIndex < 0 || this.songs.length === 0) {
-      this.songs.push(song);
+      this.songs.push(withSource);
       return;
     }
     const insertAt = this.currentIndex + 1;
-    this.songs.splice(insertAt, 0, song);
+    this.songs.splice(insertAt, 0, withSource);
+    this.shiftIndicesAfterInsert(insertAt);
+  }
 
+  /** After splicing a song at `insertAt`, shift bookkeeping indices ≥ insertAt. */
+  private shiftIndicesAfterInsert(insertAt: number): void {
     const shifted = new Set<number>();
     for (const i of this.playedIndices) {
-      shifted.add(i > this.currentIndex ? i + 1 : i);
+      shifted.add(i >= insertAt ? i + 1 : i);
     }
     this.playedIndices = shifted;
-
-    this.history = this.history.map((i) => (i > this.currentIndex ? i + 1 : i));
-    // Keep prev→next resume indices valid after splice.
-    this.forwardStack = this.forwardStack.map((i) => (i > this.currentIndex ? i + 1 : i));
+    this.history = this.history.map((i) => (i >= insertAt ? i + 1 : i));
+    this.forwardStack = this.forwardStack.map((i) => (i >= insertAt ? i + 1 : i));
+    // currentIndex is never ≥ insertAt when we insert after current; keep as-is.
   }
 
   remove(index: number): QueuedSong | null {

@@ -102,6 +102,15 @@ function stripAssistantNoise(text: string): string {
   t = t.replace(/^```(?:\w+)?\s*/i, "").replace(/\s*```$/i, "");
   // Drop leading "Spoken line:" style labels.
   t = t.replace(/^(spoken line|bumper|announcement)\s*:\s*/i, "");
+  // Models sometimes echo the rewrite task as the entire "answer".
+  if (
+    /\b(do not invent|only rephrase|provided text|under \d+\s*words|no markdown|output only the spoken)\b/i.test(
+      t,
+    ) &&
+    t.split(/\s+/).length < 40
+  ) {
+    return "";
+  }
   return t.trim();
 }
 

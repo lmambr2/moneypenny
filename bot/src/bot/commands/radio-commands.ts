@@ -213,7 +213,7 @@ export class RadioCommands {
         const result = await this.deps.generateProvider.generateAndIngest(prompt);
         if (!result.ok) return `Generation failed: ${result.error}`;
         this.deps.queue.clear();
-        this.deps.queue.add({ ...result.song, platform: "local" });
+        this.deps.queue.add({ ...result.song, platform: "local", source: "radio" });
         const first = this.deps.queue.play();
         this.deps.player.resetFailures();
         if (first) await this.deps.playback.resolveAndPlay(first);
@@ -340,7 +340,9 @@ export class RadioCommands {
     this.noteSeedProgrammed(pool.map((s) => s.id));
 
     this.deps.queue.clear();
-    for (const song of pool) this.deps.queue.add(song);
+    for (const song of pool) {
+      this.deps.queue.add({ ...song, source: "radio" });
+    }
     const first = this.deps.queue.play();
     this.deps.player.resetFailures();
     if (first) await this.deps.playback.resolveAndPlay(first);
@@ -446,7 +448,7 @@ export class RadioCommands {
         return false;
       }
       this.deps.queue.clear();
-      this.deps.queue.add({ ...result.song, platform: "local" });
+      this.deps.queue.add({ ...result.song, platform: "local", source: "radio" });
       const first = this.deps.queue.play();
       this.deps.player.resetFailures();
       if (first) await this.deps.playback.resolveAndPlay(first);
@@ -535,7 +537,8 @@ export class RadioCommands {
     if (songs.length === 0) return "No tracks match those tags.";
 
     const wasIdle = this.deps.player.getState() === "idle";
-    for (const song of songs) this.deps.queue.add(song);
+    // Tag selection is a human/tool request — jump ahead of auto-DJ fill.
+    for (const song of songs) this.deps.queue.add({ ...song, source: "user" });
     if (wasIdle) {
       this.deps.queue.play();
       this.deps.player.resetFailures();

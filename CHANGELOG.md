@@ -8,6 +8,20 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Radio: stop speaking agent/rewrite instructions as bumpers
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Sanitize doctrine/memory LLM output — reject “rephrase / word limit / tone guide” echoes
+- Skip ops cheatsheets & rank-gating RAG hits for on-air bumpers; fall back to clipped prose
+- Log spoken `script` on bumper build; safer SOURCE/ANNOUNCEMENT prompt shape
+
+### Radio: user !add jumps ahead of auto-DJ fill
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Queue songs carry `source: "user" | "radio"`
+- Human adds insert before the first radio-fill track; radio restock still appends
+- `!add` / web add report “up next #n”
+
 ### Economy: longer cache TTLs (org planning, monthly patches)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

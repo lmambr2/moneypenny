@@ -115,6 +115,17 @@ when the bot was missing from the list and blocked all scheduled bumpers).
   `radio: bumper slot skipped — broadcast gate …` if presence/cooldown blocked;  
   `… no source produced audio` if prerecorded empty and TTS failed.
 
+### User queue vs auto-DJ fill
+
+Tracks the radio director restocks (`autoProgram`, seed pools, ACE auto-fill)
+are tagged `source: "radio"`. Member requests (`!add`, `!playnext`, web add,
+tag select, playlists) use `source: "user"` (or omit source).
+
+**`!add` (and other human adds)** insert **after** the current song and any
+other human-priority tracks, but **before** the first radio-fill track — so
+you never wait behind a long auto-DJ queue. Radio fill always appends at the
+end. `!playnext` still means “immediate next.”
+
 ### Alone stop (music) — honeybbq membership events
 
 Primary path: **`clientEnter` / `clientLeave` / `clientMoved`** from

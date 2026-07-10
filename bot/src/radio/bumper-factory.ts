@@ -85,6 +85,128 @@ const DEFAULT_STATION_ID_TEMPLATES = [
 ] as const;
 
 /**
+ * Meta / agentic phrasing the model must never speak on-air.
+ * Gemma sometimes echoes rewrite instructions, tone blocks, or RAG tooling
+ * cheatsheets instead of announcing doctrine.
+ */
+const META_SCRIPT_RE =
+  /\b(do not invent|invent nothing|only rephrase|rephrase (the|what|this|provided)|rewrite (the|a|this|provided)|provided text|under \d+\s*words|no markdown|no lists|plain speech only|output only|spoken (line|sentence|radio bumper)|you are a radio|tool_choice|system prompt|agents?\.md|playbook|instruction(s)? to the model|never invent personal)\b/i;
+
+/** Operator / tooling doctrine files — fine for !ask, never for radio bumpers. */
+const BUMPER_SOURCE_SKIP_RE =
+  /(^|\/)ops\/|rag-ingestion|cheatsheet|rank-gating|agents\.md|(^|\/)readme\.md$|roadmap|changelog/i;
+
+/**
+ * True when LLM (or salvage) text is rewrite/tone/agent instruction noise rather
+ * than a spoken station line. Also rejects pure persona/tone echoes.
+ */
+export function isMetaBumperScript(text: string, toneHint?: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (META_SCRIPT_RE.test(t)) return true;
+  // Whole line is a parenthetical style guide (tone field echoed).
+  if (
+    /^\(?[A-Za-z].{0,40}\([^)]{10,}\)\)?\.?$/.test(t) &&
+    /\b(wit|teasing|formal|crude|poised)\b/i.test(t)
+  ) {
+    return true;
+  }
+  if (toneHint) {
+    const tone = toneHint.trim().toLowerCase();
+    const low = t.toLowerCase();
+    if (tone.length >= 12 && (low === tone || low.includes(tone) || tone.includes(low))) {
+      return true;
+    }
+  }
+  // "Role: …" / "Constraint: …" reasoning leftovers that escaped extractAssistantText.
+  if (/^(role|constraint|tone|thinking|note|step|rule|system|user)\s*[:=]/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * Doctrine file paths that are bot/operator docs, not air-ready org copy.
+ * Source is typically a filename or relative path from the RAG hit.
+ */
+export function isBumperEligibleSource(source: string): boolean {
+  const s = (source || "").replace(/\\/g, "/").trim();
+  if (!s) return true;
+  return !BUMPER_SOURCE_SKIP_RE.test(s);
+}
+
+/**
+ * Chunk body looks like frontmatter, tables, or ops tooling — skip for bumpers.
+ */
+export function isBumperEligibleMaterial(text: string): boolean {
+  const t = text.trim();
+  // Short facts are fine (org KG); reject empty/noise only.
+  if (t.length < 12) return false;
+  if (/^---\s*\n/.test(t) && /classification\s*:/i.test(t.slice(0, 400))) return false;
+  if (META_SCRIPT_RE.test(t)) return false;
+  // Markdown tables / cheatsheet grids dominate the chunk.
+  const lines = t.split(/\n/).filter((l) => l.trim());
+  const pipeLines = lines.filter((l) => (l.match(/\|/g) ?? []).length >= 2).length;
+  if (lines.length >= 3 && pipeLines / lines.length > 0.4) return false;
+  if (
+    /\b(docker compose|qdrant|mempalace|ragenabled|server-group|server groups|!reindex|!remember|!analyst)\b/i.test(
+      t,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Strip quotes / "Announcement:" labels; empty if still meta after clean. */
+export function cleanBumperScript(raw: string, toneHint?: string): string | null {
+  let t = raw.trim();
+  if (!t) return null;
+  t = t.replace(/^```(?:\w+)?\s*/i, "").replace(/\s*```$/i, "");
+  t = t.replace(
+    /^(spoken line|bumper|announcement|here(?:'s| is) (?:a |the )?(?:line|bumper))\s*:\s*/i,
+    "",
+  );
+  t = t.replace(/^["'«»]+|["'«»]+$/g, "").trim();
+  // Drop a leading restatement of the rewrite task if the model prepends it.
+  t = t.replace(/^Rewrite[^.!?\n]{0,120}[.!?]+\s*/i, "").trim();
+  if (!t || isMetaBumperScript(t, toneHint)) return null;
+  return t;
+}
+
+/**
+ * Turn LLM output (or empty) into air-safe speech. Prefer cleaned model text;
+ * else clipped material; never return meta/instruction echoes.
+ */
+export function finalizeBumperScript(
+  llmOut: string,
+  material: string,
+  cap: number,
+  toneHint?: string,
+): { script: string; from: "llm" | "material" } | null {
+  const cleaned = cleanBumperScript(llmOut, toneHint);
+  if (cleaned) {
+    return { script: cleaned.split(/\s+/).slice(0, cap).join(" "), from: "llm" };
+  }
+  if (!isBumperEligibleMaterial(material)) return null;
+  // Prefer starting at a sentence boundary so we don't speak mid-word chunks.
+  let clip = material.trim();
+  const sentence = clip.match(/^[A-Z0-9][^.!?\n]{15,}[.!?]/);
+  if (sentence) clip = sentence[0]!;
+  else {
+    // Mid-chunk recovery: jump to first capital sentence if present.
+    const mid = clip.match(/[.!?]\s+([A-Z][^.!?]{15,}[.!?])/);
+    if (mid?.[1]) clip = mid[1];
+  }
+  clip = clip.split(/\s+/).slice(0, Math.min(cap, 45)).join(" ").trim();
+  if (!clip || isMetaBumperScript(clip, toneHint)) return null;
+  return { script: clip, from: "material" };
+}
+
+const BUMPER_REWRITE_SYSTEM =
+  "You are a radio announcer on the air. Reply with ONLY the words to speak — one short sentence or two. " +
+  "Never mention instructions, word limits, tone guides, markdown, prompts, or rewriting. " +
+  "Never invent facts not present in SOURCE. Do not quote the word SOURCE.";
+
+/**
  * Resolve spoken station-ID lines from config + station name.
  * Empty `stationIdLines` → built-in defaults. Supports `{name}` / `{station}`.
  */
@@ -580,7 +702,9 @@ export class RadioBumperFactory implements BumperFactory {
     const topic = topics[Math.floor(Math.random() * topics.length)];
 
     const hits = await orgMem.searchOrg(topic, 5);
-    const material = hits.map((h) => h.fact.trim()).filter(Boolean)[0];
+    const material = hits
+      .map((h) => h.fact.trim())
+      .filter((f) => f && isBumperEligibleMaterial(f))[0];
     if (!material) {
       this.deps.logger.info(
         { topic },
@@ -590,23 +714,33 @@ export class RadioBumperFactory implements BumperFactory {
     }
 
     const cap = wordCap(cfg.maxBumperSeconds);
-    const tone = profile?.bumper?.tone ? ` Tone: ${profile.bumper.tone}.` : "";
-    const script = (
+    const toneHint = profile?.bumper?.tone?.trim() || undefined;
+    const toneStyle = toneHint ? `\nStyle (do not speak this aloud): ${toneHint}` : "";
+    const llmOut = (
       await llm.complete(
-        `Rewrite the following as a short spoken radio station note: under ${cap} words, one breath, plain speech, no markdown, no lists, no private names unless present. Invent nothing — only rephrase what is given.${tone}\n\n${material}`,
-        "You are a radio announcer. Reply with only the spoken line itself. Never invent personal facts.",
+        `SOURCE:\n"""\n${material.split(/\s+/).slice(0, 120).join(" ")}\n"""\n\nSpeak a short station note from SOURCE only (under ${cap} words, one breath).${toneStyle}\n\nANNOUNCEMENT:`,
+        BUMPER_REWRITE_SYSTEM,
       )
     ).trim();
-    if (!script) {
-      this.deps.logger.info({ topic }, "radio: memory skip — LLM returned empty rewrite");
+    const finalized = finalizeBumperScript(llmOut, material, cap, toneHint);
+    if (!finalized) {
+      this.deps.logger.info(
+        { topic, llmPreview: llmOut.slice(0, 120) },
+        "radio: memory skip — rewrite looked like meta/instructions",
+      );
       return null;
     }
 
-    const capped = script.split(/\s+/).slice(0, cap).join(" ");
     // Floor unclassified only — org memory is not doctrine classification tiers.
-    const path = await this.deps.speech.render(capped, "memory", {
+    const path = await this.deps.speech.render(finalized.script, "memory", {
       floor: ["unclassified"],
     });
+    if (path) {
+      this.deps.logger.info(
+        { topic, from: finalized.from, script: finalized.script },
+        "radio: memory bumper built",
+      );
+    }
     return path ? { path, label: "memory" } : null;
   }
 
@@ -658,52 +792,81 @@ export class RadioBumperFactory implements BumperFactory {
     let material: string | undefined;
     let topicUsed = order[0]!;
     let sourceHit = "";
+    let skippedMetaSources = 0;
     for (const topic of order) {
       // Floor applied to the retrieval filter BEFORE text reaches the model (§6.3).
-      const chunks = await retrieval.query(topic, 3, floor);
-      const hit = chunks[0]?.text?.trim();
-      if (hit) {
+      // Pull a few hits so we can skip ops cheatsheets / meta chunks.
+      const chunks = await retrieval.query(topic, 6, floor);
+      for (const chunk of chunks) {
+        const hit = chunk.text?.trim();
+        const src = chunk.source ?? "";
+        if (!hit) continue;
+        if (!isBumperEligibleSource(src)) {
+          skippedMetaSources++;
+          continue;
+        }
+        if (!isBumperEligibleMaterial(hit)) {
+          skippedMetaSources++;
+          continue;
+        }
         material = hit;
         topicUsed = topic;
-        sourceHit = chunks[0]?.source ?? "";
+        sourceHit = src;
         break;
       }
+      if (material) break;
     }
     if (!material) {
       this.deps.logger.info(
-        { topics: order, floor, profile: cfg.activeProfile },
-        "radio: doctrine skip — no RAG hits for profile topics at broadcast floor",
+        { topics: order, floor, profile: cfg.activeProfile, skippedMetaSources },
+        "radio: doctrine skip — no air-eligible RAG hits for profile topics",
       );
       return null;
     }
 
     const cap = wordCap(cfg.maxBumperSeconds);
-    const tone = profile?.bumper?.tone ? ` Tone: ${profile.bumper.tone}.` : "";
+    const toneHint = profile?.bumper?.tone?.trim() || undefined;
+    const toneStyle = toneHint ? `\nStyle (do not speak this aloud): ${toneHint}` : "";
     // Clip material so the model doesn't burn tokens on long reasoning traces.
     const materialClip = material.split(/\s+/).slice(0, 120).join(" ");
-    let script = (
+    const llmOut = (
       await llm.complete(
-        `Rewrite the following as ONE short spoken radio bumper line (under ${cap} words). Plain speech only — no markdown, no lists, no quotes, no preamble. Invent nothing; only rephrase what is given.${tone}\n\n${materialClip}`,
-        "You are a radio announcer. Output only the spoken sentence.",
+        `SOURCE:\n"""\n${materialClip}\n"""\n\nSpeak ONE short radio bumper from SOURCE only (under ${cap} words).${toneStyle}\n\nANNOUNCEMENT:`,
+        BUMPER_REWRITE_SYSTEM,
       )
     ).trim();
-    if (!script) {
-      // Fail-open: clipped source text is better than skipping the break entirely.
-      script = materialClip.split(/\s+/).slice(0, Math.min(cap, 45)).join(" ");
+    const finalized = finalizeBumperScript(llmOut, material, cap, toneHint);
+    if (!finalized) {
       this.deps.logger.info(
-        { topic: topicUsed, source: sourceHit, fallback: true },
-        "radio: doctrine LLM empty — using clipped source text",
+        {
+          topic: topicUsed,
+          source: sourceHit,
+          llmPreview: llmOut.slice(0, 160),
+        },
+        "radio: doctrine skip — rewrite looked like meta/instructions",
+      );
+      return null;
+    }
+    if (finalized.from === "material") {
+      this.deps.logger.info(
+        { topic: topicUsed, source: sourceHit, llmPreview: llmOut.slice(0, 120) },
+        "radio: doctrine LLM unusable — using clipped source text",
       );
     }
 
-    const capped = script.split(/\s+/).slice(0, cap).join(" ");
-    const path = await this.deps.speech.render(capped, "doctrine", { floor });
+    const path = await this.deps.speech.render(finalized.script, "doctrine", { floor });
     if (!path) {
       this.deps.logger.info({ topic: topicUsed }, "radio: doctrine skip — TTS render failed");
       return null;
     }
     this.deps.logger.info(
-      { topic: topicUsed, source: sourceHit, floor },
+      {
+        topic: topicUsed,
+        source: sourceHit,
+        floor,
+        from: finalized.from,
+        script: finalized.script,
+      },
       "radio: doctrine bumper built",
     );
     return { path, label: "doctrine" };

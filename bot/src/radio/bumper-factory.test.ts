@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildTimeCheckSpeech,
+  cleanBumperScript,
+  finalizeBumperScript,
+  isBumperEligibleMaterial,
+  isBumperEligibleSource,
+  isMetaBumperScript,
   joinSpokenLines,
   type NowPlayingInfo,
   orderBumperSources,
@@ -327,7 +332,9 @@ describe("RadioBumperFactory", () => {
 
   it("topic override targets doctrine even when other sources are listed", async () => {
     const retrieval = {
-      query: vi.fn(async () => [{ text: "Mining SOP.", source: "ops.md" }]),
+      query: vi.fn(async () => [
+        { text: "Mining SOP requires cool yields before jump.", source: "ops.md" },
+      ]),
     };
     const llm = { complete: vi.fn(async () => "Stay sharp on mining SOP.") };
     const { factory, renderFn } = harness({
@@ -406,5 +413,141 @@ describe("RadioBumperFactory", () => {
     expect(complete).toHaveBeenCalled();
     expect(JSON.stringify(complete.mock.calls)).toMatch(/FC is Alice/);
     expect(renderFn).toHaveBeenCalled();
+  });
+
+  it("doctrine rejects LLM instruction echoes and falls back to source prose", async () => {
+    const retrieval = {
+      query: vi.fn(async () => [
+        {
+          text: "The Office of Organizational Analysis provides independent analysis for the Talon Group.",
+          source: "Office of Organizational Analysis Charter and Mission Statement.md",
+        },
+      ]),
+    };
+    const llm = {
+      complete: vi.fn(async () => "Do not invent anything; only rephrase the provided text."),
+    };
+    const { factory, renderFn } = harness({
+      sources: ["doctrine"],
+      retrieval,
+      llm,
+      profile: {
+        topics: ["Office of Organizational Analysis"],
+        tone: "Miss Moneypenny (dry poised British secretary wit, mock-formal teasing, brief and elegant, never crude)",
+      },
+    });
+    const b = await factory.build({ slot: "bumper", sources: ["doctrine"] });
+    expect(b?.label).toBe("doctrine");
+    const spoken = renderFn.mock.calls[0]?.[0] as string;
+    expect(spoken.toLowerCase()).not.toMatch(/rephrase|invent|provided text/);
+    expect(spoken).toMatch(/Organizational Analysis|Talon Group/i);
+  });
+
+  it("doctrine skips ops cheatsheet RAG hits and uses the next eligible chunk", async () => {
+    const retrieval = {
+      query: vi.fn(async () => [
+        {
+          text: "Quick reference for operators. Use docker compose and Qdrant.",
+          source: "ops/rag-ingestion-cheatsheet.md",
+        },
+        {
+          text: "Heavies establish the perimeter before the larger ships jump in.",
+          source: "On Heavy Fighters.md",
+        },
+      ]),
+    };
+    const llm = {
+      complete: vi.fn(async () => "Heavies set the perimeter before the fleet arrives."),
+    };
+    const { factory, renderFn } = harness({
+      sources: ["doctrine"],
+      retrieval,
+      llm,
+      profile: { topics: ["heavy fighters"] },
+    });
+    const b = await factory.build({ slot: "bumper", sources: ["doctrine"] });
+    expect(b?.label).toBe("doctrine");
+    expect(JSON.stringify(llm.complete.mock.calls)).toMatch(/Heavies establish/);
+    expect(JSON.stringify(llm.complete.mock.calls)).not.toMatch(/docker compose/);
+    expect(renderFn.mock.calls[0]?.[0]).toMatch(/Heavies/i);
+  });
+
+  it("doctrine skips when LLM echoes tone and material is also meta", async () => {
+    const retrieval = {
+      query: vi.fn(async () => [
+        {
+          text: "---\nclassification: unclassified\ntags: [ops]\n---\n| Store | What |\n| RAG | docs |",
+          source: "ops/rag-ingestion-cheatsheet.md",
+        },
+      ]),
+    };
+    const tone =
+      "Miss Moneypenny (dry poised British secretary wit, mock-formal teasing, brief and elegant, never crude)";
+    const llm = { complete: vi.fn(async () => tone) };
+    const { factory } = harness({
+      sources: ["doctrine"],
+      retrieval,
+      llm,
+      profile: { topics: ["rag"], tone },
+    });
+    expect(await factory.build({ slot: "bumper", sources: ["doctrine"] })).toBeNull();
+  });
+});
+
+describe("bumper script sanitizers", () => {
+  it("flags instruction and tone leaks", () => {
+    expect(isMetaBumperScript("Do not invent anything; only rephrase the provided text.")).toBe(
+      true,
+    );
+    expect(
+      isMetaBumperScript(
+        "Rewrite a provided text into ONE short radio bumper line (under 75 words).",
+      ),
+    ).toBe(true);
+    const tone =
+      "Miss Moneypenny (dry poised British secretary wit, mock-formal teasing, brief and elegant, never crude)";
+    expect(isMetaBumperScript(tone, tone)).toBe(true);
+    expect(isMetaBumperScript("Stay sharp on mining SOP.")).toBe(false);
+  });
+
+  it("skips ops tooling sources and material", () => {
+    expect(isBumperEligibleSource("ops/rag-ingestion-cheatsheet.md")).toBe(false);
+    expect(isBumperEligibleSource("ops-rank-gating.md")).toBe(false);
+    expect(isBumperEligibleSource("Office of Organizational Analysis Charter.md")).toBe(true);
+    expect(isBumperEligibleSource("ops.md")).toBe(true);
+    expect(
+      isBumperEligibleMaterial(
+        "---\nclassification: unclassified\n---\n# RAG\n| a | b |\n| c | d |",
+      ),
+    ).toBe(false);
+    expect(
+      isBumperEligibleMaterial(
+        "The Office of Organizational Analysis exists to provide independent analysis.",
+      ),
+    ).toBe(true);
+  });
+
+  it("finalize prefers clean LLM, else material, never meta", () => {
+    expect(
+      finalizeBumperScript(
+        "Do not invent anything; only rephrase the provided text.",
+        "The Talon Group presents the Office of Organizational Analysis as a support division.",
+        40,
+      ),
+    ).toEqual({
+      script:
+        "The Talon Group presents the Office of Organizational Analysis as a support division.",
+      from: "material",
+    });
+    expect(
+      finalizeBumperScript(
+        "OOA keeps operations efficient for the Chairman.",
+        "unused material here that is long enough to pass",
+        40,
+      )?.from,
+    ).toBe("llm");
+    expect(cleanBumperScript('Announcement: "Heavies hold the line."')).toBe(
+      "Heavies hold the line.",
+    );
   });
 });

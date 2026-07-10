@@ -112,7 +112,7 @@ export class PlaybackEngine {
     const localSong = await this.findDemoAsLocalSong(DEFAULT_DEMO_VIDEO_ID);
     if (localSong) {
       this.opts.queue.clear();
-      this.opts.queue.add({ ...localSong, platform: "local" });
+      this.opts.queue.add({ ...localSong, platform: "local", source: "user" });
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -136,7 +136,7 @@ export class PlaybackEngine {
     if (!hit) return `No results found for: ${DEFAULT_DEMO_VIDEO_URL}`;
     const { provider, song } = hit;
     this.opts.queue.clear();
-    this.opts.queue.add({ ...song, platform: provider.platform });
+    this.opts.queue.add({ ...song, platform: provider.platform, source: "user" });
     this.opts.queue.play();
     this.opts.player.resetFailures();
     const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -341,7 +341,7 @@ export class PlaybackEngine {
         return `Playlist "${resolved.item.name}" is empty or could not be loaded.`;
       }
       this.opts.queue.clear();
-      this.opts.queue.addMany(songs.map((s) => ({ ...s, platform })));
+      this.opts.queue.addMany(songs.map((s) => ({ ...s, platform, source: "user" as const })));
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -351,7 +351,7 @@ export class PlaybackEngine {
         : `Failed to start playlist: ${resolved.item.name}`;
     }
     this.opts.queue.clear();
-    this.opts.queue.add({ ...resolved.item, platform });
+    this.opts.queue.add({ ...resolved.item, platform, source: "user" });
     this.opts.queue.play();
     this.opts.player.resetFailures();
     const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -369,9 +369,10 @@ export class PlaybackEngine {
       const songs = await this.opts.localProvider.getPlaylistSongs(resolved.item.id);
       if (songs.length === 0) return "Playlist is empty.";
       const wasIdle = this.opts.player.getState() === "idle";
-      this.opts.queue.addMany(songs.map((s) => ({ ...s, platform })));
+      const firstIdx = this.opts.queue.size();
+      this.opts.queue.addMany(songs.map((s) => ({ ...s, platform, source: "user" as const })));
       if (wasIdle) {
-        this.opts.queue.playAt(this.opts.queue.size() - songs.length);
+        this.opts.queue.playAt(firstIdx);
         this.opts.player.resetFailures();
         await this.resolveAndPlay(this.opts.queue.current()!);
         this.emitState();
@@ -381,9 +382,9 @@ export class PlaybackEngine {
       return `Added playlist "${resolved.item.name}" (${songs.length} tracks) to queue.`;
     }
     const wasIdle = this.opts.player.getState() === "idle";
-    this.opts.queue.add({ ...resolved.item, platform });
+    const at = this.opts.queue.add({ ...resolved.item, platform, source: "user" });
     if (wasIdle) {
-      this.opts.queue.playAt(this.opts.queue.size() - 1);
+      this.opts.queue.playAt(at);
       this.opts.player.resetFailures();
       await this.resolveAndPlay(this.opts.queue.current()!);
       this.emitState();

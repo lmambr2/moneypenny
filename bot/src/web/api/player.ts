@@ -443,7 +443,7 @@ export function createPlayerRouter(
       // queue had stale currentIndex>=0 while the player was idle (e.g.,
       // after natural track end without queue.clear()).
       const insertedAt = queue.getCurrentIndex() < 0 ? queue.size() : queue.getCurrentIndex() + 1;
-      queue.addNext(song);
+      queue.addNext({ ...song, source: song.source === "radio" ? "radio" : "user" });
 
       if (wasIdle) {
         // Promote the just-added song to current and start it.
@@ -489,11 +489,12 @@ export function createPlayerRouter(
       if (!requirePlatform(song.platform, res)) return;
       const queue = bot.getQueueManager();
       const wasIdle = bot.getPlayer().getState() === "idle";
-      queue.add(song);
+      // Human/web add jumps ahead of auto-DJ radio fill tracks.
+      const at = queue.add({ ...song, source: song.source === "radio" ? "radio" : "user" });
 
       // If nothing was playing, start this newly-added song immediately.
       if (wasIdle) {
-        queue.playAt(queue.size() - 1);
+        queue.playAt(at);
         bot.getPlayer().resetFailures();
         await bot.resolveAndPlay(queue.current()!);
         res.json({
@@ -502,8 +503,10 @@ export function createPlayerRouter(
         return;
       }
 
+      const cur = queue.getCurrentIndex();
+      const upcoming = cur < 0 ? at + 1 : Math.max(1, at - cur);
       res.json({
-        message: `Added to queue: ${song.name || "Unknown"} - ${song.artist || "Unknown"} (position ${queue.size()})`,
+        message: `Added to queue: ${song.name || "Unknown"} - ${song.artist || "Unknown"} (up next #${upcoming})`,
       });
     } catch (err) {
       logger.error({ err }, "Player API error");

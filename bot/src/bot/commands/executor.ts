@@ -198,7 +198,7 @@ export class CommandExecutor {
     if (!hit) return { ok: false, reason: "noresults" };
     const { provider, song } = hit;
     this.deps.queue.clear();
-    this.deps.queue.add({ ...song, platform: provider.platform });
+    this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     this.deps.queue.play();
     this.deps.player.resetFailures();
     const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
@@ -224,14 +224,18 @@ export class CommandExecutor {
     if (!hit) return `No results found for: ${cmd.args}`;
     const { provider, song } = hit;
     const wasIdle = this.deps.player.getState() === "idle";
-    this.deps.queue.add({ ...song, platform: provider.platform });
+    // Human add jumps ahead of auto-DJ (radio) fill tracks.
+    const at = this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     if (wasIdle) {
-      this.deps.queue.playAt(this.deps.queue.size() - 1);
+      this.deps.queue.playAt(at);
       this.deps.player.resetFailures();
       await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
       return `Now playing: ${song.name} - ${song.artist}`;
     }
-    return `Added to queue: ${song.name} - ${song.artist} (position ${this.deps.queue.size()})`;
+    // Position among upcoming (1 = next up)
+    const cur = this.deps.queue.getCurrentIndex();
+    const upcoming = cur < 0 ? at + 1 : Math.max(1, at - cur);
+    return `Added to queue: ${song.name} - ${song.artist} (up next #${upcoming})`;
   }
 
   private async cmdPlayNext(cmd: ParsedCommand): Promise<string> {
@@ -244,7 +248,7 @@ export class CommandExecutor {
       this.deps.queue.getCurrentIndex() < 0
         ? this.deps.queue.size()
         : this.deps.queue.getCurrentIndex() + 1;
-    this.deps.queue.addNext({ ...song, platform: provider.platform });
+    this.deps.queue.addNext({ ...song, platform: provider.platform, source: "user" });
     if (wasIdle) {
       this.deps.queue.playAt(insertedAt);
       this.deps.player.resetFailures();
@@ -384,7 +388,7 @@ export class CommandExecutor {
     if (songs.length === 0) return `Playlist is empty or not found: ${cmd.args}`;
     this.deps.queue.clear();
     for (const song of songs) {
-      this.deps.queue.add({ ...song, platform: provider.platform });
+      this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
     const first = this.deps.queue.play();
     if (first) await this.deps.playback.resolveAndPlay(first);
@@ -409,7 +413,7 @@ export class CommandExecutor {
     if (songs.length === 0) return "Album is empty or not found";
     this.deps.queue.clear();
     for (const song of songs) {
-      this.deps.queue.add({ ...song, platform: provider.platform });
+      this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
     const first = this.deps.queue.play();
     if (first) await this.deps.playback.resolveAndPlay(first);
@@ -426,7 +430,7 @@ export class CommandExecutor {
     if (filtered.length === 0) filtered = result.songs.slice(0, 20);
     this.deps.queue.clear();
     for (const song of filtered) {
-      this.deps.queue.add({ ...song, platform: provider.platform });
+      this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
     this.deps.queue.setMode(PlayMode.Loop);
     this.deps.player.resetFailures();
