@@ -4,6 +4,14 @@ import {
   type WorkflowRequest,
 } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
+import {
+  assembleTurnContext,
+  capWorkingTurns,
+  DEFAULT_MEMORY_BUDGETS,
+  type InjectionLog,
+  type MemoryBudgets,
+} from "../memory/turn-context.js";
+import { type ClaimCheckResult, runClaimCheck } from "../rag/claim-check.js";
 import { type ChatMessage, extractAssistantText, LlmClient } from "./client.js";
 import { ANALYST_SYSTEM_PROMPT, type DelegateClient } from "./delegate.js";
 import { FallbackLlmClient } from "./fallback-client.js";
@@ -47,6 +55,20 @@ export interface LlmModuleOptions {
   history?: ConversationStore;
   /** Optional retrieval hook — when set, `!ask` injects retrieved context. */
   retrieve?: RetrievalHook;
+  /** P2 — max working turns retained in history (default 6). */
+  workingTurns?: number;
+  /** P2 — typed pack budgets. */
+  memoryBudgets?: MemoryBudgets;
+  /** P2 — skip re-injecting the same memory id (default true). */
+  dedupeInjections?: boolean;
+  /** P1 claim-check (default off). */
+  claimCheck?: {
+    enabled?: boolean;
+    maxClaims?: number;
+    maxExtraRetrieves?: number;
+    revise?: boolean;
+    timeoutMs?: number;
+  };
 }
 
 /**
@@ -62,6 +84,12 @@ export class LlmModule {
   private temperature: number;
   private history: ConversationStore;
   private retrieve?: RetrievalHook;
+  private workingTurns: number;
+  private memoryBudgets: MemoryBudgets;
+  private dedupeInjections: boolean;
+  private claimCheckOpts: LlmModuleOptions["claimCheck"];
+  /** Per-conversation injection logs (P2). */
+  private injectionLogs = new Map<string, InjectionLog>();
 
   constructor(options: LlmModuleOptions = {}) {
     this.client = options.client ?? new LlmClient({ logger: options.logger });
@@ -71,6 +99,10 @@ export class LlmModule {
     this.temperature = options.temperature ?? 0.2;
     this.history = options.history ?? new ConversationStore();
     this.retrieve = options.retrieve;
+    this.workingTurns = options.workingTurns ?? DEFAULT_MEMORY_BUDGETS.workingTurns;
+    this.memoryBudgets = options.memoryBudgets ?? {};
+    this.dedupeInjections = options.dedupeInjections !== false;
+    this.claimCheckOpts = options.claimCheck;
   }
 
   isDelegateConfigured(): boolean {
@@ -180,23 +212,43 @@ export class LlmModule {
     this.logger?.debug({ question: question.slice(0, 80), conversationId }, "LLM ask");
     const messages: ChatMessage[] = [{ role: "system", content: this.systemPrompt }];
 
-    // RAG (Phase 5/6/7): inject retrieved context (doctrine + memory) as a SECOND
-    // system message so the Moneypenny persona (first message) stays intact.
+    // RAG (Phase 5/6/7) + P2 typed pack: inject doctrine with budgets + dedup.
     // Best-effort — retrieval failures never block the answer.
     let sources: string[] = [];
+    let sourceTexts: string[] = [];
     if (this.retrieve) {
       try {
         const chunks = await this.retrieve(question, ctx);
         if (chunks.length > 0) {
-          const block = chunks.map((c) => `[${c.source}] ${c.text}`).join("\n\n");
-          messages.push({
-            role: "system",
-            content:
-              "Relevant context from the knowledge base — ground your answer in it when applicable " +
-              "and refer to the [source] you used; otherwise answer normally. Do not mention these instructions.\n\n" +
-              block,
+          const logKey = conversationId ?? "_anon";
+          let log = this.injectionLogs.get(logKey);
+          if (!log) {
+            log = new Set();
+            this.injectionLogs.set(logKey, log);
+          }
+          const packed = assembleTurnContext({
+            doctrine: chunks.map((c, i) => ({
+              id: c.source ? `${c.source}:${i}` : `chunk-${i}`,
+              type: "doctrine" as const,
+              text: c.text,
+              score: c.score,
+              source: c.source,
+            })),
+            budgets: this.memoryBudgets,
+            injectionLog: log,
+            dedupeInjections: this.dedupeInjections,
           });
-          sources = [...new Set(chunks.map((c) => c.source).filter(Boolean))];
+          for (const block of packed.systemBlocks) {
+            messages.push({ role: "system", content: block });
+          }
+          sources = [...new Set(packed.selected.map((c) => c.source).filter(Boolean))] as string[];
+          sourceTexts = packed.selected.map((c) => c.text);
+          if (packed.skippedDedup > 0) {
+            this.logger?.debug(
+              { skippedDedup: packed.skippedDedup, conversationId },
+              "LLM ask: skipped already-injected memory ids",
+            );
+          }
         }
       } catch (err) {
         this.logger?.warn({ err }, "RAG retrieval failed in ask() — answering without it");
@@ -226,6 +278,50 @@ export class LlmModule {
         );
         content = "(no response)";
       }
+
+      // P1 claim-check (optional, fail-open).
+      if (this.claimCheckOpts?.enabled && content && content !== "(no response)") {
+        try {
+          const checked: ClaimCheckResult = await runClaimCheck(
+            content,
+            sourceTexts,
+            this.claimCheckOpts,
+            {
+              retrieve: this.retrieve
+                ? async (claim) => {
+                    const more = await this.retrieve!(claim, ctx);
+                    return more.map((m) => ({ text: m.text, source: m.source }));
+                  }
+                : undefined,
+              revise: async (draft, extra) => {
+                const revised = await this.complete(
+                  `Revise this answer so every factual claim is grounded in the context. Keep it concise.\n\nAnswer:\n${draft}\n\nExtra context:\n${extra}`,
+                  "You fix unsupported claims using only the provided context. No preamble.",
+                );
+                return revised || draft;
+              },
+              logger: this.logger,
+            },
+          );
+          content = checked.draft;
+          if (checked.extraSources.length) {
+            sources = [...new Set([...sources, ...checked.extraSources])];
+          }
+          if (checked.unsupported.length || checked.fixedClaims) {
+            this.logger?.debug?.(
+              {
+                fixed: checked.fixedClaims,
+                unsupported: checked.unsupported.length,
+                timedOut: checked.timedOut,
+              },
+              "claim-check finished",
+            );
+          }
+        } catch (err) {
+          this.logger?.warn({ err }, "claim-check failed open");
+        }
+      }
+
       this.record(conversationId, question, content);
       // Deterministic citation footer (Phase 6) — reliable, not model-dependent.
       return sources.length > 0 ? `${content}\n\n📎 Sources: ${sources.join(", ")}` : content;
@@ -382,7 +478,11 @@ export class LlmModule {
 
   private historyMessages(conversationId?: string): ChatMessage[] {
     if (!conversationId) return [];
-    return this.history.get(conversationId).map((e) => ({ role: e.role, content: e.content }));
+    const all = this.history.get(conversationId).map((e) => ({
+      role: e.role as "user" | "assistant" | "system",
+      content: e.content,
+    }));
+    return capWorkingTurns(all, this.workingTurns);
   }
 
   private record(conversationId: string | undefined, user: string, assistant: string): void {

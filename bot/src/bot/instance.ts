@@ -198,6 +198,7 @@ export class BotInstance extends EventEmitter {
     });
 
     this.controlRouter = new ControlRouter(this.logger, undefined);
+    this.controlRouter.setClarifyOnceEnabled(this.config.intentClarifyOnce === true);
 
     this.rights = new RightsRuntime({
       config: this.config,

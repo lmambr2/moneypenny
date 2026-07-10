@@ -6,7 +6,29 @@ ordered **do list**, not full specs.
 Product sequence and locked decisions: **[feature-roadmap.md](./feature-roadmap.md)**
 (harness-first, Station via feedback, Vue polish, brain boundary plan-only).
 
-**Last updated:** 2026-07-09 (economy community code lifts **shipped**: E-BOX / E-FUZZY / E-UEX-SUP / E-FOOT)
+**Last updated:** 2026-07-09 (reliability S-OC1–3 + RAG/memory P1–P5 foundations)
+
+---
+
+## Reliability (S-OC) — shipped
+
+| ID | Item | Status |
+|----|------|--------|
+| **S-OC3** | Event reconnect + exp backoff | **Shipped** |
+| **S-OC2** | Voice transport self-heal | **Shipped** |
+| **S-OC1** | TTS barge-in (speech-only) | **Shipped** |
+
+## RAG / memory / intent (P1–P5) — foundations shipped, flags off
+
+| ID | Item | Status |
+|----|------|--------|
+| **P2** | Typed budgets + injection dedup | **Shipped** (ask path) |
+| **P5** | Memory eval axes skeleton | **Shipped** |
+| **P1** | Claim-check RAG | **Shipped** (default off) |
+| **P4** | Clarify-once | **Shipped** (default off) |
+| **P3** | Playbooks store | **Shipped** (capture/retrieve; inject optional) |
+
+See [rag-claim-check-and-typed-memory.md](./rag-claim-check-and-typed-memory.md).
 
 ---
 

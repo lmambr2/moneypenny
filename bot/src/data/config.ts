@@ -176,6 +176,29 @@ export interface BotConfig {
     /** Cap delay ms (default 60000). */
     maxMs: number;
   };
+  /**
+   * Typed memory budgets + injection dedup (P2). All optional; defaults in turn-context.
+   */
+  memoryContext?: {
+    workingTurns?: number;
+    doctrineChunks?: number;
+    orgKgHits?: number;
+    playbooks?: number;
+    lastTools?: number;
+    dedupeInjections?: boolean;
+    playbooksEnabled?: boolean;
+    playbookCapture?: boolean;
+  };
+  /** Claim-check RAG (P1). Default off. */
+  ragClaimCheck?: {
+    enabled?: boolean;
+    maxClaims?: number;
+    maxExtraRetrieves?: number;
+    revise?: boolean;
+    timeoutMs?: number;
+  };
+  /** Clarify-once on ambiguous intent (P4). Default off. */
+  intentClarifyOnce?: boolean;
 }
 
 export function getDefaultConfig(): BotConfig {
@@ -245,6 +268,15 @@ export function getDefaultConfig(): BotConfig {
       baseMs: 2_000,
       maxMs: 60_000,
     },
+    memoryContext: {
+      workingTurns: 6,
+      doctrineChunks: 6,
+      dedupeInjections: true,
+      playbooksEnabled: false,
+      playbookCapture: false,
+    },
+    ragClaimCheck: { enabled: false },
+    intentClarifyOnce: false,
   };
 }
 

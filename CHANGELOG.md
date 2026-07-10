@@ -28,6 +28,16 @@ assistant** authored each batch of work, since not every commit carries a
 - Program music not stopped unless it was held for that TTS (`savedMusic`)
 - Settings: Voice → Barge-in
 
+### RAG/memory/intent: P1–P5 foundations (flags default off)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **P2** typed budgets + injection dedup (`memory/turn-context`, wired into `LlmModule.ask`)
+- **P5** `computeMemoryAxes` on eval-loop
+- **P1** claim-check re-retrieve (`rag/claim-check`, `ragClaimCheck.enabled`)
+- **P4** clarify-once (`control/clarify`, `intentClarifyOnce`)
+- **P3** playbook store (`memory/playbooks`) — capture/retrieve ready; inject when enabled
+- Design: [docs/rag-claim-check-and-typed-memory.md](./docs/rag-claim-check-and-typed-memory.md)
+
 ### Docs: TS6 ServerQuery command reference
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

@@ -179,6 +179,10 @@ export class ControlRouter {
   private logger: Logger;
   private handlers = new Map<string, CommandHandler>();
   private llm?: LlmAssist;
+  /** P4 — clarify-once on ambiguous fuzzy intent (default off). */
+  private clarifyOnceEnabled = false;
+  /** Conversation ids that already received a clarify-once this session (P4). */
+  private clarifyPending = new Set<string>();
 
   constructor(logger: Logger, llm?: LlmAssist) {
     this.logger = logger.child({ component: "control-router" });
@@ -188,6 +192,10 @@ export class ControlRouter {
   /** Attach (or replace) the LLM module after construction. */
   setLlm(llm: LlmAssist | undefined) {
     this.llm = llm;
+  }
+
+  setClarifyOnceEnabled(enabled: boolean): void {
+    this.clarifyOnceEnabled = enabled;
   }
 
   /** Whether an LLM module is wired (used for help text / status). */
@@ -499,6 +507,24 @@ export class ControlRouter {
     if (toolCalls.length === 0) {
       // No actionable intent — return the model's plain answer if any.
       return result.content;
+    }
+
+    // P4 clarify-once (optional).
+    try {
+      const { decideClarifyOnce } = await import("./clarify.js");
+      const conv = context.conversationId ?? "default";
+      const decision = decideClarifyOnce(toolCalls, {
+        enabled: this.clarifyOnceEnabled,
+        clarifyPending: this.clarifyPending.has(conv),
+      });
+      if (decision.action === "clarify") {
+        this.clarifyPending.add(conv);
+        return decision.question;
+      }
+      // User answered after clarify — clear pending for this conv.
+      this.clarifyPending.delete(conv);
+    } catch {
+      /* fail-open */
     }
 
     const outputs: string[] = [];

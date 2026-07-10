@@ -43,6 +43,39 @@ export interface EvalReport {
   passed: number;
   failed: number;
   results: EvalCaseResult[];
+  /** P5 — optional module axes (populated when suites run with fixtures). */
+  axes?: {
+    retrievalPrecision?: number;
+    unsupportedClaimRate?: number;
+    injectionDedupRate?: number;
+    latencyMs?: number;
+  };
+}
+
+/**
+ * P5 skeleton: compute simple axes from injectable measurements (no live Qdrant).
+ */
+export function computeMemoryAxes(input: {
+  goldHits?: number;
+  topKHits?: number;
+  unsupportedClaims?: number;
+  totalClaims?: number;
+  skippedDedup?: number;
+  candidates?: number;
+  latencyMs?: number;
+}): NonNullable<EvalReport["axes"]> {
+  const axes: NonNullable<EvalReport["axes"]> = {};
+  if (input.goldHits !== undefined && input.topKHits !== undefined && input.topKHits > 0) {
+    axes.retrievalPrecision = input.goldHits / input.topKHits;
+  }
+  if (input.totalClaims !== undefined && input.totalClaims > 0) {
+    axes.unsupportedClaimRate = (input.unsupportedClaims ?? 0) / input.totalClaims;
+  }
+  if (input.candidates !== undefined && input.candidates > 0) {
+    axes.injectionDedupRate = (input.skippedDedup ?? 0) / input.candidates;
+  }
+  if (input.latencyMs !== undefined) axes.latencyMs = input.latencyMs;
+  return axes;
 }
 
 /** Default starter cases — operators extend with corpus-specific queries. */
@@ -133,12 +166,22 @@ export async function runEvalCase(c: EvalCase, deps: EvalLoopDeps): Promise<Eval
   };
 }
 
-export async function runEvalLoop(cases: EvalCase[], deps: EvalLoopDeps): Promise<EvalReport> {
+export async function runEvalLoop(
+  cases: EvalCase[],
+  deps: EvalLoopDeps,
+  axesInput?: Parameters<typeof computeMemoryAxes>[0],
+): Promise<EvalReport> {
   const results: EvalCaseResult[] = [];
   for (const c of cases) {
     results.push(await runEvalCase(c, deps));
   }
   const passed = results.filter((r) => r.pass).length;
   const failed = results.length - passed;
-  return { ok: failed === 0, passed, failed, results };
+  return {
+    ok: failed === 0,
+    passed,
+    failed,
+    results,
+    axes: axesInput ? computeMemoryAxes(axesInput) : undefined,
+  };
 }

@@ -256,6 +256,7 @@ docs.
 | 2026-07-09 | **Watch (not adopt):** [teamspeak.js](https://github.com/teamspeakjs/teamspeak.js) — typed ServerQuery (raw + SSH). Do **not** replace `@honeybbq/teamspeak-client` (voice). Revisit only if Query/SSH DX or TS6 Query maturity clearly beats current `TS3Client` + `http-query` + `ts3-nodejs-library`. |
 | 2026-07-09 | **Query verb cheat sheet (design only):** [ts6-serverquery-commands.md](./ts6-serverquery-commands.md) — command list adapted from [jxcsx/ts6-query-web-interface](https://github.com/jxcsx/ts6-query-web-interface) `cmds.txt` (MIT). Not a dependency; full client stays primary for voice/presence. |
 | 2026-07-09 | **Watch (3 real gaps only):** [HoneyBBQ/openclaw-teamspeak](https://github.com/HoneyBBQ/openclaw-teamspeak) — [steal notes](./openclaw-teamspeak-steal-notes.md). Keep: speech barge-in (S-OC1), event reconnect+backoff (S-OC3), narrow transport self-heal (S-OC2). Dump the rest (we already match/beat). No OpenClaw host. |
+| 2026-07-09 | **Design only (RAG/memory/intent) — five ideas:** [rag-claim-check-and-typed-memory.md](./rag-claim-check-and-typed-memory.md) — **P1** claim-check, **P2** typed budgets+dedup, **P3** playbooks, **P4** clarify-once, **P5** R3 memory eval axes. Flags default off; no implement until pain. |
 
 ### Watchlist — TeamSpeak libraries
 
@@ -283,6 +284,7 @@ docs.
 | [ROADMAP.md](../ROADMAP.md) | Phase history 0–9 |
 | [DESIGN.md](../DESIGN.md) | Architecture principles |
 | [docs/brain-boundary.md](./brain-boundary.md) | Future `POST /v1/turn` contract (plan only) |
+| [docs/rag-claim-check-and-typed-memory.md](./rag-claim-check-and-typed-memory.md) | P1–P5: claim-check, typed memory, playbooks, clarify-once, eval axes (plan only) |
 | [docs/sc-org-status.md](./sc-org-status.md) | SC/org status bridge contract (G2) |
 | [docs/radio.md](./radio.md) | Radio / bumpers / profiles |
 | [docs/voice.md](./voice.md) · [voice-backends.md](./voice-backends.md) | Voice loop |

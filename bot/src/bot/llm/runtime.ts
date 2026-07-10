@@ -146,11 +146,29 @@ export class LlmRuntime {
 
   private rebuild(): void {
     const delegateUrl = this.deps.config.llmDelegateUrl?.trim();
+    const mc = this.deps.config.memoryContext ?? {};
+    const cc = this.deps.config.ragClaimCheck ?? {};
     this.module = new LlmModule({
       logger: this.deps.logger,
       systemPrompt: this.deps.config.llmSystemPrompt || undefined,
       temperature: this.deps.config.llmTemperature,
       retrieve: this.buildRetrieveHook(),
+      workingTurns: mc.workingTurns,
+      memoryBudgets: {
+        workingTurns: mc.workingTurns,
+        doctrineChunks: mc.doctrineChunks,
+        orgKgHits: mc.orgKgHits,
+        playbooks: mc.playbooks,
+        lastTools: mc.lastTools,
+      },
+      dedupeInjections: mc.dedupeInjections !== false,
+      claimCheck: {
+        enabled: cc.enabled === true,
+        maxClaims: cc.maxClaims,
+        maxExtraRetrieves: cc.maxExtraRetrieves,
+        revise: cc.revise,
+        timeoutMs: cc.timeoutMs,
+      },
       delegate: delegateUrl
         ? new DelegateClient({
             baseUrl: delegateUrl,
