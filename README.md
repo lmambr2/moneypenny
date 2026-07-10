@@ -28,8 +28,8 @@
 ## Status
 
 **Dual-edition product.** Music + local-AI assistant with a rank-gated knowledge
-base and per-user memory; **797** backend unit tests and **11** frontend unit
-tests passing (110 test files).
+base and per-user memory; **1227** backend unit tests and **13** frontend unit
+tests passing (175 + 4 test files).
 
 | Edition | Bot primary host | Chat | Voice |
 |---------|------------------|------|-------|
@@ -64,8 +64,8 @@ Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
 **Community & ops**
 - **Roast** — captures chat lines, AI-grades them for cringe, auto-posts a "greatest hits" reel when enough people are present; opt out + purge with `!roastout`.
 - **Rank gating** — declarative rights mapped to TS server-groups; gates typed + voice + LLM-driven commands (no escalation via natural language); rules can be **scoped to voice or chat**. Verify with `GET /api/bot/rights/debug`.
-- **Radio mode (autonomous DJ)** — off by default; every *N* songs (or dead air) she drops a short bumper: prerecorded jingle, station ID/time check, or doctrine/org tip (LLM + TTS). **Profile topics** are free-text RAG/KG queries (blank → doctrine skips). Scheduled bumpers need a human in-channel; **Test bumper** / `!radio bumper [topic]` force a break. Settings edits profiles (seeds, topics, ACE-if-empty). Optional **music color** (AM/FM/…) and **pre-generate** TTS cache. → **[docs/radio.md](./docs/radio.md)** (§ Bumper topics)
-- Optional **voice loop** — **Whisper** STT (`tiny` on SBC → `large-v3` on Server) + **Piper** British TTS ([docs/voice-backends.md](./docs/voice-backends.md)); watchdog; localhost-bound web UI.
+- **Radio mode (autonomous DJ)** — off by default; every *N* songs (or dead air) she drops a short bumper: prerecorded jingle, station ID/time check, or doctrine/org tip (LLM + TTS). **Seed restock** mixes **~⅓ local library / ~⅔ YouTube** by default (mega-mix filtered; Settings: seed sources + external %). **`!add` jumps ahead of auto-DJ fill.** Empty channel → music stops (alone-stop); someone returns → restock. Bumper scripts are sanitized (no on-air agent/rewrite instruction leaks). **Profile topics** = free-text RAG/KG queries. Settings: profiles, ACE-if-empty, music color, prewarm. → **[docs/radio.md](./docs/radio.md)** · weekly notes [docs/weekly-2026-07-09.md](./docs/weekly-2026-07-09.md)
+- Optional **voice loop** — **Whisper** STT (`tiny` on SBC → `large-v3` on Server) + **Piper** British TTS ([docs/voice-backends.md](./docs/voice-backends.md)); TTS barge-in; reconnect backoff + voice transport self-heal; watchdog; localhost-bound web UI.
 
 All AI/community features are **off by default** — toggle them in **Settings → AI & Permissions**.
 
@@ -98,7 +98,7 @@ Chat commands (default prefix `!`):
 | Command | What it does |
 |---|---|
 | `!play <query \| url>` | Play — Local first, else YouTube. Accepts YouTube / X / Twitter / Bandcamp / Spotify / Tidal / direct-stream URLs. `-y` forces YouTube, `-l` Local. |
-| `!add` · `!playnext` (`!pn`) | Add to queue · play next |
+| `!add` · `!playnext` (`!pn`) | Add to queue (ahead of auto-DJ fill) · play next |
 | `!skip` `!next` `!prev` `!pause` `!resume` `!stop` | Transport |
 | `!queue` `!now` `!clear` `!remove <n>` `!vol <0-100>` `!mode <seq\|loop\|random\|rloop>` | Queue / playback control |
 | `!playlist` `!album` `!artist` `!lyrics` `!vote` | Library / misc |

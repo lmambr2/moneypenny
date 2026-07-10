@@ -271,8 +271,12 @@ open to `playNext()`.
 **Status:** phases R-R1 – R-R6 are **mechanism-complete and tested** on `dev`
 (Icecast tee, relay-in, Spotify/Tidal `/playlist` bridges, embedded tag seed,
 bulk tags, rating-weight draw, harmonic sequencing, music color overlay,
-bumper prewarm, presence-gate fix for scheduled bumpers). Dashboard: Settings
-**Radio / DJ** (tooltips + harmonic/color/prewarm), Library track tags + bulk +
+bumper prewarm, presence-gate fix for scheduled bumpers). **2026-07 polish:**
+alone-stop (honeybbq membership), user `!add` ahead of radio fill, seed pool
+**~33% local / ~66% YouTube** (configurable), bumper meta-instruction filter,
+TTS barge-in + reconnect/transport self-heal. Dashboard: Settings **Radio / DJ**
+(seed sources, external %, harmonic/color/prewarm), Library track tags + bulk +
 LLM guess. Everything remains **off by default** (`radio.enabled=false`).
 **Optional remaining:** full live TS under-music smoke on opi5; Spotify audio
 needs operator librespot; ACE-Step non-mock needs a GPU worker URL.
+Weekly operator notes: [docs/weekly-2026-07-09.md](./docs/weekly-2026-07-09.md).

@@ -19,19 +19,23 @@ stars + bulk/LLM guess, `!radio pin`.
 tee, relay-in, Spotify/Tidal playlist expand via stream bridge (fail-open).
 **Music color** (`radio.audioColor`: am/fm/… ffmpeg on music only).
 **Bumper prewarm** (`!radio prewarm`, Settings **Pre-generate bumpers**).
+**2026-07 polish:** alone-stop; `!add` ahead of radio fill; seed mix **~33% local /
+~66% YouTube** (`seedSources`, `seedExternalRatio`); bumper meta-instruction
+filter; TTS barge-in + reconnect/transport self-heal. Operator notes:
+[weekly-2026-07-09.md](./weekly-2026-07-09.md).
 **ACE-Step** radio auto-fill / `!radio gen` / `!generate` when enabled —
 [ace-step.md](./ace-step.md), [ace-step-host.md](./ace-step-host.md).
 **Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
 and **`focus`** in `defaultRadioConfig()`. Edit/add/delete profiles in **Settings →
-Radio → Op-context profiles** (seed queries, bumper topics/tone, playlist refs);
-switch live with the active-profile dropdown or `!radio ops <name>`.
+Radio → Op-context profiles** (seed queries/sources/external %, bumper topics/tone,
+playlist refs); switch live with the active-profile dropdown or `!radio ops <name>`.
 
 ### Dashboard (Settings → Radio / DJ)
 
 - Enable radio, **every N songs** (N=3 → bumper on the **4th** track boundary),
   dead-air, bumper length, speech volume floor, profile picker
-- **Op-context profiles** editor: seed queries, playlist refs, bumper topics/tone,
-  shuffle, **ACE-Step if empty** (per profile)
+- **Op-context profiles** editor: seed queries, seed local/YouTube/stream + external %,
+  playlist refs, bumper topics/tone, shuffle, **ACE-Step if empty** (per profile)
 - **Rating-weighted rotation** / **harmonic sequencing** / **analyzer on ingest**
 - **Music color / quality** (clean · AM · FM · telephone · vinyl · lofi)
 - **Bumper sources:** prerecorded · stationId · timeCheck · nowPlaying · doctrine · memory

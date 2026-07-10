@@ -27,7 +27,7 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 | **Control router** | `bot/src/control/` | Deterministic-first dispatch; `!ask` / fuzzy intent → LLM tools; voice routing; handler registration |
 | **Music providers** | `bot/src/music/` | `LocalProvider`, `YouTubeProvider`, `StreamProvider` — search, resolve, URLs, path guards |
 | **Audio stack** | `bot/src/audio/` | Queue, player, Opus encode/decode (`opus-packet.ts`, `opus-voice.ts`) for TS voice |
-| **Radio** | `bot/src/radio/` | Program director, format clock, bumper factory, tag overlay, analyzer |
+| **Radio** | `bot/src/radio/` + `bot/src/bot/commands/radio-commands.ts` | Program director, format clock, bumper factory, tag overlay, analyzer; seed pool mix (local/YT) lives in radio-commands |
 | **LLM client** | `bot/src/llm/` | OpenAI-compatible HTTP client, tool schema, conversation history |
 | **RAG** | `bot/src/rag/` | Chunking, embeddings HTTP client, Qdrant client, `RetrievalStore` |
 | **Economy** | `bot/src/economy/` | Seed mine/refine; live craft/trade/UEX/wiki; **disk cache** `data/economy-cache/` + refresh — **no scrapers** (`docs/economy.md`) |
