@@ -8,10 +8,9 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
-### Docs: weekly notes + README/ROADMAP radio sync
+### Docs: README/ROADMAP radio sync
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
-- [docs/weekly-2026-07-09.md](./docs/weekly-2026-07-09.md) — operator “for the boys” week summary
 - README: radio seed mix, `!add` priority, alone-stop, voice reliability; test counts
 - ROADMAP Phase 9 status updated for 2026-07 polish
 

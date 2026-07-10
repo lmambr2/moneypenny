@@ -279,4 +279,3 @@ TTS barge-in + reconnect/transport self-heal. Dashboard: Settings **Radio / DJ**
 LLM guess. Everything remains **off by default** (`radio.enabled=false`).
 **Optional remaining:** full live TS under-music smoke on opi5; Spotify audio
 needs operator librespot; ACE-Step non-mock needs a GPU worker URL.
-Weekly operator notes: [docs/weekly-2026-07-09.md](./docs/weekly-2026-07-09.md).

@@ -21,8 +21,7 @@ tee, relay-in, Spotify/Tidal playlist expand via stream bridge (fail-open).
 **Bumper prewarm** (`!radio prewarm`, Settings **Pre-generate bumpers**).
 **2026-07 polish:** alone-stop; `!add` ahead of radio fill; seed mix **~33% local /
 ~66% YouTube** (`seedSources`, `seedExternalRatio`); bumper meta-instruction
-filter; TTS barge-in + reconnect/transport self-heal. Operator notes:
-[weekly-2026-07-09.md](./weekly-2026-07-09.md).
+filter; TTS barge-in + reconnect/transport self-heal.
 **ACE-Step** radio auto-fill / `!radio gen` / `!generate` when enabled —
 [ace-step.md](./ace-step.md), [ace-step-host.md](./ace-step-host.md).
 **Gating:** off by default (`radio.enabled = false`). Starter profiles **`lobby`**
