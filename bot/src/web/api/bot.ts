@@ -358,6 +358,17 @@ export function createBotRouter(
           return;
         }
       }
+      // emptyChannelStopSeconds: -1 = off, 0 = immediate, N = grace seconds
+      if ("emptyChannelStopSeconds" in patch) {
+        const v = patch.emptyChannelStopSeconds;
+        if (typeof v !== "number" || !Number.isFinite(v) || v < -1) {
+          res.status(400).json({
+            error: "radio.emptyChannelStopSeconds must be a number ≥ -1",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+      }
       if ("sources" in patch) {
         const valid = new Set([
           "prerecorded",
@@ -458,6 +469,7 @@ export function createBotRouter(
         "maxBumperSeconds",
         "speechVolumePct",
         "minPresentToBroadcast",
+        "emptyChannelStopSeconds",
         "cooldownSeconds",
         "maxBumpersPerHour",
         "quietHours",

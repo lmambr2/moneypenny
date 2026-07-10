@@ -23,6 +23,7 @@ function harness(cfgOverrides: Partial<RadioConfig> = {}) {
   };
   const playNext = vi.fn(async () => queueHasMore);
   const autoProgram = vi.fn(async () => false);
+  const stopForEmptyChannel = vi.fn();
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
 
   const director = new RadioDirector({
@@ -31,6 +32,7 @@ function harness(cfgOverrides: Partial<RadioConfig> = {}) {
     bumperFactory,
     playNext,
     autoProgram,
+    stopForEmptyChannel,
     logger,
     now: () => nowMs,
     setTimer: (fn) => {
@@ -46,6 +48,7 @@ function harness(cfgOverrides: Partial<RadioConfig> = {}) {
     bumperFactory,
     playNext,
     autoProgram,
+    stopForEmptyChannel,
     cfg,
     setNow: (ms: number) => (nowMs = ms),
     advanceNow: (ms: number) => (nowMs += ms),
@@ -118,7 +121,12 @@ describe("RadioDirector", () => {
     });
 
     it("voice/chat activity counts as presence when clientlist undercounts", async () => {
-      h = harness({ clock: { wheel: [{ slot: "bumper" }] }, minPresentToBroadcast: 1 });
+      // Alone-stop uses list count only; disable it so this tests bumper minPresent backup.
+      h = harness({
+        clock: { wheel: [{ slot: "bumper" }] },
+        minPresentToBroadcast: 1,
+        emptyChannelStopSeconds: -1,
+      });
       h.director.onPoll([], 0); // poll says empty (channelID bug)
       h.director.noteHumanActivity(48); // but we heard voice from clid 48
       h.director.noteHumanActivity(54);
@@ -476,6 +484,94 @@ describe("RadioDirector", () => {
       h.fireTimers();
       await Promise.resolve();
       expect(h.player.play).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("empty-channel stop (alone = only bot)", () => {
+    it("stops immediately when human count hits 0 (default)", async () => {
+      h = harness({
+        everyNSongs: 99,
+        minPresentToBroadcast: 1,
+        emptyChannelStopSeconds: 0,
+        cooldownSeconds: 9999,
+      });
+      h.director.onPoll([], 0); // only bot left
+      h.setPlayerState("playing");
+      await h.director.onTrackBoundary();
+      expect(h.stopForEmptyChannel).toHaveBeenCalledTimes(1);
+      expect(h.playNext).not.toHaveBeenCalled();
+    });
+
+    it("stops on poll as soon as alone", async () => {
+      h = harness({
+        minPresentToBroadcast: 1,
+        emptyChannelStopSeconds: 0,
+      });
+      h.setPlayerState("playing");
+      h.director.onPoll([], 0);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.stopForEmptyChannel).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps playing during optional grace window", async () => {
+      h = harness({
+        everyNSongs: 99,
+        minPresentToBroadcast: 1,
+        emptyChannelStopSeconds: 300,
+        cooldownSeconds: 9999,
+      });
+      h.director.onPoll([], 0);
+      h.setPlayerState("playing");
+      await h.director.onTrackBoundary();
+      expect(h.playNext).toHaveBeenCalled();
+      expect(h.stopForEmptyChannel).not.toHaveBeenCalled();
+    });
+
+    it("stops after grace when emptyChannelStopSeconds > 0", async () => {
+      h = harness({
+        everyNSongs: 99,
+        minPresentToBroadcast: 1,
+        emptyChannelStopSeconds: 60,
+        cooldownSeconds: 9999,
+      });
+      h.director.onPoll([], 0);
+      h.setPlayerState("playing");
+      h.advanceNow(60_000);
+      await h.director.onTrackBoundary();
+      expect(h.stopForEmptyChannel).toHaveBeenCalledTimes(1);
+      expect(h.playNext).not.toHaveBeenCalled();
+    });
+
+    it("starts again when a human joins after alone-stop (count 1→2)", async () => {
+      h = harness({
+        minPresentToBroadcast: 1,
+        emptyChannelStopSeconds: 0,
+        deadAirSeconds: 5,
+      });
+      h.autoProgram.mockResolvedValue(true);
+      h.setPlayerState("playing");
+      h.director.onPoll([], 0); // bot alone
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.stopForEmptyChannel).toHaveBeenCalled();
+
+      h.setPlayerState("idle");
+      h.director.onPoll([], 1); // human joined → "2" including bot
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.autoProgram).toHaveBeenCalled();
+    });
+
+    it("emptyChannelStopSeconds=-1 keeps legacy keep-playing behavior", async () => {
+      h = harness({
+        everyNSongs: 99,
+        minPresentToBroadcast: 1,
+        emptyChannelStopSeconds: -1,
+        cooldownSeconds: 9999,
+      });
+      h.director.onPoll([], 0);
+      h.advanceNow(3_600_000);
+      await h.director.onTrackBoundary();
+      expect(h.stopForEmptyChannel).not.toHaveBeenCalled();
+      expect(h.playNext).toHaveBeenCalled();
     });
   });
 });

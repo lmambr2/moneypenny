@@ -115,6 +115,28 @@ when the bot was missing from the list and blocked all scheduled bumpers).
   `radio: bumper slot skipped — broadcast gate …` if presence/cooldown blocked;  
   `… no source produced audio` if prerecorded empty and TTS failed.
 
+### Alone stop (music) — honeybbq membership events
+
+Primary path: **`clientEnter` / `clientLeave` / `clientMoved`** from
+`@honeybbq/teamspeak-client` (full-client `notifyclient*`). On each event we
+`listClients` → filter bot channel → **humans = everyone except the bot**.
+
+| Humans | TS “feel” | Action |
+|--------|-----------|--------|
+| **0** | only bot | **Stop** + clear queue (default immediate) |
+| **≥ 1** after alone-stop | bot + someone | **Resume** auto-program |
+
+| `emptyChannelStopSeconds` | Meaning |
+|---------------------------|---------|
+| **0** (default) | Stop as soon as alone |
+| **N > 0** | Optional grace before stop |
+| **-1** | Never (legacy keep DJing empty) |
+
+30s idle poll still **reconciles** if a notify was missed. Voice activity is
+**not** used for alone-stop (only for bumper minPresent undercount backup).
+
+Logs: `radio: stopped — alone in channel…` / `radio: resumed — human joined…`.
+
 ### Operator smoke
 
 ```text
@@ -751,7 +773,7 @@ Document in `docs/rank-gating.md`. Tag-edit endpoints (§9.3) accept admin **or*
 | TTS down | Use prerecorded assets; optionally post liner text in chat; `playNext()`. |
 | LLM down | Skip generated sources; prerecorded + `stationId`/`timeCheck`. |
 | RAG/Qdrant down | `doctrine` weight → 0; other sources/prerecorded. |
-| No humans in channel | Scheduled bumper **skipped** (gate); music continues. Forced/test still play. |
+| Only bot left (0 humans) | Scheduled bumper **skipped**. Music **stops immediately** (default) and queue clears. `-1` keeps old keep-playing. Forced/test still play. |
 | Cooldown / max bumpers/hour | Same — gate log; music continues. |
 | Analyzer down/missing tags | `select_tracks` returns sparse → fall back to playlists/seeds. |
 | Bumper not ready by the boundary | Skip this boundary (music first); pre-fetch earlier. |

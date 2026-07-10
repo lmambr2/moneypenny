@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import {
   type ClientInfo,
+  type ClientLeftViewEvent,
+  type ClientMovedEvent,
   clientMove,
   downloadFileData,
   type FileDownloadInfo,
@@ -364,9 +366,21 @@ export class TS3Client extends EventEmitter {
       this.emit("disconnected");
     });
 
+    // HoneyBBQ full-client presence (notifycliententerview / leftview / moved).
     this.client.on("clientEnter", (info: ClientInfo) => {
-      this.logger.debug({ nickname: info.nickname, id: info.id }, "Client entered");
+      this.logger.debug(
+        { nickname: info.nickname, id: info.id, channelID: String(info.channelID) },
+        "Client entered",
+      );
       this.emit("clientEnter", info);
+    });
+    this.client.on("clientLeave", (ev: ClientLeftViewEvent) => {
+      this.logger.debug({ id: ev.id, reasonID: ev.reasonID }, "Client left");
+      this.emit("clientLeave", ev);
+    });
+    this.client.on("clientMoved", (ev: ClientMovedEvent) => {
+      this.logger.debug({ id: ev.id, targetChannelID: String(ev.targetChannelID) }, "Client moved");
+      this.emit("clientMoved", ev);
     });
 
     // Inbound voice (DESIGN §10). Attach bridge when voice pipeline is active.

@@ -9,6 +9,7 @@
  *  - Cache refresh is single-flight process-wide.
  */
 import { Router } from "express";
+import type { AuditStore } from "../../data/audit.js";
 import { boxSummary, largestCrateThatFits } from "../../economy/boxes.js";
 import { type RefreshReport, runEconomyCacheRefresh } from "../../economy/cache/refresh.js";
 import { cacheRootLabel, getEconomyDiskCache } from "../../economy/cache/store.js";
@@ -32,7 +33,6 @@ import {
   scaleBom,
   type WorkOrderStore,
 } from "../../economy/work-orders.js";
-import type { AuditStore } from "../../data/audit.js";
 import type { Logger } from "../../logger.js";
 import { createRateLimit } from "../middleware/rateLimit.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";

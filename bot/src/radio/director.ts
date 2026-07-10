@@ -44,6 +44,11 @@ export interface RadioDirectorDeps {
   bumperFactory: BumperFactory;
   /** Advance the queue; resolves false when the queue is dry (drives dead air). */
   playNext: () => Promise<boolean>;
+  /**
+   * Empty-channel stop: halt playback and clear the queue after
+   * `emptyChannelStopSeconds` with no humans. Optional so unit tests can omit.
+   */
+  stopForEmptyChannel?: () => void | Promise<void>;
   logger: Logger;
   /** Resolve the classification floor from the last-polled channel members
    *  (§6.3). Absent or throwing → the director uses ["unclassified"] (§14). */
@@ -75,6 +80,10 @@ export class RadioDirector {
   /** clid → last activity ms (voice/chat). Backup when clientlist channel filter fails. */
   private activityClids = new Map<number, number>();
   private static readonly ACTIVITY_TTL_MS = 3 * 60_000;
+  /** When channel first went empty (below minPresent); null if occupied. */
+  private emptySinceMs: number | null = null;
+  /** Already stopped for this empty stretch (avoid stop spam every poll). */
+  private emptyStopped = false;
   private deadAirHandle: ReturnType<typeof setTimeout> | null = null;
   private clockCache: { sig: string; clock: FormatClock } | null = null;
   /** Operator cue (`!radio bumper` / `!radio say`, §6.4/§12): consumed at the
@@ -120,6 +129,10 @@ export class RadioDirector {
       } catch (err) {
         this.deps.logger.debug?.({ err }, "radio: presence refresh failed");
       }
+    }
+    // Alone in channel → stop (don't advance into more music).
+    if (await this.enforceAloneStop(cfg)) {
+      return "advanced";
     }
     if (this.pendingAfterBumper) {
       // Our own bumper just ended (§5.2) — consume the boundary, don't re-inject.
@@ -282,38 +295,46 @@ export class RadioDirector {
   }
 
   /**
-   * Idle-poller backstop (§5.3): refresh presence and, if we're sitting idle
-   * with listeners, fire a pending operator cue or arm the dead-air timer.
+   * Channel membership snapshot (honeybbq enter/leave/moved or idle poll).
+   * Alone-stop uses **list count only** (humans excluding bot). Bumper gates may
+   * still use activity via `effectiveHumanCount`.
    */
   onPoll(clients: unknown[], humanCount: number): void {
     this.lastClients = clients;
     this.lastHumanCount = humanCount;
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
-    if (this.deps.player.getState() !== "idle") return;
 
-    // Forced cue waiting after stop / missed boundary — play now, don't wait.
-    if (this.cued) {
-      void this.tryFireCuedIfIdle({ restockAfter: true });
-      return;
-    }
+    // Alone (0 humans) → stop; someone joins → resume. Event-driven primary path.
+    void this.enforceAloneStop(cfg).then((stopped) => {
+      if (stopped) return;
+      if (this.deps.player.getState() !== "idle") return;
 
-    const humans = this.effectiveHumanCount();
-    if (humans >= cfg.minPresentToBroadcast && this.deadAirHandle == null) {
-      this.armDeadAir();
-    }
+      if (this.cued) {
+        void this.tryFireCuedIfIdle({ restockAfter: true });
+        return;
+      }
+
+      const humans = this.effectiveHumanCount();
+      if (humans >= cfg.minPresentToBroadcast && this.deadAirHandle == null) {
+        this.armDeadAir();
+      }
+    });
   }
 
   /**
-   * Mark a human client as present (voice packet / chat / poke). Used when
-   * clientlist channel filtering undercounts (TS6 channelID map lag).
+   * Mark a human client as present (voice packet / chat / poke). Bumper
+   * minPresent backup only — alone-stop ignores this (listClients is truth).
    */
   noteHumanActivity(clid: number): void {
     if (!Number.isFinite(clid) || clid <= 0) return;
     this.activityClids.set(clid, this.now());
   }
 
-  /** Max of polled humans and recent voice/chat activity. */
+  /**
+   * Bumper / broadcast presence: poll count or recent voice/chat activity
+   * (TS6 clientlist channel filter can undercount mid-session).
+   */
   effectiveHumanCount(): number {
     const now = this.now();
     const ttl = RadioDirector.ACTIVITY_TTL_MS;
@@ -323,8 +344,16 @@ export class RadioDirector {
     return Math.max(this.lastHumanCount, this.activityClids.size);
   }
 
+  /** Alone-stop presence: clientlist humans only (bot excluded). */
+  private aloneHumanCount(): number {
+    return this.lastHumanCount;
+  }
+
   /** Advance the queue; if it's dry, arm the dead-air fill timer. */
   private async advance(): Promise<void> {
+    const cfg = this.deps.getConfig();
+    // Don't start the next track when alone past the stop threshold.
+    if (await this.enforceAloneStop(cfg)) return;
     let more = false;
     try {
       more = await this.deps.playNext();
@@ -332,7 +361,9 @@ export class RadioDirector {
       this.deps.logger.error({ err }, "radio: playNext failed");
     }
     if (more) this.cancelDeadAir();
-    else this.armDeadAir();
+    else if (this.aloneHumanCount() >= 1 || this.emptyStopSeconds(cfg) < 0) {
+      this.armDeadAir();
+    }
   }
 
   /** Broadcast classification floor (§6.3): config override wins, then the
@@ -379,31 +410,119 @@ export class RadioDirector {
   /** Fill an idle window (§5.3/§7): play a fill bumper, then self-heal the
    *  queue from the active profile (`thenAutoProgram`, default on). The
    *  broadcast gates apply only to the bumper — restocking MUSIC is not a
-   *  broadcast, so quiet hours/cooldown never leave the channel silent. */
+   *  broadcast, so quiet hours/cooldown never leave the channel silent.
+   *  Empty-channel stop: do not restock music for an empty room. */
   private async fillDeadAir(): Promise<void> {
     this.deadAirHandle = null;
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
     if (this.deps.player.getState() !== "idle") return; // music resumed meanwhile
+    if (await this.enforceAloneStop(cfg)) return;
     const wantProgram = cfg.clock?.deadAir?.thenAutoProgram ?? true;
+    // Music restock: anyone present (list count). Feature off (-1) → allow alone.
+    const anyonePresent = this.aloneHumanCount() >= 1;
+    const allowRestock = wantProgram && (anyonePresent || this.emptyStopSeconds(cfg) < 0);
 
     // Operator-forced cue wins over scheduled dead-air fill (and bypasses gates).
-    if (await this.tryFireCuedIfIdle({ restockAfter: wantProgram })) return;
+    if (await this.tryFireCuedIfIdle({ restockAfter: allowRestock })) return;
 
     if (this.canBroadcast(cfg)) {
       const fill = cfg.clock?.deadAir?.fill ?? (["prerecorded", "stationId"] as const);
       if (await this.tryBumper(cfg, { slot: "bumper", sources: [...fill] })) {
         // Music restock happens at the bumper's trackEnd (single stream).
-        this.autoProgramAfterBumper = wantProgram;
+        this.autoProgramAfterBumper = allowRestock;
         return;
       }
     }
-    if (wantProgram && (await this.tryAutoProgram())) return;
-    this.armDeadAir(); // nothing to play yet — retry after another window
+    // With empty-stop on: only auto-program when someone is present.
+    if (allowRestock && (await this.tryAutoProgram())) return;
+    // Re-arm when we might still want fill (listeners, or legacy keep-playing).
+    if (anyonePresent || this.emptyStopSeconds(cfg) < 0) this.armDeadAir();
+  }
+
+  /**
+   * Alone-stop grace seconds.
+   * unset/invalid → 0 (stop as soon as only the bot is left).
+   * -1 → disabled (keep playing when empty).
+   * N ≥ 0 → wait N seconds empty, then stop (0 = immediate).
+   */
+  private emptyStopSeconds(cfg: RadioConfig): number {
+    const v = cfg.emptyChannelStopSeconds;
+    if (typeof v !== "number" || !Number.isFinite(v)) return 0;
+    if (v < 0) return -1;
+    return v;
+  }
+
+  /**
+   * Stop when clientlist humans === 0 (only bot left); resume when ≥ 1.
+   * Driven by honeybbq enter/leave/moved (via listClients recount) + poll backup.
+   * @returns true if alone-stopped — callers must not advance music.
+   */
+  private async enforceAloneStop(cfg: RadioConfig): Promise<boolean> {
+    const thresholdSec = this.emptyStopSeconds(cfg);
+    const humans = this.aloneHumanCount();
+    const anyonePresent = humans >= 1;
+
+    if (anyonePresent) {
+      const wasAloneStopped = this.emptyStopped;
+      this.emptySinceMs = null;
+      this.emptyStopped = false;
+      if (wasAloneStopped && thresholdSec >= 0) {
+        await this.resumeAfterAloneStop(cfg);
+      }
+      return false;
+    }
+
+    if (thresholdSec < 0) {
+      this.emptySinceMs = null;
+      this.emptyStopped = false;
+      return false;
+    }
+
+    if (this.emptySinceMs == null) this.emptySinceMs = this.now();
+    const emptySec = Math.floor((this.now() - this.emptySinceMs) / 1000);
+    if (emptySec < thresholdSec) return false;
+
+    this.cancelDeadAir();
+    this.autoProgramAfterBumper = false;
+
+    if (!this.emptyStopped) {
+      this.emptyStopped = true;
+      try {
+        await this.deps.stopForEmptyChannel?.();
+      } catch (err) {
+        this.deps.logger.warn({ err }, "radio: alone-stop failed");
+      }
+      this.deps.logger.info(
+        { emptySec, thresholdSec, humans },
+        "radio: stopped — alone in channel (only bot left)",
+      );
+    }
+    return true;
+  }
+
+  /** Human joined after alone-stop → restock and play immediately. */
+  private async resumeAfterAloneStop(cfg: RadioConfig): Promise<void> {
+    if (!cfg.enabled) return;
+    if (this.aloneHumanCount() < 1) return;
+    this.cancelDeadAir();
+    if (await this.tryAutoProgram()) {
+      this.deps.logger.info(
+        { humans: this.aloneHumanCount() },
+        "radio: resumed — human joined (was alone)",
+      );
+      return;
+    }
+    if (this.deps.player.getState() === "idle") this.armDeadAir();
   }
 
   private async tryAutoProgram(): Promise<boolean> {
     if (!this.deps.autoProgram) return false;
+    const cfg = this.deps.getConfig();
+    // Don't restock when alone (unless alone-stop disabled).
+    if (this.emptyStopSeconds(cfg) >= 0 && this.aloneHumanCount() < 1) {
+      return false;
+    }
     try {
       const ok = await this.deps.autoProgram();
       if (ok) {

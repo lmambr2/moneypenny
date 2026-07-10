@@ -575,6 +575,22 @@
           <label>Dead air (seconds)</label>
           <input v-model.number="ai.radioDeadAirSeconds" type="number" min="5" step="1" class="input" />
         </div>
+        <div
+          class="form-group"
+          title="When only the bot is left in the channel, stop music and clear the queue. 0 = immediate (default). -1 = never (keep DJing empty). N = wait N seconds empty first."
+        >
+          <label>Alone stop (s)</label>
+          <input
+            v-model.number="ai.radioEmptyChannelStopSeconds"
+            type="number"
+            min="-1"
+            step="1"
+            class="input"
+          />
+          <p class="profile-toggle-hint" style="margin:4px 0 0">
+            0 = stop as soon as you&rsquo;re alone · -1 = keep playing empty · join again to restart.
+          </p>
+        </div>
         <div class="form-group" title="Word budget for TTS/doctrine liners (~2.5 words/sec). Truncates long scripts so bumpers stay short.">
           <label>Max bumper length (s)</label>
           <input v-model.number="ai.radioMaxBumperSeconds" type="number" min="5" step="1" class="input" />
@@ -1859,6 +1875,7 @@ const ai = reactive({
   radioEnabled: false,
   radioEveryNSongs: 4,
   radioDeadAirSeconds: 25,
+  radioEmptyChannelStopSeconds: 0,
   radioMaxBumperSeconds: 30,
   radioSpeechVolumePct: 85,
   radioActiveProfile: 'lobby',
@@ -2326,6 +2343,8 @@ async function loadAiSettings() {
     ai.radioEnabled = !!radio.enabled;
     ai.radioEveryNSongs = radio.everyNSongs ?? 4;
     ai.radioDeadAirSeconds = radio.deadAirSeconds ?? 25;
+    ai.radioEmptyChannelStopSeconds =
+      radio.emptyChannelStopSeconds != null ? radio.emptyChannelStopSeconds : 0;
     ai.radioMaxBumperSeconds = radio.maxBumperSeconds ?? 30;
     ai.radioSpeechVolumePct = radio.speechVolumePct ?? 85;
     ai.radioActiveProfile = radio.activeProfile ?? 'lobby';
@@ -2880,6 +2899,11 @@ async function saveAiSettings() {
         enabled: ai.radioEnabled,
         everyNSongs: ai.radioEveryNSongs,
         deadAirSeconds: ai.radioDeadAirSeconds,
+        emptyChannelStopSeconds: (() => {
+          const n = Number(ai.radioEmptyChannelStopSeconds);
+          if (!Number.isFinite(n)) return 0;
+          return Math.max(-1, Math.floor(n));
+        })(),
         maxBumperSeconds: ai.radioMaxBumperSeconds,
         speechVolumePct: ai.radioSpeechVolumePct,
         activeProfile: ai.radioActiveProfile,

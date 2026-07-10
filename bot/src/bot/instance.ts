@@ -481,6 +481,11 @@ export class BotInstance extends EventEmitter {
       bumperFactory: this.bumperFactory,
       playNext: () => this.playNext(),
       autoProgram: () => this.commands.autoProgramRadio(),
+      // Alone (0 humans / only bot) → stop + clear; human joins → resume.
+      stopForEmptyChannel: () => {
+        this.player.stop();
+        this.queue.clear();
+      },
       // §6.3: broadcast floor = intersection of every present member's clearance
       // (idle-poller ClientInfo: uid + serverGroups; the bot itself is skipped).
       resolveFloor: (clients) => {
@@ -492,9 +497,7 @@ export class BotInstance extends EventEmitter {
       },
       // Refresh humans before each bumper decision (!skip / trackEnd).
       refreshPresence: async () => {
-        const clients = await this.tsClient.getClientsInChannel();
-        const humans = countChannelHumans(clients, this.tsClient.getClientId());
-        this.radio.onPoll(clients, humans);
+        await this.syncRadioChannelPresence();
       },
       logger: this.logger,
     });
@@ -507,6 +510,7 @@ export class BotInstance extends EventEmitter {
       onDisconnect: () => this.disconnect(),
       onPoll: (clients, userCount) => {
         this.voice.refreshClientCache(clients);
+        // Backup reconcile if a move notify was missed.
         this.radio.onPoll(clients, userCount);
         if (this.config.roastEnabled) {
           this.roast.runTick(userCount).catch(() => {});
@@ -514,7 +518,15 @@ export class BotInstance extends EventEmitter {
       },
     });
 
-    // Voice packets prove a human is in-channel (backup if clientlist channel filter fails).
+    // HoneyBBQ: clientEnter / clientLeave / clientMoved → recount + alone-stop.
+    const onMembershipChange = () => {
+      void this.syncRadioChannelPresence();
+    };
+    this.tsClient.on("clientEnter", onMembershipChange);
+    this.tsClient.on("clientLeave", onMembershipChange);
+    this.tsClient.on("clientMoved", onMembershipChange);
+
+    // Voice packets: bumper minPresent backup only (not alone-stop).
     this.tsClient.on("voiceData", (v: { clientId?: number }) => {
       const clid = Number(v?.clientId);
       if (Number.isFinite(clid) && clid > 0 && clid !== this.tsClient.getClientId()) {
@@ -1335,6 +1347,21 @@ export class BotInstance extends EventEmitter {
 
   async resolveAndPlay(song: QueuedSong): Promise<boolean> {
     return this.playback.resolveAndPlay(song);
+  }
+
+  /**
+   * Recount humans in bot channel (listClients via getClientsInChannel) and
+   * push into the radio director. Used by honeybbq enter/leave/moved + poll backup.
+   */
+  private async syncRadioChannelPresence(): Promise<void> {
+    try {
+      const clients = await this.tsClient.getClientsInChannel();
+      const humans = countChannelHumans(clients, this.tsClient.getClientId());
+      this.voice.refreshClientCache(clients);
+      this.radio.onPoll(clients, humans);
+    } catch (err) {
+      this.logger.debug?.({ err }, "radio: channel presence sync failed");
+    }
   }
 
   async playNext(maxRetries = 3): Promise<boolean> {

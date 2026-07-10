@@ -77,6 +77,13 @@ export interface RadioConfig {
    *  max(player volume, this) so it cuts through a low music fader. */
   speechVolumePct: number; // default 85
   minPresentToBroadcast: number;
+  /**
+   * Stop music + clear queue when **no humans** remain (only the bot left).
+   * Seconds of empty grace: **0** = stop immediately (default).
+   * **-1** = never stop (legacy keep-playing-when-empty).
+   * **N > 0** = wait N seconds empty, then stop.
+   */
+  emptyChannelStopSeconds: number;
   cooldownSeconds: number;
   maxBumpersPerHour: number;
   quietHours: { from: string; to: string }[];
@@ -125,6 +132,7 @@ export function defaultRadioConfig(): RadioConfig {
     maxBumperSeconds: 30,
     speechVolumePct: 85,
     minPresentToBroadcast: 1,
+    emptyChannelStopSeconds: 0,
     cooldownSeconds: 180,
     maxBumpersPerHour: 12,
     quietHours: [],

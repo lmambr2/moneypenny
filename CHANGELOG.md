@@ -8,6 +8,32 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-09
 
+### Docs: TS6 ServerQuery command reference
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Add [docs/ts6-serverquery-commands.md](./docs/ts6-serverquery-commands.md) —
+  TS6 query verb cheat sheet (grouped + alphabetical), Moneypenny path map
+  (full client vs HTTP Query vs SSH), design rules
+- Command overview adapted from MIT [jxcsx/ts6-query-web-interface](https://github.com/jxcsx/ts6-query-web-interface) `cmds.txt`
+- Cross-link from [docs/feature-roadmap.md](./docs/feature-roadmap.md)
+
+### Docs: openclaw-teamspeak steal notes (3 gaps only)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- [docs/openclaw-teamspeak-steal-notes.md](./docs/openclaw-teamspeak-steal-notes.md) —
+  keep S-OC1 barge-in, S-OC3 reconnect backoff, S-OC2 narrow transport self-heal;
+  dump identity/VoiceBuffer/global STT queue/OpenClaw host (already better)
+
+### Radio: alone-stop via honeybbq enter/leave/moved
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Wire **`clientEnter` / `clientLeave` / `clientMoved`** through `TS3Client`
+- On membership change: `listClients` → human count → alone-stop / resume
+- **0 humans** (only bot) → stop + clear queue; **≥1** after stop → auto-program
+- `emptyChannelStopSeconds`: **0** immediate (default), **N** grace, **-1** off
+- Idle poll kept as **backup** only; alone-stop ignores voice activity TTL
+- Docs: [docs/radio.md](./docs/radio.md)
+
 ### Security/bug sweep addendum: web deps, recordings, yt-dlp scheme guard
 **Author: Claude Fable 5 (Anthropic), driven by Lane Ambrose.**
 

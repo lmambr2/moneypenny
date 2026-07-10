@@ -254,6 +254,8 @@ docs.
 | 2026-07-09 | Still later: H6, G3–G4, live Pi voice under music, real SC credentials beyond bridge URL |
 | 2026-07-09 | **Shipped backlog:** H6 scope, G3 Live, G4 mute/kick, R5 members/fleet, V2 docs, V3 speak-status; hardening leftovers; dashboard recordings. V4/brain remain plan-only. |
 | 2026-07-09 | **Watch (not adopt):** [teamspeak.js](https://github.com/teamspeakjs/teamspeak.js) — typed ServerQuery (raw + SSH). Do **not** replace `@honeybbq/teamspeak-client` (voice). Revisit only if Query/SSH DX or TS6 Query maturity clearly beats current `TS3Client` + `http-query` + `ts3-nodejs-library`. |
+| 2026-07-09 | **Query verb cheat sheet (design only):** [ts6-serverquery-commands.md](./ts6-serverquery-commands.md) — command list adapted from [jxcsx/ts6-query-web-interface](https://github.com/jxcsx/ts6-query-web-interface) `cmds.txt` (MIT). Not a dependency; full client stays primary for voice/presence. |
+| 2026-07-09 | **Watch (3 real gaps only):** [HoneyBBQ/openclaw-teamspeak](https://github.com/HoneyBBQ/openclaw-teamspeak) — [steal notes](./openclaw-teamspeak-steal-notes.md). Keep: speech barge-in (S-OC1), event reconnect+backoff (S-OC3), narrow transport self-heal (S-OC2). Dump the rest (we already match/beat). No OpenClaw host. |
 
 ### Watchlist — TeamSpeak libraries
 
@@ -263,6 +265,7 @@ docs.
 | Own `TS6HttpQuery` | TS6 WebQuery | **Keep** |
 | `ts3-nodejs-library` | Classic ServerQuery | Keep until something better is proven |
 | [teamspeak.js](https://github.com/teamspeakjs/teamspeak.js) | Typed Query (Discord.js-style) | **Monitor only** — no dep, no rewrite |
+| [@honeybbq/openclaw-teamspeak](https://github.com/HoneyBBQ/openclaw-teamspeak) | OpenClaw TS channel (text + STT/TTS) | **3 gaps only** (barge-in, reconnect backoff, transport self-heal) — [steal notes](./openclaw-teamspeak-steal-notes.md) |
 
 ### Sprint notes (2026-07-09)
 
@@ -283,6 +286,7 @@ docs.
 | [docs/sc-org-status.md](./sc-org-status.md) | SC/org status bridge contract (G2) |
 | [docs/radio.md](./radio.md) | Radio / bumpers / profiles |
 | [docs/voice.md](./voice.md) · [voice-backends.md](./voice-backends.md) | Voice loop |
+| [docs/openclaw-teamspeak-steal-notes.md](./openclaw-teamspeak-steal-notes.md) | OpenClaw TS plugin — patterns to steal (not adopt) |
 | [docs/memory.md](./memory.md) | Memory / MemPalace |
 | [docs/rank-gating.md](./rank-gating.md) | Rights |
 | [docs/editions.md](./editions.md) | SBC vs Server |
