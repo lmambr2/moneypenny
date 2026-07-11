@@ -144,7 +144,10 @@ export function defaultRadioConfig(): RadioConfig {
     maxBumperSeconds: 30,
     speechVolumePct: 85,
     minPresentToBroadcast: 1,
-    emptyChannelStopSeconds: 0,
+    // 10s grace, not 0: the TS6 clientlist channel filter can transiently
+    // undercount to zero with listeners present, and stopForEmptyChannel wipes
+    // the queue — never fire on a single spurious zero-count poll.
+    emptyChannelStopSeconds: 10,
     cooldownSeconds: 180,
     maxBumpersPerHour: 12,
     quietHours: [],

@@ -13,19 +13,26 @@ export class SpeechQueue {
    */
   play(run: (signal: AbortSignal) => Promise<void>, signal?: AbortSignal): Promise<void> {
     const abort = new AbortController();
+    const forward = () => abort.abort();
     if (signal) {
-      signal.addEventListener("abort", () => abort.abort(), { once: true });
+      // A signal that aborted before enqueue never fires "abort" again —
+      // propagate it by hand so the job still observes cancellation.
+      if (signal.aborted) abort.abort();
+      else signal.addEventListener("abort", forward, { once: true });
     }
-    this.#currentAbort = abort;
 
     const prev = this.#tail;
     const next = prev.then(async () => {
+      // Claim the interrupt slot only when the job actually starts, so
+      // interrupt() targets the job that is playing, not the newest enqueued.
+      this.#currentAbort = abort;
       // Always invoke run so callers can observe an already-aborted signal.
       await run(abort.signal);
     });
     this.#tail = next
       .catch(() => {})
       .finally(() => {
+        signal?.removeEventListener("abort", forward);
         if (this.#currentAbort === abort) this.#currentAbort = null;
       });
     return next;

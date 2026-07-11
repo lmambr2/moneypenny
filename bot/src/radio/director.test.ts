@@ -488,7 +488,7 @@ describe("RadioDirector", () => {
   });
 
   describe("empty-channel stop (alone = only bot)", () => {
-    it("stops immediately when human count hits 0 (default)", async () => {
+    it("stops immediately when human count hits 0 (emptyChannelStopSeconds=0)", async () => {
       h = harness({
         everyNSongs: 99,
         minPresentToBroadcast: 1,

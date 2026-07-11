@@ -43,6 +43,8 @@ export interface ChatCompletionRequest {
   tool_choice?: "auto" | "none" | { type: "function"; function: { name: string } };
   temperature?: number;
   max_tokens?: number;
+  /** Cancels the HTTP request itself — without it a timed-out caller leaves the completion burning CPU. */
+  signal?: AbortSignal;
 }
 
 export interface ChatCompletionResponse {
@@ -102,15 +104,10 @@ function stripAssistantNoise(text: string): string {
   t = t.replace(/^```(?:\w+)?\s*/i, "").replace(/\s*```$/i, "");
   // Drop leading "Spoken line:" style labels.
   t = t.replace(/^(spoken line|bumper|announcement)\s*:\s*/i, "");
-  // Models sometimes echo the rewrite task as the entire "answer".
-  if (
-    /\b(do not invent|only rephrase|provided text|under \d+\s*words|no markdown|output only the spoken)\b/i.test(
-      t,
-    ) &&
-    t.split(/\s+/).length < 40
-  ) {
-    return "";
-  }
+  // Prompt-echo filtering is deliberately NOT done here: this strips output for
+  // every consumer (!ask, voice replies, delegates), and a legitimate short
+  // answer can mention "provided text" or "no markdown". Bumper callers filter
+  // meta echoes at their own layer via isMetaBumperScript/cleanBumperScript.
   return t.trim();
 }
 
@@ -165,6 +162,7 @@ export class LlmClient {
       const { data } = await this.axiosInstance.post<ChatCompletionResponse>(
         "/v1/chat/completions",
         payload,
+        req.signal ? { signal: req.signal } : undefined,
       );
       return data;
     } catch (err: unknown) {

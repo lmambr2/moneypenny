@@ -123,7 +123,6 @@ export function assembleTurnContext(input: AssembleTurnContextInput): AssembleTu
 
   for (const g of groups) {
     if (g.items.length === 0) continue;
-    const before = g.items.length;
     const tagged = g.items.map((c) => ({ ...c, type: g.type }));
     // Count would-be skips
     if (dedupe) {
@@ -133,7 +132,6 @@ export function assembleTurnContext(input: AssembleTurnContextInput): AssembleTu
     }
     const picked = selectWithDedup(tagged, log, budgetFor(g.type, budgets), dedupe);
     selected.push(...picked);
-    void before;
   }
 
   const systemBlocks: string[] = [];

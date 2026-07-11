@@ -145,6 +145,8 @@ export class BotInstance extends EventEmitter {
   private voice: VoiceSession;
   private connected = false;
   private disconnectEmitted = false;
+  /** Monotonic guard so an older getClientsInChannel reply can't overwrite a newer count. */
+  private presenceSyncEpoch = 0;
   /**
    * Set when disconnect() is invoked by us (stop/restart). Remote drops leave this
    * false so BotManager can event-reconnect (S-OC3).
@@ -1381,8 +1383,13 @@ export class BotInstance extends EventEmitter {
    * push into the radio director. Used by honeybbq enter/leave/moved + poll backup.
    */
   private async syncRadioChannelPresence(): Promise<void> {
+    // Membership events can burst (mass joins/moves) and each sync awaits a
+    // serverquery round-trip; without an epoch check a slow older reply could
+    // land after a newer one and overwrite the fresher count.
+    const epoch = ++this.presenceSyncEpoch;
     try {
       const clients = await this.tsClient.getClientsInChannel();
+      if (epoch !== this.presenceSyncEpoch) return; // stale reply — a newer sync superseded it
       const humans = countChannelHumans(clients, this.tsClient.getClientId());
       this.voice.refreshClientCache(clients);
       this.radio.onPoll(clients, humans);

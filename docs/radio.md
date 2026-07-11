@@ -137,13 +137,13 @@ Primary path: **`clientEnter` / `clientLeave` / `clientMoved`** from
 
 | Humans | TS “feel” | Action |
 |--------|-----------|--------|
-| **0** | only bot | **Stop** + clear queue (default immediate) |
+| **0** | only bot | **Stop** + clear queue (after grace) |
 | **≥ 1** after alone-stop | bot + someone | **Resume** auto-program |
 
 | `emptyChannelStopSeconds` | Meaning |
 |---------------------------|---------|
-| **0** (default) | Stop as soon as alone |
-| **N > 0** | Optional grace before stop |
+| **0** | Stop as soon as alone |
+| **N > 0** (default 10) | Grace before stop — rides out spurious clientlist zero-counts |
 | **-1** | Never (legacy keep DJing empty) |
 
 30s idle poll still **reconciles** if a notify was missed. Voice activity is

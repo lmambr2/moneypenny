@@ -1,4 +1,5 @@
 import type { QueuedSong } from "../../audio/queue.js";
+import { isBlockedGenreSong } from "../../music/genre-block.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { orderKeysHarmonically } from "../../radio/harmonic.js";
 import {
@@ -50,9 +51,11 @@ export type RadioSeedSource = "local" | "youtube" | "stream";
 
 /** True when a track is short enough (or duration unknown) and not an obvious mega-mix title. */
 export function isRadioSeedFriendlySong(
-  song: Pick<Song, "name" | "artist" | "duration">,
+  song: Pick<Song, "name" | "artist" | "duration" | "album">,
   maxDurationSec = RADIO_SEED_MAX_DURATION_SEC,
+  blockedGenres?: readonly string[] | null,
 ): boolean {
+  if (isBlockedGenreSong(song, blockedGenres)) return false;
   if (song.duration > 0 && song.duration > maxDurationSec) return false;
   const n = `${song.name} ${song.artist}`.toLowerCase();
   // "4 hours", "full album", "vol. 1" multi-hour livestream titles, etc.
@@ -104,6 +107,8 @@ export function orderSeedCandidates<T extends { id: string }>(
 /**
  * Interleave local + external seed hits toward `externalRatio`, then fill any
  * remaining slots from whichever side still has tracks (thin library → more YT).
+ * Exception: an explicit ratio of 0 or 1 is a hard constraint — the excluded
+ * side is never used as backfill.
  */
 export function mixLocalAndExternalSeeds<T extends { id: string; platform?: string }>(
   local: T[],
@@ -122,6 +127,11 @@ export function mixLocalAndExternalSeeds<T extends { id: string; platform?: stri
   const orderOpts = { cap: Math.max(cap * 2, 40), shuffle: opts.shuffle, rng: opts.rng };
   const locals = orderSeedCandidates(local, recent, orderOpts);
   const exts = orderSeedCandidates(external, recent, orderOpts);
+
+  // An explicit 0 or 1 is a hard constraint, not a target: never backfill
+  // from the excluded side, even when the preferred side runs thin.
+  if (ratio === 0) return locals.slice(0, cap);
+  if (ratio === 1) return exts.slice(0, cap);
 
   if (locals.length === 0) return exts.slice(0, cap);
   if (exts.length === 0) return locals.slice(0, cap);
@@ -442,6 +452,7 @@ export class RadioCommands {
 
     const localById = new Map<string, QueuedSong>();
     const externalById = new Map<string, QueuedSong>();
+    const blockedGenres = this.deps.config.musicBlockedGenres;
 
     const absorb = (
       songs: Song[],
@@ -449,7 +460,7 @@ export class RadioCommands {
       into: Map<string, QueuedSong>,
     ) => {
       for (const song of songs) {
-        if (!isRadioSeedFriendlySong(song)) continue;
+        if (!isRadioSeedFriendlySong(song, RADIO_SEED_MAX_DURATION_SEC, blockedGenres)) continue;
         const id = song.id;
         if (!id || into.has(id) || localById.has(id) || externalById.has(id)) continue;
         into.set(id, { ...song, platform });
@@ -644,9 +655,15 @@ export class RadioCommands {
 
     const wasIdle = this.deps.player.getState() === "idle";
     // Tag selection is a human/tool request — jump ahead of auto-DJ fill.
-    for (const song of songs) this.deps.queue.add({ ...song, source: "user" });
-    if (wasIdle) {
-      this.deps.queue.play();
+    let firstAt = -1;
+    for (const song of songs) {
+      const at = this.deps.queue.add({ ...song, source: "user" });
+      if (firstAt < 0) firstAt = at;
+    }
+    if (wasIdle && firstAt >= 0) {
+      // playAt the insert point — queue.play() would restart at index 0,
+      // replaying an old/radio-fill track instead of this selection.
+      this.deps.queue.playAt(firstAt);
       this.deps.player.resetFailures();
       await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
     }

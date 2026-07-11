@@ -551,6 +551,23 @@
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.youtubeSaveEnabled" />
       </label>
 
+      <div class="form-group" style="margin: 0 0 12px">
+        <label title="Block tracks whose title, artist, album, or local genre tag matches these terms (case-insensitive). Default bans rap, hip-hop, and R&B. Clear all lines and Save to allow every genre."
+          >Blocked genres (station policy)</label
+        >
+        <textarea
+          v-model="ai.musicBlockedGenresText"
+          class="input radio-profile-textarea"
+          rows="4"
+          placeholder="rap&#10;hip hop&#10;hip-hop&#10;r&amp;b&#10;rnb"
+        />
+        <p class="profile-toggle-hint" style="margin:4px 0 0">
+          One term per line. Applies to <code>!play</code> / <code>!add</code>, radio seed restock, and
+          playback. Matches whole words in metadata (not a perfect content classifier — pure
+          instrumental “trap” may still slip through). Empty list = no genre ban.
+        </p>
+      </div>
+
       <label class="profile-toggle" title="Master switch for the autonomous DJ. Save to apply. Off = normal music-only bot (no bumpers).">
         <div class="profile-toggle-text">
           <div class="profile-toggle-label">
@@ -1887,6 +1904,8 @@ const ai = reactive({
   roastCooldownMinutes: 180,
   roastMinScore: 4,
   youtubeSaveEnabled: false,
+  /** One blocked genre term per line (default rap/hip-hop/R&B). */
+  musicBlockedGenresText: 'rap\nhip hop\nhip-hop\nhiphop\nr&b\nrnb\nr and b\nrhythm and blues',
   ragEnabled: false,
   ragTopK: 4,
   vectorDbUrl: '',
@@ -2143,13 +2162,17 @@ function profileToApi(key: string, edit: RadioProfileEdit): Record<string, unkno
   if (edit.seedSourceStream) seedSources.push('stream');
   // Default when all unchecked: local+youtube (same as bot default).
   music.seedSources = seedSources.length > 0 ? seedSources : ['local', 'youtube'];
-  const pct = Number(edit.seedExternalPct);
-  if (Number.isFinite(pct) && pct !== 66) {
-    music.seedExternalRatio = Math.min(1, Math.max(0, pct / 100));
-  } else if (Number.isFinite(pct) && pct === 66) {
-    music.seedExternalRatio = 2 / 3;
-  } else {
+  // Sentinel must match the display rounding in profileFromApi: ⅔ shows as 67.
+  // An untouched profile must round-trip to "unset" so the bot default stays
+  // authoritative; an empty field means default too (Number('') is 0, which
+  // would otherwise pin a hard "no external").
+  const rawPct = edit.seedExternalPct as unknown;
+  const pct = Number(rawPct);
+  const defaultPct = Math.round((2 / 3) * 100);
+  if (rawPct === '' || rawPct === null || !Number.isFinite(pct) || pct === defaultPct) {
     delete music.seedExternalRatio; // bot default ⅔
+  } else {
+    music.seedExternalRatio = Math.min(1, Math.max(0, pct / 100));
   }
   const bumper: Record<string, unknown> = { ...extraBumper };
   if (topics.length) bumper.topics = topics;
@@ -2234,7 +2257,8 @@ function addRadioProfile() {
     seedSourceLocal: true,
     seedSourceYoutube: true,
     seedSourceStream: false,
-    seedExternalPct: 66,
+    seedExternalPct: 67, // Math.round(2/3 * 100) — must match profileFromApi display rounding
+
     extra: {},
   };
   ai.radioEditKey = id;
@@ -2377,6 +2401,9 @@ async function loadAiSettings() {
     ai.roastCooldownMinutes = res.data.roastCooldownMinutes ?? 180;
     ai.roastMinScore = res.data.roastMinScore ?? 4;
     ai.youtubeSaveEnabled = !!res.data.youtubeSaveEnabled;
+    if (Array.isArray(res.data.musicBlockedGenres)) {
+      ai.musicBlockedGenresText = res.data.musicBlockedGenres.join('\n');
+    }
     ai.ragEnabled = !!res.data.ragEnabled;
     ai.ragTopK = res.data.ragTopK ?? 4;
     ai.vectorDbUrl = res.data.vectorDbUrl ?? '';
@@ -2942,6 +2969,10 @@ async function saveAiSettings() {
       roastCooldownMinutes: ai.roastCooldownMinutes,
       roastMinScore: ai.roastMinScore,
       youtubeSaveEnabled: ai.youtubeSaveEnabled,
+      musicBlockedGenres: ai.musicBlockedGenresText
+        .split(/[\n,]+/)
+        .map((s: string) => s.trim())
+        .filter(Boolean),
       ragEnabled: ai.ragEnabled,
       ragTopK: ai.ragTopK,
       vectorDbUrl: ai.vectorDbUrl.trim(),

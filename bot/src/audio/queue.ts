@@ -83,8 +83,14 @@ export class PlayQueue {
     return insertAt;
   }
 
-  addMany(songs: QueuedSong[]): void {
-    for (const s of songs) this.add(s);
+  /** @returns index of the first inserted song, or -1 when `songs` is empty. */
+  addMany(songs: QueuedSong[]): number {
+    let first = -1;
+    for (const s of songs) {
+      const at = this.add(s);
+      if (first < 0) first = at;
+    }
+    return first;
   }
 
   /**

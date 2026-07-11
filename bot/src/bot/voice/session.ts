@@ -123,6 +123,8 @@ export class VoiceSession {
   /** Real speech on the wire — ignore Opus DTX comfort noise below this. */
   private static readonly MIN_SPEECH_PEAK = MIN_PCM_BOOST_PEAK;
   private static readonly ARMED_ENERGY_THRESHOLD = 40;
+  /** Failsafe cap for one TTS file: settle speak() even if no player event arrives. */
+  private static readonly TTS_MAX_PLAYBACK_MS = 60_000;
   /** Brief hold while volume duck applies; keep short so trailing verbs are not clipped. */
   private static readonly DUCK_SETTLE_MS = 25;
   private commandCaptureReadyAt = new Map<number, number>();
@@ -1472,7 +1474,11 @@ export class VoiceSession {
           this.ttsPlaybackActive = true;
           this.deps.player.resetFailures();
           this.deps.player.play(file);
-          // Wait until track ends or barge-in aborts.
+          // Wait until track ends or barge-in aborts. Also settle on player
+          // "error" and on a failsafe timer: player.stop()/play() from another
+          // code path (music command, alone-stop, shutdown) emits no trackEnd
+          // for this file, and an unresolved await here wedges the SpeechQueue
+          // tail forever — every later TTS reply would silently queue behind it.
           await new Promise<void>((resolve) => {
             const onEnd = () => {
               cleanup();
@@ -1489,11 +1495,15 @@ export class VoiceSession {
             };
             const cleanup = () => {
               this.deps.player.off?.("trackEnd", onEnd);
+              this.deps.player.off?.("error", onEnd);
+              clearTimeout(failsafe);
               signal.removeEventListener("abort", onAbort);
               this.ttsPlaybackActive = false;
             };
+            const failsafe = setTimeout(onEnd, VoiceSession.TTS_MAX_PLAYBACK_MS);
             // AudioPlayer uses EventEmitter-style on/off.
             this.deps.player.on("trackEnd", onEnd);
+            this.deps.player.on("error", onEnd);
             if (signal.aborted) {
               onAbort();
               return;

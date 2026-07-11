@@ -53,4 +53,49 @@ describe("SpeechQueue", () => {
     const q = new SpeechQueue();
     expect(() => q.interrupt()).not.toThrow();
   });
+
+  it("interrupt aborts the running job, not the newest enqueued", async () => {
+    const q = new SpeechQueue();
+    let aAborted = false;
+    let bRan = false;
+    let bSawAbortedAtStart = false;
+    let resolveAStarted!: () => void;
+    const aStarted = new Promise<void>((r) => {
+      resolveAStarted = r;
+    });
+    const pa = q.play(async (signal) => {
+      resolveAStarted();
+      await new Promise<void>((resolve) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            aAborted = true;
+            resolve();
+          },
+          { once: true },
+        );
+      });
+    });
+    const pb = q.play(async (signal) => {
+      bRan = true;
+      bSawAbortedAtStart = signal.aborted;
+    });
+    await aStarted;
+    q.interrupt();
+    await Promise.all([pa, pb]);
+    expect(aAborted).toBe(true);
+    expect(bRan).toBe(true);
+    expect(bSawAbortedAtStart).toBe(false);
+  });
+
+  it("propagates an already-aborted external signal to the job", async () => {
+    const q = new SpeechQueue();
+    const ac = new AbortController();
+    ac.abort();
+    let sawAborted = false;
+    await q.play(async (signal) => {
+      sawAborted = signal.aborted;
+    }, ac.signal);
+    expect(sawAborted).toBe(true);
+  });
 });

@@ -26,6 +26,7 @@ import {
 import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
+import { decideClarifyOnce } from "./clarify.js";
 
 /**
  * CommandHandler — registered handlers the router delegates to after routing.
@@ -181,8 +182,10 @@ export class ControlRouter {
   private llm?: LlmAssist;
   /** P4 — clarify-once on ambiguous fuzzy intent (default off). */
   private clarifyOnceEnabled = false;
-  /** L-CL-1: conversationId + invokerUid keys that already got a clarify-once. */
-  private clarifyPending = new Set<string>();
+  /** L-CL-1: conversationId + invokerUid keys that already got a clarify-once, by ask time. */
+  private clarifyPending = new Map<string, number>();
+  /** Expire clarify-pending keys so users who never answer don't accumulate forever. */
+  private static readonly CLARIFY_PENDING_TTL_MS = 10 * 60_000;
 
   constructor(logger: Logger, llm?: LlmAssist) {
     this.logger = logger.child({ component: "control-router" });
@@ -511,16 +514,19 @@ export class ControlRouter {
 
     // P4 clarify-once (optional). Key by conversation + invoker (L-CL-1).
     try {
-      const { decideClarifyOnce } = await import("./clarify.js");
       const conv = context.conversationId ?? "default";
       const invoker = context.invokerUid ?? context.invokerName ?? "anon";
       const pendingKey = `${conv}::${invoker}`;
+      const now = Date.now();
+      for (const [key, asked] of this.clarifyPending) {
+        if (now - asked > ControlRouter.CLARIFY_PENDING_TTL_MS) this.clarifyPending.delete(key);
+      }
       const decision = decideClarifyOnce(toolCalls, {
         enabled: this.clarifyOnceEnabled,
         clarifyPending: this.clarifyPending.has(pendingKey),
       });
       if (decision.action === "clarify") {
-        this.clarifyPending.add(pendingKey);
+        this.clarifyPending.set(pendingKey, now);
         return decision.question;
       }
       // User answered after clarify — clear pending for this invoker only.

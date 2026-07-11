@@ -4,6 +4,7 @@ import type { RightsConfig } from "../rights/index.js";
 import { type VoiceConfig, defaultVoiceConfig } from "../voice/index.js";
 import { type RadioConfig, defaultRadioConfig } from "../radio/index.js";
 import { type BotScopeConfig, defaultBotScope } from "../bot/scope.js";
+import { DEFAULT_MUSIC_BLOCKED_GENRES } from "../music/genre-block.js";
 
 export interface BotConfig {
   webPort: number;
@@ -116,6 +117,12 @@ export interface BotConfig {
   // local library (deduped by video id), so replays serve the saved file. Off by
   // default (downloading is against YouTube ToS — a self-hosted call).
   youtubeSaveEnabled: boolean;
+  /**
+   * Genre terms blocked from search / queue / radio seed (title, artist, album,
+   * and local genre tags). Default: rap / hip-hop / R&B family.
+   * Explicit `[]` disables the policy. See `music/genre-block.ts`.
+   */
+  musicBlockedGenres: string[];
   // === Retrieval / RAG (ROADMAP Phase 5) ===
   // When true, the bot embeds ingested docs into a vector DB and injects the
   // top-k relevant chunks into `!ask`. Off by default. Endpoint/model are
@@ -246,6 +253,7 @@ export function getDefaultConfig(): BotConfig {
     radio: defaultRadioConfig(),
     streamBridgeUrl: "",
     youtubeSaveEnabled: false,
+    musicBlockedGenres: [...DEFAULT_MUSIC_BLOCKED_GENRES],
     // Endpoint/model default empty → the clients use their built-in defaults
     // (qdrant:6333 / ollama / embeddinggemma) or the VECTOR_DB_URL /
     // EMBEDDING_URL / EMBEDDING_MODEL env vars install.sh writes (two-track).

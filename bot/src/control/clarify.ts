@@ -10,20 +10,14 @@ export interface ToolCallLike {
   arguments?: Record<string, unknown>;
 }
 
-/** Conflicting transport / playback tools that should not fire together. */
-const CONFLICT_GROUPS: string[][] = [
-  ["play", "stop", "pause", "resume"],
-  ["play", "skip", "next"],
-  ["vol", "volume", "stop"],
-];
-
-function groupIndex(name: string): number {
-  const n = name.toLowerCase();
-  for (let i = 0; i < CONFLICT_GROUPS.length; i++) {
-    if (CONFLICT_GROUPS[i]!.includes(n)) return i;
-  }
-  return -1;
-}
+// Names must match the actual LLM tool names in llm/tools.ts (play_music,
+// select_tracks, queue, stop, pause, skip, …) or the policy never fires.
+/** Tools that start/queue playback. */
+const START_TOOLS = new Set(["play_music", "select_tracks", "queue"]);
+/** Tools that halt/alter the current track. */
+const CONTROL_TOOLS = new Set(["stop", "pause", "skip"]);
+/** Start tools whose `query` argument is required for a meaningful result. */
+const QUERY_TOOLS = new Set(["play_music", "queue"]);
 
 /**
  * Decide whether to clarify before running tools.
@@ -43,10 +37,12 @@ export function decideClarifyOnce(
 
   if (toolCalls.length === 0) return { action: "proceed" };
 
-  // play without query
+  const names = toolCalls.map((t) => t.name.toLowerCase());
+
+  // Play/queue without a query
   for (const tc of toolCalls) {
     const n = tc.name.toLowerCase();
-    if (n === "play" || n === "queue" || n === "search") {
+    if (QUERY_TOOLS.has(n)) {
       const q = String(tc.arguments?.query ?? tc.arguments?.q ?? tc.arguments?.url ?? "").trim();
       if (!q) {
         return {
@@ -57,13 +53,11 @@ export function decideClarifyOnce(
     }
   }
 
-  // Conflicting tools in one shot
+  // Conflicting tools in one shot: start playback AND halt the current track
   if (toolCalls.length >= 2) {
-    const groups = new Set(toolCalls.map((t) => groupIndex(t.name)).filter((g) => g >= 0));
-    const names = toolCalls.map((t) => t.name.toLowerCase());
-    const hasPlay = names.some((n) => n === "play" || n === "queue");
-    const hasStop = names.some((n) => n === "stop" || n === "pause");
-    if ((hasPlay && hasStop) || groups.size > 1) {
+    const hasStart = names.some((n) => START_TOOLS.has(n));
+    const hasControl = names.some((n) => CONTROL_TOOLS.has(n));
+    if (hasStart && hasControl) {
       return {
         action: "clarify",
         question:

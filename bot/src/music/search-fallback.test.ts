@@ -29,10 +29,19 @@ describe("searchFirstWithFallback", () => {
   it("falls back to YouTube when the primary (local) is empty — the bare !play fix", async () => {
     const primary = provider([]);
     const fallback = provider([song("yt-1", "youtube")]);
-    const out = await searchFirstWithFallback(primary, "q", 1, fallback);
+    const out = await searchFirstWithFallback(primary, "q", 1, fallback, []);
     expect(out?.song.id).toBe("yt-1");
     expect(out?.provider).toBe(fallback);
     expect(fallback.search).toHaveBeenCalledWith("q", 1);
+  });
+
+  it("skips genre-blocked hits and takes the next candidate", async () => {
+    const primary = provider([
+      { ...song("rap-1", "local"), name: "Rap Battle Live" },
+      { ...song("ok-1", "local"), name: "Yacht Rock Forever" },
+    ]);
+    const out = await searchFirstWithFallback(primary, "q", 1, undefined, undefined);
+    expect(out?.song.id).toBe("ok-1");
   });
 
   it("returns null when primary is empty and no fallback is allowed (e.g. -l forced)", async () => {

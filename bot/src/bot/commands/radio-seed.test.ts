@@ -27,6 +27,15 @@ describe("isRadioSeedFriendlySong", () => {
     );
   });
 
+  it("rejects rap / hip-hop / R&B under default genre policy", () => {
+    expect(isRadioSeedFriendlySong(song({ id: "r", name: "Hip-Hop Anthem", duration: 180 }))).toBe(
+      false,
+    );
+    expect(isRadioSeedFriendlySong(song({ id: "y", name: "Yacht Rock", duration: 180 }))).toBe(
+      true,
+    );
+  });
+
   it("rejects multi-hour titles and over-long durations", () => {
     expect(
       isRadioSeedFriendlySong(

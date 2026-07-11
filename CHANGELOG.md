@@ -6,6 +6,15 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-10
+
+### Music: block rap / hip-hop / R&B by default
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Station policy `musicBlockedGenres` (default rap, hip hop, hip-hop, R&B family)
+- Filters `!play`/`!add` search, radio seed restock, and resolve/play
+- Settings → **Blocked genres**; empty list disables the ban
+
 ## 2026-07-09
 
 ### Docs: README/ROADMAP radio sync

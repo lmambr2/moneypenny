@@ -45,6 +45,7 @@ Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
 
 **Music sources**
 - **Local library** (primary) — indexed `MUSIC_DIR`; search by title/artist/album, M3U playlists, web upload.
+- **Genre policy** — by default **rap / hip-hop / R&B** are blocked (title/artist/album/tag match). Configure in Settings → Blocked genres (clear the list to allow all).
 - **YouTube** — search + direct URLs (yt-dlp). Optional **save-to-library**: a played video is downloaded as a tagged MP3 into your library (deduped by video id) so replays are local.
 - **X / Twitter / Bandcamp** — play their audio directly (yt-dlp).
 - **Spotify / Tidal** — links resolve to the track and play from Local/YouTube (DRM-free, no credentials); or stream for real via an optional librespot/Tidal bridge (`STREAM_BRIDGE_URL`).

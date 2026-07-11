@@ -290,7 +290,7 @@ export class BotManager extends EventEmitter {
         isConnected: () => this.bots.get(s.id)?.isConnected() ?? false,
         // Skip when event-driven scheduler already owns recovery (S-OC3).
         isReconnecting: () => this.reconnectScheduler.isBusy(s.id),
-        reconnect: () => this.startBot(s.id),
+        reconnect: () => this.startBot(s.id, { fromReconnect: true }),
       }));
   }
 

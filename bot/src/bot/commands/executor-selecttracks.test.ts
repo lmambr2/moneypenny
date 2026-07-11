@@ -11,8 +11,9 @@ function harness(opts: { playerState?: "idle" | "playing" } = {}) {
 
   const queued: unknown[] = [];
   const queue = {
-    add: vi.fn((s: unknown) => queued.push(s)),
+    add: vi.fn((s: unknown) => queued.push(s) - 1),
     play: vi.fn(),
+    playAt: vi.fn(),
     current: vi.fn(() => queued[0] ?? null),
   };
   const resolveAndPlay = vi.fn(async () => true);
@@ -54,10 +55,12 @@ describe("cmdSelectTracks", () => {
     expect(queued.map((s) => (s as { id: string }).id).sort()).toEqual(["k1", "k2"]);
   });
 
-  it("starts playback when the player was idle", async () => {
+  it("starts playback at the inserted tracks when the player was idle", async () => {
     const { ex, queue, resolveAndPlay } = harness({ playerState: "idle" });
     await run(ex, { genreAny: ["ambient"] });
-    expect(queue.play).toHaveBeenCalled();
+    // playAt(first insert index), not play(): play() restarts at index 0,
+    // which can replay an old/radio-fill track instead of the selection.
+    expect(queue.playAt).toHaveBeenCalledWith(0);
     expect(resolveAndPlay).toHaveBeenCalled();
   });
 
@@ -65,6 +68,7 @@ describe("cmdSelectTracks", () => {
     const { ex, queue, resolveAndPlay } = harness({ playerState: "playing" });
     await run(ex, { genreAny: ["ambient"] });
     expect(queue.play).not.toHaveBeenCalled();
+    expect(queue.playAt).not.toHaveBeenCalled();
     expect(resolveAndPlay).not.toHaveBeenCalled();
   });
 

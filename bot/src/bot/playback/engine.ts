@@ -5,6 +5,11 @@ import type { PlayQueue, QueuedSong } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { BotDatabase } from "../../data/database.js";
 import type { Logger } from "../../logger.js";
+import {
+  blockedGenreMessage,
+  isBlockedGenreSong,
+  normalizeMusicBlockedGenres,
+} from "../../music/genre-block.js";
 import type { LocalProvider } from "../../music/local.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { searchFirstWithFallback } from "../../music/search-fallback.js";
@@ -170,6 +175,11 @@ export class PlaybackEngine {
     return null;
   }
 
+  /** Station genre policy (default: rap / hip-hop / R&B). Explicit `[]` allows all. */
+  blockedGenres(): string[] {
+    return normalizeMusicBlockedGenres(this.opts.config.musicBlockedGenres);
+  }
+
   async searchFirst(
     cmd: ParsedCommand,
     limit = 1,
@@ -180,7 +190,13 @@ export class PlaybackEngine {
       provider === this.opts.localProvider && !resolved.flags.has("l")
         ? this.opts.youtubeProvider
         : undefined;
-    return searchFirstWithFallback(provider, resolved.args, limit, fallback);
+    return searchFirstWithFallback(
+      provider,
+      resolved.args,
+      limit,
+      fallback,
+      this.opts.config.musicBlockedGenres,
+    );
   }
 
   async resolveExternalRef(cmd: ParsedCommand): Promise<ParsedCommand> {
@@ -222,6 +238,13 @@ export class PlaybackEngine {
     this.voteSkipUsers.clear();
     const provider = this.getProviderFor(song.platform);
     try {
+      if (isBlockedGenreSong(song, this.opts.config.musicBlockedGenres)) {
+        this.opts.logger.info(
+          { songId: song.id, name: song.name, artist: song.artist },
+          "Genre policy blocked track — skipping",
+        );
+        return false;
+      }
       // Belt-and-suspenders: refuse full-album / >15m dumps even if already queued.
       if (
         song.platform === "youtube" &&
@@ -337,18 +360,26 @@ export class PlaybackEngine {
   ): Promise<string> {
     if (resolved.type === "playlist") {
       const songs = await this.opts.localProvider.getPlaylistSongs(resolved.item.id);
-      if (songs.length === 0) {
-        return `Playlist "${resolved.item.name}" is empty or could not be loaded.`;
+      const allowed = songs.filter(
+        (s) => !isBlockedGenreSong(s, this.opts.config.musicBlockedGenres),
+      );
+      if (allowed.length === 0) {
+        return songs.length === 0
+          ? `Playlist "${resolved.item.name}" is empty or could not be loaded.`
+          : `Playlist "${resolved.item.name}" has no tracks allowed by genre policy.`;
       }
       this.opts.queue.clear();
-      this.opts.queue.addMany(songs.map((s) => ({ ...s, platform, source: "user" as const })));
+      this.opts.queue.addMany(allowed.map((s) => ({ ...s, platform, source: "user" as const })));
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
       this.emitState();
       return ok
-        ? `Playing playlist: ${resolved.item.name} (${songs.length} tracks)`
+        ? `Playing playlist: ${resolved.item.name} (${allowed.length} tracks)`
         : `Failed to start playlist: ${resolved.item.name}`;
+    }
+    if (isBlockedGenreSong(resolved.item, this.opts.config.musicBlockedGenres)) {
+      return blockedGenreMessage(resolved.item);
     }
     this.opts.queue.clear();
     this.opts.queue.add({ ...resolved.item, platform, source: "user" });
@@ -367,11 +398,21 @@ export class PlaybackEngine {
   ): Promise<string> {
     if (resolved.type === "playlist") {
       const songs = await this.opts.localProvider.getPlaylistSongs(resolved.item.id);
-      if (songs.length === 0) return "Playlist is empty.";
+      const allowed = songs.filter(
+        (s) => !isBlockedGenreSong(s, this.opts.config.musicBlockedGenres),
+      );
+      if (allowed.length === 0) {
+        return songs.length === 0
+          ? "Playlist is empty."
+          : `Playlist has no tracks allowed by genre policy.`;
+      }
       const wasIdle = this.opts.player.getState() === "idle";
-      const firstIdx = this.opts.queue.size();
-      this.opts.queue.addMany(songs.map((s) => ({ ...s, platform, source: "user" as const })));
-      if (wasIdle) {
+      // User tracks priority-insert BEFORE radio fill — the pre-add queue size
+      // is not where the playlist lands; use the insert index addMany returns.
+      const firstIdx = this.opts.queue.addMany(
+        allowed.map((s) => ({ ...s, platform, source: "user" as const })),
+      );
+      if (wasIdle && firstIdx >= 0) {
         this.opts.queue.playAt(firstIdx);
         this.opts.player.resetFailures();
         await this.resolveAndPlay(this.opts.queue.current()!);
@@ -379,7 +420,10 @@ export class PlaybackEngine {
         return `Added playlist "${resolved.item.name}" and started playback.`;
       }
       this.emitState();
-      return `Added playlist "${resolved.item.name}" (${songs.length} tracks) to queue.`;
+      return `Added playlist "${resolved.item.name}" (${allowed.length} tracks) to queue.`;
+    }
+    if (isBlockedGenreSong(resolved.item, this.opts.config.musicBlockedGenres)) {
+      return blockedGenreMessage(resolved.item);
     }
     const wasIdle = this.opts.player.getState() === "idle";
     const at = this.opts.queue.add({ ...resolved.item, platform, source: "user" });

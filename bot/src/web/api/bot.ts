@@ -56,6 +56,9 @@ export function createBotRouter(
       roastCooldownMinutes: config.roastCooldownMinutes ?? 180,
       roastMinScore: config.roastMinScore ?? 4,
       youtubeSaveEnabled: config.youtubeSaveEnabled ?? false,
+      musicBlockedGenres: Array.isArray(config.musicBlockedGenres)
+        ? config.musicBlockedGenres
+        : ["rap", "hip hop", "hip-hop", "hiphop", "r&b", "rnb", "r and b", "rhythm and blues"],
       ragEnabled: config.ragEnabled ?? false,
       ragTopK: config.ragTopK ?? 4,
       memoryEnabled: config.memoryEnabled ?? false,
@@ -151,7 +154,7 @@ export function createBotRouter(
         touch: "roast",
         msg: "roastMinScore must be an integer 0\u201310",
       },
-      // youtubeSaveEnabled is read live from the shared config — no re-apply.
+      // youtubeSaveEnabled / musicBlockedGenres are read live — no re-apply.
       { key: "youtubeSaveEnabled", type: "boolean" },
       { key: "ragEnabled", type: "boolean", touch: "rag" },
       { key: "ragTopK", type: "int", min: 1, touch: "rag" },
@@ -225,6 +228,19 @@ export function createBotRouter(
         cfg[spec.key] = v;
       }
       if (spec.touch) touched[spec.touch] = true;
+    }
+
+    if ("musicBlockedGenres" in body) {
+      const v = body.musicBlockedGenres;
+      if (!Array.isArray(v) || !v.every((s: unknown) => typeof s === "string")) {
+        res.status(400).json({
+          error: "musicBlockedGenres must be an array of strings",
+          code: "VALIDATION_ERROR",
+        });
+        return;
+      }
+      // Explicit [] clears the ban (allow all). Non-empty = station policy list.
+      config.musicBlockedGenres = v.map((s: string) => s.trim()).filter(Boolean);
     }
 
     if ("adminGroups" in body) {
@@ -320,6 +336,24 @@ export function createBotRouter(
           .status(400)
           .json({ error: "voice.energyThreshold must be a number", code: "VALIDATION_ERROR" });
         return;
+      }
+      for (const key of ["ttsBargeIn", "textWakeFallback"] as const) {
+        if (key in patch && typeof patch[key] !== "boolean") {
+          res
+            .status(400)
+            .json({ error: `voice.${key} must be a boolean`, code: "VALIDATION_ERROR" });
+          return;
+        }
+      }
+      if ("passiveKwsMaxSpeakers" in patch) {
+        const v = patch.passiveKwsMaxSpeakers;
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || v > 10) {
+          res.status(400).json({
+            error: "voice.passiveKwsMaxSpeakers must be a number 1–10",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
       }
       config.voice = { ...defaultVoiceConfig(), ...config.voice, ...patch };
       touched.voice = true;
@@ -426,6 +460,43 @@ export function createBotRouter(
             code: "VALIDATION_ERROR",
           });
           return;
+        }
+        // Seed-mix fields ride inside profile.music — validate here so a bad
+        // value is rejected instead of silently discarded at runtime.
+        const validSeedSources = new Set(["local", "youtube", "stream"]);
+        for (const [name, prof] of Object.entries(p as Record<string, { music?: unknown }>)) {
+          const music = prof.music;
+          if (music === undefined) continue;
+          if (typeof music !== "object" || music === null || Array.isArray(music)) {
+            res.status(400).json({
+              error: `radio.profiles.${name}.music must be an object`,
+              code: "VALIDATION_ERROR",
+            });
+            return;
+          }
+          const m = music as { seedSources?: unknown; seedExternalRatio?: unknown };
+          if ("seedSources" in m && m.seedSources !== undefined) {
+            const ok2 =
+              Array.isArray(m.seedSources) &&
+              m.seedSources.every((s) => typeof s === "string" && validSeedSources.has(s));
+            if (!ok2) {
+              res.status(400).json({
+                error: `radio.profiles.${name}.music.seedSources must be an array of local|youtube|stream`,
+                code: "VALIDATION_ERROR",
+              });
+              return;
+            }
+          }
+          if ("seedExternalRatio" in m && m.seedExternalRatio !== undefined) {
+            const v = m.seedExternalRatio;
+            if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+              res.status(400).json({
+                error: `radio.profiles.${name}.music.seedExternalRatio must be a number 0–1`,
+                code: "VALIDATION_ERROR",
+              });
+              return;
+            }
+          }
         }
       }
       if ("clock" in patch) {

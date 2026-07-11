@@ -529,15 +529,23 @@ export function createPlayerRouter(
       }
 
       const queue = bot.getQueueManager();
-      queue.add({ ...song, platform: provider.platform });
+      const wasIdle = bot.getPlayer().getState() === "idle";
+      // Human/web add jumps ahead of auto-DJ radio fill tracks.
+      const at = queue.add({ ...song, platform: provider.platform, source: "user" });
 
-      // If nothing is playing, start the first song
-      if (bot.getPlayer().getState() === "idle") {
-        const first = queue.play();
-        if (first) await bot.resolveAndPlay(first);
+      // If nothing is playing, start the newly-added song — queue.play()
+      // would reset to index 0 and replay an old/radio-fill track instead.
+      if (wasIdle) {
+        queue.playAt(at);
+        bot.getPlayer().resetFailures();
+        await bot.resolveAndPlay(queue.current()!);
+        res.json({ message: `Now playing: ${song.name} - ${song.artist}` });
+        return;
       }
 
-      res.json({ message: `Added: ${song.name} - ${song.artist} (position ${queue.size()})` });
+      const cur = queue.getCurrentIndex();
+      const upcoming = cur < 0 ? at + 1 : Math.max(1, at - cur);
+      res.json({ message: `Added: ${song.name} - ${song.artist} (up next #${upcoming})` });
     } catch (err) {
       logger.error({ err }, "Player API error");
       res.status(500).json({ error: "internal error" });

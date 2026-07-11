@@ -1,3 +1,4 @@
+import { filterUnblockedSongs } from "./genre-block.js";
 import type { MusicProvider, Song } from "./provider.js";
 
 /**
@@ -11,22 +12,38 @@ import type { MusicProvider, Song } from "./provider.js";
  *
  * Extracted from BotInstance.searchFirst as a pure function so the fallback
  * behavior is unit-testable without standing up a full bot.
+ *
+ * `blockedGenres` (station policy) drops rap/hip-hop/R&B-family hits before pick.
+ * When set, we pull a slightly larger candidate list so we can skip blocked titles.
  */
 export async function searchFirstWithFallback(
   primary: MusicProvider,
   query: string,
   limit: number,
   fallback?: MusicProvider,
+  blockedGenres?: readonly string[] | null,
 ): Promise<{ provider: MusicProvider; song: Song } | null> {
-  let result = await primary.search(query, limit);
-  let chosen = primary;
-  if (result.songs.length === 0 && fallback) {
-    const fb = await fallback.search(query, limit);
-    if (fb.songs.length > 0) {
-      result = fb;
-      chosen = fallback;
-    }
+  const fetchLimit = Math.max(
+    limit,
+    blockedGenres === undefined || (blockedGenres?.length ?? 0) > 0 ? 8 : 1,
+  );
+  const pick = (
+    provider: MusicProvider,
+    songs: Song[],
+  ): { provider: MusicProvider; song: Song } | null => {
+    const allowed = filterUnblockedSongs(songs, blockedGenres);
+    if (allowed.length === 0) return null;
+    return { provider, song: allowed[0]! };
+  };
+
+  const result = await primary.search(query, fetchLimit);
+  let hit = pick(primary, result.songs ?? []);
+  if (hit) return hit;
+
+  if (fallback) {
+    const fb = await fallback.search(query, fetchLimit);
+    hit = pick(fallback, fb.songs ?? []);
+    if (hit) return hit;
   }
-  if (result.songs.length === 0) return null;
-  return { provider: chosen, song: result.songs[0] };
+  return null;
 }
