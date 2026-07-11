@@ -2513,8 +2513,7 @@ async function loadAiSettings() {
       const maxP = Number(rep.maxPlays);
       const coolH = Number(rep.cooldownHours);
       ai.radioAutoDjMaxPlays = Number.isFinite(maxP) && maxP >= 1 ? Math.floor(maxP) : 1;
-      ai.radioAutoDjCooldownHours =
-        Number.isFinite(coolH) && coolH > 0 ? coolH : 12;
+      ai.radioAutoDjCooldownHours = Number.isFinite(coolH) && coolH > 0 ? coolH : 12;
     }
     ai.radioHarmonicSequencing = !!radio.harmonicSequencing;
     ai.radioAudioColor = (
@@ -3097,10 +3096,7 @@ async function saveAiSettings() {
         autoDjRepeat: {
           enabled: true,
           maxPlays: Math.max(1, Math.min(100, Math.floor(Number(ai.radioAutoDjMaxPlays) || 1))),
-          cooldownHours: Math.max(
-            0.25,
-            Math.min(720, Number(ai.radioAutoDjCooldownHours) || 12),
-          ),
+          cooldownHours: Math.max(0.25, Math.min(720, Number(ai.radioAutoDjCooldownHours) || 12)),
         },
         harmonicSequencing: ai.radioHarmonicSequencing,
         audioColor: ai.radioAudioColor,
