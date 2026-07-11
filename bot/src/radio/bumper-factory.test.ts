@@ -5,6 +5,7 @@ import {
   finalizeBumperScript,
   isBumperEligibleMaterial,
   isBumperEligibleSource,
+  isGroundedInMaterial,
   isMetaBumperScript,
   joinSpokenLines,
   type NowPlayingInfo,
@@ -532,27 +533,51 @@ describe("bumper script sanitizers", () => {
     ).toBe(true);
   });
 
-  it("finalize prefers clean LLM, else material, never meta", () => {
+  it("finalize prefers grounded LLM, else material; rejects ungrounded meta", () => {
+    const material =
+      "The Talon Group presents the Office of Organizational Analysis as a support division.";
+    // Classic Gemma leak — not grounded in material → material clip
     expect(
-      finalizeBumperScript(
-        "Do not invent anything; only rephrase the provided text.",
-        "The Talon Group presents the Office of Organizational Analysis as a support division.",
-        40,
-      ),
+      finalizeBumperScript("The prompt asks to speak ONE short radio bumper", material, 40),
     ).toEqual({
-      script:
-        "The Talon Group presents the Office of Organizational Analysis as a support division.",
+      script: material,
       from: "material",
     });
     expect(
       finalizeBumperScript(
-        "OOA keeps operations efficient for the Chairman.",
-        "unused material here that is long enough to pass",
+        "Do not invent anything; only rephrase the provided text.",
+        material,
         40,
-      )?.from,
-    ).toBe("llm");
+      ),
+    ).toEqual({
+      script: material,
+      from: "material",
+    });
+    // Faithful paraphrase shares content words with source
+    expect(
+      finalizeBumperScript(
+        "The Office of Organizational Analysis supports the Talon Group.",
+        material,
+        40,
+      ),
+    ).toEqual({
+      script: "The Office of Organizational Analysis supports the Talon Group.",
+      from: "llm",
+    });
+    // Invented line with no overlap → material
+    expect(
+      finalizeBumperScript("Cats enjoy napping in sunbeams every afternoon.", material, 40)?.from,
+    ).toBe("material");
     expect(cleanBumperScript('Announcement: "Heavies hold the line."')).toBe(
       "Heavies hold the line.",
+    );
+  });
+
+  it("isGroundedInMaterial requires content-word overlap", () => {
+    const mat = "Heavies establish the perimeter before the larger ships jump in.";
+    expect(isGroundedInMaterial("Heavies set the perimeter before ships jump.", mat)).toBe(true);
+    expect(isGroundedInMaterial("The prompt asks to speak ONE short radio bumper", mat)).toBe(
+      false,
     );
   });
 });

@@ -182,9 +182,64 @@ export function cleanBumperScript(raw: string, toneHint?: string): string | null
   return t;
 }
 
+/** Stopwords stripped before grounding overlap (content words only). */
+const GROUND_STOP = new Set(
+  `a an the and or of to in for on with is are was were be as at by from that this it its our we you your will can may not only one short radio bumper spoken line announcement note please here is are was do does did should would could must`.split(
+    /\s+/,
+  ),
+);
+
+/** Content tokens from a string (lowercase, length>2, not stopwords). */
+export function contentTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, " ")
+    .split(/\s+/)
+    .map((w) => w.replace(/^'+|'+$/g, ""))
+    .filter((w) => w.length > 2 && !GROUND_STOP.has(w));
+}
+
 /**
- * Turn LLM output (or empty) into air-safe speech. Prefer cleaned model text;
- * else clipped material; never return meta/instruction echoes.
+ * True when `script` is actually about `material` — enough content-word overlap.
+ * Catches prompt narration ("The prompt asks to speak ONE short radio bumper")
+ * without endless per-phrase regex. Root check for accepting LLM rewrites.
+ */
+export function isGroundedInMaterial(
+  script: string,
+  material: string,
+  opts: { minRatio?: number; minHits?: number } = {},
+): boolean {
+  const minRatio = opts.minRatio ?? 0.2;
+  const minHits = opts.minHits ?? 2;
+  const src = new Set(contentTokens(material));
+  const words = contentTokens(script);
+  if (src.size === 0 || words.length === 0) return false;
+  const hits = words.filter((w) => src.has(w)).length;
+  if (hits >= minHits && hits / words.length >= minRatio) return true;
+  // Short faithful lines: 2+ hits and most of the script is grounded.
+  if (words.length <= 14 && hits >= 2 && hits / words.length >= 0.35) return true;
+  return false;
+}
+
+/** Clip source material into a speakable line (sentence-aware). */
+export function clipMaterialForSpeech(material: string, cap: number): string | null {
+  if (!isBumperEligibleMaterial(material)) return null;
+  let clip = material.trim();
+  const sentence = clip.match(/^[A-Z0-9][^.!?\n]{15,}[.!?]/);
+  if (sentence) clip = sentence[0]!;
+  else {
+    const mid = clip.match(/[.!?]\s+([A-Z][^.!?]{15,}[.!?])/);
+    if (mid?.[1]) clip = mid[1];
+  }
+  clip = clip.split(/\s+/).slice(0, Math.min(cap, 45)).join(" ").trim();
+  if (!clip || isMetaBumperScript(clip)) return null;
+  return clip;
+}
+
+/**
+ * Turn LLM output (or empty) into air-safe speech.
+ * Accept LLM only when cleaned **and grounded in material**; else material clip.
+ * Grounding is the root gate — meta-regex is a secondary reject only.
  */
 export function finalizeBumperScript(
   llmOut: string,
@@ -194,27 +249,32 @@ export function finalizeBumperScript(
 ): { script: string; from: "llm" | "material" } | null {
   const cleaned = cleanBumperScript(llmOut, toneHint);
   if (cleaned) {
-    return { script: cleaned.split(/\s+/).slice(0, cap).join(" "), from: "llm" };
+    const capped = cleaned.split(/\s+/).slice(0, cap).join(" ");
+    if (isGroundedInMaterial(capped, material)) {
+      return { script: capped, from: "llm" };
+    }
   }
-  if (!isBumperEligibleMaterial(material)) return null;
-  // Prefer starting at a sentence boundary so we don't speak mid-word chunks.
-  let clip = material.trim();
-  const sentence = clip.match(/^[A-Z0-9][^.!?\n]{15,}[.!?]/);
-  if (sentence) clip = sentence[0]!;
-  else {
-    // Mid-chunk recovery: jump to first capital sentence if present.
-    const mid = clip.match(/[.!?]\s+([A-Z][^.!?]{15,}[.!?])/);
-    if (mid?.[1]) clip = mid[1];
-  }
-  clip = clip.split(/\s+/).slice(0, Math.min(cap, 45)).join(" ").trim();
-  if (!clip || isMetaBumperScript(clip, toneHint)) return null;
+  const clip = clipMaterialForSpeech(material, cap);
+  if (!clip) return null;
   return { script: clip, from: "material" };
 }
 
-const BUMPER_REWRITE_SYSTEM =
-  "You are a radio announcer on the air. Reply with ONLY the words to speak — one short sentence or two. " +
-  "Never mention instructions, word limits, tone guides, markdown, prompts, or rewriting. " +
-  "Never invent facts not present in SOURCE. Do not quote the word SOURCE.";
+/**
+ * System prompt only — user message is **raw material**, no "speak a bumper"
+ * instructions (those get echoed by Gemma). Few-shot keeps output on-task.
+ */
+export function bumperRewriteSystem(cap: number, toneHint?: string): string {
+  const style = toneHint?.trim() ? ` Voice style (never say this aloud): ${toneHint.trim()}.` : "";
+  return (
+    `You are on live radio. The user message is a doctrine note. ` +
+    `Reply with only the spoken words (one or two short sentences, under ${cap} words). ` +
+    `Use only facts from the user message. No labels, quotes, markdown, or talk about prompts.${style}\n\n` +
+    `Example user: The Office of Organizational Analysis provides independent analysis for the Talon Group.\n` +
+    `Example reply: The Office of Organizational Analysis keeps Talon operations sharp with independent analysis.\n\n` +
+    `Example user: Heavies establish the perimeter before the larger ships jump in.\n` +
+    `Example reply: Heavies set the perimeter before the larger ships jump.`
+  );
+}
 
 /**
  * Resolve spoken station-ID lines from config + station name.
@@ -725,18 +785,14 @@ export class RadioBumperFactory implements BumperFactory {
 
     const cap = wordCap(cfg.maxBumperSeconds);
     const toneHint = profile?.bumper?.tone?.trim() || undefined;
-    const toneStyle = toneHint ? `\nStyle (do not speak this aloud): ${toneHint}` : "";
-    const llmOut = (
-      await llm.complete(
-        `SOURCE:\n"""\n${material.split(/\s+/).slice(0, 120).join(" ")}\n"""\n\nSpeak a short station note from SOURCE only (under ${cap} words, one breath).${toneStyle}\n\nANNOUNCEMENT:`,
-        BUMPER_REWRITE_SYSTEM,
-      )
-    ).trim();
+    // User message = material only (no "speak a bumper" task text for Gemma to echo).
+    const materialClip = material.split(/\s+/).slice(0, 120).join(" ");
+    const llmOut = (await llm.complete(materialClip, bumperRewriteSystem(cap, toneHint))).trim();
     const finalized = finalizeBumperScript(llmOut, material, cap, toneHint);
     if (!finalized) {
       this.deps.logger.info(
         { topic, llmPreview: llmOut.slice(0, 120) },
-        "radio: memory skip — rewrite looked like meta/instructions",
+        "radio: memory skip — rewrite unusable (ungrounded or empty)",
       );
       return null;
     }
@@ -836,15 +892,9 @@ export class RadioBumperFactory implements BumperFactory {
 
     const cap = wordCap(cfg.maxBumperSeconds);
     const toneHint = profile?.bumper?.tone?.trim() || undefined;
-    const toneStyle = toneHint ? `\nStyle (do not speak this aloud): ${toneHint}` : "";
-    // Clip material so the model doesn't burn tokens on long reasoning traces.
+    // Clip material for the model; user message is ONLY that text (no task prompt).
     const materialClip = material.split(/\s+/).slice(0, 120).join(" ");
-    const llmOut = (
-      await llm.complete(
-        `SOURCE:\n"""\n${materialClip}\n"""\n\nSpeak ONE short radio bumper from SOURCE only (under ${cap} words).${toneStyle}\n\nANNOUNCEMENT:`,
-        BUMPER_REWRITE_SYSTEM,
-      )
-    ).trim();
+    const llmOut = (await llm.complete(materialClip, bumperRewriteSystem(cap, toneHint))).trim();
     const finalized = finalizeBumperScript(llmOut, material, cap, toneHint);
     if (!finalized) {
       this.deps.logger.info(
@@ -853,14 +903,14 @@ export class RadioBumperFactory implements BumperFactory {
           source: sourceHit,
           llmPreview: llmOut.slice(0, 160),
         },
-        "radio: doctrine skip — rewrite looked like meta/instructions",
+        "radio: doctrine skip — rewrite unusable (ungrounded or empty)",
       );
       return null;
     }
     if (finalized.from === "material") {
       this.deps.logger.info(
         { topic: topicUsed, source: sourceHit, llmPreview: llmOut.slice(0, 120) },
-        "radio: doctrine LLM unusable — using clipped source text",
+        "radio: doctrine LLM ungrounded/meta — using clipped source text",
       );
     }
 

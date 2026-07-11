@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-10
 
+
+### Radio: ground doctrine rewrites in source (not meta regex only)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- User message = doctrine text only (stop putting "speak a bumper" in the prompt)
+- Accept LLM rewrite only if content-words overlap source; else clipped prose
+- Meta-regex stays as a secondary reject
+
+
 ### Music: block rap / hip-hop / R&B by default
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
