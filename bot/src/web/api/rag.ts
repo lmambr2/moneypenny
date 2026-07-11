@@ -19,6 +19,10 @@ import {
   reindexDoctrineSources,
 } from "../../rag/doctrine-ingest.js";
 import type { RetrievalStore } from "../../rag/index.js";
+import {
+  reformatDoctrineMarkdown,
+  shouldSkipDoctrineReformat,
+} from "../../rag/reformat-doctrine.js";
 import { errorMessage } from "../../util/error.js";
 import { multerArray, uploadedFiles } from "./upload.js";
 
@@ -321,6 +325,70 @@ Body markdown…
     } catch (err: unknown) {
       logger.error({ err }, "Doctrine reindex failed");
       res.status(502).json({ error: errorMessage(err, "reindex failed"), code: "RAG_ERROR" });
+    }
+  });
+
+  /**
+   * POST /api/rag/doctrine/reformat — normalize frontmatter + ## sections for RAG
+   * chunking (admin). Optional body.sources: string[]; default = all on-disk files.
+   * Re-ingests only files that changed. Skips ops cheatsheets.
+   */
+  router.post("/doctrine/reformat", async (req, res) => {
+    const only = Array.isArray(req.body?.sources)
+      ? req.body.sources.filter(
+          (s: unknown): s is string => typeof s === "string" && s.trim().length > 0,
+        )
+      : undefined;
+    try {
+      const candidates: string[] =
+        only && only.length > 0
+          ? only
+              .map((src: string) => doctrine.safeName(src))
+              .filter((src): src is string => typeof src === "string" && src.length > 0)
+          : doctrine.files();
+      const changed: string[] = [];
+      const unchanged: string[] = [];
+      const skipped: Array<{ source: string; reason: string }> = [];
+
+      for (const source of candidates) {
+        if (shouldSkipDoctrineReformat(source)) {
+          skipped.push({ source, reason: "operator cheatsheet" });
+          continue;
+        }
+        const raw = doctrine.readFile(source);
+        if (raw == null) {
+          skipped.push({ source, reason: "not found" });
+          continue;
+        }
+        const next = reformatDoctrineMarkdown(raw, source);
+        if (!next) {
+          unchanged.push(source);
+          continue;
+        }
+        if (Buffer.byteLength(next) > MAX_DOCTRINE_FILE_BYTES) {
+          skipped.push({ source, reason: "reformatted content too large" });
+          continue;
+        }
+        await ingestDoc(source, next);
+        changed.push(source);
+      }
+
+      logger.info(
+        { changed: changed.length, unchanged: unchanged.length, skipped: skipped.length },
+        "Doctrine reformat completed",
+      );
+      res.json({
+        ok: true,
+        changed: changed.length,
+        unchanged: unchanged.length,
+        skipped,
+        files: changed,
+        reindexedViaIngest: changed.length,
+        hint: "Changed files were re-embedded on save. Use Reindex if retrieval still looks stale.",
+      });
+    } catch (err: unknown) {
+      logger.error({ err }, "Doctrine reformat failed");
+      res.status(502).json({ error: errorMessage(err, "reformat failed"), code: "RAG_ERROR" });
     }
   });
 

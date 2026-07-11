@@ -300,12 +300,21 @@
         </label>
         <button class="refresh-btn" @click="toggleNewDoc" :disabled="doctrineBusy">+ New doc</button>
         <button class="refresh-btn" @click="reindexDoctrine" :disabled="doctrineBusy">⟳ Reindex</button>
+        <button
+          class="refresh-btn"
+          @click="reformatDoctrine"
+          :disabled="doctrineBusy"
+          title="Normalize frontmatter and ## section headings for cleaner RAG chunks (admin). Skips ops cheatsheets. Re-embeds changed files."
+        >
+          ✎ Normalize formatting
+        </button>
         <button class="refresh-btn" @click="loadDoctrineHygiene" :disabled="doctrineBusy" title="Classification audit + reindex status">
           ☰ Hygiene
         </button>
         <span class="upload-hint">
           Markdown docs are chunked and embedded so <code>!ask</code> / <code>!analyst</code> can cite them.
-          Requires the knowledge base (RAG) enabled in Settings.
+          Requires the knowledge base (RAG) enabled in Settings. Use <strong>Normalize formatting</strong>
+          after bulk dumps so sections get proper headings.
         </span>
       </div>
       <p v-if="hygieneSummary" class="upload-hint hygiene-summary">{{ hygieneSummary }}</p>
@@ -891,6 +900,33 @@ async function reindexDoctrine() {
     await loadDoctrine();
   } catch (err: any) {
     doctrineMsg.value = err?.response?.data?.error ?? 'Reindex failed.';
+  } finally {
+    doctrineBusy.value = false;
+  }
+}
+
+async function reformatDoctrine() {
+  if (
+    !window.confirm(
+      'Normalize doctrine formatting on disk?\n\n• Fixes frontmatter\n• Promotes section titles to ## headings\n• Re-embeds only files that change\n\nOps cheatsheets are skipped. Backup first if you need a rollback.',
+    )
+  ) {
+    return;
+  }
+  doctrineBusy.value = true;
+  doctrineMsg.value = '';
+  try {
+    const res = await api.post('/api/rag/doctrine/reformat', {});
+    const d = res.data;
+    doctrineMsg.value = `Normalized formatting: ${d.changed ?? 0} changed, ${d.unchanged ?? 0} already clean, ${d.skipped?.length ?? 0} skipped.`;
+    if (editingSource.value) {
+      const src = editingSource.value;
+      const reread = await api.get(`/api/rag/doctrine/${encodeURIComponent(src)}`);
+      openDoctrineEditor(src, reread.data.content ?? '');
+    }
+    await loadDoctrine();
+  } catch (err: any) {
+    doctrineMsg.value = err?.response?.data?.error ?? 'Normalize formatting failed.';
   } finally {
     doctrineBusy.value = false;
   }

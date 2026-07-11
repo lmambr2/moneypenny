@@ -8,6 +8,11 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-10
 
+### Library: Normalize doctrine formatting from the dashboard
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Admin **Library → Doctrine → Normalize formatting** (`POST /api/rag/doctrine/reformat`)
+- Same heading/frontmatter pass as the host CLI; re-embeds only changed files
 
 ### Radio: ground doctrine rewrites in source (not meta regex only)
 **Author: Grok (xAI), driven by Lane Ambrose.**

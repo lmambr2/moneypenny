@@ -76,14 +76,18 @@ Short paragraphs. One idea per section when possible.
 
 **Reformat an existing host corpus** (does not live in the public git tree):
 
+- **Dashboard (admin):** Library → Doctrine → **Normalize formatting**  
+  (`POST /api/rag/doctrine/reformat` — re-embeds only files that change)
+- **CLI on the bot host:**
+
 ```bash
-# On the bot host, after backing up bot/data/doctrine:
+# After backing up bot/data/doctrine:
 python3 scripts/reformat-doctrine-corpus.py /path/to/bot/data/doctrine
 # Watcher / !reindex / POST /api/rag/doctrine/reindex picks up changes
 ```
 
-The script normalizes frontmatter, promotes real section titles to `##`, keeps
-list items as bullets, and leaves operator cheatsheets alone.
+Both paths normalize frontmatter, promote real section titles to `##`, keep
+list items as bullets, and leave operator cheatsheets alone.
 
 ---
 
