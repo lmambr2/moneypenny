@@ -556,6 +556,7 @@ export function createBotRouter(
         "bumperDir",
         "analyzer",
         "ratingWeight",
+        "autoDjRepeat",
         "harmonicSequencing",
         "audioColor",
         "icecast",
@@ -592,6 +593,44 @@ export function createBotRouter(
             code: "VALIDATION_ERROR",
           });
           return;
+        }
+      }
+      if ("autoDjRepeat" in patch && patch.autoDjRepeat !== undefined) {
+        const r = patch.autoDjRepeat;
+        if (typeof r !== "object" || r === null || Array.isArray(r)) {
+          res.status(400).json({
+            error: "radio.autoDjRepeat must be an object",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+        const o = r as { enabled?: unknown; maxPlays?: unknown; cooldownHours?: unknown };
+        if ("enabled" in o && o.enabled !== undefined && typeof o.enabled !== "boolean") {
+          res.status(400).json({
+            error: "radio.autoDjRepeat.enabled must be a boolean",
+            code: "VALIDATION_ERROR",
+          });
+          return;
+        }
+        if ("maxPlays" in o && o.maxPlays !== undefined) {
+          const n = o.maxPlays;
+          if (typeof n !== "number" || !Number.isFinite(n) || n < 1 || n > 100) {
+            res.status(400).json({
+              error: "radio.autoDjRepeat.maxPlays must be a number 1–100",
+              code: "VALIDATION_ERROR",
+            });
+            return;
+          }
+        }
+        if ("cooldownHours" in o && o.cooldownHours !== undefined) {
+          const n = o.cooldownHours;
+          if (typeof n !== "number" || !Number.isFinite(n) || n <= 0 || n > 720) {
+            res.status(400).json({
+              error: "radio.autoDjRepeat.cooldownHours must be a number 0–720",
+              code: "VALIDATION_ERROR",
+            });
+            return;
+          }
         }
       }
       const unknown = Object.keys(patch).filter((k) => !KNOWN_RADIO_KEYS.has(k));

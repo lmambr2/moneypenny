@@ -336,6 +336,7 @@ describe("bot settings router", () => {
           everyNSongs: 6,
           quietHours: [{ from: "02:00", to: "08:00" }],
           sources: ["prerecorded", "stationId"],
+          autoDjRepeat: { enabled: true, maxPlays: 2, cooldownHours: 6 },
         },
       });
     expect(res.status).toBe(200);
@@ -343,6 +344,11 @@ describe("bot settings router", () => {
     expect(config.radio?.everyNSongs).toBe(6);
     expect(config.radio?.quietHours).toEqual([{ from: "02:00", to: "08:00" }]);
     expect(config.radio?.maxBumperSeconds).toBe(30); // untouched fields keep defaults
+    expect(config.radio?.autoDjRepeat).toEqual({
+      enabled: true,
+      maxPlays: 2,
+      cooldownHours: 6,
+    });
   });
 
   it("rejects malformed radio settings", async () => {
