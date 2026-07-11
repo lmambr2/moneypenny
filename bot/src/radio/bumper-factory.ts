@@ -90,7 +90,7 @@ const DEFAULT_STATION_ID_TEMPLATES = [
  * cheatsheets instead of announcing doctrine.
  */
 const META_SCRIPT_RE =
-  /\b(do not invent|invent nothing|only rephrase|rephrase (the|what|this|provided)|rewrite (the|a|this|provided)|provided text|under \d+\s*words|no markdown|no lists|plain speech only|output only|spoken (line|sentence|radio bumper)|you are a radio|tool_choice|system prompt|agents?\.md|playbook|instruction(s)? to the model|never invent personal)\b/i;
+  /\b(do not invent|invent nothing|only rephrase|rephrase (the|what|this|provided)|rewrite (the|a|this|provided)|provided text|under \d+\s*words|no markdown|no lists|plain speech only|output only|spoken (line|sentence|radio bumper)|you are a radio|tool_choice|system prompt|agents?\.md|playbook|instruction(s)? to the model|never invent personal|the prompt asks|prompt asks|as (a |the )?radio (announcer|bumper)|speak one short|one short (spoken )?radio bumper|short radio bumper|from source only|do not speak this|style \(do not|announcement:|"""|source:)\b/i;
 
 /** Operator / tooling doctrine files — fine for !ask, never for radio bumpers. */
 const BUMPER_SOURCE_SKIP_RE =
@@ -120,6 +120,16 @@ export function isMetaBumperScript(text: string, toneHint?: string): boolean {
   }
   // "Role: …" / "Constraint: …" reasoning leftovers that escaped extractAssistantText.
   if (/^(role|constraint|tone|thinking|note|step|rule|system|user)\s*[:=]/i.test(t)) return true;
+  // Model narrating the task ("The prompt asks…", "I will now…") instead of speaking.
+  if (/\b(the prompt|this prompt|your prompt|the instruction|as instructed)\b/i.test(t))
+    return true;
+  if (/^(i will|i'll|here is|here's|sure[,.]|okay[,.]|alright[,.])/i.test(t) && t.length < 80) {
+    return true;
+  }
+  // Ultra-short lines that only restate the bumper task.
+  if (t.split(/\s+/).length <= 12 && /\b(radio bumper|spoken line|announcement)\b/i.test(t)) {
+    return true;
+  }
   return false;
 }
 

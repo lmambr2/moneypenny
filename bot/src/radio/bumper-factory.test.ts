@@ -504,10 +504,15 @@ describe("bumper script sanitizers", () => {
         "Rewrite a provided text into ONE short radio bumper line (under 75 words).",
       ),
     ).toBe(true);
+    expect(isMetaBumperScript("The prompt asks to speak ONE short radio bumper")).toBe(true);
+    expect(isMetaBumperScript("Speak one short radio bumper from SOURCE only")).toBe(true);
     const tone =
       "Miss Moneypenny (dry poised British secretary wit, mock-formal teasing, brief and elegant, never crude)";
     expect(isMetaBumperScript(tone, tone)).toBe(true);
     expect(isMetaBumperScript("Stay sharp on mining SOP.")).toBe(false);
+    expect(
+      isMetaBumperScript("The Talon Group still seeks capable pilots for exploratory commissions."),
+    ).toBe(false);
   });
 
   it("skips ops tooling sources and material", () => {
