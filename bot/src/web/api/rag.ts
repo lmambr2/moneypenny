@@ -340,12 +340,15 @@ Body markdown…
         )
       : undefined;
     try {
-      const candidates: string[] =
-        only && only.length > 0
-          ? only
-              .map((src: string) => doctrine.safeName(src))
-              .filter((src): src is string => typeof src === "string" && src.length > 0)
-          : doctrine.files();
+      let candidates: string[] = doctrine.files();
+      if (only && only.length > 0) {
+        const named: string[] = [];
+        for (const rawName of only) {
+          const safe = doctrine.safeName(rawName);
+          if (safe) named.push(safe);
+        }
+        candidates = named;
+      }
       const changed: string[] = [];
       const unchanged: string[] = [];
       const skipped: Array<{ source: string; reason: string }> = [];
