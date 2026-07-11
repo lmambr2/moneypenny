@@ -138,6 +138,111 @@ export function invokerFields(context: RouterContext): Record<string, string | n
   return fields;
 }
 
+/** Commands we always log at info so queue/play issues are greppable in prod. */
+const MUSIC_COMMAND_LOG = new Set([
+  "play",
+  "add",
+  "playnext",
+  "pn",
+  "playlist",
+  "album",
+  "artist",
+  "skip",
+  "next",
+  "prev",
+  "stop",
+  "clear",
+  "remove",
+  "mode",
+  "test",
+  "vote",
+  "chevron7",
+  "radio",
+]);
+
+function musicCommandSurface(context: RouterContext): "web" | "teamspeak" | "voice" | "unknown" {
+  if (context.conversationId?.startsWith("web:")) return "web";
+  if (context.message) return "teamspeak";
+  // Voice path often has invoker but no TS3TextMessage.
+  if (context.invokerUid || context.invokerName) return "voice";
+  return "unknown";
+}
+
+/**
+ * Classify a music-command reply for ops logs (not security).
+ * Grep: `Music command` in bot logs.
+ */
+export function classifyMusicCommandResult(message: string | null | undefined): {
+  denied: boolean;
+  ok: boolean;
+  reason: string;
+} {
+  const msg = (message ?? "").trim();
+  if (!msg) return { denied: false, ok: false, reason: "empty" };
+  if (msg.startsWith("You don't have permission") || msg.includes("needs '")) {
+    return { denied: true, ok: false, reason: "permission" };
+  }
+  if (msg.includes("Only Chairman or server admin")) {
+    return { denied: true, ok: false, reason: "demo_protect" };
+  }
+  if (msg.startsWith("Bot is not connected")) {
+    return { denied: false, ok: false, reason: "disconnected" };
+  }
+  if (msg.startsWith("No results") || msg.startsWith("No results found")) {
+    return { denied: false, ok: false, reason: "noresults" };
+  }
+  if (msg.startsWith("Cannot play") || msg.startsWith("Cannot play:")) {
+    return { denied: false, ok: false, reason: "cantplay" };
+  }
+  if (msg.startsWith("Usage:") || msg.startsWith("Unknown command")) {
+    return { denied: false, ok: false, reason: "usage" };
+  }
+  if (msg.startsWith("Blocked") || msg.includes("Blocked by station")) {
+    return { denied: false, ok: false, reason: "policy" };
+  }
+  if (
+    msg.startsWith("Now playing") ||
+    msg.startsWith("Added") ||
+    msg.startsWith("Up next") ||
+    msg.startsWith("Playing") ||
+    msg.startsWith("Paused") ||
+    msg.startsWith("Resumed") ||
+    msg.startsWith("Stopped") ||
+    msg.startsWith("Queue") ||
+    msg.startsWith("Skipped") ||
+    msg.includes("cleared") ||
+    msg.includes("Volume set")
+  ) {
+    return { denied: false, ok: true, reason: "ok" };
+  }
+  // Default: treat non-empty reply as success (status/help-like).
+  return { denied: false, ok: true, reason: "ok" };
+}
+
+function logMusicCommand(
+  logger: Logger,
+  cmd: ParsedCommand,
+  context: RouterContext,
+  message: string | null,
+): void {
+  if (!MUSIC_COMMAND_LOG.has(cmd.name.toLowerCase())) return;
+  const { denied, ok, reason } = classifyMusicCommandResult(message);
+  logger.info(
+    {
+      command: cmd.name,
+      args: (cmd.args ?? "").slice(0, 160),
+      flags: [...cmd.flags],
+      surface: musicCommandSurface(context),
+      denied,
+      ok,
+      reason,
+      result: (message ?? "").slice(0, 220) || null,
+      ...invokerFields(context),
+    },
+    "Music command",
+  );
+}
+
 export interface LlmIntent {
   mode: "ask" | "intent" | "delegate" | "workflow";
   /** The question (ask), fuzzy NL (intent), or analyst task (delegate). */
@@ -380,87 +485,100 @@ export class ControlRouter {
     context: RouterContext,
   ): Promise<string | null> {
     const cmd = decision.command!;
+    let result: string | null = null;
 
-    // Rank gating (DESIGN §8) — the first gate. Applies to typed commands and
-    // LLM-tool-derived commands alike (both reach here), so natural language
-    // cannot escalate past the invoker's rank.
-    if (context.canRun && !context.canRun(cmd.name)) {
-      this.logger.debug(
-        { command: cmd.name, ...invokerFields(context) },
-        "Command denied by rights",
-      );
-      return `You don't have permission to use '${cmd.name}'.`;
-    }
+    try {
+      // Rank gating (DESIGN §8) — the first gate. Applies to typed commands and
+      // LLM-tool-derived commands alike (both reach here), so natural language
+      // cannot escalate past the invoker's rank.
+      if (context.canRun && !context.canRun(cmd.name)) {
+        this.logger.debug(
+          { command: cmd.name, ...invokerFields(context) },
+          "Command denied by rights",
+        );
+        result = `You don't have permission to use '${cmd.name}'.`;
+        return result;
+      }
 
-    // !test demo track: only ranks with `test.skip` may interrupt it.
-    // Covers skip/clear/stop AND queue-replacing play (so !play cannot bump the demo).
-    // Token is NOT in @admin/@dj — Chairman / server-admin only.
-    if (context.canRun) {
-      const demoInterrupt =
-        cmd.name === "next" ||
-        cmd.name === "skip" ||
-        cmd.name === "clear" ||
-        cmd.name === "stop" ||
-        cmd.name === "play" ||
-        cmd.name === "playlist" ||
-        cmd.name === "album" ||
-        cmd.name === "artist" ||
-        cmd.name === "chevron7";
-      if (demoInterrupt) {
-        const demoPlaying =
-          typeof context.bot.isDemoTestPlaying === "function" && context.bot.isDemoTestPlaying();
-        if (demoPlaying && !context.canRun("test.skip")) {
-          this.logger.debug(
-            { command: cmd.name, ...invokerFields(context) },
-            "Demo track interrupt denied — needs test.skip (Chairman / server admin)",
-          );
-          return "Only Chairman or server admin can skip or replace the !test demo track.";
+      // !test demo track: only ranks with `test.skip` may interrupt it.
+      // Covers skip/clear/stop AND queue-replacing play (so !play cannot bump the demo).
+      // Token is NOT in @admin/@dj — Chairman / server-admin only.
+      if (context.canRun) {
+        const demoInterrupt =
+          cmd.name === "next" ||
+          cmd.name === "skip" ||
+          cmd.name === "clear" ||
+          cmd.name === "stop" ||
+          cmd.name === "play" ||
+          cmd.name === "playlist" ||
+          cmd.name === "album" ||
+          cmd.name === "artist" ||
+          cmd.name === "chevron7";
+        if (demoInterrupt) {
+          const demoPlaying =
+            typeof context.bot.isDemoTestPlaying === "function" && context.bot.isDemoTestPlaying();
+          if (demoPlaying && !context.canRun("test.skip")) {
+            this.logger.debug(
+              { command: cmd.name, ...invokerFields(context) },
+              "Demo track interrupt denied — needs test.skip (Chairman / server admin)",
+            );
+            result = "Only Chairman or server admin can skip or replace the !test demo track.";
+            return result;
+          }
         }
       }
-    }
 
-    // `!radio` is public (status / ops list), but the sensitive subcommands
-    // carry their own tokens (docs/radio.md §12): on/off needs the admin
-    // `radio.power`; `ops <profile>` needs `radio.ops` (granted to @dj + admin).
-    if (cmd.name === "radio" && context.canRun) {
-      const sub = (cmd.rawArgs[0] ?? "").toLowerCase();
-      if ((sub === "on" || sub === "off") && !context.canRun("radio.power")) {
-        return "You don't have permission to toggle radio mode (needs 'radio.power').";
-      }
-      const opsArg = (cmd.rawArgs[1] ?? "").toLowerCase();
-      if (sub === "ops" && opsArg && opsArg !== "list" && !context.canRun("radio.ops")) {
-        return "You don't have permission to set the op context (needs 'radio.ops').";
-      }
-      // §12: each operator control carries its own token (@dj + admin).
-      for (const [name, token] of [
-        ["bumper", "radio.bumper"],
-        ["say", "radio.say"],
-        ["skip", "radio.skip"],
-        ["pin", "radio.pin"],
-      ] as const) {
-        if (sub === name && !context.canRun(token)) {
-          return `You don't have permission to use 'radio ${name}' (needs '${token}').`;
+      // `!radio` is public (status / ops list), but the sensitive subcommands
+      // carry their own tokens (docs/radio.md §12): on/off needs the admin
+      // `radio.power`; `ops <profile>` needs `radio.ops` (granted to @dj + admin).
+      if (cmd.name === "radio" && context.canRun) {
+        const sub = (cmd.rawArgs[0] ?? "").toLowerCase();
+        if ((sub === "on" || sub === "off") && !context.canRun("radio.power")) {
+          result = "You don't have permission to toggle radio mode (needs 'radio.power').";
+          return result;
+        }
+        const opsArg = (cmd.rawArgs[1] ?? "").toLowerCase();
+        if (sub === "ops" && opsArg && opsArg !== "list" && !context.canRun("radio.ops")) {
+          result = "You don't have permission to set the op context (needs 'radio.ops').";
+          return result;
+        }
+        // §12: each operator control carries its own token (@dj + admin).
+        for (const [name, token] of [
+          ["bumper", "radio.bumper"],
+          ["say", "radio.say"],
+          ["skip", "radio.skip"],
+          ["pin", "radio.pin"],
+        ] as const) {
+          if (sub === name && !context.canRun(token)) {
+            result = `You don't have permission to use 'radio ${name}' (needs '${token}').`;
+            return result;
+          }
         }
       }
+
+      // Centralized audio command guard (owned by the router)
+      if (!context.bot.isConnected() && AUDIO_COMMANDS.has(cmd.name)) {
+        result = "Bot is not connected to TeamSpeak";
+        return result;
+      }
+
+      const handler = this.handlers.get(cmd.name.toLowerCase());
+
+      if (handler) {
+        this.logger.debug(
+          { command: cmd.name, ...invokerFields(context) },
+          "Executing via registered handler",
+        );
+        result = await handler.execute(cmd, context, decision);
+        return result;
+      }
+
+      this.logger.warn({ command: cmd.name }, "No handler registered for command in ControlRouter");
+      result = `Unknown command. Try ${"!"}help.`;
+      return result;
+    } finally {
+      logMusicCommand(this.logger, cmd, context, result);
     }
-
-    // Centralized audio command guard (owned by the router)
-    if (!context.bot.isConnected() && AUDIO_COMMANDS.has(cmd.name)) {
-      return "Bot is not connected to TeamSpeak";
-    }
-
-    const handler = this.handlers.get(cmd.name.toLowerCase());
-
-    if (handler) {
-      this.logger.debug(
-        { command: cmd.name, ...invokerFields(context) },
-        "Executing via registered handler",
-      );
-      return handler.execute(cmd, context, decision);
-    }
-
-    this.logger.warn({ command: cmd.name }, "No handler registered for command in ControlRouter");
-    return `Unknown command. Try ${"!"}help.`;
   }
 
   /** Handle the LLM decision: Q&A for `ask`, tool-driven control for `intent`. */

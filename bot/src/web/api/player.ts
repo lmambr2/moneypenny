@@ -97,8 +97,49 @@ export function createPlayerRouter(
     command: string,
   ): Promise<boolean> => {
     if (!req.user || (await bot.canWebUserRunCommand(req.user, command))) return true;
+    logger.info(
+      {
+        surface: "web",
+        action: "denyUnless",
+        command,
+        user: req.user?.username ?? null,
+        role: req.user?.role ?? null,
+        botId: req.params.botId,
+        denied: true,
+        ok: false,
+        reason: "permission",
+      },
+      "Music player API",
+    );
     permissionDenied(res, `You don't have permission to use '${command}'.`);
     return false;
+  };
+
+  const logPlayerApi = (
+    req: Request,
+    fields: {
+      action: string;
+      ok: boolean;
+      denied?: boolean;
+      reason: string;
+      songId?: string;
+      songName?: string;
+      platform?: string;
+      message?: string;
+    },
+  ) => {
+    logger.info(
+      {
+        surface: "web",
+        botId: req.params.botId,
+        user: req.user?.username ?? null,
+        role: req.user?.role ?? null,
+        denied: fields.denied ?? false,
+        ...fields,
+        message: fields.message?.slice(0, 220),
+      },
+      "Music player API",
+    );
   };
 
   const runRoutedCommand = async (
@@ -107,6 +148,7 @@ export function createPlayerRouter(
     res: Response,
     cmd: ParsedCommand,
   ): Promise<void> => {
+    // Music command log is emitted inside ControlRouter for play/add/next/etc.
     const { message, denied } = await bot.executeRoutedCommand(
       cmd,
       req.user ? { webUser: req.user } : undefined,
@@ -403,17 +445,31 @@ export function createPlayerRouter(
       bot.getPlayer().resetFailures();
       const ok = await bot.resolveAndPlay(q.current()!);
       if (!ok) {
-        res.json({
+        const message = `Cannot play "${song.name || song.id}" (source or region restriction)`;
+        logPlayerApi(req, {
+          action: "play-song",
           ok: false,
-          message: `Cannot play "${song.name || song.id}" (source or region restriction)`,
+          reason: "cantplay",
+          songId: song.id,
+          songName: song.name,
+          platform: song.platform,
+          message,
         });
+        res.json({ ok: false, message });
         return;
       }
 
-      res.json({
+      const message = `Now playing: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`;
+      logPlayerApi(req, {
+        action: "play-song",
         ok: true,
-        message: `Now playing: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`,
+        reason: "ok",
+        songId: song.id,
+        songName: song.name,
+        platform: song.platform,
+        message,
       });
+      res.json({ ok: true, message });
     } catch (err) {
       logger.error({ err }, "Player API error");
       res.status(500).json({ error: "internal error" });
@@ -451,22 +507,46 @@ export function createPlayerRouter(
         bot.getPlayer().resetFailures();
         const ok = await bot.resolveAndPlay(queue.current()!);
         if (!ok) {
-          res.json({
+          const message = `Cannot play "${song.name || song.id}" (source or region restriction)`;
+          logPlayerApi(req, {
+            action: "play-next-song",
             ok: false,
-            message: `Cannot play "${song.name || song.id}" (source or region restriction)`,
+            reason: "cantplay",
+            songId: song.id,
+            songName: song.name,
+            platform: song.platform,
+            message,
           });
+          res.json({ ok: false, message });
           return;
         }
-        res.json({
+        const message = `Now playing: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`;
+        logPlayerApi(req, {
+          action: "play-next-song",
           ok: true,
-          message: `Now playing: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`,
+          reason: "ok",
+          songId: song.id,
+          songName: song.name,
+          platform: song.platform,
+          message,
         });
+        res.json({ ok: true, message });
         return;
       }
 
+      const message = `Added next: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`;
+      logPlayerApi(req, {
+        action: "play-next-song",
+        ok: true,
+        reason: "queued",
+        songId: song.id,
+        songName: song.name,
+        platform: song.platform,
+        message,
+      });
       res.json({
         ok: true,
-        message: `Added next: ${song.name || "Unknown"} - ${song.artist || "Unknown"}`,
+        message,
       });
     } catch (err) {
       logger.error({ err }, "Player API error");

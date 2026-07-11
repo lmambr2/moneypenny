@@ -76,6 +76,37 @@ describe("isNonMusicContent title fallback", () => {
     ).toBe(true);
     expect(isNonMusicContent({ name: "Bohemian Rhapsody", artist: "Queen" })).toBe(false);
   });
+
+  it("blocks numbered TV/web episodes (auto-DJ seed junk)", () => {
+    expect(isNonMusicContent({ name: "Yacht Rock Episode 1", artist: "JD Ryznar" })).toBe(true);
+    expect(isNonMusicContent({ name: "Something S01E03 Full", artist: "Netflix" })).toBe(true);
+    expect(isNonMusicContent({ name: "Cool Band - Live at Red Rocks", artist: "Cool Band" })).toBe(
+      false,
+    );
+  });
+});
+
+describe("classifyMusicCommandResult", () => {
+  it("classifies success and failure replies", async () => {
+    const { classifyMusicCommandResult } = await import("../control/router.js");
+    expect(classifyMusicCommandResult("Now playing: A - B")).toMatchObject({
+      ok: true,
+      reason: "ok",
+    });
+    expect(classifyMusicCommandResult("No results found for: x")).toMatchObject({
+      ok: false,
+      reason: "noresults",
+    });
+    expect(classifyMusicCommandResult("You don't have permission to use 'play'.")).toMatchObject({
+      denied: true,
+      reason: "permission",
+    });
+    expect(
+      classifyMusicCommandResult(
+        "Only Chairman or server admin can skip or replace the !test demo track.",
+      ),
+    ).toMatchObject({ denied: true, reason: "demo_protect" });
+  });
 });
 
 describe("shouldBlockYoutubeSong with ytMeta", () => {
