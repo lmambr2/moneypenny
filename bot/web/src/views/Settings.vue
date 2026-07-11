@@ -625,6 +625,36 @@
             <option v-for="p in radioProfileKeys" :key="p" :value="p">{{ p }}</option>
           </select>
         </div>
+        <div
+          class="form-group"
+          style="flex:1"
+          title="Auto-DJ only: if a track was played this many times within the cooldown window, skip it when restocking. Manual !play still works. Default 1 = once per window."
+        >
+          <label>Auto-DJ max plays / window</label>
+          <input
+            v-model.number="ai.radioAutoDjMaxPlays"
+            type="number"
+            min="1"
+            max="100"
+            step="1"
+            class="input"
+          />
+        </div>
+        <div
+          class="form-group"
+          style="flex:1"
+          title="Rolling window in hours. With max plays 1 and 12h, a track that just played stays out of auto-DJ for 12 hours."
+        >
+          <label>Auto-DJ cooldown (hours)</label>
+          <input
+            v-model.number="ai.radioAutoDjCooldownHours"
+            type="number"
+            min="0.25"
+            max="720"
+            step="0.25"
+            class="input"
+          />
+        </div>
         <div class="form-group" style="flex:1">
           <label>&nbsp;</label>
           <label
@@ -1963,6 +1993,9 @@ const ai = reactive({
   /** Editable op-context profiles (seedQueries, bumper topics/tone, …). */
   radioProfiles: {} as Record<string, RadioProfileEdit>,
   radioRatingWeight: true,
+  /** Auto-DJ: block tracks with ≥ N plays in the last H hours. */
+  radioAutoDjMaxPlays: 1,
+  radioAutoDjCooldownHours: 12,
   radioHarmonicSequencing: false,
   radioAudioColor: 'off' as 'off' | 'am' | 'fm' | 'telephone' | 'vinyl' | 'lofi',
   radioAnalyzerEnabled: false,
@@ -2475,6 +2508,14 @@ async function loadAiSettings() {
     ai.radioActiveProfile = radio.activeProfile ?? 'lobby';
     loadRadioProfilesFromApi(radio.profiles);
     ai.radioRatingWeight = radio.ratingWeight?.enabled !== false;
+    {
+      const rep = radio.autoDjRepeat ?? {};
+      const maxP = Number(rep.maxPlays);
+      const coolH = Number(rep.cooldownHours);
+      ai.radioAutoDjMaxPlays = Number.isFinite(maxP) && maxP >= 1 ? Math.floor(maxP) : 1;
+      ai.radioAutoDjCooldownHours =
+        Number.isFinite(coolH) && coolH > 0 ? coolH : 12;
+    }
     ai.radioHarmonicSequencing = !!radio.harmonicSequencing;
     ai.radioAudioColor = (
       ['off', 'am', 'fm', 'telephone', 'vinyl', 'lofi'].includes(radio.audioColor)
@@ -3053,7 +3094,15 @@ async function saveAiSettings() {
           Object.entries(ai.radioProfiles).map(([key, edit]) => [key, profileToApi(key, edit)]),
         ),
         ratingWeight: { enabled: ai.radioRatingWeight, exponent: 1, maxRatio: 3 },
-        harmonicSequencing: ai.radioHarmonicSequencing,
+        autoDjRepeat: {
+          enabled: true,
+          maxPlays: Math.max(1, Math.min(100, Math.floor(Number(ai.radioAutoDjMaxPlays) || 1))),
+          cooldownHours: Math.max(
+            0.25,
+            Math.min(720, Number(ai.radioAutoDjCooldownHours) || 12),
+          ),
+        },
+        harmonicSequencing: ai.radioHarmonicSequencing;
         audioColor: ai.radioAudioColor,
         analyzer: {
           enabled: ai.radioAnalyzerEnabled,

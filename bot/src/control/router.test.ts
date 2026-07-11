@@ -697,3 +697,75 @@ describe("ControlRouter — radio.power gating", () => {
     expect(handler).toHaveBeenCalled();
   });
 });
+
+describe("ControlRouter — !test demo track skip/clear gate", () => {
+  it("denies colonel-style !next while demo is playing (clear yes, test.skip no)", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "skipped");
+    router.registerHandler({ name: "next", execute: handler });
+    const bot = fakeBot({ isDemoTestPlaying: () => true });
+    const d = await router.route("!next", makeContext(bot), "!");
+    const out = await router.execute(d, {
+      ...makeContext(bot),
+      // Field-grade / colonel has clear/stop but not the demo-only token.
+      canRun: (c: string) => c === "next" || c === "skip" || c === "clear" || c === "stop",
+    });
+    expect(out).toMatch(/Chairman|server admin/i);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("allows !next while demo is playing when invoker has test.skip", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "skipped");
+    router.registerHandler({ name: "next", execute: handler });
+    const bot = fakeBot({ isDemoTestPlaying: () => true });
+    const d = await router.route("!next", makeContext(bot), "!");
+    const out = await router.execute(d, {
+      ...makeContext(bot),
+      canRun: (c: string) => c === "next" || c === "test.skip",
+    });
+    expect(out).toBe("skipped");
+    expect(handler).toHaveBeenCalled();
+  });
+
+  it("allows public !next when the demo is not playing", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "skipped");
+    router.registerHandler({ name: "next", execute: handler });
+    const bot = fakeBot({ isDemoTestPlaying: () => false });
+    const d = await router.route("!next", makeContext(bot), "!");
+    const out = await router.execute(d, {
+      ...makeContext(bot),
+      canRun: (c: string) => c === "next",
+    });
+    expect(out).toBe("skipped");
+  });
+
+  it("denies !play while demo is playing without test.skip", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "playing");
+    router.registerHandler({ name: "play", execute: handler });
+    const bot = fakeBot({ isDemoTestPlaying: () => true });
+    const d = await router.route("!play africa", makeContext(bot), "!");
+    const out = await router.execute(d, {
+      ...makeContext(bot),
+      canRun: (c: string) => c === "play",
+    });
+    expect(out).toMatch(/Chairman|server admin|replace/i);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("allows !play over demo when invoker has test.skip", async () => {
+    const router = new ControlRouter(fakeLogger());
+    const handler = vi.fn(async () => "playing");
+    router.registerHandler({ name: "play", execute: handler });
+    const bot = fakeBot({ isDemoTestPlaying: () => true });
+    const d = await router.route("!play africa", makeContext(bot), "!");
+    const out = await router.execute(d, {
+      ...makeContext(bot),
+      canRun: (c: string) => c === "play" || c === "test.skip",
+    });
+    expect(out).toBe("playing");
+    expect(handler).toHaveBeenCalled();
+  });
+});

@@ -72,6 +72,7 @@ export class BotManager extends EventEmitter {
   private tsFilesDir?: string;
   private tsVirtualServerId?: number;
   private tagStore?: TagStore;
+  private playbackBlacklist?: import("../music/playback-blacklist.js").PlaybackBlacklist;
   /** S-OC3 — event-driven reconnect with exp backoff. */
   private reconnectScheduler: ReconnectScheduler;
 
@@ -89,6 +90,7 @@ export class BotManager extends EventEmitter {
     tsFilesDir?: string,
     tsVirtualServerId?: number,
     tagStore?: TagStore,
+    playbackBlacklist?: import("../music/playback-blacklist.js").PlaybackBlacklist,
   ) {
     super();
     this.localProvider = localProvider;
@@ -99,6 +101,7 @@ export class BotManager extends EventEmitter {
     this.logger = logger;
     this.avatarStore = avatarStore;
     this.tagStore = tagStore;
+    this.playbackBlacklist = playbackBlacklist;
     this.retrieval = retrieval;
     this.doctrine = doctrine;
     this.fileDropStore = fileDropStore;
@@ -188,6 +191,7 @@ export class BotManager extends EventEmitter {
       },
       localProvider: this.localProvider,
       tagStore: this.tagStore,
+      playbackBlacklist: this.playbackBlacklist,
       youtubeProvider: this.youtubeProvider,
       streamProvider: this.streamProvider,
       database: this.database,
@@ -354,6 +358,7 @@ export class BotManager extends EventEmitter {
         },
         localProvider: this.localProvider,
         tagStore: this.tagStore,
+        playbackBlacklist: this.playbackBlacklist,
         youtubeProvider: this.youtubeProvider,
         streamProvider: this.streamProvider,
         database: this.database,
@@ -420,6 +425,7 @@ export class BotManager extends EventEmitter {
         },
         localProvider: this.localProvider,
         tagStore: this.tagStore,
+        playbackBlacklist: this.playbackBlacklist,
         youtubeProvider: this.youtubeProvider,
         streamProvider: this.streamProvider,
         database: this.database,

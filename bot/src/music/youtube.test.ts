@@ -83,6 +83,13 @@ describe("YouTubeProvider — default unit test / startup video", () => {
     expect(DEFAULT_DEMO_VIDEO_URL).toBe("https://www.youtube.com/watch?v=hLOheGDwD_0");
   });
 
+  it("isDemoTestTrack recognizes the demo id and [videoId] local names", async () => {
+    const { isDemoTestTrack } = await import("./youtube.js");
+    expect(isDemoTestTrack({ id: DEFAULT_DEMO_VIDEO_ID })).toBe(true);
+    expect(isDemoTestTrack({ id: "other", name: `x [${DEFAULT_DEMO_VIDEO_ID}]` })).toBe(true);
+    expect(isDemoTestTrack({ id: "abc", name: "normal song" })).toBe(false);
+  });
+
   it("canHandle recognizes the default video URL (and short youtu.be form)", () => {
     expect(provider.canHandle(DEFAULT_DEMO_VIDEO_URL)).toBe(true);
     expect(provider.canHandle(`https://youtu.be/${DEFAULT_DEMO_VIDEO_ID}`)).toBe(true);

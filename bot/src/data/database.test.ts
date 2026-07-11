@@ -74,6 +74,42 @@ describe("database", () => {
     expect(history[1].songName).toBe("Test Song");
   });
 
+  it("getAutoDjSaturatedSongIds returns ids at/over maxPlays in the window", () => {
+    for (let i = 0; i < 2; i++) {
+      botDb.addPlayHistory({
+        botId: "bot1",
+        songId: "hot",
+        songName: "Hot",
+        artist: "A",
+        album: "",
+        platform: "local",
+        coverUrl: "",
+      });
+    }
+    botDb.addPlayHistory({
+      botId: "bot1",
+      songId: "once",
+      songName: "Once",
+      artist: "B",
+      album: "",
+      platform: "local",
+      coverUrl: "",
+    });
+
+    // maxPlays=1 → both saturated
+    const one = botDb.getAutoDjSaturatedSongIds("bot1", 1, 24);
+    expect(one.has("hot")).toBe(true);
+    expect(one.has("once")).toBe(true);
+
+    // maxPlays=2 → only "hot"
+    const two = botDb.getAutoDjSaturatedSongIds("bot1", 2, 24);
+    expect(two.has("hot")).toBe(true);
+    expect(two.has("once")).toBe(false);
+
+    // Other bot isolated
+    expect(botDb.getAutoDjSaturatedSongIds("bot2", 1, 24).size).toBe(0);
+  });
+
   it("saves and loads bot instances", () => {
     const instance: BotInstance = {
       id: "bot1",

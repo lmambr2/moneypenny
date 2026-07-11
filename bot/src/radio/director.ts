@@ -93,6 +93,12 @@ export class RadioDirector {
   private skipNext = false;
   /** Set when a dead-air fill bumper fires: restock music at its trackEnd. */
   private autoProgramAfterBumper = false;
+  /**
+   * True while `autoProgram` is running (seed search can take a long time with
+   * the player still idle). Blocks re-arming dead air / a second restock that
+   * would kill the first play mid-flight.
+   */
+  private autoProgramInFlight = false;
   /** Last bumper that actually started playing — used by `!radio pin` (§6.5). */
   private lastPlayed: LastPlayedBumper | null = null;
 
@@ -309,6 +315,8 @@ export class RadioDirector {
     void this.enforceAloneStop(cfg).then((stopped) => {
       if (stopped) return;
       if (this.deps.player.getState() !== "idle") return;
+      // Seed rebuild still in progress — don't stack another dead-air restock.
+      if (this.autoProgramInFlight) return;
 
       if (this.cued) {
         void this.tryFireCuedIfIdle({ restockAfter: true });
@@ -518,27 +526,46 @@ export class RadioDirector {
 
   private async tryAutoProgram(): Promise<boolean> {
     if (!this.deps.autoProgram) return false;
+    if (this.autoProgramInFlight) return false;
     const cfg = this.deps.getConfig();
     // Don't restock when alone (unless alone-stop disabled).
     if (this.emptyStopSeconds(cfg) >= 0 && this.aloneHumanCount() < 1) {
       return false;
     }
+    this.autoProgramInFlight = true;
+    // Don't leave a dead-air timer armed while we're already rebuilding the pool.
+    this.cancelDeadAir();
     try {
       const ok = await this.deps.autoProgram();
       if (ok) {
         this.cancelDeadAir();
         this.deps.logger.info("radio: dead air — auto-programmed from the active profile");
+      } else if (
+        this.deps.player.getState() === "idle" &&
+        (this.aloneHumanCount() >= 1 || this.emptyStopSeconds(cfg) < 0)
+      ) {
+        // Failed to restock — allow another try after the normal delay.
+        this.armDeadAir();
       }
       return ok;
     } catch (err) {
       this.deps.logger.warn({ err }, "radio: auto-program failed");
+      if (
+        this.deps.player.getState() === "idle" &&
+        (this.aloneHumanCount() >= 1 || this.emptyStopSeconds(cfg) < 0)
+      ) {
+        this.armDeadAir();
+      }
       return false;
+    } finally {
+      this.autoProgramInFlight = false;
     }
   }
 
   private armDeadAir(): void {
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
+    if (this.autoProgramInFlight) return;
     this.cancelDeadAir();
     // Don't make a forced cue wait out the full dead-air delay — fire ASAP.
     if (this.cued && this.deps.player.getState() === "idle") {

@@ -474,6 +474,36 @@ describe("RadioDirector", () => {
       expect(h.autoProgram).not.toHaveBeenCalled();
     });
 
+    it("does not stack a second autoProgram while the first is still rebuilding", async () => {
+      h = harness({ minPresentToBroadcast: 5 }); // no bumper — restock music only
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false);
+      let resolveProgram!: (v: boolean) => void;
+      h.autoProgram.mockReturnValue(
+        new Promise<boolean>((r) => {
+          resolveProgram = r;
+        }),
+      );
+
+      await h.director.onTrackBoundary();
+      h.setPlayerState("idle");
+      h.fireTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.autoProgram).toHaveBeenCalledTimes(1);
+
+      // Poll while seed rebuild is in-flight (player still idle): must not re-arm dead air.
+      h.director.onPoll([], 2);
+      expect(h.pendingTimerCount()).toBe(0);
+
+      // A second fill path must not start another program either.
+      h.fireTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.autoProgram).toHaveBeenCalledTimes(1);
+
+      resolveProgram(true);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
     it("does not fill if music resumed before the timer fired", async () => {
       h = harness({ minPresentToBroadcast: 1 });
       h.director.onPoll([], 1);

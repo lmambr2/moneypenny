@@ -3,6 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import type { Logger } from "../../logger.js";
 import type { LocalProvider } from "../../music/local.js";
+import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
 import type { MusicProvider } from "../../music/provider.js";
 import { guessTrackTags } from "../../music/tag-guess.js";
 import type { RadioAnalyzer, TagStore, TrackTags } from "../../radio/index.js";
@@ -21,6 +22,8 @@ function asLocalProvider(provider: MusicProvider): LocalProvider | null {
 
 export interface MusicRouterOptions {
   tagStore?: TagStore;
+  /** Admin-curated ban list — blocks playback without deleting files. */
+  playbackBlacklist?: PlaybackBlacklist;
   radioAnalyzer?: RadioAnalyzer;
   getRadioConfig?: () => RadioConfig;
   /**
@@ -62,7 +65,8 @@ export function createMusicRouter(
   logger: Logger,
   options: MusicRouterOptions = {},
 ): Router {
-  const { tagStore, radioAnalyzer, getRadioConfig, canEditTags, askLlm } = options;
+  const { tagStore, playbackBlacklist, radioAnalyzer, getRadioConfig, canEditTags, askLlm } =
+    options;
   const router = Router();
 
   /** Admin always; optional canEditTags for @dj / radio.tags web editors. */
@@ -175,6 +179,82 @@ export function createMusicRouter(
     } catch (err) {
       logger.error({ err }, "Library list failed");
       res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });
+    }
+  });
+
+  // ── Playback blacklist (admin) ──────────────────────────────────────────
+  // Ban a track id from search/play/radio without deleting the file. Library
+  // browse still lists it so admins can unban.
+
+  router.get("/blacklist", requireAdmin, (_req, res) => {
+    if (!playbackBlacklist) {
+      res.status(501).json({ error: "Blacklist not available", code: "NOT_IMPLEMENTED" });
+      return;
+    }
+    const entries = playbackBlacklist.list();
+    res.json({ entries, keys: entries.map((e) => e.trackKey) });
+  });
+
+  router.post("/blacklist", requireAdmin, (req, res) => {
+    if (!playbackBlacklist) {
+      res.status(501).json({ error: "Blacklist not available", code: "NOT_IMPLEMENTED" });
+      return;
+    }
+    try {
+      const body = req.body ?? {};
+      const trackKey =
+        typeof body.trackKey === "string"
+          ? body.trackKey
+          : typeof body.id === "string"
+            ? body.id
+            : "";
+      if (!trackKey.trim()) {
+        res.status(400).json({ error: "trackKey (or id) is required", code: "VALIDATION_ERROR" });
+        return;
+      }
+      if (trackKey.includes("..") || trackKey.includes("/") || trackKey.includes("\\")) {
+        res.status(400).json({ error: "Invalid track key", code: "VALIDATION_ERROR" });
+        return;
+      }
+      const entry = playbackBlacklist.add({
+        trackKey: trackKey.trim(),
+        platform: typeof body.platform === "string" ? body.platform : null,
+        name: typeof body.name === "string" ? body.name : null,
+        artist: typeof body.artist === "string" ? body.artist : null,
+        reason: typeof body.reason === "string" ? body.reason : null,
+        createdBy: req.user?.username ?? req.user?.id ?? null,
+      });
+      res.json({ success: true, entry });
+    } catch (err) {
+      logger.error({ err }, "Blacklist add failed");
+      res
+        .status(500)
+        .json({ error: errorMessage(err, "Blacklist add failed"), code: "INTERNAL_ERROR" });
+    }
+  });
+
+  router.delete("/blacklist/:id", requireAdmin, (req, res) => {
+    if (!playbackBlacklist) {
+      res.status(501).json({ error: "Blacklist not available", code: "NOT_IMPLEMENTED" });
+      return;
+    }
+    try {
+      const id = String(req.params.id ?? "");
+      if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
+        res.status(400).json({ error: "Invalid track id", code: "VALIDATION_ERROR" });
+        return;
+      }
+      const removed = playbackBlacklist.remove(id);
+      if (!removed) {
+        res.status(404).json({ error: "Not on blacklist", code: "NOT_FOUND" });
+        return;
+      }
+      res.json({ success: true, removed: true });
+    } catch (err) {
+      logger.error({ err }, "Blacklist remove failed");
+      res
+        .status(500)
+        .json({ error: errorMessage(err, "Blacklist remove failed"), code: "INTERNAL_ERROR" });
     }
   });
 

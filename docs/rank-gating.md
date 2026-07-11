@@ -79,8 +79,17 @@ Names are illustrative — use whatever your TS groups are actually called.
 | Senior NCO / Chief | `@dj` + `@mod` + restricted + **confidential** docs |
 | Field-grade officer | Full `@admin` + restricted + confidential + **secret** docs |
 | General / command staff | `@admin` + `@analyst` + all doctrine levels |
-| Server admin | Same as top command tier (or your highest trust group) |
+| Server admin | Same as top command tier (or your highest trust group); also `test.skip` |
+| Chairman (if separate SG) | Same as top command tier + `test.skip` (skip/clear the `!test` demo only) |
 | Department staff | `doctrine:restricted` only (no DJ/admin unless they also hold another group) |
+
+### `test.skip` — protect the `!test` demo track
+
+`!next` / `!skip` / `!clear` / `!stop` while the demo is playing require the
+**`test.skip`** token. It is **not** part of `@admin` or `@dj`, so colonels and
+other officers keep normal clear/stop for station music but cannot end the
+smoke track. Grant `test.skip` only on your **server-admin** and **Chairman**
+rules (see production names `server-admin` / `chairman`).
 
 Set `adminGroups` to the server-group IDs that should inherit admin rights for
 web UI users who are not nickname-matched in-channel (usually your officer and

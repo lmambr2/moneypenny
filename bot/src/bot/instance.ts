@@ -89,6 +89,8 @@ export interface BotInstanceOptions {
   avatarStore: AvatarStore;
   /** Shared radio tag overlay (one per process); constructed here if absent. */
   tagStore?: TagStore;
+  /** Admin playback ban list (shared; optional). */
+  playbackBlacklist?: import("../music/playback-blacklist.js").PlaybackBlacklist;
 }
 
 export interface BotStatus {
@@ -340,6 +342,7 @@ export class BotInstance extends EventEmitter {
       setAdvancing: (v) => {
         this.isAdvancing = v;
       },
+      playbackBlacklist: options.playbackBlacklist,
     });
 
     this.icecastTee = new IcecastTee({
@@ -390,6 +393,9 @@ export class BotInstance extends EventEmitter {
       playNext: (n) => this.playNext(n),
       getProvider: (flags, q) => this.playback.pickProvider(flags, q),
       tagStore: radioTagStore,
+      playbackBlacklist: options.playbackBlacklist,
+      database: this.database,
+      botId: this.id,
       // Lazy delegate — the director is constructed a few steps below.
       radio: {
         cueBumper: (topic) => this.radio.cueBumper(topic),
@@ -1423,6 +1429,11 @@ export class BotInstance extends EventEmitter {
 
   getPlayer(): AudioPlayer {
     return this.player;
+  }
+
+  /** True while the !test / PHASE0 demo track is the current song. */
+  isDemoTestPlaying(): boolean {
+    return this.playback.isDemoTestPlaying();
   }
 
   getQueueManager(): PlayQueue {

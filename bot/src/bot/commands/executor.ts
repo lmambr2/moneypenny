@@ -45,6 +45,12 @@ export interface CommandExecutorDeps {
   };
   /** V3 spoken radio status (optional). */
   speakRadioStatus?: () => Promise<string>;
+  /** Admin playback ban list (radio seed + resolve). */
+  playbackBlacklist?: import("../../music/playback-blacklist.js").PlaybackBlacklist | null;
+  /** Play history for auto-DJ repeat cooldown (optional). */
+  database?: Pick<import("../../data/database.js").BotDatabase, "getAutoDjSaturatedSongIds">;
+  /** Bot id for play_history queries. */
+  botId?: string;
   /** Absolute path to prerecorded bumper assets (`!radio pin`, §6.5). */
   getBumperDir?: () => string;
   /** Pre-render liners into TTS cache (`!radio prewarm`). */
@@ -441,6 +447,9 @@ export class CommandExecutor {
 
   private async cmdVote(msg?: TS3TextMessage): Promise<string> {
     if (!msg) return "Vote can only be used in TeamSpeak";
+    if (this.deps.playback.isDemoTestPlaying()) {
+      return "The !test demo track can only be skipped by Chairman or server admin (not by vote).";
+    }
     this.deps.playback.recordVote(msg.invokerUid);
     const clients = await this.deps.tsClient.getClientsInChannel();
     const totalUsers = clients.length - 1;

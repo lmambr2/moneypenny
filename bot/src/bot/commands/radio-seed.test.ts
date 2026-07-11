@@ -62,6 +62,30 @@ describe("isRadioSeedFriendlySong", () => {
       isRadioSeedFriendlySong(song({ id: "alb", name: "Led Zeppelin II Full Album", duration: 0 })),
     ).toBe(false);
   });
+
+  it("rejects documentaries / non-music YouTube junk", () => {
+    expect(
+      isRadioSeedFriendlySong(
+        song({
+          id: "doc",
+          name: "The Real History of the Illuminati — Full Documentary",
+          artist: "History Channel",
+          platform: "youtube",
+          duration: 720,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRadioSeedFriendlySong(
+        song({
+          id: "pod",
+          name: "True Crime Podcast Episode 12",
+          platform: "youtube",
+          duration: 400,
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("orderSeedCandidates / shuffleSongs", () => {

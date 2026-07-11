@@ -55,6 +55,15 @@ export interface BotDatabase {
   db: Database.Database;
   addPlayHistory(entry: PlayHistoryEntry): void;
   getPlayHistory(botId: string, limit: number): PlayHistoryRecord[];
+  /**
+   * Song ids that have been played `maxPlays` or more times within the last
+   * `cooldownHours` (auto-DJ anti-repeat). Empty set when disabled/invalid.
+   */
+  getAutoDjSaturatedSongIds(
+    botId: string,
+    maxPlays: number,
+    cooldownHours: number,
+  ): Set<string>;
   saveBotInstance(instance: BotInstance): void;
   getBotInstances(): BotInstance[];
   deleteBotInstance(id: string): boolean;
@@ -119,6 +128,8 @@ function initTables(db: Database.Database): void {
       playedAt TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_play_history_botId ON play_history(botId, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_play_history_bot_song_played
+      ON play_history(botId, songId, playedAt);
 
     CREATE TABLE IF NOT EXISTS bot_instances (
       id TEXT PRIMARY KEY,
@@ -185,6 +196,17 @@ export function createDatabase(dbPath: string): BotDatabase {
     SELECT * FROM play_history WHERE botId = ? ORDER BY id DESC LIMIT ?
   `);
 
+  // Rolling-window play counts for auto-DJ repeat cooldown.
+  // playedAt is TEXT datetime('now') UTC — compare with the same form.
+  const selectSaturatedSongIds = db.prepare(`
+    SELECT songId, COUNT(*) AS n
+    FROM play_history
+    WHERE botId = ?
+      AND playedAt >= datetime('now', ?)
+    GROUP BY songId
+    HAVING n >= ?
+  `);
+
   const upsertInstance = db.prepare(`
     INSERT INTO bot_instances (id, name, serverAddress, serverPort, nickname, defaultChannel, channelPassword, autoStart, serverProtocol, ts6ApiKey, serverPassword, identity)
     VALUES (@id, @name, @serverAddress, @serverPort, @nickname, @defaultChannel, @channelPassword, @autoStart, @serverProtocol, @ts6ApiKey, @serverPassword, @identity)
@@ -236,6 +258,18 @@ export function createDatabase(dbPath: string): BotDatabase {
 
     getPlayHistory(botId, limit) {
       return selectHistory.all(botId, limit) as PlayHistoryRecord[];
+    },
+
+    getAutoDjSaturatedSongIds(botId, maxPlays, cooldownHours) {
+      if (!botId || !Number.isFinite(maxPlays) || maxPlays < 1) return new Set();
+      if (!Number.isFinite(cooldownHours) || cooldownHours <= 0) return new Set();
+      // SQLite modifier: '-12 hours' / '-0.5 hours' (fractional hours ok as string).
+      const mod = `-${cooldownHours} hours`;
+      const rows = selectSaturatedSongIds.all(botId, mod, Math.floor(maxPlays)) as Array<{
+        songId: string;
+        n: number;
+      }>;
+      return new Set(rows.map((r) => r.songId).filter(Boolean));
     },
 
     saveBotInstance(instance) {

@@ -5,9 +5,10 @@
  * unrunnable for everyone, admins included, on the first radio deployment).
  *
  * Model: versioned, APPEND-ONLY deltas applied once at startup.
- *  - Append-only: we only ever add tokens to defaultAllow / commandGroups —
- *    nothing an admin granted or wrote is removed or reordered, and rules /
- *    superAdminUids are never touched.
+ *  - Append-only: we only ever add tokens to defaultAllow / commandGroups /
+ *    existing rules' allow lists by name — nothing an admin granted or wrote
+ *    is removed or reordered; superAdminUids are never touched; rules are
+ *    never created/deleted/reordered.
  *  - Versioned (config.rightsSchemaVersion): each delta applies exactly once.
  *    If an admin deliberately removes a token afterwards, no later boot re-adds
  *    it. Fresh configs (no custom rights) skip straight to CURRENT_VERSION —
@@ -23,6 +24,11 @@ interface RightsDelta {
   defaultAllow?: string[];
   /** Tokens appended per existing command group. */
   groups?: Record<string, string[]>;
+  /**
+   * Tokens appended to `rules[].allow` for rules whose `name` matches.
+   * Never creates rules; never reorders or removes existing allow entries.
+   */
+  ruleAllowByName?: Record<string, string[]>;
 }
 
 /**
@@ -105,6 +111,15 @@ const DELTAS: readonly RightsDelta[] = [
       admin: ["workorder.clear"],
     },
   },
+  {
+    // !test demo protect: only Chairman / server-admin may skip or clear it.
+    // Not part of @admin — colonels keep clear for normal music but not the demo.
+    version: 10,
+    ruleAllowByName: {
+      "server-admin": ["test.skip"],
+      chairman: ["test.skip"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;
@@ -130,6 +145,18 @@ export function migrateRightsConfig(
     commandGroups: Object.fromEntries(
       Object.entries(rights.commandGroups ?? {}).map(([k, v]) => [k, [...v]]),
     ),
+    rules: (rights.rules ?? []).map((r) => ({
+      ...r,
+      allow: r.allow ? [...r.allow] : r.allow,
+      deny: r.deny ? [...r.deny] : r.deny,
+      match: r.match
+        ? {
+            ...r.match,
+            uids: r.match.uids ? [...r.match.uids] : r.match.uids,
+            serverGroups: r.match.serverGroups ? [...r.match.serverGroups] : r.match.serverGroups,
+          }
+        : r.match,
+    })),
   };
   const applied: string[] = [];
 
@@ -153,6 +180,17 @@ export function migrateRightsConfig(
         if (!live.includes(t)) {
           live.push(t);
           applied.push(`@${group} += ${t}`);
+        }
+      }
+    }
+    for (const [ruleName, tokens] of Object.entries(delta.ruleAllowByName ?? {})) {
+      const rule = (out.rules ?? []).find((r) => r.name === ruleName);
+      if (!rule) continue;
+      if (!rule.allow) rule.allow = [];
+      for (const t of tokens) {
+        if (!rule.allow.includes(t)) {
+          rule.allow.push(t);
+          applied.push(`rule:${ruleName} += ${t}`);
         }
       }
     }

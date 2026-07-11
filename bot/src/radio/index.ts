@@ -13,6 +13,14 @@ export {
   audioColorFilter,
   parseAudioColorPreset,
 } from "./audio-color.js";
+export {
+  type AutoDjRepeatPolicy,
+  DEFAULT_AUTO_DJ_REPEAT,
+  filterAutoDjRepeatEligible,
+  isAutoDjRepeatBlocked,
+  type NormalizedAutoDjRepeat,
+  normalizeAutoDjRepeat,
+} from "./auto-dj-repeat.js";
 export { BumperCache, type BumperCacheEntry, type BumperCacheOptions } from "./bumper-cache.js";
 export {
   buildTimeCheckSpeech,

@@ -1,5 +1,5 @@
 <template>
-  <div class="song-card" :class="{ active }" @dblclick="$emit('play')">
+  <div class="song-card" :class="{ active, blacklisted }" @dblclick="$emit('play')">
     <div class="song-index">{{ index }}</div>
     <CoverArt :url="song.coverUrl" :size="36" :radius="6" />
     <div class="song-info">
@@ -25,6 +25,22 @@
         <Icon icon="mdi:playlist-plus" />
       </button>
       <button
+        v-if="banable && blacklisted"
+        class="action-btn action-unban"
+        @click.stop="$emit('unban')"
+        title="Remove from playback blacklist"
+      >
+        <Icon icon="mdi:cancel" />
+      </button>
+      <button
+        v-else-if="banable"
+        class="action-btn action-ban"
+        @click.stop="$emit('ban')"
+        title="Blacklist from playback (admin)"
+      >
+        <Icon icon="mdi:block-helper" />
+      </button>
+      <button
         v-if="deletable"
         class="action-btn action-delete"
         @click.stop="$emit('delete')"
@@ -47,6 +63,10 @@ defineProps<{
   active?: boolean;
   /** Show admin delete control (local library only). */
   deletable?: boolean;
+  /** Show admin blacklist toggle. */
+  banable?: boolean;
+  /** Currently on the playback blacklist. */
+  blacklisted?: boolean;
 }>();
 
 defineEmits<{
@@ -54,6 +74,8 @@ defineEmits<{
   playNext: [];
   add: [];
   delete: [];
+  ban: [];
+  unban: [];
 }>();
 
 function formatDuration(seconds: number): string {
@@ -173,5 +195,30 @@ function formatDuration(seconds: number): string {
 .action-delete:hover {
   color: var(--color-danger, #e55);
   opacity: 1;
+}
+
+.action-ban:hover {
+  color: var(--color-warning, #e9a23b);
+  opacity: 1;
+}
+
+.action-unban {
+  color: var(--color-warning, #e9a23b);
+  opacity: 1;
+}
+
+.action-unban:hover {
+  color: var(--color-success, #3d9a5f);
+  opacity: 1;
+}
+
+.song-card.blacklisted {
+  opacity: 0.72;
+  .song-name::after {
+    content: ' · banned';
+    font-size: 11px;
+    color: var(--color-warning, #e9a23b);
+    font-weight: 500;
+  }
 }
 </style>

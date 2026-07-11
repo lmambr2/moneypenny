@@ -11,6 +11,7 @@ import {
   normalizeMusicBlockedGenres,
 } from "../../music/genre-block.js";
 import type { LocalProvider } from "../../music/local.js";
+import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { searchFirstWithFallback } from "../../music/search-fallback.js";
 import { isSpotifyRef, isTidalUrl, resolveExternalTrackQuery } from "../../music/stream.js";
@@ -19,6 +20,7 @@ import {
   DEFAULT_DEMO_VIDEO_ID,
   DEFAULT_DEMO_VIDEO_URL,
   extractVideoId,
+  isDemoTestTrack,
   shouldBlockYoutubeSong,
 } from "../../music/youtube.js";
 import type { YtLibrary } from "../../music/ytlibrary.js";
@@ -42,6 +44,8 @@ export interface PlaybackEngineOptions {
   isConnected: () => boolean;
   isAdvancing: () => boolean;
   setAdvancing: (v: boolean) => void;
+  /** Admin-curated playback ban list (optional). */
+  playbackBlacklist?: PlaybackBlacklist | null;
 }
 
 /**
@@ -53,9 +57,26 @@ export class PlaybackEngine {
   private voteSkipUsers = new Set<string>();
   /** Serialize URL resolve + ffmpeg start so voice partials cannot spawn double YT jobs. */
   private playResolveSerial: Promise<boolean> = Promise.resolve(true);
+  /**
+   * Song ids known to be the !test demo (including local opaque ids discovered
+   * by playDemoTrack). Always includes DEFAULT_DEMO_VIDEO_ID.
+   */
+  private protectedDemoIds = new Set<string>([DEFAULT_DEMO_VIDEO_ID]);
 
   constructor(opts: PlaybackEngineOptions) {
     this.opts = opts;
+  }
+
+  /** True while the queue's current track is the !test / PHASE0 demo. */
+  isDemoTestPlaying(): boolean {
+    const cur = this.opts.queue.current();
+    if (!cur) return false;
+    if (this.protectedDemoIds.has(cur.id)) return true;
+    return isDemoTestTrack(cur);
+  }
+
+  rememberDemoSongId(id: string): void {
+    if (id) this.protectedDemoIds.add(id);
   }
 
   clearVoteSkip(): void {
@@ -116,8 +137,9 @@ export class PlaybackEngine {
   async playDemoTrack(): Promise<string> {
     const localSong = await this.findDemoAsLocalSong(DEFAULT_DEMO_VIDEO_ID);
     if (localSong) {
+      this.rememberDemoSongId(localSong.id);
       this.opts.queue.clear();
-      this.opts.queue.add({ ...localSong, platform: "local", source: "user" });
+      this.opts.queue.add({ ...localSong, platform: "local", source: "system" });
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -140,8 +162,9 @@ export class PlaybackEngine {
     );
     if (!hit) return `No results found for: ${DEFAULT_DEMO_VIDEO_URL}`;
     const { provider, song } = hit;
+    this.rememberDemoSongId(song.id);
     this.opts.queue.clear();
-    this.opts.queue.add({ ...song, platform: provider.platform, source: "user" });
+    this.opts.queue.add({ ...song, platform: provider.platform, source: "system" });
     this.opts.queue.play();
     this.opts.player.resetFailures();
     const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -196,6 +219,7 @@ export class PlaybackEngine {
       limit,
       fallback,
       this.opts.config.musicBlockedGenres,
+      this.opts.playbackBlacklist,
     );
   }
 
@@ -238,6 +262,13 @@ export class PlaybackEngine {
     this.voteSkipUsers.clear();
     const provider = this.getProviderFor(song.platform);
     try {
+      if (this.opts.playbackBlacklist?.isBlacklisted(song)) {
+        this.opts.logger.info(
+          { songId: song.id, name: song.name, artist: song.artist },
+          "Playback blacklist blocked track — skipping",
+        );
+        return false;
+      }
       if (isBlockedGenreSong(song, this.opts.config.musicBlockedGenres)) {
         this.opts.logger.info(
           { songId: song.id, name: song.name, artist: song.artist },
@@ -248,11 +279,16 @@ export class PlaybackEngine {
       // Belt-and-suspenders: refuse full-album / >15m dumps even if already queued.
       if (
         song.platform === "youtube" &&
-        shouldBlockYoutubeSong({ title: song.name, duration: song.duration })
+        shouldBlockYoutubeSong({
+          title: song.name,
+          artist: song.artist,
+          album: song.album,
+          duration: song.duration,
+        })
       ) {
         this.opts.logger.info(
           { songId: song.id, name: song.name, duration: song.duration },
-          "YouTube full-album or over-long track blocked — skipping",
+          "YouTube non-music / full-album / over-long track blocked — skipping",
         );
         return false;
       }

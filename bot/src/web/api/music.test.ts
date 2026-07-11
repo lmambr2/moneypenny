@@ -108,4 +108,61 @@ describe("music router", () => {
     expect((await request(app).delete("/tracks/abc123")).status).toBe(403);
     expect(local.deleteSong).not.toHaveBeenCalled();
   });
+
+  it("POST/GET/DELETE /blacklist admin manages playback bans", async () => {
+    const Database = (await import("better-sqlite3")).default;
+    const { PlaybackBlacklist } = await import("../../music/playback-blacklist.js");
+    const bl = new PlaybackBlacklist({ db: new Database(":memory:") });
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      (req as any).user = { id: "a1", role: "admin", username: "admin" };
+      next();
+    });
+    app.use(
+      createMusicRouter(
+        stubProvider("local"),
+        stubProvider("youtube"),
+        stubProvider("stream"),
+        console as any,
+        { playbackBlacklist: bl },
+      ),
+    );
+
+    const add = await request(app)
+      .post("/blacklist")
+      .send({ id: "song1", platform: "local", name: "Nope", artist: "X" });
+    expect(add.status).toBe(200);
+    expect(add.body.entry.trackKey).toBe("song1");
+
+    const list = await request(app).get("/blacklist");
+    expect(list.status).toBe(200);
+    expect(list.body.keys).toContain("song1");
+
+    const del = await request(app).delete("/blacklist/song1");
+    expect(del.status).toBe(200);
+    expect(bl.hasKey("song1")).toBe(false);
+  });
+
+  it("POST /blacklist rejects non-admin", async () => {
+    const Database = (await import("better-sqlite3")).default;
+    const { PlaybackBlacklist } = await import("../../music/playback-blacklist.js");
+    const bl = new PlaybackBlacklist({ db: new Database(":memory:") });
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      (req as any).user = { id: "m1", role: "member", username: "mem" };
+      next();
+    });
+    app.use(
+      createMusicRouter(
+        stubProvider("local"),
+        stubProvider("youtube"),
+        stubProvider("stream"),
+        console as any,
+        { playbackBlacklist: bl },
+      ),
+    );
+    expect((await request(app).post("/blacklist").send({ id: "x" })).status).toBe(403);
+  });
 });

@@ -125,6 +125,17 @@ export interface RadioConfig {
   analyzer?: { enabled: boolean; tool: "keyfinder"; onIngest: boolean };
   // OQ7: gentle rating-weighted rotation, radio-mode only.
   ratingWeight?: { enabled: boolean; exponent: number; maxRatio: number };
+  /**
+   * Auto-DJ play-count cooldown (dead-air restock / profile program only).
+   * If a song was played `maxPlays`+ times within the last `cooldownHours`,
+   * it is skipped when building the radio pool. Manual !play is unaffected.
+   * Default: maxPlays 1, cooldownHours 12 (once played → out for 12h).
+   */
+  autoDjRepeat?: {
+    enabled?: boolean;
+    maxPlays?: number;
+    cooldownHours?: number;
+  };
   // OQ5: harmonic ordering of the upcoming queue window (per profile).
   harmonicSequencing?: boolean;
   /**
@@ -204,6 +215,7 @@ export function defaultRadioConfig(): RadioConfig {
       },
     },
     ratingWeight: { enabled: true, exponent: 1, maxRatio: 3 },
+    autoDjRepeat: { enabled: true, maxPlays: 1, cooldownHours: 12 },
     harmonicSequencing: false,
     analyzer: { enabled: false, tool: "keyfinder", onIngest: true },
     audioColor: "off",

@@ -1,9 +1,16 @@
 import type { QueuedSong } from "../../audio/queue.js";
 import { isBlockedGenreSong } from "../../music/genre-block.js";
+import { isNonMusicContent } from "../../music/non-music.js";
+import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
+import { shouldBlockYoutubeSong } from "../../music/youtube.js";
+// YT seed hits are primarily filtered in YouTubeProvider via yt-dlp categories/track.
 import { orderKeysHarmonically } from "../../radio/harmonic.js";
 import {
+  filterAutoDjRepeatEligible,
+  isAutoDjRepeatBlocked,
   isUnderBumperDir,
+  normalizeAutoDjRepeat,
   pinBumperToPool,
   type RadioConfig,
   type RadioProfile,
@@ -51,11 +58,27 @@ export type RadioSeedSource = "local" | "youtube" | "stream";
 
 /** True when a track is short enough (or duration unknown) and not an obvious mega-mix title. */
 export function isRadioSeedFriendlySong(
-  song: Pick<Song, "name" | "artist" | "duration" | "album">,
+  song: Pick<Song, "id" | "name" | "artist" | "duration" | "album" | "platform">,
   maxDurationSec = RADIO_SEED_MAX_DURATION_SEC,
   blockedGenres?: readonly string[] | null,
+  blacklist?: PlaybackBlacklist | null,
 ): boolean {
+  if (blacklist?.isBlacklisted(song)) return false;
   if (isBlockedGenreSong(song, blockedGenres)) return false;
+  // Docs / podcasts / trailers / clickbait — never feed auto-DJ.
+  if (isNonMusicContent(song)) return false;
+  // YouTube: same hard gates as search/play (full album, >15m, non-music).
+  if (
+    song.platform === "youtube" &&
+    shouldBlockYoutubeSong({
+      title: song.name,
+      artist: song.artist,
+      album: song.album,
+      duration: song.duration,
+    })
+  ) {
+    return false;
+  }
   if (song.duration > 0 && song.duration > maxDurationSec) return false;
   const n = `${song.name} ${song.artist}`.toLowerCase();
   // "4 hours", "full album", "vol. 1" multi-hour livestream titles, etc.
@@ -330,10 +353,26 @@ export class RadioCommands {
     return `🎛 Op context: ${arg}. ${n > 0 ? `Programmed ${n} track${n === 1 ? "" : "s"}.` : "Bumper topics retuned; no music sources matched."}`;
   }
 
+  /**
+   * Serialize auto-program: seed YT searches can take tens of seconds while the
+   * player stays idle. Overlapping dead-air fills used to run a second
+   * programFromProfile that queue.clear()+play() SIGKILLed the first song —
+   * the same local head-of-pool track would restart forever.
+   */
+  private autoProgramInFlight: Promise<boolean> | null = null;
+
   /** Dead-air self-heal (§7 `thenAutoProgram`): restock + start music from the
    *  active profile; ACE-Step auto-fill when pool empty (docs/ace-step.md A4).
    *  False when nothing matched and gen failed/off. */
   async autoProgram(): Promise<boolean> {
+    if (this.autoProgramInFlight) return this.autoProgramInFlight;
+    this.autoProgramInFlight = this.runAutoProgram().finally(() => {
+      this.autoProgramInFlight = null;
+    });
+    return this.autoProgramInFlight;
+  }
+
+  private async runAutoProgram(): Promise<boolean> {
     const radio = this.deps.config.radio;
     const profile = radio.profiles[radio.activeProfile];
     if (profile?.music) {
@@ -347,16 +386,33 @@ export class RadioCommands {
    *  playlistRefs, then seedQueries as sparse-data fallback), replace the queue
    *  with it, and start playback. Returns the pool size; 0 = queue untouched
    *  (never open a gap). */
+  /** Song ids that hit maxPlays within the auto-DJ cooldown window. */
+  private autoDjSaturatedIds(): Set<string> {
+    const policy = normalizeAutoDjRepeat(this.deps.config.radio?.autoDjRepeat);
+    if (!policy.enabled) return new Set();
+    const botId = this.deps.botId;
+    const db = this.deps.database;
+    if (!botId || !db?.getAutoDjSaturatedSongIds) return new Set();
+    try {
+      return db.getAutoDjSaturatedSongIds(botId, policy.maxPlays, policy.cooldownHours);
+    } catch (err) {
+      this.deps.logger?.debug?.({ err }, "radio: auto-DJ repeat lookup failed");
+      return new Set();
+    }
+  }
+
   private async programFromProfile(profile: RadioProfile): Promise<number> {
     const music = profile.music ?? {};
     const pool: QueuedSong[] = [];
     /** Set only when the pool is the live relay URL (timer bumpers apply). */
     let activeRelay: { relayUrl: string; bumperIntervalSec: number } | null = null;
+    const saturated = this.autoDjSaturatedIds();
 
     if (music.select && this.deps.tagStore) {
       let keys = this.deps.tagStore.selectTracks(
         parseTagFilters(music.select as Record<string, unknown>),
       );
+      keys = keys.filter((k) => !isAutoDjRepeatBlocked(k, saturated));
       keys = this.applyPoolOrdering(keys);
       pool.push(...(await this.tagKeysToSongs(keys)));
     }
@@ -380,13 +436,23 @@ export class RadioCommands {
               "radio: playlist ref empty (bridge off or unavailable)",
             );
           }
-          pool.push(...songs.map((s) => ({ ...s, platform: provider.platform })));
+          pool.push(
+            ...filterAutoDjRepeatEligible(
+              songs.map((s) => ({ ...s, platform: provider.platform })),
+              saturated,
+            ),
+          );
           continue;
         }
         const flag = ref.platform === "youtube" ? "y" : "l";
         const provider = this.deps.getProvider(new Set([flag]));
         const songs = await this.resolvePlaylistSongs(provider, ref.ref);
-        pool.push(...songs.map((s) => ({ ...s, platform: provider.platform })));
+        pool.push(
+          ...filterAutoDjRepeatEligible(
+            songs.map((s) => ({ ...s, platform: provider.platform })),
+            saturated,
+          ),
+        );
       } catch {
         /* a dead ref never blocks the profile */
       }
@@ -398,6 +464,7 @@ export class RadioCommands {
         const relay = resolveRelayFromProfile(music);
         if (relay) {
           const song = relaySongFromUrl(relay.relayUrl);
+          // Live relays are not play_history tracks — always allow.
           pool.push({ ...song, platform: "stream" });
           activeRelay = relay;
         }
@@ -407,8 +474,8 @@ export class RadioCommands {
     }
     if (pool.length === 0) {
       // Seed queries: multi-source mix (default ~33% local / ~66% YouTube+stream),
-      // mega-mix filtered, shuffled, soft anti-repeat.
-      const seeded = await this.expandSeedQueries(music.seedQueries ?? [], music);
+      // mega-mix filtered, shuffled, soft anti-repeat + play-count cooldown.
+      const seeded = await this.expandSeedQueries(music.seedQueries ?? [], music, saturated);
       pool.push(...seeded);
     }
     if (pool.length === 0) {
@@ -442,6 +509,7 @@ export class RadioCommands {
   private async expandSeedQueries(
     seeds: string[],
     music: NonNullable<RadioProfile["music"]>,
+    saturatedIds?: ReadonlySet<string>,
   ): Promise<QueuedSong[]> {
     const sources = normalizeSeedSources(music.seedSources);
     const shuffle = music.shuffle !== false;
@@ -453,6 +521,8 @@ export class RadioCommands {
     const localById = new Map<string, QueuedSong>();
     const externalById = new Map<string, QueuedSong>();
     const blockedGenres = this.deps.config.musicBlockedGenres;
+    const bl = this.deps.playbackBlacklist ?? null;
+    const saturated = saturatedIds ?? this.autoDjSaturatedIds();
 
     const absorb = (
       songs: Song[],
@@ -460,9 +530,11 @@ export class RadioCommands {
       into: Map<string, QueuedSong>,
     ) => {
       for (const song of songs) {
-        if (!isRadioSeedFriendlySong(song, RADIO_SEED_MAX_DURATION_SEC, blockedGenres)) continue;
+        if (!isRadioSeedFriendlySong(song, RADIO_SEED_MAX_DURATION_SEC, blockedGenres, bl))
+          continue;
         const id = song.id;
         if (!id || into.has(id) || localById.has(id) || externalById.has(id)) continue;
+        if (isAutoDjRepeatBlocked(id, saturated)) continue;
         into.set(id, { ...song, platform });
       }
     };

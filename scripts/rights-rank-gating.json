@@ -67,7 +67,14 @@
     {
       "name": "server-admin",
       "match": { "serverGroups": ["107"] },
-      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+      "allow": [
+        "@admin",
+        "@analyst",
+        "@doctrine_restricted",
+        "@doctrine_confidential",
+        "@doctrine_secret",
+        "test.skip"
+      ]
     },
     {
       "name": "staff-tier-a",

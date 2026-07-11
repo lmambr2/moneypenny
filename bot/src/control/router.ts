@@ -392,6 +392,33 @@ export class ControlRouter {
       return `You don't have permission to use '${cmd.name}'.`;
     }
 
+    // !test demo track: only ranks with `test.skip` may interrupt it.
+    // Covers skip/clear/stop AND queue-replacing play (so !play cannot bump the demo).
+    // Token is NOT in @admin/@dj — Chairman / server-admin only.
+    if (context.canRun) {
+      const demoInterrupt =
+        cmd.name === "next" ||
+        cmd.name === "skip" ||
+        cmd.name === "clear" ||
+        cmd.name === "stop" ||
+        cmd.name === "play" ||
+        cmd.name === "playlist" ||
+        cmd.name === "album" ||
+        cmd.name === "artist" ||
+        cmd.name === "chevron7";
+      if (demoInterrupt) {
+        const demoPlaying =
+          typeof context.bot.isDemoTestPlaying === "function" && context.bot.isDemoTestPlaying();
+        if (demoPlaying && !context.canRun("test.skip")) {
+          this.logger.debug(
+            { command: cmd.name, ...invokerFields(context) },
+            "Demo track interrupt denied — needs test.skip (Chairman / server admin)",
+          );
+          return "Only Chairman or server admin can skip or replace the !test demo track.";
+        }
+      }
+    }
+
     // `!radio` is public (status / ops list), but the sensitive subcommands
     // carry their own tokens (docs/radio.md §12): on/off needs the admin
     // `radio.power`; `ops <profile>` needs `radio.ops` (granted to @dj + admin).

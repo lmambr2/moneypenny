@@ -92,4 +92,24 @@ describe("migrateRightsConfig", () => {
     expect(input.defaultAllow).toEqual(["play", "skip", "help"]);
     expect(input.commandGroups!.dj).toEqual(["stop", "vol"]);
   });
+
+  it("v10 appends test.skip only onto named Chairman / server-admin rules", () => {
+    const withRanks: RightsConfig = {
+      ...frozen(),
+      rules: [
+        { name: "colonel-officer", match: { serverGroups: ["9"] }, allow: ["@admin"] },
+        { name: "chairman", match: { serverGroups: ["23"] }, allow: ["@admin", "@analyst"] },
+        { name: "server-admin", match: { serverGroups: ["6"] }, allow: ["@admin"] },
+      ],
+    };
+    const m = migrateRightsConfig(withRanks, 9);
+    expect(m.version).toBe(CURRENT_RIGHTS_VERSION);
+    const byName = Object.fromEntries((m.rights!.rules ?? []).map((r) => [r.name, r.allow]));
+    expect(byName.chairman).toContain("test.skip");
+    expect(byName["server-admin"]).toContain("test.skip");
+    expect(byName["colonel-officer"]).not.toContain("test.skip");
+    expect(m.applied).toEqual(
+      expect.arrayContaining(["rule:server-admin += test.skip", "rule:chairman += test.skip"]),
+    );
+  });
 });

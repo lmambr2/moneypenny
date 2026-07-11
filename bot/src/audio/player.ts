@@ -354,12 +354,14 @@ export class AudioPlayer extends EventEmitter {
       // Detect a stall where pcm stays below PCM_FRAME_BYTES and the loop spins:
       //   Cond 1: FFmpeg still running but buffer holds less than one frame, and data
       //           has been unavailable for many consecutive iterations.
-      //   Cond 2: playback time is near the end of the song (last 5s) or duration unknown.
+      //   Cond 2: playback is near the end of the song (last 5s). When duration is
+      //           unknown, require a minimum elapsed time so slow buffer fill at
+      //           start does not look like "track ended" and restart the song.
       const elapsed = this.getElapsed();
       const isNearEnd =
         this.currentSongDuration > 0
           ? this.currentSongDuration - elapsed <= 5 // less than 5s from the end
-          : true; // be conservative when duration is unknown
+          : elapsed >= 45; // unknown duration: only after ~45s of wall play time
 
       if (this.ffmpeg !== null && this.pcmBuffered < PCM_FRAME_BYTES) {
         this.emptyFrameAttempts++;

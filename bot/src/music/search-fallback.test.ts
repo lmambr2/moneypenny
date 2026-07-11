@@ -54,4 +54,14 @@ describe("searchFirstWithFallback", () => {
     const out = await searchFirstWithFallback(provider([]), "q", 1, provider([]));
     expect(out).toBeNull();
   });
+
+  it("skips blacklisted hits and takes the next candidate", async () => {
+    const Database = (await import("better-sqlite3")).default;
+    const { PlaybackBlacklist } = await import("./playback-blacklist.js");
+    const bl = new PlaybackBlacklist({ db: new Database(":memory:") });
+    bl.add({ trackKey: "banned" });
+    const primary = provider([song("banned", "local"), song("ok", "local")]);
+    const out = await searchFirstWithFallback(primary, "q", 1, undefined, [], bl);
+    expect(out?.song.id).toBe("ok");
+  });
 });

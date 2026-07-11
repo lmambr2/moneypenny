@@ -12,6 +12,7 @@ import type { DoctrineStore } from "../data/doctrine.js";
 import { createSessionStore } from "../data/sessions.js";
 import { createUserStore } from "../data/users.js";
 import type { Logger } from "../logger.js";
+import type { PlaybackBlacklist } from "../music/playback-blacklist.js";
 import type { MusicProvider } from "../music/provider.js";
 import type { RadioAnalyzer, TagStore } from "../radio/index.js";
 import type { RetrievalStore } from "../rag/index.js";
@@ -56,6 +57,8 @@ export interface WebServerOptions {
   doctrine?: DoctrineStore;
   /** Radio tag overlay (docs/radio.md §9). Enables the tag/rating endpoints. */
   tagStore?: TagStore;
+  /** Admin playback ban list. Enables blacklist API endpoints. */
+  playbackBlacklist?: PlaybackBlacklist;
   /** Radio analyzer sidecar (docs/radio.md §9.5). Enables analyze API + on-ingest. */
   radioAnalyzer?: RadioAnalyzer;
 }
@@ -159,6 +162,7 @@ export function createWebServer(options: WebServerOptions): WebServer {
       logger,
       {
         tagStore: options.tagStore,
+        playbackBlacklist: options.playbackBlacklist,
         radioAnalyzer: options.radioAnalyzer,
         getRadioConfig: () => options.config.radio,
         // @dj web parity: radio.tags token (admin always passes inside the middleware).

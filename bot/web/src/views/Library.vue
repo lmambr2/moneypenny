@@ -130,10 +130,14 @@
             :index="i + 1"
             :active="store.currentSong?.id === song.id"
             :deletable="session.isAdmin.value"
+            :banable="session.isAdmin.value"
+            :blacklisted="blacklistKeys.has(song.id)"
             @play="store.play(song.name, 'local')"
             @playNext="store.playNextSong(song)"
             @add="store.addToQueue(song.name, 'local')"
             @delete="deleteLibraryTrack(song)"
+            @ban="banLibraryTrack(song)"
+            @unban="unbanLibraryTrack(song)"
           />
         </div>
       </template>
@@ -641,9 +645,65 @@ async function deleteLibraryTrack(song: Song) {
     store.localRecent = store.localRecent.filter((s) => s.id !== song.id);
     store.localTrackCount = Math.max(0, (store.localTrackCount || 1) - 1);
     delete trackTags.value[song.id];
+    blacklistKeys.value.delete(song.id);
     store.notify(`Deleted “${song.name}”`, 'info');
   } catch (err: any) {
     store.notify(err?.response?.data?.error ?? 'Delete failed', 'error');
+  }
+}
+
+/** Opaque ids currently on the station playback blacklist (admin). */
+const blacklistKeys = ref(new Set<string>());
+
+async function loadBlacklist() {
+  if (!session.isAdmin.value) {
+    blacklistKeys.value = new Set();
+    return;
+  }
+  try {
+    const res = await api.get('/api/music/blacklist');
+    const keys: string[] = res.data?.keys ?? [];
+    blacklistKeys.value = new Set(keys);
+  } catch {
+    blacklistKeys.value = new Set();
+  }
+}
+
+async function banLibraryTrack(song: Song) {
+  if (!session.isAdmin.value) return;
+  if (
+    !confirm(
+      `Blacklist “${song.name}” from playback?\n\nThe file stays on disk; search, !play, and radio will skip it.`,
+    )
+  ) {
+    return;
+  }
+  try {
+    await api.post('/api/music/blacklist', {
+      id: song.id,
+      platform: song.platform || 'local',
+      name: song.name,
+      artist: song.artist,
+    });
+    const next = new Set(blacklistKeys.value);
+    next.add(song.id);
+    blacklistKeys.value = next;
+    store.notify(`Blacklisted “${song.name}”`, 'info');
+  } catch (err: any) {
+    store.notify(err?.response?.data?.error ?? 'Blacklist failed', 'error');
+  }
+}
+
+async function unbanLibraryTrack(song: Song) {
+  if (!session.isAdmin.value) return;
+  try {
+    await api.delete(`/api/music/blacklist/${encodeURIComponent(song.id)}`);
+    const next = new Set(blacklistKeys.value);
+    next.delete(song.id);
+    blacklistKeys.value = next;
+    store.notify(`Removed “${song.name}” from blacklist`, 'info');
+  } catch (err: any) {
+    store.notify(err?.response?.data?.error ?? 'Unban failed', 'error');
   }
 }
 
@@ -979,7 +1039,10 @@ onMounted(async () => {
   store.fetchHomeData();
   await loadLibraryTracks();
   void loadTrackTagsForRecent();
-  if (session.isAdmin.value) void loadAnalyzerStatus();
+  if (session.isAdmin.value) {
+    void loadAnalyzerStatus();
+    void loadBlacklist();
+  }
 
   if (store.activeBotId) {
     try {

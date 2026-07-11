@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import axios from "axios";
 import { errorMessage } from "../util/error.js";
+import { shouldBlockAsNonMusic, type YtDlpMusicMeta } from "./non-music.js";
 import type {
   AuthStatus,
   LyricLine,
@@ -70,6 +71,21 @@ export const DEFAULT_DEMO_VIDEO_ID = "hLOheGDwD_0";
 export const DEFAULT_DEMO_VIDEO_URL = `https://www.youtube.com/watch?v=${DEFAULT_DEMO_VIDEO_ID}`;
 
 /**
+ * True when the song is the canonical !test / PHASE0 demo track (YouTube id or
+ * a local YT-save whose name embeds `[videoId]`). Used to rights-gate skip/clear.
+ */
+export function isDemoTestTrack(
+  song: { id?: string | null; name?: string | null; album?: string | null } | null | undefined,
+): boolean {
+  if (!song) return false;
+  const id = song.id ?? "";
+  if (id === DEFAULT_DEMO_VIDEO_ID) return true;
+  if (extractVideoId(id) === DEFAULT_DEMO_VIDEO_ID) return true;
+  const blob = `${song.name ?? ""} ${song.album ?? ""} ${id}`.toLowerCase();
+  return blob.includes(DEFAULT_DEMO_VIDEO_ID.toLowerCase());
+}
+
+/**
  * Extract the canonical 11-char video id from any YouTube URL form (watch?v=,
  * youtu.be/, /embed, /shorts, /live, /v) or a bare id. The reliable dedup key
  * for the YouTube → local library feature — the same video maps to one id
@@ -116,13 +132,29 @@ export function isYoutubeTooLong(durationSec: number | null | undefined): boolea
   return d > YOUTUBE_MAX_DURATION_SEC;
 }
 
-/** Combined gate for YouTube queue pollution (title dump or over-long). */
+/** Combined gate for YouTube queue pollution (title dump, non-music, or over-long). */
 export function shouldBlockYoutubeSong(opts: {
   title?: string | null;
+  artist?: string | null;
+  album?: string | null;
   duration?: number | null;
+  /** yt-dlp info-json subset when available (preferred over title-only). */
+  ytMeta?: YtDlpMusicMeta | null;
 }): boolean {
   if (isYoutubeFullAlbumTitle(opts.title ?? "")) return true;
   if (isYoutubeTooLong(opts.duration)) return true;
+  if (
+    shouldBlockAsNonMusic(
+      {
+        name: opts.title,
+        artist: opts.artist,
+        album: opts.album,
+      },
+      opts.ytMeta,
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -206,6 +238,15 @@ interface YtDlpEntry {
   extractor?: string;
   entries?: YtDlpEntry[];
   _type?: string;
+  /** YouTube primary category list (e.g. `["Music"]`). */
+  categories?: string[] | string;
+  tags?: string[] | string;
+  track?: string;
+  album?: string;
+  album_artist?: string;
+  artist?: string;
+  genre?: string;
+  channel_id?: string;
 }
 
 /** Friendly source label for a non-YouTube yt-dlp entry (X/Twitter, etc.). */
@@ -215,22 +256,49 @@ function sourceLabelFor(webUrl: string, extractor?: string): string {
   return "Web";
 }
 
+function entryMusicMeta(entry: YtDlpEntry): YtDlpMusicMeta {
+  return {
+    categories: entry.categories,
+    tags: entry.tags,
+    track: entry.track,
+    album: entry.album,
+    album_artist: entry.album_artist,
+    artist: entry.artist ?? entry.uploader ?? entry.channel,
+    genre: entry.genre,
+    title: entry.title,
+    uploader: entry.uploader,
+    channel: entry.channel,
+    channel_id: entry.channel_id,
+  };
+}
+
 function entryToSong(entry: YtDlpEntry): Song | null {
   const title = entry.title ?? "Unknown";
   const duration = Math.round(entry.duration ?? 0);
-  // Full-album / over-long gates only for YouTube (not X/Bandcamp posts).
+  // Full-album / non-music / over-long gates only for YouTube (not X/Bandcamp posts).
   const webUrl = entry.webpage_url ?? "";
   const isYt =
     /youtube|youtu\.be/i.test(entry.extractor ?? "") || /youtube\.com|youtu\.be/i.test(webUrl);
-  if (isYt && shouldBlockYoutubeSong({ title, duration })) return null;
+  // Prefer structured music artist when yt-dlp provides it.
+  const artist =
+    (typeof entry.artist === "string" && entry.artist.trim()) ||
+    (typeof entry.album_artist === "string" && entry.album_artist.trim()) ||
+    entry.uploader ||
+    entry.channel ||
+    "";
+  const ytMeta = entryMusicMeta(entry);
+  if (isYt && shouldBlockYoutubeSong({ title, artist, duration, ytMeta })) return null;
   const label = isYt ? "YouTube" : sourceLabelFor(webUrl, entry.extractor);
+  // Prefer real album from music metadata over the "YouTube" platform label.
+  const album =
+    isYt && typeof entry.album === "string" && entry.album.trim() ? entry.album.trim() : label;
   return {
     // For non-YouTube (X/Twitter/…) keep the full page URL as the id — there's no
     // youtube-style ?v= id for getSongUrl to rebuild from, so it re-resolves the URL.
     id: isYt ? (entry.id ?? "") : webUrl || entry.id || "",
-    name: title,
-    artist: entry.uploader ?? entry.channel ?? label,
-    album: label,
+    name: (typeof entry.track === "string" && entry.track.trim()) || title,
+    artist: artist || label,
+    album,
     duration,
     coverUrl: entry.thumbnail ?? "",
     platform: "youtube",
@@ -274,13 +342,12 @@ export class YouTubeProvider implements MusicProvider {
           return { songs: [], playlists: [], albums: [] };
         }
       } else {
-        raw = await runYtDlp([
-          `ytsearch${limit}:${query}`,
-          "--dump-json",
-          "--flat-playlist",
-          "--no-warnings",
-          "--quiet",
-        ]);
+        // Full extract (not --flat-playlist) so categories / track / album / tags
+        // are present for the non-music gate. Limit stays small for auto-DJ.
+        raw = await runYtDlp(
+          [`ytsearch${limit}:${query}`, "--dump-json", "--no-warnings", "--quiet", "--no-playlist"],
+          45_000,
+        );
         const lines = raw.trim().split("\n").filter(Boolean);
         const songs: Song[] = [];
         for (const line of lines) {

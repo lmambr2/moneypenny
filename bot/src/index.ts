@@ -13,6 +13,7 @@ import { initWorkOrderStore } from "./economy/work-orders.js";
 import { warmLlmModels } from "./llm/warmup.js";
 import { createLogger } from "./logger.js";
 import { LocalProvider } from "./music/local.js";
+import { PlaybackBlacklist } from "./music/playback-blacklist.js";
 import { StreamProvider } from "./music/stream.js";
 import { YouTubeProvider } from "./music/youtube.js";
 import { RadioAnalyzer, TagStore } from "./radio/index.js";
@@ -109,6 +110,7 @@ async function main() {
 
   const musicDir = process.env.MUSIC_DIR || "/music";
   const tagStore = new TagStore({ db: db.db });
+  const playbackBlacklist = new PlaybackBlacklist({ db: db.db });
   const localProvider = new LocalProvider({
     musicDir,
     excludedIds: () => tagStore.bumperKeySet(), // hide bumper-flagged assets from music search (§9.2)
@@ -205,6 +207,7 @@ async function main() {
     tsFilesDir,
     tsVirtualServerId,
     tagStore,
+    playbackBlacklist,
   );
   await botManager.loadSavedBots();
 
@@ -262,6 +265,7 @@ async function main() {
     configPath: CONFIG_PATH,
     logger,
     tagStore,
+    playbackBlacklist,
     radioAnalyzer,
     staticDir: STATIC_DIR,
     retrieval,
