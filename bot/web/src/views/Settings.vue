@@ -3102,7 +3102,7 @@ async function saveAiSettings() {
             Math.min(720, Number(ai.radioAutoDjCooldownHours) || 12),
           ),
         },
-        harmonicSequencing: ai.radioHarmonicSequencing;
+        harmonicSequencing: ai.radioHarmonicSequencing,
         audioColor: ai.radioAudioColor,
         analyzer: {
           enabled: ai.radioAnalyzerEnabled,
