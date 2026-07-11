@@ -94,7 +94,8 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
 
     const msg = await engine.playDemoTrack();
     expect(msg).toContain("Now playing");
-    expect(youtubeSearch).toHaveBeenCalledWith(DEFAULT_DEMO_VIDEO_URL, 1);
+    // Genre policy pulls a small candidate window (default ban list → limit 8).
+    expect(youtubeSearch).toHaveBeenCalledWith(DEFAULT_DEMO_VIDEO_URL, 8);
     expect(play).toHaveBeenCalledTimes(1);
   });
 
