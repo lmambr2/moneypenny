@@ -51,6 +51,42 @@ bot host (included in the production Docker image). See [r3-workflows.md](./r3-w
 
 ---
 
+## Formatting for retrieval (recommended)
+
+Chunking is **heading-first** (`bot/src/rag/chunk.ts`): each `## Section` becomes its
+own embed when small enough. Docs without headings become one blob (then
+size-split), which is worse for `!ask` and doctrine bumpers.
+
+**Prefer:**
+
+```markdown
+---
+classification: restricted
+tags: [training, fighter-ops]
+---
+
+# Doc title
+
+## Section name
+
+Short paragraphs. One idea per section when possible.
+
+- **Label:** detail line for procedures
+```
+
+**Reformat an existing host corpus** (does not live in the public git tree):
+
+```bash
+# On the bot host, after backing up bot/data/doctrine:
+python3 scripts/reformat-doctrine-corpus.py /path/to/bot/data/doctrine
+# Watcher / !reindex / POST /api/rag/doctrine/reindex picks up changes
+```
+
+The script normalizes frontmatter, promotes real section titles to `##`, keeps
+list items as bullets, and leaves operator cheatsheets alone.
+
+---
+
 ## Document format (frontmatter → classification + tags)
 
 A doctrine doc is plain Markdown with an optional YAML-ish frontmatter block.
