@@ -4,7 +4,9 @@ import {
   DEFAULT_DEMO_VIDEO_ID,
   DEFAULT_DEMO_VIDEO_URL,
   isYoutubeFullAlbumTitle,
+  isYoutubeLivestreamRadioTitle,
   isYoutubeTooLong,
+  isYtDlpLiveStream,
   safeYtDlpMediaUrl,
   shouldBlockYoutubeSong,
   YOUTUBE_MAX_DURATION_SEC,
@@ -63,6 +65,59 @@ describe("isYoutubeTooLong / shouldBlockYoutubeSong", () => {
     expect(shouldBlockYoutubeSong({ title: "Full Album", duration: 60 })).toBe(true);
     expect(shouldBlockYoutubeSong({ title: "Normal Song", duration: 1200 })).toBe(true);
     expect(shouldBlockYoutubeSong({ title: "Normal Song", duration: 240 })).toBe(false);
+  });
+});
+
+describe("isYoutubeLivestreamRadioTitle / is_live", () => {
+  it("blocks 24/7 and [LIVE] radio streams that cause No URL skips", () => {
+    expect(
+      isYoutubeLivestreamRadioTitle(
+        "Classic Rock Radio 🔴️ 24/7 Nonstop Classic Hits | Van Halen, Fleetwood Mac, Led Zeppelin and More 2026-07-12 00:33",
+      ),
+    ).toBe(true);
+    expect(
+      isYoutubeLivestreamRadioTitle(
+        "Rock Classics ⚡ [ LIVE ] Timeless Rock Hits of the 70s, 80s, and 90s | Best of Rock Music Anthems 2026-07-12 00:33",
+      ),
+    ).toBe(true);
+    expect(
+      isYoutubeLivestreamRadioTitle(
+        "Pop Rock ⚡ [ LIVE ] Best Pop Rock Songs | Top Popular Rock Music Hits | Trending Pop Rock Playlist 2026-07-12 00:34",
+      ),
+    ).toBe(true);
+    expect(
+      isYoutubeLivestreamRadioTitle("synthwave radio 🌌 beats to chill/game to 2026-07-12 00:33"),
+    ).toBe(true);
+    expect(
+      isYoutubeLivestreamRadioTitle(
+        "medieval lofi radio 🏰 - beats to scribe manuscripts to 2026-07-11 17:31",
+      ),
+    ).toBe(true);
+  });
+
+  it("allows normal songs and concert 'live at' titles", () => {
+    expect(isYoutubeLivestreamRadioTitle("Bohemian Rhapsody")).toBe(false);
+    expect(isYoutubeLivestreamRadioTitle("Cool Band - Live at Red Rocks")).toBe(false);
+    expect(isYoutubeLivestreamRadioTitle("Radio Ga Ga")).toBe(false);
+    expect(isYoutubeLivestreamRadioTitle("Live Forever")).toBe(false);
+  });
+
+  it("blocks via shouldBlockYoutubeSong and yt-dlp is_live", () => {
+    expect(
+      shouldBlockYoutubeSong({
+        title: "Classic Rock Radio 24/7 Nonstop Hits",
+        duration: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockYoutubeSong({
+        title: "Some Track",
+        duration: 200,
+        ytMeta: { is_live: true },
+      }),
+    ).toBe(true);
+    expect(isYtDlpLiveStream({ live_status: "is_live" })).toBe(true);
+    expect(isYtDlpLiveStream({ live_status: "not_live" })).toBe(false);
   });
 });
 

@@ -3,7 +3,7 @@ import { isBlockedGenreSong } from "../../music/genre-block.js";
 import { isNonMusicContent } from "../../music/non-music.js";
 import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
-import { shouldBlockYoutubeSong } from "../../music/youtube.js";
+import { isYoutubeLivestreamRadioTitle, shouldBlockYoutubeSong } from "../../music/youtube.js";
 // YT seed hits are primarily filtered in YouTubeProvider via yt-dlp categories/track.
 import { orderKeysHarmonically } from "../../radio/harmonic.js";
 import {
@@ -67,7 +67,9 @@ export function isRadioSeedFriendlySong(
   if (isBlockedGenreSong(song, blockedGenres)) return false;
   // Docs / podcasts / trailers / clickbait — never feed auto-DJ.
   if (isNonMusicContent(song)) return false;
-  // YouTube: same hard gates as search/play (full album, >15m, non-music).
+  // 24/7 LIVE radios / Lofi-style streams — yt-dlp returns no URL → dead air.
+  if (isYoutubeLivestreamRadioTitle(song.name)) return false;
+  // YouTube: same hard gates as search/play (full album, live, >15m, non-music).
   if (
     song.platform === "youtube" &&
     shouldBlockYoutubeSong({

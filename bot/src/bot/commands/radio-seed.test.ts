@@ -86,6 +86,40 @@ describe("isRadioSeedFriendlySong", () => {
       ),
     ).toBe(false);
   });
+
+  it("rejects YouTube 24/7 LIVE radio streams (No URL dead air)", () => {
+    expect(
+      isRadioSeedFriendlySong(
+        song({
+          id: "live1",
+          name: "Classic Rock Radio 🔴️ 24/7 Nonstop Classic Hits | Van Halen 2026-07-12 00:33",
+          platform: "youtube",
+          duration: 0,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRadioSeedFriendlySong(
+        song({
+          id: "live2",
+          name: "Rock Classics ⚡ [ LIVE ] Timeless Rock Hits of the 70s",
+          platform: "youtube",
+          duration: 0,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRadioSeedFriendlySong(
+        song({
+          id: "lofi",
+          name: "synthwave radio 🌌 beats to chill/game to 2026-07-12 00:33",
+          artist: "Lofi Girl",
+          platform: "youtube",
+          duration: 0,
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("orderSeedCandidates / shuffleSongs", () => {

@@ -123,6 +123,41 @@ export function isYoutubeFullAlbumTitle(title: string): boolean {
 }
 
 /**
+ * YouTube 24/7 livestream "radios" (Lofi Girl–style, "Classic Rock Radio LIVE")
+ * return no extractable URL via yt-dlp and leave dead air. Detect by title
+ * signals that normal tracks almost never use.
+ *
+ * Pure helper — unit-tested; used at search, seed, and play resolve.
+ */
+export function isYoutubeLivestreamRadioTitle(title: string): boolean {
+  const raw = String(title || "").normalize("NFKC");
+  if (!raw.trim()) return false;
+  const t = raw.toLowerCase();
+
+  // Explicit live / radio-stream markers (keep [LIVE] before stripping brackets).
+  if (/\[\s*live\s*\]/i.test(raw)) return true;
+  if (/\b24\s*\/\s*7\b/i.test(raw)) return true;
+  if (/\blive\s*stream\b|\blivestream\b/i.test(t)) return true;
+  if (/\bnonstop\b/i.test(t) && /\b(radio|hits|classic|rock|mix|music)\b/i.test(t)) return true;
+  // Lofi Girl–style: "beats to chill/game to", "beats to study to"
+  if (/\bbeats\s+to\b/i.test(t)) return true;
+  // Live radio / 24-7 radio without brackets
+  if (/\bradio\b/i.test(t) && (/\blive\b/i.test(t) || /\b24\s*\/?\s*7\b/i.test(t))) return true;
+  // YT live titles append a rolling clock: "... 2026-07-12 00:33"
+  if (/\b20\d{2}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\b/.test(raw)) return true;
+
+  return false;
+}
+
+/** yt-dlp live flags — never queue as a discrete radio track. */
+export function isYtDlpLiveStream(meta: YtDlpMusicMeta | null | undefined): boolean {
+  if (!meta) return false;
+  if (meta.is_live === true) return true;
+  const status = typeof meta.live_status === "string" ? meta.live_status.toLowerCase() : "";
+  return status === "is_live" || status === "is_upcoming" || status === "post_live";
+}
+
+/**
  * True when duration is known and exceeds the 15-minute cap.
  * Unknown/zero duration is allowed (oEmbed age-restricted path often lacks it).
  */
@@ -142,6 +177,8 @@ export function shouldBlockYoutubeSong(opts: {
   ytMeta?: YtDlpMusicMeta | null;
 }): boolean {
   if (isYoutubeFullAlbumTitle(opts.title ?? "")) return true;
+  if (isYoutubeLivestreamRadioTitle(opts.title ?? "")) return true;
+  if (isYtDlpLiveStream(opts.ytMeta)) return true;
   if (isYoutubeTooLong(opts.duration)) return true;
   if (
     shouldBlockAsNonMusic(
@@ -247,6 +284,8 @@ interface YtDlpEntry {
   artist?: string;
   genre?: string;
   channel_id?: string;
+  is_live?: boolean;
+  live_status?: string;
 }
 
 /** Friendly source label for a non-YouTube yt-dlp entry (X/Twitter, etc.). */
@@ -269,6 +308,8 @@ function entryMusicMeta(entry: YtDlpEntry): YtDlpMusicMeta {
     uploader: entry.uploader,
     channel: entry.channel,
     channel_id: entry.channel_id,
+    is_live: entry.is_live,
+    live_status: entry.live_status,
   };
 }
 

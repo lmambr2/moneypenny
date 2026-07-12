@@ -27,6 +27,10 @@ export type YtDlpMusicMeta = {
   uploader?: string | null;
   channel?: string | null;
   channel_id?: string | null;
+  /** True when the video is a YouTube livestream (no discrete track URL). */
+  is_live?: boolean | null;
+  /** yt-dlp live_status: not_live | is_live | is_upcoming | was_live | post_live */
+  live_status?: string | null;
 };
 
 export type MusicMetaVerdict = "music" | "nonmusic" | "unknown";
