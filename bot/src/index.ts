@@ -118,7 +118,11 @@ async function main() {
   });
   const youtubeProvider = new YouTubeProvider();
   const streamProvider = new StreamProvider({
+    // Default / Settings bridge (historically one URL for both services).
     bridgeUrl: config.streamBridgeUrl || process.env.STREAM_BRIDGE_URL || "",
+    // Optional service-specific overrides (compose: tidal-bridge:8081, spotify-bridge:8082).
+    tidalBridgeUrl: process.env.TIDAL_BRIDGE_URL || "",
+    spotifyBridgeUrl: process.env.SPOTIFY_BRIDGE_URL || "",
     logger,
   });
 

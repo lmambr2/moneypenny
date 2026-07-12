@@ -83,6 +83,17 @@ export function isStreamableUrl(input: string): boolean {
 }
 
 /**
+ * Clean OpenGraph titles like "Listen to I Am Not Afraid on TIDAL" → "I Am Not Afraid".
+ */
+export function cleanExternalTrackTitle(raw: string): string {
+  let t = raw.trim();
+  t = t.replace(/^listen\s+to\s+/i, "");
+  t = t.replace(/\s+on\s+(tidal|spotify)\b.*$/i, "");
+  t = t.replace(/\s*[|·]\s*(tidal|spotify)\s*$/i, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+/**
  * Resolve a DRM'd track link (Spotify/Tidal) to an "Artist Title" search query by
  * scraping its OpenGraph tags. Used to play the song from the local library or
  * YouTube when no streaming bridge is configured. Best-effort — null on failure.
@@ -114,10 +125,18 @@ export async function resolveExternalTrackQuery(
         );
       return m ? decodeHtmlEntities(m[1]) : null;
     };
-    const title = og("title");
+    const title = cleanExternalTrackTitle(og("title") || "");
     if (!title) return null;
     // Spotify desc: "Artist · Song · 2023" · Tidal: "Artist — ..." → take a leading artist if distinct.
-    const artist = (og("description") || "").split(/[·|—-]/)[0].trim();
+    let artist = (og("description") || "").split(/[·|—-]/)[0].trim();
+    artist = cleanExternalTrackTitle(artist);
+    // Drop noise like "Listen to I Am Not Afraid on TIDAL Charley Crockett" left in desc.
+    if (artist && title && artist.toLowerCase().includes(title.toLowerCase())) {
+      const after = artist
+        .slice(artist.toLowerCase().indexOf(title.toLowerCase()) + title.length)
+        .trim();
+      if (after) artist = after.replace(/^[-–—|:]+/, "").trim();
+    }
     const q =
       artist && !title.toLowerCase().includes(artist.toLowerCase()) ? `${artist} ${title}` : title;
     logger?.debug({ url, q }, "Resolved external (Spotify/Tidal) track to a search query");
@@ -177,45 +196,76 @@ interface BridgeResolved {
 }
 
 export interface StreamProviderOptions {
-  /** Base URL of the Spotify/Tidal stream bridge. Empty → bridged refs unsupported. */
+  /**
+   * Default bridge base URL (Tidal and/or Spotify when specific URLs unset).
+   * Empty + no service-specific URL → bridged refs unsupported.
+   */
   bridgeUrl?: string;
+  /** Prefer this for Tidal refs (else `bridgeUrl`). */
+  tidalBridgeUrl?: string;
+  /** Prefer this for Spotify refs (else `bridgeUrl`). */
+  spotifyBridgeUrl?: string;
   logger?: Logger;
   timeoutMs?: number;
+}
+
+function stripSlash(url: string): string {
+  return url.replace(/\/$/, "");
 }
 
 export class StreamProvider implements MusicProvider {
   readonly platform = "stream" as const;
   private quality = "default";
   private bridgeUrl: string;
+  private tidalBridgeUrl: string;
+  private spotifyBridgeUrl: string;
   private logger?: Logger;
   private timeoutMs: number;
 
   constructor(opts: StreamProviderOptions = {}) {
-    this.bridgeUrl = (opts.bridgeUrl ?? "").replace(/\/$/, "");
+    this.bridgeUrl = stripSlash(opts.bridgeUrl ?? "");
+    this.tidalBridgeUrl = stripSlash(opts.tidalBridgeUrl ?? "");
+    this.spotifyBridgeUrl = stripSlash(opts.spotifyBridgeUrl ?? "");
     this.logger = opts.logger;
     this.timeoutMs = opts.timeoutMs ?? 10_000;
   }
 
-  /** Hot-reload the Spotify/Tidal bridge base URL (Settings / env override). */
+  /** Hot-reload the default Spotify/Tidal bridge base URL (Settings / env override). */
   setBridgeUrl(url: string): void {
-    this.bridgeUrl = url.replace(/\/$/, "");
+    this.bridgeUrl = stripSlash(url);
+  }
+
+  setTidalBridgeUrl(url: string): void {
+    this.tidalBridgeUrl = stripSlash(url);
+  }
+
+  setSpotifyBridgeUrl(url: string): void {
+    this.spotifyBridgeUrl = stripSlash(url);
   }
 
   getBridgeUrl(): string {
     return this.bridgeUrl;
   }
 
+  /** Bridge base for a Spotify/Tidal ref, or "" if none configured for that service. */
+  bridgeFor(ref: string): string {
+    if (isTidalUrl(ref)) return this.tidalBridgeUrl || this.bridgeUrl;
+    if (isSpotifyRef(ref)) return this.spotifyBridgeUrl || this.bridgeUrl;
+    return this.bridgeUrl;
+  }
+
   /** Whether this provider can handle `query` (direct URL, or a bridged Spotify/Tidal ref). */
   canHandle(query: string): boolean {
-    return (
-      isStreamableUrl(query) || (!!this.bridgeUrl && (isSpotifyRef(query) || isTidalUrl(query)))
-    );
+    if (isStreamableUrl(query)) return true;
+    if (isTidalUrl(query) || isSpotifyRef(query)) return !!this.bridgeFor(query);
+    return false;
   }
 
   private async resolveBridge(ref: string): Promise<BridgeResolved | null> {
-    if (!this.bridgeUrl) return null;
+    const base = this.bridgeFor(ref);
+    if (!base) return null;
     try {
-      const { data } = await axios.get<BridgeResolved>(`${this.bridgeUrl}/resolve`, {
+      const { data } = await axios.get<BridgeResolved>(`${base}/resolve`, {
         params: { uri: ref },
         timeout: this.timeoutMs,
       });
@@ -230,7 +280,10 @@ export class StreamProvider implements MusicProvider {
       }
       return data;
     } catch (err: unknown) {
-      this.logger?.warn({ err: errorMessage(err), ref }, "Stream bridge resolve failed");
+      this.logger?.warn(
+        { err: errorMessage(err), ref, bridge: base },
+        "Stream bridge resolve failed",
+      );
       return null;
     }
   }
@@ -249,16 +302,19 @@ export class StreamProvider implements MusicProvider {
       };
       return { songs: [song], playlists: [], albums: [] };
     }
-    if (this.bridgeUrl && (isSpotifyRef(q) || isTidalUrl(q))) {
+    if ((isSpotifyRef(q) || isTidalUrl(q)) && this.bridgeFor(q)) {
       const meta = await this.resolveBridge(q);
+      // No ghost songs: if the bridge can't resolve, return empty so callers
+      // can fail open to local/YouTube search instead of queuing unplayable refs.
+      if (!meta?.streamUrl) return { songs: [], playlists: [], albums: [] };
       const svc = isTidalUrl(q) ? "Tidal" : "Spotify";
       const song: Song = {
         id: q, // keep the ref; re-resolve at play time
-        name: meta?.title ?? `${svc} track`,
-        artist: meta?.artist ?? svc,
+        name: meta.title ?? `${svc} track`,
+        artist: meta.artist ?? svc,
         album: svc,
-        duration: meta?.durationSec ?? 0,
-        coverUrl: meta?.coverUrl ?? "",
+        duration: meta.durationSec ?? 0,
+        coverUrl: meta.coverUrl ?? "",
         platform: "stream",
       };
       return { songs: [song], playlists: [], albums: [] };
@@ -278,7 +334,7 @@ export class StreamProvider implements MusicProvider {
       }
       return songId;
     }
-    if (this.bridgeUrl && (isSpotifyRef(songId) || isTidalUrl(songId))) {
+    if ((isSpotifyRef(songId) || isTidalUrl(songId)) && this.bridgeFor(songId)) {
       const meta = await this.resolveBridge(songId);
       return meta?.streamUrl ?? null;
     }
@@ -305,7 +361,8 @@ export class StreamProvider implements MusicProvider {
    */
   async getPlaylistSongs(playlistId: string): Promise<Song[]> {
     const ref = playlistId.trim();
-    if (!this.bridgeUrl) return [];
+    const base = this.bridgeFor(ref) || this.bridgeUrl;
+    if (!base) return [];
     if (!isSpotifyRef(ref) && !isTidalUrl(ref) && !/^spotify:playlist:/i.test(ref)) {
       // Also accept bare open.spotify.com/playlist URLs already covered by isSpotifyRef
       if (!/playlist/i.test(ref)) return [];
@@ -323,7 +380,7 @@ export class StreamProvider implements MusicProvider {
           streamUrl?: string;
         }>;
         error?: string;
-      }>(`${this.bridgeUrl}/playlist`, {
+      }>(`${base}/playlist`, {
         params: { uri: ref },
         timeout: this.timeoutMs,
       });
@@ -367,7 +424,8 @@ export class StreamProvider implements MusicProvider {
   async getAuthStatus(): Promise<AuthStatus> {
     // "loggedIn" here = a Spotify/Tidal bridge is configured. Direct stream URLs
     // work regardless; the flag tells the UI whether bridged refs are usable.
-    return this.bridgeUrl
+    const any = !!(this.bridgeUrl || this.tidalBridgeUrl || this.spotifyBridgeUrl);
+    return any
       ? { loggedIn: true, nickname: "Stream bridge configured" }
       : { loggedIn: false, nickname: "Direct stream URLs only (no bridge)" };
   }

@@ -1,6 +1,7 @@
 import axios from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  cleanExternalTrackTitle,
   isBandcampUrl,
   isSpotifyRef,
   isStreamableUrl,
@@ -71,6 +72,13 @@ describe("isSpotifyRef", () => {
   it("rejects other refs", () => {
     expect(isSpotifyRef("https://example.com/track/1")).toBe(false);
     expect(isSpotifyRef("track:1")).toBe(false);
+  });
+});
+
+describe("cleanExternalTrackTitle", () => {
+  it("strips Tidal/Spotify OG boilerplate", () => {
+    expect(cleanExternalTrackTitle("Listen to I Am Not Afraid on TIDAL")).toBe("I Am Not Afraid");
+    expect(cleanExternalTrackTitle("Song Name | Spotify")).toBe("Song Name");
   });
 });
 
@@ -145,6 +153,36 @@ describe("StreamProvider — Spotify bridge", () => {
     );
   });
 
+  it("returns empty when bridge cannot resolve (no ghost unplayable songs)", async () => {
+    mockedGet.mockRejectedValue(new Error("503"));
+    const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
+    expect((await provider.search("https://tidal.com/browse/track/1")).songs).toHaveLength(0);
+  });
+
+  it("routes Tidal and Spotify to different bridge bases", async () => {
+    const publicStream = "https://example.com/stream/t.ogg";
+    mockedGet.mockResolvedValue({
+      data: { streamUrl: publicStream, title: "T", artist: "A", durationSec: 100 },
+    } as any);
+    const provider = new StreamProvider({
+      tidalBridgeUrl: "http://tidal-bridge:8081",
+      spotifyBridgeUrl: "http://spotify-bridge:8082",
+    });
+    expect(provider.canHandle("https://tidal.com/browse/track/1")).toBe(true);
+    expect(provider.canHandle("spotify:track:abc")).toBe(true);
+    await provider.search("https://tidal.com/browse/track/99");
+    expect(mockedGet).toHaveBeenCalledWith(
+      "http://tidal-bridge:8081/resolve",
+      expect.objectContaining({ params: { uri: "https://tidal.com/browse/track/99" } }),
+    );
+    mockedGet.mockClear();
+    await provider.search("spotify:track:abc");
+    expect(mockedGet).toHaveBeenCalledWith(
+      "http://spotify-bridge:8082/resolve",
+      expect.objectContaining({ params: { uri: "spotify:track:abc" } }),
+    );
+  });
+
   it("drops bridge streamUrl that points at private/reserved targets", async () => {
     mockedGet.mockResolvedValue({
       data: { streamUrl: "http://127.0.0.1:6333/collections", title: "x", artist: "y" },
@@ -157,9 +195,9 @@ describe("StreamProvider — Spotify bridge", () => {
     mockedGet.mockRejectedValue(new Error("bridge down"));
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
     expect(await provider.getSongUrl("spotify:track:abc")).toBeNull();
-    // search still yields a placeholder song (so the queue isn't silently empty)
+    // Empty search → PlaybackEngine can fail open to local/YouTube metadata search
     const res = await provider.search("spotify:track:abc");
-    expect(res.songs[0]).toMatchObject({ platform: "stream", artist: "Spotify" });
+    expect(res.songs).toHaveLength(0);
   });
 
   it("reports bridge availability via auth status", async () => {

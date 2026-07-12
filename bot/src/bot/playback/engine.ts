@@ -207,13 +207,14 @@ export class PlaybackEngine {
     cmd: ParsedCommand,
     limit = 1,
   ): Promise<{ provider: MusicProvider; song: Song } | null> {
+    const originalQ = cmd.args?.trim() ?? "";
     const resolved = await this.resolveExternalRef(cmd);
     const provider = this.pickProvider(resolved.flags, resolved.args);
     const fallback =
       provider === this.opts.localProvider && !resolved.flags.has("l")
         ? this.opts.youtubeProvider
         : undefined;
-    return searchFirstWithFallback(
+    let hit = await searchFirstWithFallback(
       provider,
       resolved.args,
       limit,
@@ -221,12 +222,44 @@ export class PlaybackEngine {
       this.opts.config.musicBlockedGenres,
       this.opts.playbackBlacklist,
     );
+    // Bridge configured but resolve failed (auth, premium, etc.) → scrape
+    // metadata and fall open to local/YouTube so the link still does something.
+    if (
+      !hit &&
+      (isSpotifyRef(originalQ) || isTidalUrl(originalQ)) &&
+      provider === this.opts.streamProvider
+    ) {
+      const url = originalQ.startsWith("spotify:track:")
+        ? `https://open.spotify.com/track/${originalQ.split(":")[2]}`
+        : originalQ;
+      const q = await resolveExternalTrackQuery(url, this.opts.logger);
+      if (q) {
+        this.opts.logger.info(
+          { url: originalQ, resolved: q },
+          "Stream bridge miss — falling back to local/YouTube search",
+        );
+        hit = await searchFirstWithFallback(
+          this.opts.localProvider,
+          q,
+          limit,
+          this.opts.youtubeProvider,
+          this.opts.config.musicBlockedGenres,
+          this.opts.playbackBlacklist,
+        );
+      }
+    }
+    return hit;
   }
 
   async resolveExternalRef(cmd: ParsedCommand): Promise<ParsedCommand> {
     const q = cmd.args?.trim();
     if (!q || !(isSpotifyRef(q) || isTidalUrl(q))) return cmd;
-    if (this.opts.config.streamBridgeUrl || process.env.STREAM_BRIDGE_URL) return cmd;
+    // Keep the DRM ref when StreamProvider has a bridge for this service —
+    // it will resolve a real stream URL at search/play time.
+    const stream = this.opts.streamProvider as MusicProvider & {
+      canHandle?: (query: string) => boolean;
+    };
+    if (stream.canHandle?.(q)) return cmd;
     const url = q.startsWith("spotify:track:")
       ? `https://open.spotify.com/track/${q.split(":")[2]}`
       : q;
