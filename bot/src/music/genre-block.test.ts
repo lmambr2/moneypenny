@@ -40,6 +40,14 @@ describe("textMatchesBlockedGenre", () => {
     expect(textMatchesBlockedGenre("toto africa", terms)).toBe(false);
     expect(textMatchesBlockedGenre("synthwave drive", terms)).toBe(false);
   });
+
+  it("allows lofi/chillhop even when the title says hip hop", () => {
+    expect(textMatchesBlockedGenre("lofi hip hop radio beats to study to", terms)).toBe(false);
+    expect(textMatchesBlockedGenre("chillhop beats for focus", terms)).toBe(false);
+    expect(textMatchesBlockedGenre("1 A.M Study Session lofi hip hop", terms)).toBe(false);
+    // Still block real rap even if someone sticks lofi in the title
+    expect(textMatchesBlockedGenre("lofi remix of rap god", terms)).toBe(true);
+  });
 });
 
 describe("isBlockedGenreSong / filter", () => {

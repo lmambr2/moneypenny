@@ -69,6 +69,19 @@ export function songGenreHaystack(song: GenreBlockable): string {
 }
 
 /**
+ * "Lofi hip hop" / chillhop is instrumental study music, not the rap family we
+ * ban. When the only match is a hip-hop term inside a lofi/chillhop title, allow it.
+ * Rap / R&B terms still block even with "lofi" in the string.
+ */
+const LOFI_CHILL_CONTEXT_RE =
+  /\b(lo[\s-]?fi|chillhop|chill\s*hop|study\s+beats|beats\s+to\s+(study|relax|chill|work))\b/i;
+const HIPHOP_FAMILY_TERMS = new Set(["hip hop", "hip-hop", "hiphop"]);
+
+function isHipHopFamilyTerm(term: string): boolean {
+  return HIPHOP_FAMILY_TERMS.has(term.trim().toLowerCase());
+}
+
+/**
  * Match blocked terms as whole-ish tokens so "rap" does not hit "trap" wait -
  * actually "trap" contains no "rap" as word... "crap" would match \brap\b? "scrap" has rap.
  * Use word-boundary style for short terms; substring for multi-word ("hip hop").
@@ -76,23 +89,29 @@ export function songGenreHaystack(song: GenreBlockable): string {
 export function textMatchesBlockedGenre(haystack: string, terms: readonly string[]): boolean {
   if (!terms.length || !haystack) return false;
   const h = haystack.toLowerCase();
+  const lofiContext = LOFI_CHILL_CONTEXT_RE.test(h);
   for (const term of terms) {
     const t = term.trim().toLowerCase();
     if (!t) continue;
+    let matched = false;
     if (t.includes(" ") || t.includes("-") || t.includes("&")) {
       // Multi-token / punctuated: flexible space/punct between parts
       const parts = t.split(/[\s\-&]+/).filter(Boolean);
       if (parts.length === 0) continue;
       const re = new RegExp(`\\b${parts.map(escapeRe).join("[\\s\\-&]*")}\\b`, "i");
-      if (re.test(h)) return true;
+      if (re.test(h)) matched = true;
       // Also plain includes for "r&b" style after normalize
-      if (h.includes(t.replace(/\s+/g, " "))) return true;
+      else if (h.includes(t.replace(/\s+/g, " "))) matched = true;
     } else {
       // Single token: word boundary so "rap" ≠ "scrape" mid-word oddly — still
       // "trap" is fine; avoid matching inside longer alpha tokens.
       const re = new RegExp(`\\b${escapeRe(t)}\\b`, "i");
-      if (re.test(h)) return true;
+      if (re.test(h)) matched = true;
     }
+    if (!matched) continue;
+    // Lofi/chillhop titles almost always say "hip hop" — that's not rap for our station.
+    if (lofiContext && isHipHopFamilyTerm(t)) continue;
+    return true;
   }
   return false;
 }
