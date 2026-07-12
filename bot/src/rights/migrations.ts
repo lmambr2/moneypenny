@@ -120,6 +120,14 @@ const DELTAS: readonly RightsDelta[] = [
       chairman: ["test.skip"],
     },
   },
+  {
+    // Chat !ban / !unban — playback blacklist (same store as Library ban UI).
+    version: 11,
+    groups: {
+      dj: ["ban", "unban"],
+      admin: ["ban", "unban"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

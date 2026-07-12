@@ -39,5 +39,7 @@ describe("cmdHelp", () => {
     expect(text).toContain("!ingeststatus");
     expect(text).toContain("!moveclient");
     expect(text).toContain("!moveall");
+    expect(text).toContain("!ban");
+    expect(text).toContain("!unban");
   });
 });

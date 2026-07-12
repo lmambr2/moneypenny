@@ -48,6 +48,9 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "vol", kind: "delegated", admin: true },
   { name: "remove", kind: "delegated", admin: true },
   { name: "mode", kind: "delegated", admin: true },
+  // Playback ban list (search / auto-DJ / resolve) — DJ/admin; !ban = current track + skip.
+  { name: "ban", kind: "delegated", admin: true },
+  { name: "unban", kind: "delegated", admin: true },
   { name: "now", kind: "delegated" },
   { name: "queue", kind: "delegated" },
   { name: "list", kind: "delegated" },

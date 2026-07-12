@@ -2,7 +2,7 @@ import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
-import { DEFAULT_DEMO_VIDEO_URL } from "../../music/youtube.js";
+import { DEFAULT_DEMO_VIDEO_URL, extractVideoId, isDemoTestTrack } from "../../music/youtube.js";
 import type { TagStore } from "../../radio/index.js";
 import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
 import { AUDIO_COMMANDS, type ParsedCommand } from "../commands.js";
@@ -150,6 +150,10 @@ export class CommandExecutor {
         return this.cmdClear();
       case "remove":
         return this.cmdRemove(cmd);
+      case "ban":
+        return this.cmdBan(cmd, msg);
+      case "unban":
+        return this.cmdUnban(cmd, msg);
       case "mode":
         return this.cmdMode(cmd);
       case "playlist":
@@ -345,6 +349,122 @@ export class CommandExecutor {
     const removed = this.deps.queue.remove(index);
     if (!removed) return "Invalid position";
     return `Removed: ${removed.name}`;
+  }
+
+  /**
+   * `!ban` — ban the current track from playback (search / auto-DJ / resolve)
+   * and skip. Optional reason: `!ban never again`.
+   * `!ban list` — show recent bans.
+   */
+  private async cmdBan(cmd: ParsedCommand, msg?: TS3TextMessage): Promise<string> {
+    const bl = this.deps.playbackBlacklist;
+    if (!bl) return "Playback ban list is not available.";
+    const p = this.deps.config.commandPrefix;
+    const arg = cmd.args.trim();
+    if (arg.toLowerCase() === "list") {
+      const entries = bl.list().slice(0, 15);
+      if (entries.length === 0) return "Ban list is empty.";
+      const lines = entries.map((e, i) => {
+        const label = [e.name, e.artist].filter(Boolean).join(" — ") || e.trackKey;
+        return `${i + 1}. ${label}`;
+      });
+      return `Banned tracks (latest ${entries.length}):\n${lines.join("\n")}`;
+    }
+
+    const song = this.deps.queue.current();
+    if (!song) {
+      return `Nothing is playing. Start a track, then ${p}ban — or ${p}ban list.`;
+    }
+    if (isDemoTestTrack(song)) {
+      return "Can't ban the !test demo track.";
+    }
+    if (bl.isBlacklisted(song)) {
+      return `Already banned: ${song.name} — ${song.artist}. Use ${p}skip if it's still playing.`;
+    }
+
+    const reason = arg || "chat !ban";
+    const createdBy = msg?.invokerName?.trim() || msg?.invokerUid?.trim() || null;
+    const keys = new Set<string>([song.id]);
+    const fromId = extractVideoId(song.id);
+    if (fromId) keys.add(fromId);
+    const fromName = song.name?.match(/\[([A-Za-z0-9_-]{11})\]/)?.[1];
+    if (fromName) keys.add(fromName);
+
+    for (const trackKey of keys) {
+      bl.add({
+        trackKey,
+        platform: song.platform,
+        name: song.name,
+        artist: song.artist,
+        reason,
+        createdBy,
+      });
+    }
+
+    // Drop any other queue copies of this track (upcoming fills of the same id).
+    const list = this.deps.queue.list();
+    for (let i = list.length - 1; i >= 0; i--) {
+      const s = list[i]!;
+      if (i === this.deps.queue.getCurrentIndex()) continue;
+      if (keys.has(s.id) || bl.isBlacklisted(s)) {
+        this.deps.queue.remove(i);
+      }
+    }
+
+    const nextMsg = await this.cmdNext();
+    return `Banned: ${song.name} — ${song.artist}. ${nextMsg}`;
+  }
+
+  /**
+   * `!unban` — remove current track from the ban list, or `!unban <id|name substring>`.
+   */
+  private cmdUnban(cmd: ParsedCommand, msg?: TS3TextMessage): string {
+    const bl = this.deps.playbackBlacklist;
+    if (!bl) return "Playback ban list is not available.";
+    const p = this.deps.config.commandPrefix;
+    const arg = cmd.args.trim();
+
+    const tryRemove = (key: string, label: string): string | null => {
+      const vid = extractVideoId(key);
+      const nameVid = label.match(/\[([A-Za-z0-9_-]{11})\]/)?.[1];
+      let removed = bl.remove(key);
+      if (vid) removed = bl.remove(vid) || removed;
+      if (nameVid) removed = bl.remove(nameVid) || removed;
+      return removed ? `Unbanned: ${label}` : null;
+    };
+
+    if (!arg) {
+      const song = this.deps.queue.current();
+      if (!song) {
+        return `Nothing playing. Usage: ${p}unban <track id or name> · ${p}ban list`;
+      }
+      if (!bl.isBlacklisted(song)) {
+        return `Current track is not banned: ${song.name}`;
+      }
+      return (
+        tryRemove(song.id, `${song.name} — ${song.artist}`) ??
+        `Could not unban: ${song.name} — ${song.artist}`
+      );
+    }
+
+    // Exact key first, then name/artist substring match on the ban list.
+    const exact = tryRemove(arg, arg);
+    if (exact) return exact;
+    const q = arg.toLowerCase();
+    const hit = bl.list().find((e) => {
+      const blob = `${e.trackKey} ${e.name ?? ""} ${e.artist ?? ""}`.toLowerCase();
+      return blob.includes(q);
+    });
+    if (hit) {
+      return (
+        tryRemove(
+          hit.trackKey,
+          [hit.name, hit.artist].filter(Boolean).join(" — ") || hit.trackKey,
+        ) ?? `Could not unban: ${hit.trackKey}`
+      );
+    }
+    void msg;
+    return `Not on ban list: ${arg}. Try ${p}ban list.`;
   }
 
   private cmdMode(cmd: ParsedCommand): string {
@@ -587,6 +707,8 @@ export class CommandExecutor {
       `${p}roast — Greatest-hits reel · ${p}roastout / ${p}roastin — Leave or rejoin the roast`,
       "",
       "DJ / generation (rights-gated @dj)",
+      `${p}ban [reason] — Ban current song (never play again) + skip · ${p}ban list`,
+      `${p}unban [id|name] — Unban current track or match from ban list`,
       `${p}generate <prompt> — ACE-Step gen → library → play`,
       `${p}generate prune · ${p}generate status — manage / check gen sidecar`,
       `${p}radio gen <prompt> — same gen from radio command surface`,
