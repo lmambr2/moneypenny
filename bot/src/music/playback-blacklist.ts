@@ -3,6 +3,10 @@
  * channel (search pick, radio seed, resolveAndPlay). Independent of TagStore
  * bumper flags: blacklisted library tracks still appear in the Library UI so
  * admins can unban them; they are only blocked from playback paths.
+ *
+ * Matching is multi-key: opaque id, YouTube video id, and a normalized
+ * name+artist fingerprint so banning a local file also blocks the YouTube
+ * re-seed of the same track (auto-DJ's common failure mode).
  */
 import type Database from "better-sqlite3";
 import { extractVideoId } from "./youtube.js";
@@ -20,6 +24,50 @@ export interface BlacklistEntry {
 export interface PlaybackBlacklistOptions {
   db: Database.Database;
   now?: () => number;
+}
+
+/** Content keys are stored with this prefix so they never collide with hash ids. */
+export const CONTENT_KEY_PREFIX = "content:";
+
+/**
+ * Normalize a title/artist for fingerprint matching.
+ * Strips punctuation and common "(Official Video)" noise so local vs YT titles align.
+ */
+export function normalizeBlacklistText(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return String(raw)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\(official[^)]*\)/gi, " ")
+    .replace(/\[official[^\]]*\]/gi, " ")
+    .replace(/\bofficial\s+(hd\s+)?(music\s+)?video\b/gi, " ")
+    .replace(/\bofficial\s+audio\b/gi, " ")
+    .replace(/\bofficial\s+lyric\s+video\b/gi, " ")
+    .replace(/\b(lyrics?|visualizer|remaster(ed)?|hq|hd|4k)\b/gi, " ")
+    .replace(/\[[A-Za-z0-9_-]{11}\]/g, " ") // strip embedded [videoId]
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Stable content fingerprint for a track. Used as a secondary blacklist key so
+ * the same song banned as a local hash still blocks the YouTube id re-seed.
+ * Strips a leading "Artist " prefix when the title was stored as "Artist - Song".
+ */
+export function blacklistContentKey(
+  name: string | null | undefined,
+  artist?: string | null,
+): string | null {
+  let n = normalizeBlacklistText(name);
+  if (n.length < 3) return null;
+  const a = normalizeBlacklistText(artist);
+  // "Icewear Vezzo - Heavy Metal" + artist Icewear Vezzo → "heavy metal"
+  if (a && n.startsWith(`${a} `)) {
+    n = n.slice(a.length).trim();
+  }
+  if (n.length < 3) return null;
+  return a ? `${CONTENT_KEY_PREFIX}${n}|${a}` : `${CONTENT_KEY_PREFIX}${n}`;
 }
 
 export class PlaybackBlacklist {
@@ -63,6 +111,40 @@ export class PlaybackBlacklist {
       `SELECT track_key, platform, name, artist, reason, created_by, created_at
        FROM playback_blacklist ORDER BY created_at DESC`,
     );
+    // One-shot: ensure existing bans also have content fingerprints.
+    this.backfillContentKeys();
+  }
+
+  /** Insert secondary content: fingerprints for rows that only have opaque ids. */
+  private backfillContentKeys(): void {
+    const rows = this.listStmt.all() as {
+      track_key: string;
+      platform: string | null;
+      name: string | null;
+      artist: string | null;
+      reason: string | null;
+      created_by: string | null;
+      created_at: number;
+    }[];
+    for (const r of rows) {
+      if (r.track_key.startsWith(CONTENT_KEY_PREFIX)) continue;
+      const fp = blacklistContentKey(r.name, r.artist);
+      if (!fp || this.hasKey(fp)) continue;
+      this.insertStmt.run(fp, r.platform, r.name, r.artist, r.reason, r.created_by, r.created_at);
+    }
+  }
+
+  private insertKey(
+    trackKey: string,
+    platform: string | null,
+    name: string | null,
+    artist: string | null,
+    reason: string | null,
+    createdBy: string | null,
+    createdAt: number,
+  ): void {
+    if (!trackKey) return;
+    this.insertStmt.run(trackKey, platform, name, artist, reason, createdBy, createdAt);
   }
 
   add(entry: {
@@ -76,35 +158,37 @@ export class PlaybackBlacklist {
     const trackKey = entry.trackKey.trim();
     if (!trackKey) throw Object.assign(new Error("trackKey required"), { code: "VALIDATION" });
     const createdAt = this.nowFn();
-    this.insertStmt.run(
-      trackKey,
-      entry.platform ?? null,
-      entry.name ?? null,
-      entry.artist ?? null,
-      entry.reason ?? null,
-      entry.createdBy ?? null,
-      createdAt,
-    );
-    // Also index bare YouTube video ids when the key is a full URL form.
+    const platform = entry.platform ?? null;
+    const name = entry.name ?? null;
+    const artist = entry.artist ?? null;
+    const reason = entry.reason ?? null;
+    const createdBy = entry.createdBy ?? null;
+
+    this.insertKey(trackKey, platform, name, artist, reason, createdBy, createdAt);
+
+    // Bare YouTube video id when the key is a full URL form.
     const vid = extractVideoId(trackKey);
     if (vid && vid !== trackKey) {
-      this.insertStmt.run(
-        vid,
-        entry.platform ?? "youtube",
-        entry.name ?? null,
-        entry.artist ?? null,
-        entry.reason ?? null,
-        entry.createdBy ?? null,
-        createdAt,
-      );
+      this.insertKey(vid, platform ?? "youtube", name, artist, reason, createdBy, createdAt);
     }
+    // Video id embedded in local YT-save display names: "Title [dQw4w9WgXcQ]"
+    const fromName = (name ?? "").match(/\[([A-Za-z0-9_-]{11})\]/)?.[1];
+    if (fromName && fromName !== trackKey && fromName !== vid) {
+      this.insertKey(fromName, platform ?? "youtube", name, artist, reason, createdBy, createdAt);
+    }
+    // Title+artist fingerprint — blocks the same song re-seeded under a new id.
+    const fp = blacklistContentKey(name, artist);
+    if (fp && fp !== trackKey) {
+      this.insertKey(fp, platform, name, artist, reason, createdBy, createdAt);
+    }
+
     return {
       trackKey,
-      platform: entry.platform ?? null,
-      name: entry.name ?? null,
-      artist: entry.artist ?? null,
-      reason: entry.reason ?? null,
-      createdBy: entry.createdBy ?? null,
+      platform,
+      name,
+      artist,
+      reason,
+      createdBy,
       createdAt,
     };
   }
@@ -112,10 +196,30 @@ export class PlaybackBlacklist {
   remove(trackKey: string): boolean {
     const key = trackKey.trim();
     if (!key) return false;
+    // Look up metadata before deleting so we can purge related keys.
+    const row = this.db
+      .prepare(`SELECT track_key, name, artist FROM playback_blacklist WHERE track_key = ? LIMIT 1`)
+      .get(key) as { track_key: string; name: string | null; artist: string | null } | undefined;
+
     let removed = this.deleteStmt.run(key).changes > 0;
     const vid = extractVideoId(key);
     if (vid && vid !== key) {
       removed = this.deleteStmt.run(vid).changes > 0 || removed;
+    }
+    const name = row?.name ?? null;
+    const artist = row?.artist ?? null;
+    const fromName = (name ?? "").match(/\[([A-Za-z0-9_-]{11})\]/)?.[1];
+    if (fromName) {
+      removed = this.deleteStmt.run(fromName).changes > 0 || removed;
+    }
+    const fp = blacklistContentKey(name, artist);
+    if (fp) {
+      removed = this.deleteStmt.run(fp).changes > 0 || removed;
+    }
+    // If caller passed a content key or name, still try to wipe matching content keys.
+    if (!row) {
+      const asFp = key.startsWith(CONTENT_KEY_PREFIX) ? key : blacklistContentKey(key, null);
+      if (asFp) removed = this.deleteStmt.run(asFp).changes > 0 || removed;
     }
     return removed;
   }
@@ -127,19 +231,24 @@ export class PlaybackBlacklist {
   }
 
   /**
-   * True when this song (or its YouTube video id) is blacklisted.
-   * Checks both the opaque id and any extractable YT id so local YT saves
-   * blacklisted by video id still block.
+   * True when this song (or its YouTube video id / title fingerprint) is blacklisted.
    */
-  isBlacklisted(song: { id?: string | null; name?: string | null } | null | undefined): boolean {
-    if (!song?.id) return false;
-    if (this.hasKey(song.id)) return true;
-    const vid = extractVideoId(song.id);
-    if (vid && vid !== song.id && this.hasKey(vid)) return true;
+  isBlacklisted(
+    song: { id?: string | null; name?: string | null; artist?: string | null } | null | undefined,
+  ): boolean {
+    if (!song) return false;
+    if (song.id) {
+      if (this.hasKey(song.id)) return true;
+      const vid = extractVideoId(song.id);
+      if (vid && vid !== song.id && this.hasKey(vid)) return true;
+    }
     // Local YT save: basename often embeds [videoId] in the display name.
     const name = song.name ?? "";
     const m = name.match(/\[([A-Za-z0-9_-]{11})\]/);
     if (m?.[1] && this.hasKey(m[1])) return true;
+    // Same track under a different platform id (local hash vs YT video id).
+    const fp = blacklistContentKey(song.name, song.artist);
+    if (fp && this.hasKey(fp)) return true;
     return false;
   }
 
@@ -148,6 +257,10 @@ export class PlaybackBlacklist {
     return new Set(rows.map((r) => r.track_key));
   }
 
+  /**
+   * User-facing ban list — hides internal content: fingerprint keys so the UI
+   * doesn't show duplicate rows for the same ban.
+   */
   list(): BlacklistEntry[] {
     const rows = this.listStmt.all() as {
       track_key: string;
@@ -158,23 +271,24 @@ export class PlaybackBlacklist {
       created_by: string | null;
       created_at: number;
     }[];
-    return rows.map((r) => ({
-      trackKey: r.track_key,
-      platform: r.platform,
-      name: r.name,
-      artist: r.artist,
-      reason: r.reason,
-      createdBy: r.created_by,
-      createdAt: r.created_at,
-    }));
+    return rows
+      .filter((r) => !r.track_key.startsWith(CONTENT_KEY_PREFIX))
+      .map((r) => ({
+        trackKey: r.track_key,
+        platform: r.platform,
+        name: r.name,
+        artist: r.artist,
+        reason: r.reason,
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+      }));
   }
 }
 
 /** Filter helper for search/seed pipelines. */
-export function filterNotBlacklisted<T extends { id?: string | null; name?: string | null }>(
-  songs: T[],
-  blacklist: PlaybackBlacklist | null | undefined,
-): T[] {
+export function filterNotBlacklisted<
+  T extends { id?: string | null; name?: string | null; artist?: string | null },
+>(songs: T[], blacklist: PlaybackBlacklist | null | undefined): T[] {
   if (!blacklist) return songs;
   return songs.filter((s) => !blacklist.isBlacklisted(s));
 }
