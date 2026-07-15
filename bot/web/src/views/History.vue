@@ -19,9 +19,15 @@
         :song="song"
         :index="i + 1"
         :active="store.currentSong?.id === song.id"
+        :banable="banable"
+        :blacklisted="isBlacklisted(song)"
+        :deletable="isDeletable(song)"
         @play="store.playSong(song)"
         @playNext="store.playNextSong(song)"
         @add="store.addSong(song)"
+        @ban="banTrack(song)"
+        @unban="unbanTrack(song)"
+        @delete="deleteTrack(song)"
       />
     </div>
   </div>
@@ -32,14 +38,22 @@ import { Icon } from '@iconify/vue';
 import { onMounted, ref } from 'vue';
 import api from '../api/axios.js';
 import SongCard from '../components/SongCard.vue';
+import { usePlaybackAdmin } from '../composables/usePlaybackAdmin.js';
+import type { Song } from '../stores/player.js';
 import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
-
-import { Song } from '../stores/player.js';
-
 const history = ref<Song[]>([]);
 const loading = ref(true);
+
+const { banable, isBlacklisted, isDeletable, loadBlacklist, banTrack, unbanTrack, deleteTrack } =
+  usePlaybackAdmin({
+    onDeleted: (song) => {
+      history.value = history.value.filter((s) => s.id !== song.id);
+      store.localRecent = store.localRecent.filter((s) => s.id !== song.id);
+      store.localTrackCount = Math.max(0, (store.localTrackCount || 1) - 1);
+    },
+  });
 
 onMounted(async () => {
   if (!store.activeBotId) {
@@ -52,14 +66,14 @@ onMounted(async () => {
       history.value = res.data.history;
     } catch (err: any) {
       if (err?.response?.status !== 404) {
-        const playerStore = usePlayerStore();
         const msg =
           err?.response?.data?.message || err?.response?.data?.error || 'Failed to load history';
-        playerStore.notify(msg, 'error');
+        store.notify(msg, 'error');
       }
     }
   }
 
+  await loadBlacklist();
   loading.value = false;
 });
 </script>

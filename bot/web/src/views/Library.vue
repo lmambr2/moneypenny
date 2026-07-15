@@ -129,15 +129,15 @@
             :song="song"
             :index="i + 1"
             :active="store.currentSong?.id === song.id"
-            :deletable="session.isAdmin.value"
-            :banable="session.isAdmin.value"
-            :blacklisted="blacklistKeys.has(song.id)"
+            :deletable="isDeletable(song)"
+            :banable="banable"
+            :blacklisted="isBlacklisted(song)"
             @play="store.play(song.name, 'local')"
             @playNext="store.playNextSong(song)"
             @add="store.addToQueue(song.name, 'local')"
-            @delete="deleteLibraryTrack(song)"
-            @ban="banLibraryTrack(song)"
-            @unban="unbanLibraryTrack(song)"
+            @delete="deleteTrack(song)"
+            @ban="banTrack(song)"
+            @unban="unbanTrack(song)"
           />
         </div>
       </template>
@@ -284,9 +284,15 @@
           :song="song"
           :index="i + 1"
           :active="store.currentSong?.id === song.id"
+          :banable="banable"
+          :blacklisted="isBlacklisted(song)"
+          :deletable="isDeletable(song)"
           @play="store.play(song.name, song.platform)"
           @playNext="store.playNextSong(song)"
           @add="store.addToQueue(song.name, song.platform)"
+          @ban="banTrack(song)"
+          @unban="unbanTrack(song)"
+          @delete="deleteTrack(song)"
         />
       </div>
     </section>
@@ -532,6 +538,7 @@ import CoverArt from '../components/CoverArt.vue';
 import SongCard from '../components/SongCard.vue';
 import SourceTabs from '../components/SourceTabs.vue';
 import StarRating from '../components/StarRating.vue';
+import { usePlaybackAdmin } from '../composables/usePlaybackAdmin.js';
 import { useSession } from '../composables/useSession.js';
 import { type Song, type Source, usePlayerStore } from '../stores/player.js';
 import { loadTabSource, saveTabSource } from '../stores/sourceTabs.js';
@@ -539,6 +546,17 @@ import { renderMarkdownPreview } from '../utils/markdownPreview.js';
 
 const store = usePlayerStore();
 const session = useSession();
+
+const { banable, isBlacklisted, isDeletable, loadBlacklist, banTrack, unbanTrack, deleteTrack } =
+  usePlaybackAdmin({
+    onDeleted: (song) => {
+      libraryTracks.value = libraryTracks.value.filter((s) => s.id !== song.id);
+      store.localRecent = store.localRecent.filter((s) => s.id !== song.id);
+      store.localTrackCount = Math.max(0, (store.localTrackCount || 1) - 1);
+      delete trackTags.value[song.id];
+      history.value = history.value.filter((s) => s.id !== song.id);
+    },
+  });
 
 interface TrackTagRow {
   genre: string;
@@ -627,83 +645,6 @@ async function loadLibraryTracks() {
     libraryTracks.value = [...(store.localRecent || [])];
   } finally {
     libraryLoading.value = false;
-  }
-}
-
-async function deleteLibraryTrack(song: Song) {
-  if (!session.isAdmin.value) return;
-  if (
-    !confirm(
-      `Delete “${song.name}” from the library?\n\nThis removes the file from disk under MUSIC_DIR.`,
-    )
-  ) {
-    return;
-  }
-  try {
-    await api.delete(`/api/music/tracks/${encodeURIComponent(song.id)}`);
-    libraryTracks.value = libraryTracks.value.filter((s) => s.id !== song.id);
-    store.localRecent = store.localRecent.filter((s) => s.id !== song.id);
-    store.localTrackCount = Math.max(0, (store.localTrackCount || 1) - 1);
-    delete trackTags.value[song.id];
-    blacklistKeys.value.delete(song.id);
-    store.notify(`Deleted “${song.name}”`, 'info');
-  } catch (err: any) {
-    store.notify(err?.response?.data?.error ?? 'Delete failed', 'error');
-  }
-}
-
-/** Opaque ids currently on the station playback blacklist (admin). */
-const blacklistKeys = ref(new Set<string>());
-
-async function loadBlacklist() {
-  if (!session.isAdmin.value) {
-    blacklistKeys.value = new Set();
-    return;
-  }
-  try {
-    const res = await api.get('/api/music/blacklist');
-    const keys: string[] = res.data?.keys ?? [];
-    blacklistKeys.value = new Set(keys);
-  } catch {
-    blacklistKeys.value = new Set();
-  }
-}
-
-async function banLibraryTrack(song: Song) {
-  if (!session.isAdmin.value) return;
-  if (
-    !confirm(
-      `Blacklist “${song.name}” from playback?\n\nThe file stays on disk; search, !play, and radio will skip it.`,
-    )
-  ) {
-    return;
-  }
-  try {
-    await api.post('/api/music/blacklist', {
-      id: song.id,
-      platform: song.platform || 'local',
-      name: song.name,
-      artist: song.artist,
-    });
-    const next = new Set(blacklistKeys.value);
-    next.add(song.id);
-    blacklistKeys.value = next;
-    store.notify(`Blacklisted “${song.name}”`, 'info');
-  } catch (err: any) {
-    store.notify(err?.response?.data?.error ?? 'Blacklist failed', 'error');
-  }
-}
-
-async function unbanLibraryTrack(song: Song) {
-  if (!session.isAdmin.value) return;
-  try {
-    await api.delete(`/api/music/blacklist/${encodeURIComponent(song.id)}`);
-    const next = new Set(blacklistKeys.value);
-    next.delete(song.id);
-    blacklistKeys.value = next;
-    store.notify(`Removed “${song.name}” from blacklist`, 'info');
-  } catch (err: any) {
-    store.notify(err?.response?.data?.error ?? 'Unban failed', 'error');
   }
 }
 

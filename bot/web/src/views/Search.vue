@@ -105,13 +105,15 @@
           :song="song"
           :index="i + 1"
           :active="store.currentSong?.id === song.id"
-          :banable="session.isAdmin.value"
-          :blacklisted="blacklistKeys.has(song.id)"
+          :banable="banable"
+          :blacklisted="isBlacklisted(song)"
+          :deletable="isDeletable(song)"
           @play="store.playSong(song)"
           @playNext="store.playNextSong(song)"
           @add="store.addSong(song)"
-          @ban="banSearchTrack(song)"
-          @unban="unbanSearchTrack(song)"
+          @ban="banTrack(song)"
+          @unban="unbanTrack(song)"
+          @delete="deleteTrack(song)"
         />
       </section>
     </template>
@@ -127,67 +129,22 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios.js';
 import CoverArt from '../components/CoverArt.vue';
 import SongCard from '../components/SongCard.vue';
-import { useSession } from '../composables/useSession.js';
+import { usePlaybackAdmin } from '../composables/usePlaybackAdmin.js';
 import type { Song } from '../stores/player.js';
 import { usePlayerStore } from '../stores/player.js';
 
 const store = usePlayerStore();
-const session = useSession();
 const route = useRoute();
 const router = useRouter();
 
-const blacklistKeys = ref(new Set<string>());
-
-async function loadBlacklist() {
-  if (!session.isAdmin.value) {
-    blacklistKeys.value = new Set();
-    return;
-  }
-  try {
-    const res = await api.get('/api/music/blacklist');
-    blacklistKeys.value = new Set(res.data?.keys ?? []);
-  } catch {
-    blacklistKeys.value = new Set();
-  }
-}
-
-async function banSearchTrack(song: Song) {
-  if (!session.isAdmin.value) return;
-  if (
-    !confirm(
-      `Blacklist “${song.name}” from playback?\n\nSearch, !play, and radio will skip this track id.`,
-    )
-  ) {
-    return;
-  }
-  try {
-    await api.post('/api/music/blacklist', {
-      id: song.id,
-      platform: song.platform,
-      name: song.name,
-      artist: song.artist,
-    });
-    const next = new Set(blacklistKeys.value);
-    next.add(song.id);
-    blacklistKeys.value = next;
-    store.notify(`Blacklisted “${song.name}”`, 'info');
-  } catch (err: any) {
-    store.notify(err?.response?.data?.error ?? 'Blacklist failed', 'error');
-  }
-}
-
-async function unbanSearchTrack(song: Song) {
-  if (!session.isAdmin.value) return;
-  try {
-    await api.delete(`/api/music/blacklist/${encodeURIComponent(song.id)}`);
-    const next = new Set(blacklistKeys.value);
-    next.delete(song.id);
-    blacklistKeys.value = next;
-    store.notify(`Removed “${song.name}” from blacklist`, 'info');
-  } catch (err: any) {
-    store.notify(err?.response?.data?.error ?? 'Unban failed', 'error');
-  }
-}
+const { banable, isBlacklisted, isDeletable, loadBlacklist, banTrack, unbanTrack, deleteTrack } =
+  usePlaybackAdmin({
+    onDeleted: (song) => {
+      allSongs.value = allSongs.value.filter((s) => s.id !== song.id);
+      store.localRecent = store.localRecent.filter((s) => s.id !== song.id);
+      store.localTrackCount = Math.max(0, (store.localTrackCount || 1) - 1);
+    },
+  });
 
 const SOURCE_STORAGE_KEY = 'search-source';
 
@@ -290,7 +247,7 @@ function badgeClass(platform: string): string {
 }
 
 onMounted(() => {
-  if (session.isAdmin.value) void loadBlacklist();
+  void loadBlacklist();
   if (query.value) doSearch();
 });
 </script>
