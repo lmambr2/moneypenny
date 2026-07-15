@@ -72,6 +72,14 @@ describe("PlaybackBlacklist", () => {
         artist: "Rick Beato",
       }),
     ).toBe(true);
+    // asterisk vs full spelling + slightly different artist field
+    expect(
+      bl.isBlacklisted({
+        id: "kEYUw2kiRfc",
+        name: "Yacht Rock Is Bullshit",
+        artist: "Rick Beato - Topic",
+      }),
+    ).toBe(true);
   });
 
   it("does not cross-ban different artists with similar titles", () => {
@@ -125,6 +133,8 @@ describe("PlaybackBlacklist", () => {
     expect(normalizeBlacklistText("Top 100 80's Hard Rock Songs (Official HD Music Video)")).toBe(
       "top 100 80 s hard rock songs",
     );
-    expect(blacklistContentKey('"Yacht Rock" Is Bullsh*t', "Rick Beato")).toContain("yacht rock");
+    expect(blacklistContentKey('"Yacht Rock" Is Bullsh*t', "Rick Beato")).toBe(
+      blacklistContentKey("Yacht Rock Is Bullshit", "Rick Beato - Topic"),
+    );
   });
 });

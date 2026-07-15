@@ -84,6 +84,13 @@ describe("isNonMusicContent title fallback", () => {
       false,
     );
   });
+
+  it("blocks the Beato yacht-rock essay that pollutes yacht rock seeds", () => {
+    expect(isNonMusicContent({ name: '"Yacht Rock" Is Bullsh*t', artist: "Rick Beato" })).toBe(
+      true,
+    );
+    expect(isNonMusicContent({ name: "Yacht Rock Is Bullshit", artist: "Rick Beato" })).toBe(true);
+  });
 });
 
 describe("classifyMusicCommandResult", () => {

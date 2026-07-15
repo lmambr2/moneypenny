@@ -35,19 +35,23 @@ export const CONTENT_KEY_PREFIX = "content:";
  */
 export function normalizeBlacklistText(raw: string | null | undefined): string {
   if (!raw) return "";
-  return String(raw)
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/\(official[^)]*\)/gi, " ")
-    .replace(/\[official[^\]]*\]/gi, " ")
-    .replace(/\bofficial\s+(hd\s+)?(music\s+)?video\b/gi, " ")
-    .replace(/\bofficial\s+audio\b/gi, " ")
-    .replace(/\bofficial\s+lyric\s+video\b/gi, " ")
-    .replace(/\b(lyrics?|visualizer|remaster(ed)?|hq|hd|4k)\b/gi, " ")
-    .replace(/\[[A-Za-z0-9_-]{11}\]/g, " ") // strip embedded [videoId]
-    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    String(raw)
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/\(official[^)]*\)/gi, " ")
+      .replace(/\[official[^\]]*\]/gi, " ")
+      .replace(/\bofficial\s+(hd\s+)?(music\s+)?video\b/gi, " ")
+      .replace(/\bofficial\s+audio\b/gi, " ")
+      .replace(/\bofficial\s+lyric\s+video\b/gi, " ")
+      .replace(/\b(lyrics?|visualizer|remaster(ed)?|hq|hd|4k)\b/gi, " ")
+      .replace(/\[[A-Za-z0-9_-]{11}\]/g, " ") // strip embedded [videoId]
+      // "Bullsh*t" → "bullshit" (don't turn * into a word break or we miss YT titles)
+      .replace(/\*/g, "")
+      .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /**
@@ -55,19 +59,38 @@ export function normalizeBlacklistText(raw: string | null | undefined): string {
  * the same song banned as a local hash still blocks the YouTube id re-seed.
  * Strips a leading "Artist " prefix when the title was stored as "Artist - Song".
  */
+/** Artist channel noise ("Rick Beato - Topic", "X VEVO") so local/YT agree. */
+export function normalizeBlacklistArtist(raw: string | null | undefined): string {
+  return normalizeBlacklistText(raw)
+    .replace(/\b(official|topic|vevo|records|music|channel|auto[\s-]?generated)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Collapse vowel differences so censored titles still match:
+ * "Bullsh*t" → "bullsht", "Bullshit" → "bullshit" → both → "bllsht".
+ */
+function collapseForFingerprint(s: string): string {
+  return s.replace(/[aeiouy]/g, "");
+}
+
 export function blacklistContentKey(
   name: string | null | undefined,
   artist?: string | null,
 ): string | null {
   let n = normalizeBlacklistText(name);
   if (n.length < 3) return null;
-  const a = normalizeBlacklistText(artist);
+  const a = normalizeBlacklistArtist(artist);
   // "Icewear Vezzo - Heavy Metal" + artist Icewear Vezzo → "heavy metal"
   if (a && n.startsWith(`${a} `)) {
     n = n.slice(a.length).trim();
   }
   if (n.length < 3) return null;
-  return a ? `${CONTENT_KEY_PREFIX}${n}|${a}` : `${CONTENT_KEY_PREFIX}${n}`;
+  const nKey = collapseForFingerprint(n);
+  const aKey = a ? collapseForFingerprint(a) : "";
+  if (nKey.length < 3) return null;
+  return aKey ? `${CONTENT_KEY_PREFIX}${nKey}|${aKey}` : `${CONTENT_KEY_PREFIX}${nKey}`;
 }
 
 export class PlaybackBlacklist {

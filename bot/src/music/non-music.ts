@@ -177,6 +177,8 @@ const HARD_TITLE_NON_MUSIC: RegExp[] = [
   /\bfull\s+interview\b/i,
   /\bguided\s+meditat(?:ion|e)\b/i,
   /\basmr\b/i,
+  // Rick Beato opinion essay — always tops "yacht rock" YT search, not a track.
+  /\byacht\s*rock\s*is\s*bullsh/i,
 ];
 
 /**
