@@ -13,7 +13,13 @@ export type AuditAction =
   | "moderation.mute"
   | "moderation.kick"
   | "economy.workorders_clear"
-  | "economy.cache_refresh";
+  | "economy.cache_refresh"
+  /** MCP tool succeeded (tool name in targetUsername, bot id in targetUserId). */
+  | "mcp.tool"
+  /** MCP tool blocked by profile / rights. */
+  | "mcp.tool.denied"
+  /** MCP tool failed for a non-permission reason. */
+  | "mcp.tool.error";
 
 export interface AuditEntry {
   id: number;

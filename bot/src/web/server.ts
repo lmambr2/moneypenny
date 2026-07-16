@@ -118,6 +118,7 @@ export function createWebServer(options: WebServerOptions): WebServer {
       botManager: options.botManager,
       config: options.config,
       logger,
+      audit,
     }));
     logger.info(
       { path: mcpConfig.path, profile: mcpConfig.defaultProfile },

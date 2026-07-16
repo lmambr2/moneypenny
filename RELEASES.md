@@ -133,3 +133,8 @@ git checkout vX.Y.Z   # or dev
 4. `!play` local or YouTube smoke
 5. With RAG: upload a `.md`, `!ask` returns `📎 Sources:`
 6. With voice: Settings voice on + `textWakeFallback`; speak a skip
+7. **Optional MCP (Grok Build):** set `MCP_ENABLED=1` + long `MCP_TOKEN` in `.env`,
+   recreate bot, point Grok at `http://<host>:3000/mcp` with Bearer token
+   (see [docs/mcp-server.md](./docs/mcp-server.md), `.grok/config.toml.example`).
+   Smoke: `status_now_playing` / `music_play` from Grok; admin UI audit log shows
+   `mcp.tool` / `mcp.tool.denied` entries.

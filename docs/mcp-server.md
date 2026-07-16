@@ -5,9 +5,10 @@
 > The TypeScript bot remains the TeamSpeak + music + rights **authority**.
 > Grok Build is an optional **agent harness** that calls structured tools.
 
-**Status:** Phase 1 + **Phase 2 implemented** (2026-07-15) — `bot/src/mcp/`, env `MCP_*`,
+**Status:** Phase 1–2 **shipped + hardened** (2026-07-15) — `bot/src/mcp/`, env `MCP_*`,
 example Grok config `.grok/config.toml.example`. Tool registry: `MCP_TOOL_NAMES` in
-`bot/src/mcp/server.ts`.  
+`bot/src/mcp/server.ts`. Every tool outcome is written to the durable audit store
+(`mcp.tool` / `mcp.tool.denied` / `mcp.tool.error`).  
 **Related:** [brain-boundary.md](./brain-boundary.md), [feature-roadmap.md](./feature-roadmap.md),
 [DESIGN.md](../DESIGN.md) §MCP (endgame), [remote-llm.md](./remote-llm.md),
 `bot/src/bot/commands.ts` (`COMMAND_MANIFEST`), `bot/src/web/api/{player,bot,rag}.ts`
@@ -241,14 +242,17 @@ Re-check on every query inside RetrievalStore (existing path).
 
 ### 5.4 Audit
 
-Write audit rows for every MCP tool call:
+Every tool outcome goes through `recordMcpToolAudit` → `user_audit`:
 
-```
-actor=mcp:<tokenId>  action=mcp.<tool>  detail={ args summary, botId, ok, ms }
-```
+| Field | Value |
+|-------|--------|
+| `actorId` | MCP invoker uid (`MCP_INVOKER_UID`) |
+| `actorUsername` | `name\|profile\|tokenId` |
+| `targetUsername` | tool name (e.g. `music_play`) |
+| `targetUserId` | bot id when resolved |
+| `action` | `mcp.tool` \| `mcp.tool.denied` \| `mcp.tool.error` |
 
-Reuse `createAuditRouter` / existing audit store. Redact long text bodies
-(keep hash + length for `rag_ask` questions).
+Visible in dashboard **Audit** (admin). Failures in audit storage never block the tool.
 
 ### 5.5 Rate limits
 

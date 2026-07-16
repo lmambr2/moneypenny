@@ -19,6 +19,12 @@ assistant** authored each batch of work, since not every commit carries a
 - Design: [docs/mcp-server.md](./docs/mcp-server.md); example
   `.grok/config.toml.example` + skill
 
+### MCP finish: durable audit + packaging
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Every tool outcome audited (`mcp.tool` / `mcp.tool.denied` / `mcp.tool.error`)
+- `runMcpTool` shared path for HTTP + tests; RELEASES smoke step for MCP enablement
+
 ### RAG: replace Qdrant with TurboVec bridge
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

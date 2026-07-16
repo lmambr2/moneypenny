@@ -9,9 +9,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 import type { BotManager } from "../bot/manager.js";
+import type { AuditStore } from "../data/audit.js";
 import type { BotConfig } from "../data/config.js";
 import type { Logger } from "../logger.js";
 import { createRateLimit } from "../web/middleware/rateLimit.js";
+import { recordMcpToolAudit } from "./audit-hook.js";
 import { authenticateMcpRequest } from "./auth.js";
 import type { McpConfig } from "./config.js";
 import { envelopeToToolContent } from "./result.js";
@@ -25,6 +27,8 @@ export interface McpMountOptions {
   botManager: BotManager;
   config: BotConfig;
   logger: Logger;
+  /** Durable audit store — every tool outcome is recorded when present. */
+  audit?: AuditStore;
 }
 
 type ToolFn = (args: Record<string, unknown>, ctx: McpContext) => Promise<McpToolEnvelope>;
@@ -44,42 +48,49 @@ function makeCtx(
   };
 }
 
-async function runTool(
+/**
+ * Run one MCP tool through the real handler and record audit.
+ * Exported for tests (same path the HTTP transport uses).
+ */
+export async function runMcpTool(
   opts: McpMountOptions,
   subject: McpSubject,
   name: string,
   fn: ToolFn,
   args: Record<string, unknown>,
-): Promise<ReturnType<typeof envelopeToToolContent>> {
+): Promise<{ content: ReturnType<typeof envelopeToToolContent>["content"]; isError?: boolean; envelope: McpToolEnvelope }> {
   const requestId = randomUUID();
   const ctx = makeCtx(opts, subject, requestId);
+  let envelope: McpToolEnvelope;
   try {
-    const envelope = await fn(args, ctx);
-    opts.logger.info(
-      {
-        component: "mcp",
-        tool: name,
-        ok: envelope.ok,
-        code: envelope.code,
-        ms: envelope.meta.duration_ms,
-        subject: subject.invokerUid,
-        profile: subject.rightsProfile,
-        botId: envelope.meta.bot_id,
-      },
-      "MCP tool",
-    );
-    return envelopeToToolContent(envelope);
+    envelope = await fn(args, ctx);
   } catch (err: unknown) {
     opts.logger.error({ err, tool: name, component: "mcp" }, "MCP tool threw");
     const message = err instanceof Error ? err.message : "internal error";
-    return envelopeToToolContent({
+    envelope = {
       ok: false,
       code: "INTERNAL",
       message,
       data: null,
       meta: { duration_ms: Date.now() - ctx.startedAt, request_id: requestId },
-    });
+    };
   }
+  opts.logger.info(
+    {
+      component: "mcp",
+      tool: name,
+      ok: envelope.ok,
+      code: envelope.code,
+      ms: envelope.meta.duration_ms,
+      subject: subject.invokerUid,
+      profile: subject.rightsProfile,
+      botId: envelope.meta.bot_id,
+    },
+    "MCP tool",
+  );
+  recordMcpToolAudit(opts.audit, subject, name, envelope);
+  const out = envelopeToToolContent(envelope);
+  return { ...out, envelope };
 }
 
 /** Optional string bot_id shared by most tools. */
@@ -100,8 +111,16 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     server.registerTool(
       name,
       { description, inputSchema: schema },
-      async (args) =>
-        runTool(opts, subject, name, fn, (args ?? {}) as Record<string, unknown>),
+      async (args) => {
+        const { content, isError } = await runMcpTool(
+          opts,
+          subject,
+          name,
+          fn,
+          (args ?? {}) as Record<string, unknown>,
+        );
+        return { content, isError };
+      },
     );
   };
 
