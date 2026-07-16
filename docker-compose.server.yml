@@ -15,7 +15,8 @@ services:
       - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
       - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL}
       - EMBEDDING_URL=${EMBEDDING_URL:-http://ollama:11434}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
+      # Higher-quality English embed on server (1024-d). SBC uses nomic v2.
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-large-en-v1.5}
       - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-120000}
       - VECTOR_DB_URL=${VECTOR_DB_URL:-http://turbovec:6333}
       - MONEYPENNY_EDITION=server

@@ -98,7 +98,7 @@ git checkout vX.Y.Z   # or dev
 | Service | Profile | Default |
 |---------|---------|---------|
 | bot | core | always |
-| ollama | ollama | E2B fallback + embeddinggemma |
+| ollama | ollama | E2B fallback + nomic-embed-text-v2-moe |
 | turbovec | rag | vectors on-device (TurboQuant) |
 | stt-whisper | voice-edge | `STT_MODEL=base` (RKNN NPU) |
 | piper-tts | voice-edge | southern English female |

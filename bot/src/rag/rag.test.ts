@@ -2,6 +2,7 @@ import axios from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EmbeddingsClient } from "./embeddings.js";
 import { RetrievalStore } from "./index.js";
+import { l2Normalize } from "./normalize.js";
 import { QdrantClient } from "./qdrant.js";
 
 vi.mock("axios");
@@ -26,15 +27,21 @@ describe("EmbeddingsClient", () => {
         ],
       },
     });
-    const c = new EmbeddingsClient({ baseUrl: "http://ollama:11434", model: "embeddinggemma" });
+    const c = new EmbeddingsClient({
+      baseUrl: "http://ollama:11434",
+      model: "nomic-embed-text-v2-moe",
+    });
     const vecs = await c.embed(["a", "b"]);
-    expect(vecs).toEqual([
-      [1, 2, 3],
-      [4, 5, 6],
-    ]); // sorted by index
+    // Sorted by index, then L2-normalized for cosine/TurboVec
+    expect(vecs[0].map((x) => +x.toFixed(8))).toEqual(
+      l2Normalize([1, 2, 3]).map((x) => +x.toFixed(8)),
+    );
+    expect(vecs[1].map((x) => +x.toFixed(8))).toEqual(
+      l2Normalize([4, 5, 6]).map((x) => +x.toFixed(8)),
+    );
     const [url, body] = http.post.mock.calls[0];
     expect(url).toBe("/v1/embeddings");
-    expect(body).toMatchObject({ model: "embeddinggemma", input: ["a", "b"] });
+    expect(body).toMatchObject({ model: "nomic-embed-text-v2-moe", input: ["a", "b"] });
   });
 
   it("probes dimension once and caches it", async () => {

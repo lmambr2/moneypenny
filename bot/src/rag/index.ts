@@ -2,10 +2,20 @@ import type { Logger } from "../logger.js";
 import { chunkMarkdown } from "./chunk.js";
 import type { EmbeddingsClient } from "./embeddings.js";
 import type { QdrantClient, QdrantPoint } from "./qdrant.js";
+import type { RerankerClient } from "./reranker.js";
 import { isDoctrineExpired } from "./validity.js";
 
-export { EmbeddingsClient } from "./embeddings.js";
+export { EmbeddingsClient, defaultModelForEdition, DEFAULT_EMBEDDING_MODEL } from "./embeddings.js";
 export { QdrantClient } from "./qdrant.js";
+export { RerankerClient } from "./reranker.js";
+export { l2Normalize, l2NormalizeBatch } from "./normalize.js";
+export {
+  chunkMarkdown,
+  chunkText,
+  chunkId,
+  DEFAULT_CHUNK_MAX_CHARS,
+  DEFAULT_CHUNK_OVERLAP,
+} from "./chunk.js";
 
 export interface RetrievedChunk {
   text: string;
@@ -19,6 +29,8 @@ export interface RetrievalStoreOptions {
   qdrant: QdrantClient;
   collection: string;
   topK?: number;
+  /** Optional cross-encoder; when set, over-fetch ANN then reorder. */
+  reranker?: RerankerClient;
   logger?: Logger;
 }
 
@@ -27,16 +39,14 @@ const EMBED_BATCH_SIZE = 8;
 
 /**
  * Phase 5 retrieval substrate: `ingest` (chunk → embed → upsert) and `query`
- * (embed query → vector search → chunks). The shared foundation for Phase 6
- * (doc-RAG with citations + rights-gating) and Phase 7 (MemPalace). Endpoints +
- * model are injected, so one store serves both the RK3588 and x86+GPU tracks by
- * config alone. Lazy-inits (probes embedding dim, ensures the collection).
+ * (embed query → vector search → optional rerank → chunks).
  */
 export class RetrievalStore {
   private embeddings: EmbeddingsClient;
   private qdrant: QdrantClient;
   private collection: string;
   private topK: number;
+  private reranker?: RerankerClient;
   private logger?: Logger;
   private ready = false;
 
@@ -45,6 +55,7 @@ export class RetrievalStore {
     this.qdrant = opts.qdrant;
     this.collection = opts.collection;
     this.topK = opts.topK ?? 4;
+    this.reranker = opts.reranker;
     this.logger = opts.logger;
   }
 
@@ -55,12 +66,17 @@ export class RetrievalStore {
     await this.qdrant.ensureCollection(this.collection, dim);
     this.ready = true;
     this.logger?.info(
-      { collection: this.collection, dim, model: this.embeddings.getModel() },
+      {
+        collection: this.collection,
+        dim,
+        model: this.embeddings.getModel(),
+        reranker: this.reranker?.enabled ? this.reranker.getModel() : null,
+      },
       "RetrievalStore ready",
     );
   }
 
-  /** Chunk a document, embed, and upsert. Replaces any prior chunks of the same source. */
+  /** Chunk a document, embed (L2-normalized), and upsert. Replaces prior chunks of the same source. */
   async ingest(
     source: string,
     text: string,
@@ -80,8 +96,6 @@ export class RetrievalStore {
     const points: QdrantPoint[] = chunks.map((c, i) => ({
       id: c.id,
       vector: vectors[i],
-      // Default classification "unclassified" so the rights-gating filter (Phase
-      // 6) matches uniformly; any caller-supplied classification overrides it.
       payload: {
         text: c.text,
         source: c.source,
@@ -105,8 +119,7 @@ export class RetrievalStore {
   /**
    * Embed the query and return the top-k most similar chunks. When
    * `allowedClassifications` is given (Phase 6 rank-gating), only chunks whose
-   * `classification` is in that set are returned — so unauthorized members never
-   * retrieve classified doctrine. Never throws into callers.
+   * `classification` is in that set are returned. Never throws into callers.
    */
   async query(
     text: string,
@@ -115,29 +128,7 @@ export class RetrievalStore {
   ): Promise<RetrievedChunk[]> {
     if (!text?.trim()) return [];
     try {
-      await this.init();
-      const [vec] = await this.embeddings.embed(text);
-      if (!vec) return [];
-      const filter =
-        allowedClassifications && allowedClassifications.length > 0
-          ? { must: [{ key: "classification", match: { any: allowedClassifications } }] }
-          : undefined;
-      const limit = topK ?? this.topK;
-      const hits = await this.qdrant.search(
-        this.collection,
-        vec,
-        Math.max(limit * 4, limit),
-        filter,
-      );
-      return hits
-        .filter((h) => !isDoctrineExpired(payloadField(h.payload, "valid_until") || undefined))
-        .slice(0, limit)
-        .map((h) => ({
-          text: payloadField(h.payload, "text"),
-          source: payloadField(h.payload, "source"),
-          score: h.score,
-          classification: payloadField(h.payload, "classification", "unclassified"),
-        }));
+      return await this.queryStrict(text, topK, allowedClassifications);
     } catch (err) {
       this.logger?.warn({ err }, "RAG query failed — answering without retrieved context");
       return [];
@@ -162,16 +153,37 @@ export class RetrievalStore {
         ? { must: [{ key: "classification", match: { any: allowedClassifications } }] }
         : undefined;
     const limit = topK ?? this.topK;
-    const hits = await this.qdrant.search(this.collection, vec, Math.max(limit * 4, limit), filter);
-    return hits
+    // Over-fetch for optional rerank / post-filter
+    const fetchK = this.reranker?.enabled
+      ? Math.max(limit * 8, 20)
+      : Math.max(limit * 4, limit);
+    const hits = await this.qdrant.search(this.collection, vec, fetchK, filter);
+    let chunks: RetrievedChunk[] = hits
       .filter((h) => !isDoctrineExpired(payloadField(h.payload, "valid_until") || undefined))
-      .slice(0, limit)
       .map((h) => ({
         text: payloadField(h.payload, "text"),
         source: payloadField(h.payload, "source"),
         score: h.score,
         classification: payloadField(h.payload, "classification", "unclassified"),
       }));
+
+    if (this.reranker?.enabled && chunks.length > 1) {
+      const ranked = await this.reranker.rerank(
+        text,
+        chunks.map((c) => c.text),
+      );
+      if (ranked && ranked.length) {
+        chunks = ranked
+          .map((r) => {
+            const c = chunks[r.index];
+            if (!c) return null;
+            return { ...c, score: r.score };
+          })
+          .filter((c): c is RetrievedChunk => c != null);
+      }
+    }
+
+    return chunks.slice(0, limit);
   }
 }
 

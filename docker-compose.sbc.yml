@@ -18,7 +18,8 @@ services:
       - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
       - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
       - EMBEDDING_URL=${EMBEDDING_URL:-http://ollama:11434}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
+      # Nomic Embed v2 MoE — SBC-friendly, 768-d English/multilingual
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text-v2-moe}
       - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-600000}
       - VECTOR_DB_URL=${VECTOR_DB_URL:-http://turbovec:6333}
       - MONEYPENNY_EDITION=sbc

@@ -85,13 +85,15 @@ services:
       # installer overrides via .env, and --llm npu repoints these at rkllama.
       - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
       - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
-      # RAG (Phase 5). Empty embedding URL → reuses the LLM endpoint (ollama).
-      # Override EMBEDDING_MODEL in .env if needed (default embeddinggemma).
+      # RAG (Phase 5). Empty embedding URL → reuses ollama.
+      # SBC default nomic-embed-text-v2-moe; Server overlay may set bge-large-en-v1.5.
       - VECTOR_DB_URL=${VECTOR_DB_URL:-http://turbovec:6333}
       - EMBEDDING_URL=${EMBEDDING_URL:-}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
-      # Pi CPU embeddinggemma can take 3+ min/batch — avoid 180s ingest timeouts.
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text-v2-moe}
       - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-600000}
+      # Optional cross-encoder (TEI /rerank). Empty = ANN only.
+      - RERANKER_URL=${RERANKER_URL:-}
+      - RERANKER_MODEL=${RERANKER_MODEL:-bge-reranker-large}
       # Phase 7 MemPalace (profile memory). URL only — enable toggles in Settings.
       - MEMPALACE_URL=${MEMPALACE_URL:-}
       # File-drop disk mount (optional — see TS6_FILES_HOST_DIR volume above)
@@ -171,6 +173,39 @@ services:
     #         - driver: nvidia
     #           count: all
     #           capabilities: [gpu]
+
+  # One-shot: pull embedding model(s) into the shared ollama volume.
+  # Profiles: ollama + rag. Override EMBEDDING_MODEL / EMBEDDING_MODEL_EXTRA.
+  ollama-embed-pull:
+    image: ollama/ollama:latest
+    profiles: ["ollama", "rag"]
+    restart: "no"
+    depends_on:
+      - ollama
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text-v2-moe}
+      - EMBEDDING_MODEL_EXTRA=${EMBEDDING_MODEL_EXTRA:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "Waiting for ollama…"
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          ollama list >/dev/null 2>&1 && break
+          sleep 2
+        done
+        echo "Pulling embedding model: $$EMBEDDING_MODEL"
+        ollama pull "$$EMBEDDING_MODEL"
+        if [ -n "$$EMBEDDING_MODEL_EXTRA" ]; then
+          echo "Pulling extra: $$EMBEDDING_MODEL_EXTRA"
+          ollama pull "$$EMBEDDING_MODEL_EXTRA"
+        fi
+        echo "Embedding model(s) ready."
+    networks:
+      - moneypenny
 
   # Dual-track STT (same service name → bot always uses http://stt-whisper:9000).
   # Edition overlays swap the image:

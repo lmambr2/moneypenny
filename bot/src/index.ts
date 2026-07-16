@@ -18,7 +18,12 @@ import { StreamProvider } from "./music/stream.js";
 import { YouTubeProvider } from "./music/youtube.js";
 import { RadioAnalyzer, TagStore } from "./radio/index.js";
 import { reindexDoctrine, watchDoctrineDir } from "./rag/doctrine-ingest.js";
-import { EmbeddingsClient, QdrantClient, RetrievalStore } from "./rag/index.js";
+import {
+  EmbeddingsClient,
+  QdrantClient,
+  RerankerClient,
+  RetrievalStore,
+} from "./rag/index.js";
 import { migrateRightsConfig } from "./rights/migrations.js";
 import { Watchdog } from "./watchdog.js";
 import { createWebServer } from "./web/server.js";
@@ -147,8 +152,8 @@ async function main() {
   }
 
   // Retrieval / RAG substrate (ROADMAP Phase 5). Off unless ragEnabled. Endpoint
-  // + model are config-driven so the same code serves the RK3588 (EmbeddingGemma
-  // on ollama) and x86+GPU (Qwen3-Embedding) tracks; each is pointable remote.
+  // Embeddings: SBC nomic-embed-text-v2-moe; Server may use bge-large-en-v1.5.
+  // Optional RERANKER_URL / config.rerankerUrl for bge-reranker-large.
   let retrieval: RetrievalStore | undefined;
   let doctrine: DoctrineStore | undefined;
   let stopDoctrineWatch: (() => void) | undefined;
@@ -156,16 +161,25 @@ async function main() {
     const embedTimeout = parseInt(process.env.EMBEDDING_TIMEOUT_MS || "600000", 10) || 600_000;
     const embeddings = new EmbeddingsClient({
       baseUrl: config.embeddingUrl || config.llmUrl || undefined,
-      model: config.embeddingModel || undefined,
+      model: config.embeddingModel || process.env.EMBEDDING_MODEL || undefined,
       timeoutMs: embedTimeout,
       logger,
     });
     const qdrant = new QdrantClient({ baseUrl: config.vectorDbUrl || undefined, logger });
+    const rerankerUrl = (config.rerankerUrl || process.env.RERANKER_URL || "").trim();
+    const reranker = rerankerUrl
+      ? new RerankerClient({
+          baseUrl: rerankerUrl,
+          model: config.rerankerModel || process.env.RERANKER_MODEL || undefined,
+          logger,
+        })
+      : undefined;
     retrieval = new RetrievalStore({
       embeddings,
       qdrant,
       collection: config.ragCollection,
       topK: config.ragTopK,
+      reranker,
       logger,
     });
     // Best-effort eager init (probe dim + ensure collection); never blocks startup.

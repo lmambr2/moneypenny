@@ -1,13 +1,23 @@
 import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
+import { l2NormalizeBatch } from "./normalize.js";
+
+/** SBC default: Nomic Embed v2 MoE on Ollama (English + multilingual, 768-d). */
+export const DEFAULT_EMBEDDING_MODEL_SBC = "nomic-embed-text-v2-moe";
+/** Server quality option: BGE large English (1024-d when served via Ollama). */
+export const DEFAULT_EMBEDDING_MODEL_SERVER = "bge-large-en-v1.5";
+/** Process/env default when edition not set — prefer SBC-friendly model. */
+export const DEFAULT_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL_SBC;
 
 export interface EmbeddingsClientOptions {
   /** OpenAI-compatible endpoint, e.g. http://ollama:11434 (local) or the remote GPU box. */
   baseUrl?: string;
-  /** Gemma-family embeddings (default embeddinggemma on Pi and x86). */
+  /** Embedding model id on the endpoint (Ollama tag / HF id). */
   model?: string;
   timeoutMs?: number;
+  /** L2-normalize every vector (default true — cosine/TurboVec). */
+  normalize?: boolean;
   logger?: Logger;
 }
 
@@ -18,14 +28,16 @@ interface EmbeddingResponse {
 
 /**
  * Thin embeddings client for any OpenAI-compatible `/v1/embeddings` endpoint
- * (ROADMAP Phase 5). Mirrors {@link LlmClient}: a config-driven baseUrl/model so
- * the SAME code serves both tracks — EmbeddingGemma on ollama-CPU (RK3588) or a
- * big Qwen3-Embedding on a GPU box — and the endpoint can be local or remote.
+ * (ROADMAP Phase 5). Config-driven baseUrl/model:
+ * - SBC: nomic-embed-text-v2-moe (fast, 768-d)
+ * - Server: optional bge-large-en-v1.5 (quality)
+ * Vectors are L2-normalized before return for cosine / TurboVec.
  */
 export class EmbeddingsClient {
   private baseUrl: string;
   private model: string;
   private timeoutMs: number;
+  private normalize: boolean;
   private logger?: Logger;
   private http: ReturnType<typeof axios.create>;
   private dim: number | null = null;
@@ -39,9 +51,13 @@ export class EmbeddingsClient {
       process.env.RKLLAMA_URL ||
       "http://ollama:11434"
     ).replace(/\/$/, "");
-    this.model = options.model || process.env.EMBEDDING_MODEL || "embeddinggemma";
-    // Pi CPU: embeddinggemma can take 3+ minutes per batch when contended.
+    this.model =
+      options.model ||
+      process.env.EMBEDDING_MODEL ||
+      defaultModelForEdition(process.env.MONEYPENNY_EDITION);
+    // SBC CPU: large batches can take minutes when contended.
     this.timeoutMs = options.timeoutMs ?? 600_000;
+    this.normalize = options.normalize !== false;
     this.logger = options.logger;
     this.http = axios.create({
       baseURL: this.baseUrl,
@@ -66,10 +82,11 @@ export class EmbeddingsClient {
           // ollama extension (ignored elsewhere): keep the embed model resident.
           keep_alive: "6h",
         });
-        const out = (data.data ?? [])
+        let out = (data.data ?? [])
           .slice()
           .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
           .map((d) => d.embedding);
+        if (this.normalize) out = l2NormalizeBatch(out);
         if (out.length && this.dim == null) this.dim = out[0].length;
         return out;
       } catch (err: unknown) {
@@ -99,4 +116,10 @@ export class EmbeddingsClient {
   getModel(): string {
     return this.model;
   }
+}
+
+export function defaultModelForEdition(edition?: string): string {
+  const e = (edition || "").trim().toLowerCase();
+  if (e === "server") return DEFAULT_EMBEDDING_MODEL_SERVER;
+  return DEFAULT_EMBEDDING_MODEL_SBC;
 }

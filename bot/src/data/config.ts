@@ -126,19 +126,23 @@ export interface BotConfig {
   // === Retrieval / RAG (ROADMAP Phase 5) ===
   // When true, the bot embeds ingested docs into a vector DB and injects the
   // top-k relevant chunks into `!ask`. Off by default. Endpoint/model are
-  // config-driven so the SAME code serves RK3588 and x86+GPU (EmbeddingGemma on
-  // ollama by default) — each pointable local or remote.
+  // config-driven: SBC default nomic-embed-text-v2-moe; Server may use
+  // bge-large-en-v1.5 — each pointable local or remote.
   ragEnabled: boolean;
-  // Qdrant base URL (vector store).
+  // TurboVec bridge base URL (vector store; Qdrant-shaped REST).
   vectorDbUrl: string;
   // OpenAI-compatible embeddings endpoint. Empty → falls back to the LLM/ollama URL.
   embeddingUrl: string;
-  // Embedding model (default embeddinggemma — Gemma-family, all platforms).
+  // Embedding model (env EMBEDDING_MODEL / edition default when empty).
   embeddingModel: string;
   // How many chunks to retrieve and inject into `!ask`.
   ragTopK: number;
-  // Qdrant collection name for the doc corpus.
+  // Vector collection name for the doc corpus.
   ragCollection: string;
+  /** Optional cross-encoder base URL (TEI /rerank). Empty = off. */
+  rerankerUrl: string;
+  /** Reranker model id (default bge-reranker-large). */
+  rerankerModel: string;
   // === Per-user memory (ROADMAP Phase 7, MVP) ===
   // When true, `!remember`-ed facts for the asking user are injected into `!ask`.
   // Off by default. The facts are stored regardless; this only gates injection.
@@ -254,15 +258,16 @@ export function getDefaultConfig(): BotConfig {
     streamBridgeUrl: "",
     youtubeSaveEnabled: false,
     musicBlockedGenres: [...DEFAULT_MUSIC_BLOCKED_GENRES],
-    // Endpoint/model default empty → the clients use their built-in defaults
-    // (turbovec:6333 / ollama / embeddinggemma) or the VECTOR_DB_URL /
-    // EMBEDDING_URL / EMBEDDING_MODEL env vars install.sh writes (two-track).
+    // Endpoint/model default empty → clients use env / edition defaults
+    // (turbovec:6333 / ollama / nomic-embed-text-v2-moe or bge-large-en-v1.5).
     ragEnabled: false,
     vectorDbUrl: "",
     embeddingUrl: "",
     embeddingModel: "",
     ragTopK: 4,
     ragCollection: "moneypenny_docs",
+    rerankerUrl: "",
+    rerankerModel: "bge-reranker-large",
     memoryEnabled: false,
     mempalaceEnabled: false,
     mempalaceUrl: "",

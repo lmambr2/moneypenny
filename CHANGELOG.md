@@ -8,6 +8,16 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-15
 
+### RAG embeddings: nomic-embed-text-v2 / bge-large (replace embeddinggemma)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Defaults: SBC `nomic-embed-text-v2-moe`, Server `bge-large-en-v1.5`
+- L2-normalize embeddings client-side for cosine/TurboVec
+- Chunk defaults ~512 tokens / 50-token overlap (2048/200 chars)
+- Optional `RERANKER_URL` + `bge-reranker-large` cross-encoder
+- `./scripts/reembed-doctrine.sh` (+ `--wipe-index`); compose `ollama-embed-pull`
+- Docs: [docs/rag-embeddings.md](./docs/rag-embeddings.md)
+
 ### MCP server for Grok Build (Phase 1 + 2)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

@@ -18,7 +18,7 @@
 | Bot primary host | **Yes** if `--edition sbc` | **Yes** if `--edition server` |
 | Role | Full bot stack on Pi; E2B offline backup | Full bot stack on x86; host Ollama + optional TS6 |
 | Chat default | LAN Gemma 4 **12B** (local E2B fallback) | Host Ollama **12B**; **31B analyst opt-in** (VRAM) |
-| Embeddings | On bot host (`embeddinggemma`) | On bot host |
+| Embeddings | On bot host (`nomic-embed-text-v2-moe`) | On bot host (`bge-large-en-v1.5` default) |
 | STT | Whisper **tiny** → **RKNN** next | **whisper.cpp Vulkan** on AMD |
 | TTS | Piper `en_GB-southern_english_female-low` | Same |
 | NPU | **RKNN Whisper** priority; offline chat opt-in | N/A |
@@ -189,7 +189,7 @@ Design rule: **never put the model between a user and the skip button.** Core tr
 | Bot base | fork of `teamspeak-music-bot` | TS6 client, queue, web UI, auth | MIT | our fork |
 | LLM (primary) | Ollama OpenAI `/v1` | chat + tools; 12B server / E2B SBC | MIT | edition defaults differ |
 | LLM (SBC opt) | rkllama + `.rkllm` | offline NPU chat fallback | OSS | not day-to-day |
-| Embeddings | ollama `embeddinggemma` | RAG vectors | — | usually on SBC |
+| Embeddings | ollama `nomic-embed-text-v2-moe` / `bge-large-en-v1.5` | RAG vectors | — | SBC / Server; see docs/rag-embeddings.md |
 | Vector DB | TurboVec bridge | doc chunks | MIT (bridge) + TurboQuant | profile `rag`; Qdrant-shaped REST |
 | Music: local | **LocalProvider** | index + play local library | our code | primary (§7) |
 | Music: youtube | YouTube provider | yt-dlp | MIT | `execFile` |

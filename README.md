@@ -115,6 +115,7 @@ Chat commands (default prefix `!`):
 | `!kg remember <fact>` · `!kg who <name> [asof:date]` · `!kg list` · `!diary intel\|logistics <fact>` | Institutional knowledge graph (analyst-gated) |
 | `!rate <1-5> [song]` · `!unrate` | Star-rate the current (or a searched) track |
 | `!reindex` *(admin)* | Re-embed the doctrine corpus |
+| `./scripts/reembed-doctrine.sh` | Force full re-embed (optional `--wipe-index` after model change) |
 | `!ingeststatus` *(admin)* | Recent TeamSpeak file-drop ingests + any errors |
 | `!move` `!follow` *(admin)* | Move the bot / follow invoker |
 | `!moveclient <user> <channel>` *(admin)* | Move another user to a channel (TS6 HTTP Query or TS3) |
@@ -422,7 +423,7 @@ See the full `.env.example` in the repo. Important ones:
 - `STREAM_BRIDGE_URL` (for Spotify/Tidal via an external librespot/Tidal bridge)
 
 **Knowledge base / RAG (Phase 5/6)** — bring up with `--profile rag` or `install.sh --with-rag`
-- `VECTOR_DB_URL` (TurboVec bridge, default `http://turbovec:6333`), `EMBEDDING_URL` (blank → reuses the LLM endpoint), `EMBEDDING_MODEL` (`embeddinggemma` — Gemma-family, all platforms)
+- `VECTOR_DB_URL` (TurboVec, default `http://turbovec:6333`), `EMBEDDING_URL` (blank → ollama), `EMBEDDING_MODEL` (SBC: `nomic-embed-text-v2-moe`; Server: `bge-large-en-v1.5`) — see [docs/rag-embeddings.md](./docs/rag-embeddings.md)
 
 **Voice (Phase 2)**
 - `KOKORO_URL`
@@ -448,7 +449,7 @@ Key options:
 - `llmUrl`, `llmModel` (primary OpenAI-compatible chat endpoint — often a LAN workstation)
 - `llmFallbackUrl`, `llmFallbackModel` (Pi-local fallback when primary is unreachable)
 - `llmDelegateUrl`, `llmDelegateModel` (heavy analyst for `!analyst` / `!agent` / `delegate_to_agent`)
-- `embeddingUrl`, `embeddingModel` (embeddings — usually Pi ollama + `embeddinggemma`)
+- `embeddingUrl`, `embeddingModel` (usually Pi ollama + nomic-embed-text-v2-moe)
 - `llmSystemPrompt`, `llmTemperature`
 
 See [docs/remote-llm.md](./docs/remote-llm.md) for split-brain + analyst presets.

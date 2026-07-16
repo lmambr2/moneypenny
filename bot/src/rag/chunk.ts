@@ -22,7 +22,18 @@ export interface ChunkOptions {
   overlap?: number;
 }
 
-const DEFAULTS: Required<ChunkOptions> = { maxChars: 1200, overlap: 150 };
+/**
+ * English RAG defaults (~4 chars/token):
+ * - maxChars 2048 ≈ 512 tokens (upper of 384–512 target band)
+ * - overlap 200 ≈ 50 tokens
+ */
+export const DEFAULT_CHUNK_MAX_CHARS = 2048;
+export const DEFAULT_CHUNK_OVERLAP = 200;
+
+const DEFAULTS: Required<ChunkOptions> = {
+  maxChars: DEFAULT_CHUNK_MAX_CHARS,
+  overlap: DEFAULT_CHUNK_OVERLAP,
+};
 
 /**
  * Deterministic chunk id, formatted as a UUID string (Qdrant only accepts

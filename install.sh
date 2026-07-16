@@ -307,7 +307,7 @@ run_wizard() {
 
   # RAG
   if [ "$FLAG_RAG" -eq 0 ]; then
-    if confirm "Enable knowledge base / RAG (Qdrant + embeddinggemma)?" 1; then
+    if confirm "Enable knowledge base / RAG (TurboVec + nomic-embed-text-v2-moe)?" 1; then
       WITH_RAG=1
     else
       WITH_RAG=0
@@ -481,11 +481,17 @@ fi
 [ "$WITH_SERVER" -eq 1 ] && PROFILES+=("server")
 if [ "$WITH_RAG" -eq 1 ]; then
   PROFILES+=("rag")
-  : "${EMBED_MODEL:=embeddinggemma}"
+  if [ -z "${EMBED_MODEL:-}" ]; then
+    if [ "$EDITION" = "server" ]; then
+      EMBED_MODEL="bge-large-en-v1.5"
+    else
+      EMBED_MODEL="nomic-embed-text-v2-moe"
+    fi
+  fi
   if [ "$LLM" = "external" ] && [[ ! " ${PROFILES[*]} " =~ " ollama " ]]; then
     PROFILES+=("ollama")
   fi
-  say "RAG: ${c_b}Qdrant${c_0} + embedding model ${EMBED_MODEL}"
+  say "RAG: ${c_b}TurboVec${c_0} + embedding model ${EMBED_MODEL}"
 fi
 if [ "$WITH_MEMORY" -eq 1 ]; then
   PROFILES+=("memory")
@@ -667,6 +673,9 @@ if [ "$LLM" = "ollama" ]; then
     say "Pulling embedding model '${EMBED_MODEL}'…"
     dc exec -T ollama ollama pull "$EMBED_MODEL" && ok "Embedding model ready." \
       || warn "Pull later: docker compose --profile ollama exec ollama ollama pull $EMBED_MODEL"
+    # Also run one-shot pull service when defined (idempotent).
+    dc --profile ollama --profile rag run --rm ollama-embed-pull 2>/dev/null \
+      || true
   fi
 fi
 
