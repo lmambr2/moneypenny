@@ -5,10 +5,11 @@
 > The TypeScript bot remains the TeamSpeak + music + rights **authority**.
 > Grok Build is an optional **agent harness** that calls structured tools.
 
-**Status:** Phase 1–2 **shipped + hardened** (2026-07-15) — `bot/src/mcp/`, env `MCP_*`,
+**Status:** Phase 1–3 **shipped** (2026-07-15) — `bot/src/mcp/`, env `MCP_*`,
 example Grok config `.grok/config.toml.example`. Tool registry: `MCP_TOOL_NAMES` in
 `bot/src/mcp/server.ts`. Every tool outcome is written to the durable audit store
-(`mcp.tool` / `mcp.tool.denied` / `mcp.tool.error`).  
+(`mcp.tool` / `mcp.tool.denied` / `mcp.tool.error`). High-impact tools use
+`NEEDS_CONFIRMATION` until `confirm: true`.  
 **Related:** [brain-boundary.md](./brain-boundary.md), [feature-roadmap.md](./feature-roadmap.md),
 [DESIGN.md](../DESIGN.md) §MCP (endgame), [remote-llm.md](./remote-llm.md),
 `bot/src/bot/commands.ts` (`COMMAND_MANIFEST`), `bot/src/web/api/{player,bot,rag}.ts`
