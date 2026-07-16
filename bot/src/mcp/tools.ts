@@ -1,6 +1,7 @@
 import type { BotConfig } from "../data/config.js";
 import { profileAllows } from "./auth.js";
 import { errEnvelope, okEnvelope, withBot } from "./bots.js";
+import { checkConfirm } from "./confirm.js";
 import { buildPlayCommand, dispatchCommand, simpleCommand } from "./dispatch.js";
 import type { McpContext, McpToolEnvelope } from "./types.js";
 
@@ -212,6 +213,8 @@ export async function musicBan(
   ctx: McpContext,
 ): Promise<McpToolEnvelope> {
   return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const blocked = checkConfirm(ctx, "music_ban", args, botId);
+    if (blocked) return blocked;
     const query = str(args.query);
     const cmd = simpleCommand("ban", query);
     if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
@@ -237,6 +240,8 @@ export async function musicStop(
   ctx: McpContext,
 ): Promise<McpToolEnvelope> {
   return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const blocked = checkConfirm(ctx, "music_stop", args, botId);
+    if (blocked) return blocked;
     const cmd = simpleCommand("stop");
     if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
     return dispatchCommand(ctx, bot, botId, cmd, "admin");
@@ -248,6 +253,8 @@ export async function musicClear(
   ctx: McpContext,
 ): Promise<McpToolEnvelope> {
   return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const blocked = checkConfirm(ctx, "music_clear", args, botId);
+    if (blocked) return blocked;
     const cmd = simpleCommand("clear");
     if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
     return dispatchCommand(ctx, bot, botId, cmd, "admin");
@@ -464,6 +471,132 @@ export async function harnessTurns(
       const msg = err instanceof Error ? err.message : "list failed";
       return errEnvelope(ctx, "HARNESS_ERROR", msg, botId);
     }
+  });
+}
+
+// ─── Phase 3: economy / generate / moderation ───────────────────────────────
+
+const ECON_COMMANDS = new Set(["mine", "refine", "craft", "econ", "trade"]);
+
+export async function econRun(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const command = str(args.command).toLowerCase();
+  if (!ECON_COMMANDS.has(command)) {
+    return errEnvelope(
+      ctx,
+      "VALIDATION_ERROR",
+      "command must be one of: mine, refine, craft, econ, trade",
+    );
+  }
+  const rest = str(args.args);
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    if (args.dry_run === true) {
+      return okEnvelope(ctx, `[dry-run] would !${command} ${rest}`.trim(), {
+        dry_run: true,
+        command,
+        args: rest,
+      }, botId);
+    }
+    const cmd = simpleCommand(command, rest);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "dj");
+  });
+}
+
+export async function workorderRun(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const rest = str(args.args) || str(args.command);
+  // clear-all is destructive — admin profile only when args look like clear
+  const needsAdmin = /\bclear\b/i.test(rest);
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    if (args.dry_run === true) {
+      return okEnvelope(ctx, `[dry-run] would !workorder ${rest}`.trim(), {
+        dry_run: true,
+        args: rest,
+      }, botId);
+    }
+    const cmd = simpleCommand("workorder", rest);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, needsAdmin ? "admin" : "dj");
+  });
+}
+
+export async function workItems(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("work-items");
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "dj");
+  });
+}
+
+export async function generateMusic(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const prompt = str(args.prompt) || str(args.query) || str(args.args);
+  if (!prompt) return errEnvelope(ctx, "VALIDATION_ERROR", "prompt is required");
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    if (args.dry_run === true) {
+      return okEnvelope(ctx, `[dry-run] would generate: ${prompt}`, {
+        dry_run: true,
+        prompt,
+      }, botId);
+    }
+    const cmd = simpleCommand("generate", prompt);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    // DJ+ profile; rights engine still checks generate token via admin web mapping
+    return dispatchCommand(ctx, bot, botId, cmd, "dj");
+  });
+}
+
+export async function modMute(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  if (!ctx.config.enableModeration) {
+    return errEnvelope(
+      ctx,
+      "PERMISSION_DENIED",
+      "Moderation tools disabled (set MCP_ENABLE_MODERATION=1)",
+    );
+  }
+  const target = str(args.target) || str(args.nickname) || str(args.args);
+  if (!target) return errEnvelope(ctx, "VALIDATION_ERROR", "target is required");
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const blocked = checkConfirm(ctx, "mod_mute", args, botId);
+    if (blocked) return blocked;
+    const cmd = simpleCommand("mute", target);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+export async function modKick(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  if (!ctx.config.enableModeration) {
+    return errEnvelope(
+      ctx,
+      "PERMISSION_DENIED",
+      "Moderation tools disabled (set MCP_ENABLE_MODERATION=1)",
+    );
+  }
+  const target = str(args.target) || str(args.nickname) || str(args.args);
+  if (!target) return errEnvelope(ctx, "VALIDATION_ERROR", "target is required");
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const blocked = checkConfirm(ctx, "mod_kick", args, botId);
+    if (blocked) return blocked;
+    const cmd = simpleCommand("kick", target);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
   });
 }
 

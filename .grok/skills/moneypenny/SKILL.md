@@ -15,6 +15,10 @@ bot, doctrine/RAG, radio, or station ops.
 8. Volume/mode/stop/clear/radio power → admin tools (`music_volume`, `music_mode`,
    `music_stop`, `music_clear`, `radio_set`). Reindex → `doctrine_reindex`.
 9. Private facts → `memory_remember` / `memory_recall` / `memory_forget` (MCP subject).
+10. High-impact (`music_ban` / `music_stop` / `music_clear` / `mod_*`) return
+    `NEEDS_CONFIRMATION` until you re-call with `confirm: true` after the user agrees.
+11. Economy: `econ_run` / `workorder_run` / `work_items`. Music gen: `generate_music`.
+12. Moderation tools only exist when the server has `MCP_ENABLE_MODERATION=1`.
 
 ## Auth
 

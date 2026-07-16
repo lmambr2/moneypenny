@@ -38,4 +38,17 @@ describe("loadMcpConfig", () => {
       loadMcpConfig({ MCP_ENABLED: "1", MCP_TOKEN: "t", MCP_DEFAULT_PROFILE: "dj" }).defaultProfile,
     ).toBe("dj");
   });
+
+  it("defaults requireConfirm true; moderation off", () => {
+    const c = loadMcpConfig({ MCP_ENABLED: "1", MCP_TOKEN: "t" });
+    expect(c.requireConfirm).toBe(true);
+    expect(c.enableModeration).toBe(false);
+    expect(
+      loadMcpConfig({ MCP_ENABLED: "1", MCP_TOKEN: "t", MCP_REQUIRE_CONFIRM: "0" }).requireConfirm,
+    ).toBe(false);
+    expect(
+      loadMcpConfig({ MCP_ENABLED: "1", MCP_TOKEN: "t", MCP_ENABLE_MODERATION: "1" })
+        .enableModeration,
+    ).toBe(true);
+  });
 });

@@ -111,6 +111,7 @@ services:
       - MCP_INVOKER_UID=${MCP_INVOKER_UID:-mcp:service}
       - MCP_ALLOW_RAW_COMMAND=${MCP_ALLOW_RAW_COMMAND:-0}
       - MCP_ENABLE_MODERATION=${MCP_ENABLE_MODERATION:-0}
+      - MCP_REQUIRE_CONFIRM=${MCP_REQUIRE_CONFIRM:-1}
     volumes:
       # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
       # be writable by uid 1000 (the non-root 'moneypenny' user):

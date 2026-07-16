@@ -88,8 +88,7 @@ describe("MCP HTTP mount", () => {
     expect(body.toLowerCase()).toMatch(/moneypenny|serverinfo|protocol|result|initialize/);
   });
 
-  it("registers Phase-2 operator tool names", () => {
-    // Structural contract: registry must include Phase-2 capabilities.
+  it("registers Phase-2/3 operator tool names", () => {
     for (const name of [
       "music_stop",
       "music_clear",
@@ -104,10 +103,15 @@ describe("MCP HTTP mount", () => {
       "memory_recall",
       "memory_forget",
       "harness_turns",
+      "econ_run",
+      "workorder_run",
+      "work_items",
+      "generate_music",
+      "mod_mute",
+      "mod_kick",
     ]) {
       expect(MCP_TOOL_NAMES).toContain(name);
     }
-    // No forbidden surfaces
     expect(MCP_TOOL_NAMES).not.toContain("run_command");
     expect(MCP_TOOL_NAMES).not.toContain("exec");
     expect(MCP_TOOL_NAMES).not.toContain("settings_patch");

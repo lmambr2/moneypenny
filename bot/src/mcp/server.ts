@@ -199,9 +199,10 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
 
   reg(
     "music_ban",
-    "Ban a track from search/auto-DJ (empty query = ban currently playing track and skip).",
+    "Ban a track from search/auto-DJ (empty query = current track). High-impact: pass confirm:true.",
     {
       query: z.string().optional().describe("Title/artist or fingerprint; omit for current track"),
+      confirm: z.boolean().optional().describe("Required true when MCP_REQUIRE_CONFIRM is on (default)"),
       bot_id: botIdField,
     },
     tools.musicBan,
@@ -217,8 +218,24 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     tools.musicUnban,
   );
 
-  reg("music_stop", "Stop playback (admin).", { bot_id: botIdField }, tools.musicStop);
-  reg("music_clear", "Clear the queue and stop (admin).", { bot_id: botIdField }, tools.musicClear);
+  reg(
+    "music_stop",
+    "Stop playback (admin). High-impact: pass confirm:true.",
+    {
+      confirm: z.boolean().optional(),
+      bot_id: botIdField,
+    },
+    tools.musicStop,
+  );
+  reg(
+    "music_clear",
+    "Clear the queue and stop (admin). High-impact: pass confirm:true.",
+    {
+      confirm: z.boolean().optional(),
+      bot_id: botIdField,
+    },
+    tools.musicClear,
+  );
 
   reg(
     "music_volume",
@@ -363,11 +380,79 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     tools.harnessTurns,
   );
 
+  // ─── Phase 3 ────────────────────────────────────────────────────────────
+  reg(
+    "econ_run",
+    "Org economy command (mine/refine/craft/econ/trade) — same as !mine etc.",
+    {
+      command: z.enum(["mine", "refine", "craft", "econ", "trade"]),
+      args: z.string().optional().describe("Arguments after the command name"),
+      bot_id: botIdField,
+      dry_run: z.boolean().optional(),
+    },
+    tools.econRun,
+  );
+
+  reg(
+    "workorder_run",
+    "Work-order shopping list (!workorder <args>). clear-all needs admin profile.",
+    {
+      args: z.string().optional().describe("Subcommand / materials text"),
+      bot_id: botIdField,
+      dry_run: z.boolean().optional(),
+    },
+    tools.workorderRun,
+  );
+
+  reg(
+    "work_items",
+    "List aggregated work-order materials (!work-items).",
+    { bot_id: botIdField },
+    tools.workItems,
+  );
+
+  reg(
+    "generate_music",
+    "ACE-Step music generation (!generate). Returns clear error if not configured.",
+    {
+      prompt: z.string().describe("Generation prompt / style description"),
+      bot_id: botIdField,
+      dry_run: z.boolean().optional(),
+    },
+    tools.generateMusic,
+  );
+
+  if (opts.mcpConfig.enableModeration) {
+    reg(
+      "mod_mute",
+      "Mute a client in channel (requires MCP_ENABLE_MODERATION=1). High-impact: confirm:true required.",
+      {
+        target: z.string().describe("Nickname or client id"),
+        confirm: z.boolean().optional(),
+        bot_id: botIdField,
+      },
+      tools.modMute,
+    );
+    reg(
+      "mod_kick",
+      "Kick a client from channel (requires MCP_ENABLE_MODERATION=1). High-impact: confirm:true required.",
+      {
+        target: z.string().describe("Nickname or client id"),
+        confirm: z.boolean().optional(),
+        bot_id: botIdField,
+      },
+      tools.modKick,
+    );
+  }
+
+  // High-impact music tools: document confirm on schemas already registered
+  // (handlers enforce NEEDS_CONFIRMATION).
+
   return server;
 }
 
-/** Stable list of MCP tool names (for tests / docs). Keep in sync with registerTool calls above. */
-export const MCP_TOOL_NAMES = [
+/** Always-registered tool names (Phase 1–3 minus optional moderation). */
+export const MCP_TOOL_NAMES_BASE = [
   "status_health",
   "status_now_playing",
   "status_queue",
@@ -397,7 +482,22 @@ export const MCP_TOOL_NAMES = [
   "rag_ask",
   "harness_turn",
   "harness_turns",
+  "econ_run",
+  "workorder_run",
+  "work_items",
+  "generate_music",
 ] as const;
+
+export const MCP_MODERATION_TOOLS = ["mod_mute", "mod_kick"] as const;
+
+/** Stable list for tests/docs. Moderation tools listed only when flag is on at runtime. */
+export const MCP_TOOL_NAMES = [...MCP_TOOL_NAMES_BASE, ...MCP_MODERATION_TOOLS] as const;
+
+export function mcpToolNamesForConfig(enableModeration: boolean): readonly string[] {
+  return enableModeration
+    ? MCP_TOOL_NAMES
+    : MCP_TOOL_NAMES_BASE;
+}
 
 /**
  * Express router for MCP streamable HTTP (stateless per request).

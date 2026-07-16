@@ -11,6 +11,7 @@ const baseConfig = (): McpConfig => ({
   defaultProfile: "admin",
   allowRawCommand: false,
   enableModeration: false,
+  requireConfirm: true,
   invokerName: "grok-build",
   invokerUid: "mcp:service",
 });

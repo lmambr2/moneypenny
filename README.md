@@ -37,7 +37,7 @@ tests passing (175 + 4 test files).
 | **Server** | x86_64 Linux (**AMD** first; NVIDIA untested) | **Host Ollama** Gemma 4 **12B** (+ 31B if headroom) | whisper.cpp **Vulkan** (AMD) + Piper |
 
 **Bot runs on the machine you install** (`--edition sbc` or `server`). Embeddings +
-Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
+TurboVec (vector store) stay on that host. See [docs/editions.md](./docs/editions.md),
 [docs/remote-llm.md](./docs/remote-llm.md), [docs/voice-backends.md](./docs/voice-backends.md),
 [RELEASES.md](./RELEASES.md), [DESIGN.md](./DESIGN.md), [ROADMAP.md](./ROADMAP.md).
 

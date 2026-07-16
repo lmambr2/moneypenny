@@ -181,9 +181,12 @@ describe("MCP tools", () => {
 
   // ─── Phase 2 ────────────────────────────────────────────────────────────
 
-  it("music_stop dispatches !stop via routed command", async () => {
+  it("music_stop requires confirm then dispatches !stop", async () => {
     const ctx = mockCtx();
-    const env = await tools.musicStop({}, ctx);
+    const blocked = await tools.musicStop({}, ctx);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.code).toBe("NEEDS_CONFIRMATION");
+    const env = await tools.musicStop({ confirm: true }, ctx);
     expect(env.ok).toBe(true);
     expect(env.code).toBe("OK");
     expect(env.meta.bot_id).toBe("b1");
@@ -191,9 +194,9 @@ describe("MCP tools", () => {
     expect(bot.executeRoutedCommand.mock.calls[0][0].name).toBe("stop");
   });
 
-  it("music_clear dispatches !clear", async () => {
+  it("music_clear dispatches !clear with confirm", async () => {
     const ctx = mockCtx();
-    const env = await tools.musicClear({}, ctx);
+    const env = await tools.musicClear({ confirm: true }, ctx);
     expect(env.ok).toBe(true);
     expect((ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0].name).toBe(
       "clear",
@@ -239,7 +242,7 @@ describe("MCP tools", () => {
         rightsProfile: "readonly",
       },
     });
-    expect((await tools.musicStop({}, ro)).code).toBe("PERMISSION_DENIED");
+    expect((await tools.musicStop({ confirm: true }, ro)).code).toBe("PERMISSION_DENIED");
     expect((await tools.doctrineReindex({}, ro)).code).toBe("PERMISSION_DENIED");
     expect((await tools.radioSet({ args: "on" }, ro)).code).toBe("PERMISSION_DENIED");
     expect((await tools.harnessTurns({}, ro)).code).toBe("PERMISSION_DENIED");
@@ -255,7 +258,7 @@ describe("MCP tools", () => {
         rightsProfile: "dj",
       },
     });
-    expect((await tools.musicStop({}, dj)).code).toBe("PERMISSION_DENIED");
+    expect((await tools.musicStop({ confirm: true }, dj)).code).toBe("PERMISSION_DENIED");
     const list = await tools.doctrineList({}, dj);
     expect(list.ok).toBe(true);
     expect(list.code).toBe("OK");
@@ -291,5 +294,58 @@ describe("MCP tools", () => {
     const env = await tools.harnessTurns({ limit: 5 }, mockCtx());
     expect(env.ok).toBe(true);
     expect((env.data as any).turns[0].id).toBe("h1");
+  });
+
+  // ─── Phase 3 ────────────────────────────────────────────────────────────
+
+  it("econ_run dispatches economy commands", async () => {
+    const ctx = mockCtx();
+    const env = await tools.econRun({ command: "mine", args: "quantanium" }, ctx);
+    expect(env.ok).toBe(true);
+    const cmd = (ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0];
+    expect(cmd.name).toBe("mine");
+    expect(cmd.args).toContain("quantanium");
+  });
+
+  it("workorder_run and work_items route commands", async () => {
+    const ctx = mockCtx();
+    expect((await tools.workorderRun({ args: "add quantanium 2" }, ctx)).ok).toBe(true);
+    expect((await tools.workItems({}, ctx)).ok).toBe(true);
+    const names = (ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls.map(
+      (c: any[]) => c[0].name,
+    );
+    expect(names).toEqual(["workorder", "work-items"]);
+  });
+
+  it("generate_music dispatches !generate", async () => {
+    const ctx = mockCtx();
+    const env = await tools.generateMusic({ prompt: "lofi hangar chill" }, ctx);
+    expect(env.ok).toBe(true);
+    expect((ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0].name).toBe(
+      "generate",
+    );
+  });
+
+  it("moderation tools denied when flag off", async () => {
+    const ctx = mockCtx();
+    expect(ctx.config.enableModeration).toBe(false);
+    expect((await tools.modMute({ target: "bob", confirm: true }, ctx)).code).toBe(
+      "PERMISSION_DENIED",
+    );
+    expect((await tools.modKick({ target: "bob", confirm: true }, ctx)).code).toBe(
+      "PERMISSION_DENIED",
+    );
+  });
+
+  it("mod_kick works when moderation enabled + confirm", async () => {
+    const ctx = mockCtx();
+    ctx.config.enableModeration = true;
+    const blocked = await tools.modKick({ target: "bob" }, ctx);
+    expect(blocked.code).toBe("NEEDS_CONFIRMATION");
+    const env = await tools.modKick({ target: "bob", confirm: true }, ctx);
+    expect(env.ok).toBe(true);
+    expect((ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0].name).toBe(
+      "kick",
+    );
   });
 });

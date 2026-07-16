@@ -26,7 +26,7 @@
 | Compose | `docker-compose.yml` + `docker-compose.sbc.yml` | + `docker-compose.server.yml` |
 | Install | `./install.sh --edition sbc` | `./install.sh --edition server` |
 
-**Topology A (production):** SBC runs bot + Qdrant + embeddings + tiny STT; Server runs Ollama 12B/31B.  
+**Topology A (production):** SBC runs bot + TurboVec + embeddings + tiny STT; Server runs Ollama 12B/31B.  
 **Topology B:** Server all-in-one (no Pi).  
 **Topology C:** SBC offline-only (slow E2B or opt-in NPU).
 
@@ -45,7 +45,7 @@ Workloads are placed by edition:
 |---|---|---|
 | **Bot + music + rights + RAG index** | Always | Always (all-in-one) or none (LLM-only host) |
 | **Chat / tool-calling** | Prefer LAN 12B; E2B fallback | Local 12B (+ 31B delegate) |
-| **Embeddings + Qdrant** | On-device | On-device |
+| **Embeddings + TurboVec** | On-device | On-device |
 | **STT** | Whisper **base** (RKNN NPU; faster-whisper CPU fallback) | Whisper **medium** (Vulkan on AMD; large-v3 optional) |
 | **TTS** | Piper British female | Piper British female |
 | **NPU** | **Whisper base** STT (RKNN); offline LLM opt-in only | — |
@@ -103,7 +103,7 @@ Workloads are placed by edition:
 | rkllama (optional NPU) | 8080 | TCP | localhost |
 | stt-whisper | 9000 | TCP | localhost |
 | piper-tts | 8880 | TCP | localhost |
-| Qdrant | 6333 | TCP | internal compose network |
+| TurboVec (turbovec-bridge) | 6333 | TCP | internal compose network |
 
 Only TS6 (and intentionally firewalled LLM ports for split-brain) face the network.
 
@@ -130,12 +130,12 @@ flowchart TD
         end
         QUEUE[Queue + player + Opus]
         WEB[Vue web UI + auth API]
-        RAG[RAG retrieval + Qdrant client]
+        RAG[RAG retrieval + vector client]
     end
 
     subgraph EDGE["Edition sidecars"]
         OLLAMA[ollama embed + optional chat]
-        QDRANT[qdrant]
+        TURBOVEC[turbovec bridge]
         STT[stt-whisper Whisper ladder]
         TTS[piper-tts British female]
         NPU[rkllama NPU optional SBC only]
@@ -152,7 +152,7 @@ flowchart TD
     LLMOD -->|chat tools| BIG
     LLMOD -->|fallback| OLLAMA
     LLMOD -->|fallback NPU| NPU
-    RAG --> QDRANT
+    RAG --> TURBOVEC
     RAG --> OLLAMA
     CMD --> QUEUE
     LLMOD -->|tool results| QUEUE
@@ -190,7 +190,7 @@ Design rule: **never put the model between a user and the skip button.** Core tr
 | LLM (primary) | Ollama OpenAI `/v1` | chat + tools; 12B server / E2B SBC | MIT | edition defaults differ |
 | LLM (SBC opt) | rkllama + `.rkllm` | offline NPU chat fallback | OSS | not day-to-day |
 | Embeddings | ollama `embeddinggemma` | RAG vectors | — | usually on SBC |
-| Vector DB | Qdrant | doc chunks | Apache-2.0 | profile `rag` |
+| Vector DB | TurboVec bridge | doc chunks | MIT (bridge) + TurboQuant | profile `rag`; Qdrant-shaped REST |
 | Music: local | **LocalProvider** | index + play local library | our code | primary (§7) |
 | Music: youtube | YouTube provider | yt-dlp | MIT | `execFile` |
 | Music: stream | **StreamProvider** | HTTP/Icecast + optional Tidal bridge | our code | §7 |
@@ -296,7 +296,7 @@ Replace the base's flat `PUBLIC_COMMANDS` / `ADMIN_COMMANDS` sets with a **decla
 - **Canonical: Piper** `en_GB-southern_english_female-low` via HTTP sidecar (`piper-tts`).
 
 ### Putting it on the silicon (SBC)
-NPU → Whisper base (RKNN STT). CPU → bot + music + Piper TTS + ollama E2B/embed + Qdrant. Chat LLM usually on LAN Server. Optional NPU LLM (`rkllama`) only for offline opt-in.
+NPU → Whisper base (RKNN STT). CPU → bot + music + Piper TTS + ollama E2B/embed + TurboVec. Chat LLM usually on LAN Server. Optional NPU LLM (`rkllama`) only for offline opt-in.
 
 ---
 

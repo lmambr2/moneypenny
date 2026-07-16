@@ -349,15 +349,21 @@ the bot’s own tool loop** instead of re-implementing intent. Prefer:
 Avoid **double agent loops** (Grok tools + bot intent both firing tools). Client
 skill policy: pick one level.
 
-### 7.3 Phase 3 — Economy, moderation, generate
+### 7.3 Phase 3 — Economy, moderation, generate (**shipped**)
 
-| Tool | Notes |
-|------|--------|
-| `econ_*` | Wrap economy commands; read-heavy first |
-| `workorder_*` | clear-all stays admin-only |
-| `mod_mute` / `mod_kick` | high risk; default **off** unless `MCP_ENABLE_MODERATION=1` |
-| `generate_music` | ACE-Step; expensive; dj+ |
-| `settings_get` / limited `settings_patch` | never expose secrets in get |
+| Tool | Maps to | Notes |
+|------|---------|--------|
+| `econ_run` | `!mine` / `!refine` / `!craft` / `!econ` / `!trade` | dj+; `command` + optional `args` |
+| `workorder_run` | `!workorder` | clear-all needs admin profile |
+| `work_items` | `!work-items` | dj+ |
+| `generate_music` | `!generate` | dj+; clear message if ACE-Step unconfigured |
+| `mod_mute` / `mod_kick` | `!mute` / `!kick` | **Not registered** unless `MCP_ENABLE_MODERATION=1`; high-impact confirm |
+
+**High-impact confirm** (`MCP_REQUIRE_CONFIRM`, default on): `music_ban`, `music_stop`,
+`music_clear`, `mod_mute`, `mod_kick` return `code: NEEDS_CONFIRMATION` until
+`confirm: true` is passed.
+
+Not shipped: `settings_get` / `settings_patch` (secrets risk).
 
 ### 7.4 Explicitly out of MCP (forever or long-term)
 
@@ -657,6 +663,7 @@ MCP_BOT_ID=                         # optional
 MCP_DEFAULT_PROFILE=admin           # readonly | dj | admin for service token
 MCP_ALLOW_RAW_COMMAND=0
 MCP_ENABLE_MODERATION=0
+MCP_REQUIRE_CONFIRM=1
 MCP_INVOKER_NAME=grok-build
 MCP_INVOKER_UID=mcp:service
 ```

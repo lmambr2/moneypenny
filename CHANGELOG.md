@@ -25,6 +25,14 @@ assistant** authored each batch of work, since not every commit carries a
 - Every tool outcome audited (`mcp.tool` / `mcp.tool.denied` / `mcp.tool.error`)
 - `runMcpTool` shared path for HTTP + tests; RELEASES smoke step for MCP enablement
 
+### MCP Phase 3 + polish + TurboVec docs debt
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Phase 3 tools: `econ_run`, `workorder_run`, `work_items`, `generate_music`,
+  `mod_mute`/`mod_kick` (moderation only when `MCP_ENABLE_MODERATION=1`)
+- High-impact confirm: ban/stop/clear/mod need `confirm: true` (`MCP_REQUIRE_CONFIRM`)
+- Operator docs: TurboVec as live vector store (README/ROADMAP/DESIGN/AGENTS)
+
 ### RAG: replace Qdrant with TurboVec bridge
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

@@ -206,7 +206,9 @@ describe("runMcpTool (real handlers + audit)", () => {
     const audit = createAuditStore(db);
     const bot = mockBot();
     const opts = mountOpts(audit, bot);
-    const result = await runMcpTool(opts, subject("readonly"), "music_stop", tools.musicStop, {});
+    const result = await runMcpTool(opts, subject("readonly"), "music_stop", tools.musicStop, {
+      confirm: true,
+    });
     expect(result.envelope.ok).toBe(false);
     expect(result.envelope.code).toBe("PERMISSION_DENIED");
     expect(bot.executeRoutedCommand).not.toHaveBeenCalled();

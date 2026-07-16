@@ -27,7 +27,7 @@ memory, radio polish) on the **dual-edition** product.
       ─── stt / tts ──────── stt-whisper + piper-tts
 
   ControlRouter ─ deterministic │ !ask / fuzzy → LLM tools
-  Retrieval ─── Qdrant + rank-gated doctrine (Phase 5–6)
+  Retrieval ─── TurboVec + rank-gated doctrine (Phase 5–6)
   Memory ────── MemPalace + per-user facts (Phase 7)
 ```
 
@@ -111,14 +111,14 @@ doctrine/INTSUM context into the prompt, NPU offload of prefill could matter eve
 though it does nothing for short music-intent/chat. Revisit then.
 
 ## Phase 5 — Vector store + embeddings (the shared foundation)
-**Goal:** stand up a vector DB sidecar (ChromaDB or Qdrant) + an embedding model
+**Goal:** stand up a vector DB sidecar (**TurboVec** bridge; historically Qdrant-shaped REST) + an embedding model
 (small local, or hosted on the big box). Shared substrate for Phases 6 and 7.
 **Accept:** ingest text → embed → store → a semantic query returns the relevant
 chunks; runs as a compose service alongside the bot.
 
 ## Phase 6 — Document RAG (doctrine / INTSUMs / org docs)
 > **Status (dev): IMPLEMENTED.** `.md` doctrine (frontmatter →
-> `classification`/`tags`) embedded into Qdrant; `!ask` answers are grounded +
+> `classification`/`tags`) embedded into TurboVec; `!ask` answers are grounded +
 > carry a `📎 Sources:` citation footer; retrieval is **rank-gated** (classified
 > chunks filtered by the invoker's `doctrine:<level>` rights — see
 > **[docs/rank-gating.md](docs/rank-gating.md)**); `!reindex` command

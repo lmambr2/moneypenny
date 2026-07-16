@@ -86,7 +86,7 @@ is gitignored.
 - **Router boundary:** `control/router.ts` — all commands and LLM tools exit through here
 - **HTTP boundary:** `web/api/*` + middleware — every external input enters here
 - **RAG ingest boundary:** `rag/doctrine-ingest.ts` — one path for all doctrine sources
-- **Sidecar boundary:** HTTP env URLs — bot never embeds STT/LLM/Qdrant logic in-process
+- **Sidecar boundary:** HTTP env URLs — bot never embeds STT/LLM/vector-DB logic in-process
 
 ---
 
@@ -211,7 +211,7 @@ cd bot/web && npm run build
 
 - **Music platforms:** `local`, `youtube`, `stream` only — no CN providers
 - **LLM/RAG/voice/roast:** gated in `config.json`; hot-reload via Settings API where implemented
-- **RAG substrate** (Qdrant, embedding URL): may require bot restart + `--profile rag`
+- **RAG substrate** (TurboVec, embedding URL): may require bot restart + `--profile rag`
 - **Commits:** complete sentences; focused diffs; every changed line traces to the request
 - **Docs:** do not add markdown files the user did not ask for; update existing docs when behavior changes
 

@@ -10,6 +10,8 @@ export interface McpConfig {
   defaultProfile: McpProfile;
   allowRawCommand: boolean;
   enableModeration: boolean;
+  /** When true (default), ban/stop/clear/mod tools need args.confirm === true. */
+  requireConfirm: boolean;
   invokerName: string;
   invokerUid: string;
 }
@@ -34,6 +36,13 @@ export function loadMcpConfig(env: NodeJS.ProcessEnv = process.env): McpConfig {
   // Strip trailing slash except root
   if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
 
+  // Default ON for safety polish; set MCP_REQUIRE_CONFIRM=0 to disable.
+  const requireConfirmRaw = env.MCP_REQUIRE_CONFIRM;
+  const requireConfirm =
+    requireConfirmRaw === undefined || requireConfirmRaw === ""
+      ? true
+      : envTruthy(requireConfirmRaw);
+
   return {
     enabled,
     token,
@@ -42,6 +51,7 @@ export function loadMcpConfig(env: NodeJS.ProcessEnv = process.env): McpConfig {
     defaultProfile: parseProfile(env.MCP_DEFAULT_PROFILE),
     allowRawCommand: envTruthy(env.MCP_ALLOW_RAW_COMMAND),
     enableModeration: envTruthy(env.MCP_ENABLE_MODERATION),
+    requireConfirm,
     invokerName: (env.MCP_INVOKER_NAME ?? "grok-build").trim() || "grok-build",
     invokerUid: (env.MCP_INVOKER_UID ?? "mcp:service").trim() || "mcp:service",
   };
