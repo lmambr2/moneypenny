@@ -6,6 +6,23 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-15
+
+### MCP server for Grok Build (Phase 1)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Opt-in streamable HTTP MCP at `/mcp` (`MCP_ENABLED` + `MCP_TOKEN`)
+- Tools: status (health/now/queue/radio/rag), music (play/add/skip/pause/ban),
+  `rag_ask` / `rag_search`, `harness_turn` — same ControlRouter as dashboard/`!`
+- Design: [docs/mcp-server.md](./docs/mcp-server.md); example
+  `.grok/config.toml.example` + skill
+
+### RAG: replace Qdrant with TurboVec bridge
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `services/turbovec-bridge` (TurboQuant IdMapIndex + SQLite payloads)
+- Compose `turbovec` profile; `VECTOR_DB_URL=http://turbovec:6333`
+
 ## 2026-07-10
 
 ### Library: Normalize doctrine formatting from the dashboard

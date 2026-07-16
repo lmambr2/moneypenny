@@ -1,0 +1,20 @@
+# Example Grok Build project config for Moneypenny MCP.
+# Copy to .grok/config.toml (or merge into ~/.grok/config.toml) and set the token.
+# Docs: docs/mcp-server.md
+
+[mcp_servers.moneypenny]
+# LAN / Tailscale hostname of the bot host. Port is the web UI port (default 3000).
+url = "http://opi5:3000/mcp"
+headers = { Authorization = "Bearer ${MONEYPENNY_MCP_TOKEN}" }
+enabled = true
+tool_timeout_sec = 120
+
+# Optional: point Grok Build at a local OpenAI-compatible model (independent of bot !ask).
+# [model.local-lan]
+# model = "gemma4:12b"
+# base_url = "http://gpu-box:11434/v1"
+# api_backend = "chat_completions"
+# name = "LAN Gemma"
+#
+# [models]
+# default = "local-lan"

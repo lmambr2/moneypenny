@@ -58,6 +58,7 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 | `turbovec` | `rag` | Vector DB (TurboQuant; replaces Qdrant) |
 | `tidal-bridge` | `stream` | Tidal stream resolve |
 | `teamspeak` | `server` | Optional TS6 server |
+| MCP `/mcp` | bot (opt-in) | Grok Build / agent tools (`MCP_ENABLED` + token; [docs/mcp-server.md](./docs/mcp-server.md)) |
 
 ### D. Repo orchestration (repo root — not runtime)
 

@@ -16,6 +16,8 @@ import type { PlaybackBlacklist } from "../music/playback-blacklist.js";
 import type { MusicProvider } from "../music/provider.js";
 import type { RadioAnalyzer, TagStore } from "../radio/index.js";
 import type { RetrievalStore } from "../rag/index.js";
+import { loadMcpConfig } from "../mcp/index.js";
+import { createMcpRouter } from "../mcp/server.js";
 import { createAuditRouter } from "./api/audit.js";
 import { createAuthRouter } from "./api/auth.js";
 import { createBotRouter } from "./api/bot.js";
@@ -106,6 +108,22 @@ export function createWebServer(options: WebServerOptions): WebServer {
     const raw = (options.config.publicUrl ?? "").trim();
     res.json({ publicUrl: raw ? raw.replace(/\/+$/, "") : null });
   });
+
+  // ─── MCP (Grok Build / agent clients) — Bearer token, not session cookie ─
+  // Mounted outside /api so requireAuth + CSRF do not apply. See docs/mcp-server.md.
+  const mcpConfig = loadMcpConfig();
+  if (mcpConfig.enabled) {
+    app.use(mcpConfig.path, express.json({ limit: "2mb" }), createMcpRouter({
+      mcpConfig,
+      botManager: options.botManager,
+      config: options.config,
+      logger,
+    }));
+    logger.info(
+      { path: mcpConfig.path, profile: mcpConfig.defaultProfile },
+      "MCP server enabled (Bearer token auth)",
+    );
+  }
 
   // Anti-DoS: throttle expensive (bcrypt) auth endpoints.
   // 5 req per minute per IP for /login (capacity 5, refill 5/60 = ~0.083/sec).

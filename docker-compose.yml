@@ -101,6 +101,16 @@ services:
       # *host* bind source (e.g. ./music) — do not pass that through or uploads
       # resolve to /app/music on the read-only rootfs.
       - MUSIC_DIR=/music
+      # MCP for Grok Build (docs/mcp-server.md). Off unless MCP_ENABLED=1 + token.
+      - MCP_ENABLED=${MCP_ENABLED:-0}
+      - MCP_TOKEN=${MCP_TOKEN:-}
+      - MCP_PATH=${MCP_PATH:-/mcp}
+      - MCP_BOT_ID=${MCP_BOT_ID:-}
+      - MCP_DEFAULT_PROFILE=${MCP_DEFAULT_PROFILE:-admin}
+      - MCP_INVOKER_NAME=${MCP_INVOKER_NAME:-grok-build}
+      - MCP_INVOKER_UID=${MCP_INVOKER_UID:-mcp:service}
+      - MCP_ALLOW_RAW_COMMAND=${MCP_ALLOW_RAW_COMMAND:-0}
+      - MCP_ENABLE_MODERATION=${MCP_ENABLE_MODERATION:-0}
     volumes:
       # All mutable state (SQLite, logs, avatars, config.json) lives here. Must
       # be writable by uid 1000 (the non-root 'moneypenny' user):
