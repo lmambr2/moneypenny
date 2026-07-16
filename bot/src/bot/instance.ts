@@ -766,6 +766,16 @@ export class BotInstance extends EventEmitter {
     return this.knowledge.queryRag(question, topK, allowedClassifications);
   }
 
+  /** Doctrine registry rows for MCP / admin list (empty when RAG corpus not wired). */
+  listDoctrineDocs() {
+    return this.knowledge.getDoctrine()?.list() ?? [];
+  }
+
+  /** Recent play history for this bot instance (MCP music_history). */
+  getPlayHistoryRecords(limit = 50) {
+    return this.database.getPlayHistory(this.id, Math.min(200, Math.max(1, limit)));
+  }
+
   saveWorkflowDoc(kind: WorkflowKind, markdown: string) {
     return this.knowledge.saveWorkflowDoc(kind, markdown);
   }

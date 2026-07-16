@@ -232,6 +232,241 @@ export async function musicUnban(
   });
 }
 
+export async function musicStop(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("stop");
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+export async function musicClear(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("clear");
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+export async function musicVolume(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const volume = args.volume;
+  if (typeof volume !== "number" || !Number.isFinite(volume) || volume < 0 || volume > 100) {
+    return errEnvelope(ctx, "VALIDATION_ERROR", "volume must be a number between 0 and 100");
+  }
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("vol", String(Math.round(volume)));
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    // Matches COMMAND_MANIFEST: vol is admin-tier.
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+const VALID_MODES = new Set(["seq", "loop", "random", "rloop"]);
+
+export async function musicMode(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const mode = str(args.mode);
+  if (!VALID_MODES.has(mode)) {
+    return errEnvelope(ctx, "VALIDATION_ERROR", "mode must be one of: seq, loop, random, rloop");
+  }
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("mode", mode);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+export async function musicHistory(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  if (!profileAllows(ctx.subject, "readonly")) {
+    return errEnvelope(ctx, "PERMISSION_DENIED", "music_history requires readonly+ profile");
+  }
+  return withBot(ctx, args.bot_id, (bot, botId) => {
+    const limitRaw = args.limit;
+    const limit =
+      typeof limitRaw === "number" && Number.isFinite(limitRaw)
+        ? Math.min(200, Math.max(1, Math.floor(limitRaw)))
+        : 50;
+    try {
+      const records = bot.getPlayHistoryRecords(limit);
+      return okEnvelope(
+        ctx,
+        `${records.length} history item(s)`,
+        {
+          history: records.map((r) => ({
+            id: r.songId,
+            name: r.songName,
+            artist: r.artist,
+            album: r.album,
+            platform: r.platform,
+            playedAt: r.playedAt,
+            coverUrl: r.coverUrl,
+          })),
+        },
+        botId,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "history failed";
+      return errEnvelope(ctx, "INTERNAL", msg, botId);
+    }
+  });
+}
+
+// ─── Radio ──────────────────────────────────────────────────────────────────
+
+export async function radioSet(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  // Subcommands like "on"/"off" need admin rights tokens; profile gate at admin.
+  const sub = str(args.args) || str(args.command) || str(args.subcommand);
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    if (args.dry_run === true) {
+      return okEnvelope(ctx, `[dry-run] would radio ${sub || "(status)"}`, {
+        dry_run: true,
+        args: sub,
+      }, botId);
+    }
+    const cmd = simpleCommand("radio", sub);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+// ─── Doctrine / knowledge ───────────────────────────────────────────────────
+
+export async function doctrineList(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  if (!profileAllows(ctx.subject, "dj")) {
+    return errEnvelope(ctx, "PERMISSION_DENIED", "doctrine_list requires dj+ profile");
+  }
+  return withBot(ctx, args.bot_id, (bot, botId) => {
+    try {
+      const docs = bot.listDoctrineDocs();
+      return okEnvelope(ctx, `${docs.length} doctrine doc(s)`, { docs }, botId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "list failed";
+      return errEnvelope(ctx, "RAG_ERROR", msg, botId);
+    }
+  });
+}
+
+export async function doctrineReindex(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const sources = Array.isArray(args.sources)
+    ? args.sources.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    : str(args.source)
+      ? [str(args.source)]
+      : [];
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    if (args.dry_run === true) {
+      return okEnvelope(
+        ctx,
+        `[dry-run] would reindex ${sources.length ? sources.join(", ") : "all"}`,
+        { dry_run: true, sources },
+        botId,
+      );
+    }
+    const cmd = simpleCommand("reindex", sources.join(" "));
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+export async function doctrineIngestStatus(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("ingeststatus");
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "admin");
+  });
+}
+
+// ─── Memory ─────────────────────────────────────────────────────────────────
+
+export async function memoryRemember(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const fact = str(args.fact) || str(args.text);
+  if (!fact) return errEnvelope(ctx, "VALIDATION_ERROR", "fact is required");
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("remember", fact);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "dj");
+  });
+}
+
+export async function memoryRecall(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("recall");
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "dj");
+  });
+}
+
+export async function memoryForget(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  const which = str(args.which) || str(args.args) || str(args.index);
+  if (!which) {
+    return errEnvelope(ctx, "VALIDATION_ERROR", "which is required (index or 'all')");
+  }
+  return withBot(ctx, args.bot_id, async (bot, botId) => {
+    const cmd = simpleCommand("forget", which);
+    if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
+    return dispatchCommand(ctx, bot, botId, cmd, "dj");
+  });
+}
+
+// ─── Harness history ────────────────────────────────────────────────────────
+
+export async function harnessTurns(
+  args: Record<string, unknown>,
+  ctx: McpContext,
+): Promise<McpToolEnvelope> {
+  if (!profileAllows(ctx.subject, "admin")) {
+    return errEnvelope(ctx, "PERMISSION_DENIED", "harness_turns requires admin profile");
+  }
+  return withBot(ctx, args.bot_id, (bot, botId) => {
+    const limitRaw = args.limit;
+    const limit =
+      typeof limitRaw === "number" && Number.isFinite(limitRaw)
+        ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
+        : 30;
+    try {
+      const turns = bot.listHarnessTurns(limit);
+      return okEnvelope(ctx, `${turns.length} turn(s)`, { turns }, botId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "list failed";
+      return errEnvelope(ctx, "HARNESS_ERROR", msg, botId);
+    }
+  });
+}
+
 // ─── RAG ────────────────────────────────────────────────────────────────────
 
 export async function ragSearch(

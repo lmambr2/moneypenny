@@ -48,7 +48,30 @@ function mockCtx(overrides?: Partial<McpContext>): McpContext {
     ],
     getRadioStatus: () => ({ enabled: false }),
     getRagStatus: async () => ({ configured: true, available: true, docCount: 3 }),
-    executeRoutedCommand: vi.fn(async () => ({ message: "Playing Test Track", denied: false })),
+    listDoctrineDocs: () => [
+      { source: "ops.md", classification: "unclassified", tags: [], chunks: 2, bytes: 10, updatedAt: 1 },
+    ],
+    getPlayHistoryRecords: (limit: number) =>
+      [
+        {
+          songId: "s1",
+          songName: "Past Track",
+          artist: "A",
+          album: "",
+          platform: "local",
+          playedAt: 100,
+          coverUrl: "",
+        },
+      ].slice(0, limit),
+    listHarnessTurns: (limit: number) =>
+      [{ id: "h1", at: 1, user: "q", reply: "a", sources: [], tools: [], mode: "ask" as const }].slice(
+        0,
+        limit,
+      ),
+    executeRoutedCommand: vi.fn(async (cmd: { name: string }) => ({
+      message: `ok:${cmd.name}`,
+      denied: false,
+    })),
     queryRag: vi.fn(async () => [{ text: "chunk", source: "doc.md", score: 0.9 }]),
     runHarnessTurn: vi.fn(async () => ({
       id: "h1",
@@ -150,5 +173,115 @@ describe("MCP tools", () => {
     const env = await tools.statusNowPlaying({ bot_id: "missing" }, mockCtx());
     expect(env.ok).toBe(false);
     expect(env.code).toBe("BOT_NOT_FOUND");
+  });
+
+  // ─── Phase 2 ────────────────────────────────────────────────────────────
+
+  it("music_stop dispatches !stop via routed command", async () => {
+    const ctx = mockCtx();
+    const env = await tools.musicStop({}, ctx);
+    expect(env.ok).toBe(true);
+    const bot = ctx.botManager.getAllBots()[0] as any;
+    expect(bot.executeRoutedCommand.mock.calls[0][0].name).toBe("stop");
+  });
+
+  it("music_clear dispatches !clear", async () => {
+    const ctx = mockCtx();
+    const env = await tools.musicClear({}, ctx);
+    expect(env.ok).toBe(true);
+    expect((ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0].name).toBe(
+      "clear",
+    );
+  });
+
+  it("music_volume validates and dispatches !vol", async () => {
+    const bad = await tools.musicVolume({ volume: 200 }, mockCtx());
+    expect(bad.ok).toBe(false);
+    expect(bad.code).toBe("VALIDATION_ERROR");
+
+    const ctx = mockCtx();
+    const env = await tools.musicVolume({ volume: 42 }, ctx);
+    expect(env.ok).toBe(true);
+    const cmd = (ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0];
+    expect(cmd.name).toBe("vol");
+    expect(cmd.args).toBe("42");
+  });
+
+  it("music_mode dispatches valid modes and rejects garbage", async () => {
+    expect((await tools.musicMode({ mode: "shuffle" }, mockCtx())).code).toBe("VALIDATION_ERROR");
+    const ctx = mockCtx();
+    const env = await tools.musicMode({ mode: "rloop" }, ctx);
+    expect(env.ok).toBe(true);
+    expect((ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0].args).toBe(
+      "rloop",
+    );
+  });
+
+  it("music_history returns play history envelope", async () => {
+    const env = await tools.musicHistory({ limit: 10 }, mockCtx());
+    expect(env.ok).toBe(true);
+    expect((env.data as any).history[0].name).toBe("Past Track");
+  });
+
+  it("readonly denied on music_stop and doctrine_reindex", async () => {
+    const ro = mockCtx({
+      subject: {
+        kind: "mcp",
+        tokenId: "service",
+        invokerUid: "mcp:service",
+        invokerName: "ro",
+        rightsProfile: "readonly",
+      },
+    });
+    expect((await tools.musicStop({}, ro)).code).toBe("PERMISSION_DENIED");
+    expect((await tools.doctrineReindex({}, ro)).code).toBe("PERMISSION_DENIED");
+    expect((await tools.radioSet({ args: "on" }, ro)).code).toBe("PERMISSION_DENIED");
+    expect((await tools.harnessTurns({}, ro)).code).toBe("PERMISSION_DENIED");
+  });
+
+  it("dj denied on admin-only stop but allowed on doctrine_list", async () => {
+    const dj = mockCtx({
+      subject: {
+        kind: "mcp",
+        tokenId: "service",
+        invokerUid: "mcp:service",
+        invokerName: "dj",
+        rightsProfile: "dj",
+      },
+    });
+    expect((await tools.musicStop({}, dj)).code).toBe("PERMISSION_DENIED");
+    const list = await tools.doctrineList({}, dj);
+    expect(list.ok).toBe(true);
+    expect((list.data as any).docs[0].source).toBe("ops.md");
+  });
+
+  it("radio_set and doctrine_reindex dispatch routed commands", async () => {
+    const ctx = mockCtx();
+    expect((await tools.radioSet({ args: "on" }, ctx)).ok).toBe(true);
+    expect((ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[0][0].name).toBe(
+      "radio",
+    );
+    expect((await tools.doctrineReindex({ sources: ["a.md"] }, ctx)).ok).toBe(true);
+    const reindexCmd = (ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[1][0];
+    expect(reindexCmd.name).toBe("reindex");
+    expect(reindexCmd.args).toContain("a.md");
+  });
+
+  it("doctrine_ingest_status and memory tools route commands", async () => {
+    const ctx = mockCtx();
+    expect((await tools.doctrineIngestStatus({}, ctx)).ok).toBe(true);
+    expect((await tools.memoryRemember({ fact: "likes jazz" }, ctx)).ok).toBe(true);
+    expect((await tools.memoryRecall({}, ctx)).ok).toBe(true);
+    expect((await tools.memoryForget({ which: "1" }, ctx)).ok).toBe(true);
+    const names = (ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls.map(
+      (c: any[]) => c[0].name,
+    );
+    expect(names).toEqual(["ingeststatus", "remember", "recall", "forget"]);
+  });
+
+  it("harness_turns lists ring buffer", async () => {
+    const env = await tools.harnessTurns({ limit: 5 }, mockCtx());
+    expect(env.ok).toBe(true);
+    expect((env.data as any).turns[0].id).toBe("h1");
   });
 });

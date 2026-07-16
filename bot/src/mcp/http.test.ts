@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { loadMcpConfig } from "./config.js";
-import { createMcpRouter } from "./server.js";
+import { createMcpRouter, MCP_TOOL_NAMES } from "./server.js";
 
 describe("MCP HTTP mount", () => {
   it("rejects missing bearer", async () => {
@@ -86,5 +86,30 @@ describe("MCP HTTP mount", () => {
     expect([200, 202]).toContain(res.status);
     const body = typeof res.text === "string" ? res.text : JSON.stringify(res.body);
     expect(body.toLowerCase()).toMatch(/moneypenny|serverinfo|protocol|result|initialize/);
+  });
+
+  it("registers Phase-2 operator tool names", () => {
+    // Structural contract: registry must include Phase-2 capabilities.
+    for (const name of [
+      "music_stop",
+      "music_clear",
+      "music_volume",
+      "music_mode",
+      "music_history",
+      "radio_set",
+      "doctrine_list",
+      "doctrine_reindex",
+      "doctrine_ingest_status",
+      "memory_remember",
+      "memory_recall",
+      "memory_forget",
+      "harness_turns",
+    ]) {
+      expect(MCP_TOOL_NAMES).toContain(name);
+    }
+    // No forbidden surfaces
+    expect(MCP_TOOL_NAMES).not.toContain("run_command");
+    expect(MCP_TOOL_NAMES).not.toContain("exec");
+    expect(MCP_TOOL_NAMES).not.toContain("settings_patch");
   });
 });

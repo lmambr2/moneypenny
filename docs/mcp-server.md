@@ -5,8 +5,9 @@
 > The TypeScript bot remains the TeamSpeak + music + rights **authority**.
 > Grok Build is an optional **agent harness** that calls structured tools.
 
-**Status:** Phase 1 **implemented** (2026-07-15) — `bot/src/mcp/`, env `MCP_*`,
-example Grok config `.grok/config.toml.example`  
+**Status:** Phase 1 + **Phase 2 implemented** (2026-07-15) — `bot/src/mcp/`, env `MCP_*`,
+example Grok config `.grok/config.toml.example`. Tool registry: `MCP_TOOL_NAMES` in
+`bot/src/mcp/server.ts`.  
 **Related:** [brain-boundary.md](./brain-boundary.md), [feature-roadmap.md](./feature-roadmap.md),
 [DESIGN.md](../DESIGN.md) §MCP (endgame), [remote-llm.md](./remote-llm.md),
 `bot/src/bot/commands.ts` (`COMMAND_MANIFEST`), `bot/src/web/api/{player,bot,rag}.ts`
@@ -315,24 +316,24 @@ Read + safe music + grounded ask. Enough for “Grok as second cockpit.”
 | `rag_ask` | harness ask mode=`ask` | admin/dj | `question`, `include_sources?` | `{ reply, sources[] }` |
 | `rag_search` | `POST /api/rag/query` or bot rag query | admin/dj | `q`, `top_k?`, `allowed_classifications?` | chunks only (no LLM) |
 
-### 7.2 Phase 2 — Operator parity
+### 7.2 Phase 2 — Operator parity (**shipped**)
 
-| Tool | Maps to | Rights |
-|------|---------|--------|
-| `music_stop` / `music_clear` | stop/clear | admin |
-| `music_volume` | `!vol` | `vol` |
-| `music_mode` | seq/loop/random/rloop | `mode` |
-| `music_history` | history API | any / dj |
-| `music_play_song` / `music_add_song` | library id paths | dj |
-| `radio_set` | radio on/off / subcommands | `radio` / `radio.power` |
-| `memory_remember` / `memory_recall` / `memory_forget` | special handlers | subject-scoped |
-| `kg_query` / `diary_query` | `!kg` / `!diary` | tokens |
-| `doctrine_list` | `GET /api/rag/doctrine` | admin |
-| `doctrine_reindex` | `!reindex` / rag reindex | `reindex` |
+| Tool | Maps to | MCP profile |
+|------|---------|-------------|
+| `music_stop` / `music_clear` | `!stop` / `!clear` | admin |
+| `music_volume` | `!vol` | admin |
+| `music_mode` | `!mode` seq/loop/random/rloop | admin |
+| `music_history` | `getPlayHistoryRecords` | readonly+ |
+| `radio_set` | `!radio <args>` | admin |
+| `memory_remember` / `memory_recall` / `memory_forget` | `!remember` / `!recall` / `!forget` | dj+ |
+| `doctrine_list` | doctrine registry | dj+ |
+| `doctrine_reindex` | `!reindex` | admin |
 | `doctrine_ingest_status` | `!ingeststatus` | admin |
-| `harness_turn` | `POST /api/bot/harness/ask` | admin | `question`, `mode` ask\|intent, `dry_run?`, `allow_dangerous?` |
-| `harness_turns` | list ring buffer | admin |
-| `ops_status` | ops brief | ops |
+| `harness_turn` | `runHarnessTurn` | admin |
+| `harness_turns` | harness ring buffer | admin |
+
+Not in this phase (still deferred): library `music_play_song` / `music_add_song`,
+`kg_query` / `diary_query`, `ops_status`.
 
 `harness_turn` with `mode=intent` is how Grok can **delegate fuzzy music NL to
 the bot’s own tool loop** instead of re-implementing intent. Prefer:

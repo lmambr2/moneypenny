@@ -198,6 +198,106 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     tools.musicUnban,
   );
 
+  reg("music_stop", "Stop playback (admin).", { bot_id: botIdField }, tools.musicStop);
+  reg("music_clear", "Clear the queue and stop (admin).", { bot_id: botIdField }, tools.musicClear);
+
+  reg(
+    "music_volume",
+    "Set playback volume 0–100 (admin).",
+    {
+      volume: z.number().min(0).max(100).describe("Volume percent 0–100"),
+      bot_id: botIdField,
+    },
+    tools.musicVolume,
+  );
+
+  reg(
+    "music_mode",
+    "Set queue play mode: seq | loop | random | rloop (admin).",
+    {
+      mode: z.enum(["seq", "loop", "random", "rloop"]),
+      bot_id: botIdField,
+    },
+    tools.musicMode,
+  );
+
+  reg(
+    "music_history",
+    "Recent play history for the bot.",
+    {
+      bot_id: botIdField,
+      limit: z.number().int().min(1).max(200).optional(),
+    },
+    tools.musicHistory,
+  );
+
+  reg(
+    "radio_set",
+    "Radio / auto-DJ control (same as !radio <args>). Empty args = status. on/off and power ops need admin.",
+    {
+      args: z
+        .string()
+        .optional()
+        .describe("Subcommand string, e.g. 'on', 'off', 'status', 'profile lobby'"),
+      bot_id: botIdField,
+      dry_run: z.boolean().optional(),
+    },
+    tools.radioSet,
+  );
+
+  reg(
+    "doctrine_list",
+    "List doctrine documents in the knowledge base registry.",
+    { bot_id: botIdField },
+    tools.doctrineList,
+  );
+
+  reg(
+    "doctrine_reindex",
+    "Re-embed doctrine into the vector store (all docs or selected sources).",
+    {
+      sources: z.array(z.string()).optional().describe("Optional .md paths; omit to reindex all"),
+      source: z.string().optional().describe("Single source shorthand"),
+      bot_id: botIdField,
+      dry_run: z.boolean().optional(),
+    },
+    tools.doctrineReindex,
+  );
+
+  reg(
+    "doctrine_ingest_status",
+    "File-drop / doctrine ingest status (!ingeststatus).",
+    { bot_id: botIdField },
+    tools.doctrineIngestStatus,
+  );
+
+  reg(
+    "memory_remember",
+    "Store a private !remember fact for the MCP invoker subject.",
+    {
+      fact: z.string().describe("Fact text to remember"),
+      bot_id: botIdField,
+    },
+    tools.memoryRemember,
+  );
+
+  reg(
+    "memory_recall",
+    "List private !remember facts for the MCP invoker subject.",
+    { bot_id: botIdField },
+    tools.memoryRecall,
+  );
+
+  reg(
+    "memory_forget",
+    "Forget a private fact by recall index or 'all'.",
+    {
+      which: z.string().describe("1-based index from memory_recall, or 'all'"),
+      bot_id: botIdField,
+    },
+    tools.memoryForget,
+  );
+
   reg(
     "rag_search",
     "Semantic search over doctrine (chunks only, no LLM answer).",
@@ -234,8 +334,51 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     tools.harnessTurn,
   );
 
+  reg(
+    "harness_turns",
+    "List recent harness cockpit turns (ring buffer).",
+    {
+      limit: z.number().int().min(1).max(50).optional(),
+      bot_id: botIdField,
+    },
+    tools.harnessTurns,
+  );
+
   return server;
 }
+
+/** Stable list of MCP tool names (for tests / docs). Keep in sync with registerTool calls above. */
+export const MCP_TOOL_NAMES = [
+  "status_health",
+  "status_now_playing",
+  "status_queue",
+  "status_radio",
+  "status_rag",
+  "music_play",
+  "music_add",
+  "music_play_next",
+  "music_skip",
+  "music_pause",
+  "music_resume",
+  "music_ban",
+  "music_unban",
+  "music_stop",
+  "music_clear",
+  "music_volume",
+  "music_mode",
+  "music_history",
+  "radio_set",
+  "doctrine_list",
+  "doctrine_reindex",
+  "doctrine_ingest_status",
+  "memory_remember",
+  "memory_recall",
+  "memory_forget",
+  "rag_search",
+  "rag_ask",
+  "harness_turn",
+  "harness_turns",
+] as const;
 
 /**
  * Express router for MCP streamable HTTP (stateless per request).

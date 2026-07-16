@@ -8,12 +8,14 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-15
 
-### MCP server for Grok Build (Phase 1)
+### MCP server for Grok Build (Phase 1 + 2)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
 - Opt-in streamable HTTP MCP at `/mcp` (`MCP_ENABLED` + `MCP_TOKEN`)
-- Tools: status (health/now/queue/radio/rag), music (play/add/skip/pause/ban),
-  `rag_ask` / `rag_search`, `harness_turn` — same ControlRouter as dashboard/`!`
+- Phase 1: status_*, music play/add/skip/pause/ban, `rag_ask` / `rag_search`,
+  `harness_turn` — same ControlRouter as dashboard/`!`
+- Phase 2: `music_stop`/`clear`/`volume`/`mode`/`history`, `radio_set`,
+  `doctrine_list`/`reindex`/`ingest_status`, `memory_*`, `harness_turns`
 - Design: [docs/mcp-server.md](./docs/mcp-server.md); example
   `.grok/config.toml.example` + skill
 

@@ -12,6 +12,9 @@ bot, doctrine/RAG, radio, or station ops.
 5. Prefer structured `music_*` over `harness_turn` when the song is already known.
 6. `harness_turn` with `mode=intent` only for fuzzy NL music when structured tools are a poor fit.
 7. Never claim a track is playing without checking `status_now_playing`.
+8. Volume/mode/stop/clear/radio power → admin tools (`music_volume`, `music_mode`,
+   `music_stop`, `music_clear`, `radio_set`). Reindex → `doctrine_reindex`.
+9. Private facts → `memory_remember` / `memory_recall` / `memory_forget` (MCP subject).
 
 ## Auth
 
