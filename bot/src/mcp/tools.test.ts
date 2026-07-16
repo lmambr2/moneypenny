@@ -114,6 +114,8 @@ describe("MCP tools", () => {
   it("status_now_playing returns current track", async () => {
     const env = await tools.statusNowPlaying({}, mockCtx());
     expect(env.ok).toBe(true);
+    expect(env.code).toBe("OK");
+    expect(env.meta.bot_id).toBe("b1");
     expect((env.data as any).current.title).toBe("Test Track");
   });
 
@@ -127,6 +129,8 @@ describe("MCP tools", () => {
     const ctx = mockCtx();
     const env = await tools.musicPlay({ query: "hello" }, ctx);
     expect(env.ok).toBe(true);
+    expect(env.code).toBe("OK");
+    expect(env.meta.bot_id).toBe("b1");
     const bot = ctx.botManager.getAllBots()[0] as any;
     expect(bot.executeRoutedCommand).toHaveBeenCalled();
     const cmd = bot.executeRoutedCommand.mock.calls[0][0];
@@ -181,6 +185,8 @@ describe("MCP tools", () => {
     const ctx = mockCtx();
     const env = await tools.musicStop({}, ctx);
     expect(env.ok).toBe(true);
+    expect(env.code).toBe("OK");
+    expect(env.meta.bot_id).toBe("b1");
     const bot = ctx.botManager.getAllBots()[0] as any;
     expect(bot.executeRoutedCommand.mock.calls[0][0].name).toBe("stop");
   });
@@ -252,6 +258,8 @@ describe("MCP tools", () => {
     expect((await tools.musicStop({}, dj)).code).toBe("PERMISSION_DENIED");
     const list = await tools.doctrineList({}, dj);
     expect(list.ok).toBe(true);
+    expect(list.code).toBe("OK");
+    expect(list.meta.bot_id).toBe("b1");
     expect((list.data as any).docs[0].source).toBe("ops.md");
   });
 

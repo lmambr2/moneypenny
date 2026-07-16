@@ -1,11 +1,15 @@
 import type { McpContext, McpToolEnvelope } from "./types.js";
 
+/**
+ * Success envelope. Call as `okEnvelope(ctx, message, data, botId?)`.
+ * `botId` is the 4th arg (not `code`) — matches every tools/dispatch call site.
+ */
 export function okEnvelope<T>(
   ctx: McpContext,
   message: string,
   data: T | null = null,
-  code = "OK",
   botId?: string,
+  code = "OK",
 ): McpToolEnvelope<T> {
   return {
     ok: true,
