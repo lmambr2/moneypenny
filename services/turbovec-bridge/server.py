@@ -90,6 +90,22 @@ def str_to_u64(s: str) -> int:
     return struct.unpack("<Q", h)[0]
 
 
+def u64_to_sqlite(u: int) -> int:
+    """SQLite INTEGER is signed int64 — store full uint64 as two's complement."""
+    u = int(u) & 0xFFFFFFFFFFFFFFFF
+    if u >= 0x8000000000000000:
+        return u - 0x10000000000000000
+    return u
+
+
+def sqlite_to_u64(i: int) -> int:
+    """Restore unsigned id used by TurboVec IdMapIndex."""
+    i = int(i)
+    if i < 0:
+        return i + 0x10000000000000000
+    return i
+
+
 def pad_dim(dim: int) -> int:
     """TurboVec requires dim % 8 == 0 and dim >= 8."""
     if dim < 8:
@@ -221,7 +237,7 @@ def upsert_points(name: str, points: list[dict[str, Any]]) -> None:
               id_u64 = excluded.id_u64,
               payload = excluded.payload
             """,
-            (name, id_str, uid, json.dumps(payload)),
+            (name, id_str, u64_to_sqlite(uid), json.dumps(payload)),
         )
 
     if vectors:
@@ -264,7 +280,7 @@ def parse_filter_allowlist(name: str, filt: Any) -> np.ndarray | None:
                 except Exception:
                     pl = {}
                 if pl.get(key) == want or str(pl.get(key)) == str(want):
-                    keep.add(int(id_u64))
+                    keep.add(sqlite_to_u64(id_u64))
         elif "any" in match:
             any_vals = {str(x) for x in (match["any"] or [])}
             for id_str, id_u64, payload_s in rows:
@@ -273,7 +289,7 @@ def parse_filter_allowlist(name: str, filt: Any) -> np.ndarray | None:
                 except Exception:
                     pl = {}
                 if str(pl.get(key, "")) in any_vals:
-                    keep.add(int(id_u64))
+                    keep.add(sqlite_to_u64(id_u64))
         else:
             continue
         allowed = keep if allowed is None else (allowed & keep)
@@ -320,10 +336,11 @@ def search_points(
     conn = db()
     out: list[dict[str, Any]] = []
     for i in range(sc.shape[0]):
-        uid = int(id_row[i])
+        # TurboVec returns uint64 ids; SQLite stores the same bits as signed int64.
+        uid = int(id_row[i]) & 0xFFFFFFFFFFFFFFFF
         row = conn.execute(
             "SELECT id_str, payload FROM points WHERE collection = ? AND id_u64 = ?",
-            (name, uid),
+            (name, u64_to_sqlite(uid)),
         ).fetchone()
         if not row:
             continue
@@ -367,7 +384,7 @@ def delete_by_filter(name: str, filt: Any) -> int:
     ).fetchall()
     n = 0
     for id_str, id_u64 in rows:
-        uid = int(id_u64)
+        uid = sqlite_to_u64(id_u64)
         if uid in idx:
             idx.remove(uid)
         conn.execute(
