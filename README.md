@@ -54,7 +54,7 @@ Qdrant stay on that host. See [docs/editions.md](./docs/editions.md),
 **AI — entirely local (NPU/CPU/LAN), no cloud**
 - `!ask <question>` — fast Gemma answers; fuzzy natural-language requests drive music via tool-calls.
 - `!analyst <task>` / `!agent <task>` — route heavy analysis to a **second** LAN model (e.g. Gemma 4 31B on a GPU box); same doctrine grounding as `!ask`. Configure delegate URL/model in Settings or see **[docs/remote-llm.md](./docs/remote-llm.md)** (DESIGN §R1).
-- **Split-brain inference** — chat/tool-calling on a LAN workstation (`llmUrl`), embeddings + Qdrant on the Pi, Pi ollama as fallback when the LAN host is down.
+- **Split-brain inference** — chat/tool-calling on a LAN workstation (`llmUrl`), embeddings + TurboVec on the Pi, Pi ollama as fallback when the LAN host is down.
 - **Document RAG / knowledge base** — load `.md` doctrine four ways: the web UI (Library → Doctrine), a `git push` wiki, a manual file drop, or **dragging files into a TeamSpeak `moneypenny-drop` channel** (`.md` → knowledge base, audio → music library). `!ask` and `!analyst` answers are grounded and carry a `📎 Sources:` footer. **Rank-gated**: classified docs (frontmatter `classification:`) stay hidden from members without the matching `doctrine:<level>` right. → **[docs/rag-ingestion.md](./docs/rag-ingestion.md)**
 - **Per-user memory** — `!remember <fact>` / `!recall`; facts are woven into that member's `!ask`.
 - **Institutional knowledge graph** — `!kg` / `!diary` for temporal org facts (roster, roles, op history); injected into `!ask` when enabled.
@@ -422,7 +422,7 @@ See the full `.env.example` in the repo. Important ones:
 - `STREAM_BRIDGE_URL` (for Spotify/Tidal via an external librespot/Tidal bridge)
 
 **Knowledge base / RAG (Phase 5/6)** — bring up with `--profile rag` or `install.sh --with-rag`
-- `VECTOR_DB_URL` (Qdrant), `EMBEDDING_URL` (blank → reuses the LLM endpoint), `EMBEDDING_MODEL` (`embeddinggemma` — Gemma-family, all platforms)
+- `VECTOR_DB_URL` (TurboVec bridge, default `http://turbovec:6333`), `EMBEDDING_URL` (blank → reuses the LLM endpoint), `EMBEDDING_MODEL` (`embeddinggemma` — Gemma-family, all platforms)
 
 **Voice (Phase 2)**
 - `KOKORO_URL`

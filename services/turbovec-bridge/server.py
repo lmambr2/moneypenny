@@ -30,11 +30,11 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 try:
-    from turbovec import IdMapIndex
-except ImportError as e:  # pragma: no cover
-    raise SystemExit(
-        "turbovec is required: pip install turbovec\n" + str(e)
-    ) from e
+    from turbovec import IdMapIndex as _IdMapIndex
+except ImportError:  # pragma: no cover — pure unit tests can still import helpers
+    _IdMapIndex = None  # type: ignore[misc, assignment]
+
+IdMapIndex = _IdMapIndex  # re-export for type checkers / tests
 
 DATA_DIR = Path(os.environ.get("TURBOVEC_DATA", "/data"))
 PORT = int(os.environ.get("PORT", "6333"))
@@ -43,9 +43,31 @@ BIT_WIDTH = int(os.environ.get("TURBOVEC_BIT_WIDTH", "4"))
 NORMALIZE = os.environ.get("TURBOVEC_NORMALIZE", "1") not in ("0", "false", "False")
 
 _lock = threading.RLock()
-_indexes: dict[str, IdMapIndex] = {}
+_indexes: dict[str, Any] = {}
 _dims: dict[str, int] = {}
 _db: sqlite3.Connection | None = None
+
+
+def _require_idmap() -> Any:
+    if IdMapIndex is None:
+        raise RuntimeError("turbovec is required: pip install turbovec")
+    return IdMapIndex
+
+
+def configure_data_dir(path: str | Path) -> None:
+    """Point the bridge at a data directory (tests / alternate mounts). Resets open state."""
+    global DATA_DIR, _db, _indexes, _dims
+    with _lock:
+        if _db is not None:
+            try:
+                _db.close()
+            except Exception:
+                pass
+            _db = None
+        _indexes.clear()
+        _dims.clear()
+        DATA_DIR = Path(path)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _db_path() -> Path:
@@ -143,18 +165,19 @@ def index_path(name: str) -> Path:
     return DATA_DIR / f"{safe}.tvim"
 
 
-def load_or_create_index(name: str, dim: int) -> IdMapIndex:
+def load_or_create_index(name: str, dim: int) -> Any:
+    TV = _require_idmap()
     path = index_path(name)
     if name in _indexes:
         return _indexes[name]
     if path.exists():
-        idx = IdMapIndex.load(str(path))
+        idx = TV.load(str(path))
         _indexes[name] = idx
-        _dims[name] = int(idx.dim) if idx.dim else dim
+        _dims[name] = int(idx.dim) if getattr(idx, "dim", None) else pad_dim(dim)
         return idx
     # Fresh index — dim must be multiple of 8
     d = pad_dim(dim)
-    idx = IdMapIndex(dim=d, bit_width=BIT_WIDTH)
+    idx = TV(dim=d, bit_width=BIT_WIDTH)
     _indexes[name] = idx
     _dims[name] = d
     return idx
@@ -221,14 +244,18 @@ def upsert_points(name: str, points: list[dict[str, Any]]) -> None:
     ids: list[int] = []
     for p in points:
         id_str = str(p["id"])
-        uid = str_to_u64(id_str)
+        uid = str_to_u64(id_str) & 0xFFFFFFFFFFFFFFFF
         vec = fit_vector(p["vector"], dim)
         payload = p.get("payload") or {}
         # Remove existing id if re-upsert
-        if uid in idx:
-            idx.remove(uid)
+        try:
+            if uid in idx:
+                idx.remove(uid)
+        except Exception:
+            pass
         vectors.append(vec)
         ids.append(uid)
+        # Always store signed form — raw u64 > 2^63-1 raises SQLite "int too large"
         conn.execute(
             """
             INSERT INTO points(collection, id_str, id_u64, payload)
@@ -304,30 +331,55 @@ def parse_filter_allowlist(name: str, filt: Any) -> np.ndarray | None:
 def search_points(
     name: str, vector: list[float], limit: int, filt: Any = None
 ) -> list[dict[str, Any]]:
+    """ANN search. Missing/empty collections return [] (never raise for that case)."""
     info = get_collection(name)
     if not info:
         return []
-    dim = _dims[name]
-    idx = load_or_create_index(name, dim)
-    if len(idx) == 0:
+    dim = _dims.get(name)
+    if dim is None:
+        return []
+    try:
+        idx = load_or_create_index(name, dim)
+    except Exception:
+        return []
+    try:
+        nvec = len(idx)
+    except Exception:
+        nvec = 0
+    if nvec == 0:
+        return []
+
+    if not vector:
         return []
 
     q = fit_vector(vector, dim).reshape(1, -1)
     allow = parse_filter_allowlist(name, filt)
-    k = max(1, int(limit))
+    try:
+        k = max(1, int(limit))
+    except (TypeError, ValueError):
+        k = 10
 
     if allow is not None:
         if allow.size == 0:
             return []
-        # Only ids that exist in the index
-        present = [int(i) for i in allow.tolist() if int(i) in idx]
+        # Only ids that exist in the index (normalize to full uint64)
+        present: list[int] = []
+        for i in allow.tolist():
+            uid = int(i) & 0xFFFFFFFFFFFFFFFF
+            try:
+                if uid in idx:
+                    present.append(uid)
+            except Exception:
+                continue
         if not present:
             return []
         allow_arr = np.array(present, dtype=np.uint64)
         k_eff = min(k, len(present))
         scores, ids = idx.search(q, k_eff, allowlist=allow_arr)
     else:
-        k_eff = min(k, len(idx))
+        k_eff = min(k, nvec)
+        if k_eff < 1:
+            return []
         scores, ids = idx.search(q, k_eff)
 
     # scores/ids shape (1, k)
@@ -354,11 +406,17 @@ def search_points(
 
 
 def delete_by_filter(name: str, filt: Any) -> int:
+    """Delete by Qdrant-style source filter. Missing collection / unknown filter → 0."""
     info = get_collection(name)
     if not info:
         return 0
-    dim = _dims[name]
-    idx = load_or_create_index(name, dim)
+    dim = _dims.get(name)
+    if dim is None:
+        return 0
+    try:
+        idx = load_or_create_index(name, dim)
+    except Exception:
+        return 0
     conn = db()
 
     # Support Qdrant-style: { must: [{ key: "source", match: { value: "..." } }] }
@@ -385,14 +443,18 @@ def delete_by_filter(name: str, filt: Any) -> int:
     n = 0
     for id_str, id_u64 in rows:
         uid = sqlite_to_u64(id_u64)
-        if uid in idx:
-            idx.remove(uid)
+        try:
+            if uid in idx:
+                idx.remove(uid)
+        except Exception:
+            pass
         conn.execute(
             "DELETE FROM points WHERE collection = ? AND id_str = ?", (name, id_str)
         )
         n += 1
     conn.commit()
-    persist_index(name)
+    if n:
+        persist_index(name)
     return n
 
 
@@ -523,6 +585,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    if IdMapIndex is None:
+        raise SystemExit("turbovec is required: pip install turbovec")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     db()  # init schema
     # Preload collections

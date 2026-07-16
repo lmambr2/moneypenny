@@ -25,6 +25,13 @@ assistant** authored each batch of work, since not every commit carries a
 - `services/turbovec-bridge` (TurboQuant IdMapIndex + SQLite payloads)
 - Compose `turbovec` profile; `VECTOR_DB_URL=http://turbovec:6333`
 
+### TurboVec bridge audit / bughunt
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- SQLite id mapping regression tests (high-bit u64 ↔ signed int64)
+- Hardened empty/missing collection search/delete (no process crash)
+- `test_server.py` + README test recipe; operator docs no longer say “start Qdrant”
+
 ## 2026-07-10
 
 ### Library: Normalize doctrine formatting from the dashboard

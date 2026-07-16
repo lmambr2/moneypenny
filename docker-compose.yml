@@ -13,7 +13,7 @@
 #   voice-server: Whisper STT medium + piper-tts — Server (whisper.cpp)
 #   voice-dev   : stt-mock only (CI)
 #   (Removed: profile "voice" / sherpa-stt / Kokoro — V2 2026-07)
-#   rag         : Qdrant vector store
+#   rag         : TurboVec vector store (services/turbovec-bridge)
 #   memory      : MemPalace semantic memory bridge
 #   stream      : Tidal bridge
 #   server      : optional TS6 server container
