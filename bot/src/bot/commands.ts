@@ -12,6 +12,9 @@ export type CommandKind =
   | "special" // register-handlers: service-backed (roast/memory/kg/knowledge)
   | "router"; // handled inside ControlRouter itself (LLM/workflow intents)
 
+/** Voice pipeline scope (future middleware / voice policy). */
+export type VoiceScope = "none" | "listen" | "speak" | "full";
+
 export interface CommandSpec {
   name: string;
   kind: CommandKind;
@@ -19,6 +22,20 @@ export interface CommandSpec {
   admin?: boolean;
   /** Requires a live TeamSpeak connection (router + executor guard). */
   audio?: boolean;
+  /**
+   * Rights token when different from `name` (e.g. radio.power).
+   * Optional metadata for CommandRegistry / MCP; gating may still use name.
+   */
+  rightsToken?: string;
+  /** Optional voice policy metadata (PR-A1+). */
+  voiceScope?: VoiceScope;
+  /**
+   * LLM tool name that maps to this command (default: name).
+   * Used by CommandRegistry.toolToCommand; toolCallToCommand still has special cases.
+   */
+  llmTool?: string;
+  /** Human description for MCP / docs generation. */
+  description?: string;
 }
 
 /**

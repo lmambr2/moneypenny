@@ -8,6 +8,14 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-15
 
+### Control: CommandRegistry + middleware skeleton (PR-A1)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `bot/src/control/registry.ts` — handlers + middleware pipeline
+- `bot/src/control/middleware.ts` — rightsGate / audioGuard / logInvoker helpers
+- ControlRouter executes via registry (behavior-preserving)
+- CommandSpec gains optional `rightsToken` / `llmTool` / `voiceScope` metadata
+
 ### RAG embeddings: nomic-embed-text-v2 / bge-large (replace embeddinggemma)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

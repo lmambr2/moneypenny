@@ -27,6 +27,7 @@ import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
 import { decideClarifyOnce } from "./clarify.js";
+import { CommandRegistry } from "./registry.js";
 
 /**
  * CommandHandler — registered handlers the router delegates to after routing.
@@ -283,7 +284,11 @@ export function normalizeVoiceTranscript(transcript: string): string {
 
 export class ControlRouter {
   private logger: Logger;
-  private handlers = new Map<string, CommandHandler>();
+  /**
+   * PR-A1: handlers live on CommandRegistry (middleware-ready).
+   * Legacy Map removed — registry is the single registration surface.
+   */
+  private readonly registry = new CommandRegistry();
   private llm?: LlmAssist;
   /** P4 — clarify-once on ambiguous fuzzy intent (default off). */
   private clarifyOnceEnabled = false;
@@ -311,9 +316,14 @@ export class ControlRouter {
     return !!this.llm;
   }
 
+  /** Command registry (handlers + optional middleware). */
+  getRegistry(): CommandRegistry {
+    return this.registry;
+  }
+
   /** Register a handler for a specific command name. */
   registerHandler(handler: CommandHandler) {
-    this.handlers.set(handler.name.toLowerCase(), handler);
+    this.registry.register(handler);
   }
 
   /**
@@ -562,14 +572,12 @@ export class ControlRouter {
         return result;
       }
 
-      const handler = this.handlers.get(cmd.name.toLowerCase());
-
-      if (handler) {
+      if (this.registry.has(cmd.name)) {
         this.logger.debug(
           { command: cmd.name, ...invokerFields(context) },
-          "Executing via registered handler",
+          "Executing via CommandRegistry",
         );
-        result = await handler.execute(cmd, context, decision);
+        result = await this.registry.execute(cmd, context, decision);
         return result;
       }
 
