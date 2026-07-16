@@ -17,7 +17,7 @@ memory, radio polish) on the **dual-edition** product.
   ┌── SBC edition (RK3588) ──┐          ┌── Server edition (x86+GPU) ──┐
   │ bot, rights, music       │  chat    │ ollama Gemma 4 12B (+ 31B)  │
   │ ollama embeddinggemma    │ ───────► │ optional heavy STT large-v3 │
-  │ qdrant, Whisper base NPU │          └─────────────────────────────┘
+  │ turbovec, Whisper base NPU│          └─────────────────────────────┘
   │ piper-tts                │
   │ (opt rkllama offline)    │   OR server all-in-one (Topology B)
   └──────────────────────────┘

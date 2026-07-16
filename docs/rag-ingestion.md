@@ -30,8 +30,9 @@ Operator quick sheet: [rag-ingestion-cheatsheet.md](./rag-ingestion-cheatsheet.m
 
 None of the ingestion paths embed anything unless retrieval is on:
 
-1. **Vector store running** — bring up Qdrant via the `rag` compose profile:
-   `docker compose --profile core --profile ollama --profile rag up -d`.
+1. **Vector store running** — bring up TurboVec via the `rag` compose profile:
+   `docker compose --profile core --profile ollama --profile rag up -d`
+   (`turbovec` service; `VECTOR_DB_URL=http://turbovec:6333`).
 2. **`ragEnabled` on** — Settings → *AI & Permissions* → **Knowledge base**, or
    `ragEnabled: true` in `config.json`. (If it was off at boot, restart the bot
    so the retrieval store is constructed.)

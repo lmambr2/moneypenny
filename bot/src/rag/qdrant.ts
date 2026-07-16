@@ -15,16 +15,18 @@ export interface QdrantHit {
 }
 
 export interface QdrantClientOptions {
-  baseUrl?: string; // http://qdrant:6333
+  baseUrl?: string; // http://turbovec:6333 (TurboVec bridge; Qdrant-shaped subset)
   timeoutMs?: number;
   logger?: Logger;
 }
 
 /**
- * Minimal Qdrant REST client (axios) for the Phase 5 substrate — only
- * ensureCollection / upsert / search / deleteBySource, Cosine distance. Uses the
- * same axios the rest of the app uses (no extra qdrant client dependency), and
- * works against any Qdrant whether on the Pi or the x86 box (config-driven URL).
+ * Minimal vector-store REST client for the Phase 5 substrate — only
+ * ensureCollection / upsert / search / deleteBySource, Cosine-style.
+ *
+ * Speaks the tiny Qdrant-shaped subset implemented by **turbovec-bridge**
+ * (`services/turbovec-bridge`, default `http://turbovec:6333`). Historical
+ * class name kept so RetrievalStore / tests stay stable.
  */
 export class QdrantClient {
   private baseUrl: string;
@@ -32,7 +34,7 @@ export class QdrantClient {
   private http: ReturnType<typeof axios.create>;
 
   constructor(options: QdrantClientOptions = {}) {
-    this.baseUrl = (options.baseUrl || process.env.VECTOR_DB_URL || "http://qdrant:6333").replace(
+    this.baseUrl = (options.baseUrl || process.env.VECTOR_DB_URL || "http://turbovec:6333").replace(
       /\/$/,
       "",
     );
@@ -52,7 +54,7 @@ export class QdrantClient {
       if (existing && existing !== dim) {
         this.logger?.warn(
           { name, existing, dim },
-          "Qdrant collection dim mismatch — recreate the collection to change embedding model",
+          "Vector store collection dim mismatch — recreate the collection to change embedding model",
         );
       }
       return;
@@ -60,12 +62,12 @@ export class QdrantClient {
       if (httpStatus(err) !== 404) {
         this.logger?.debug(
           { err: errorMessage(err) },
-          "Qdrant collection probe failed; attempting create",
+          "Vector store collection probe failed; attempting create",
         );
       }
     }
     await this.http.put(`/collections/${name}`, { vectors: { size: dim, distance: "Cosine" } });
-    this.logger?.info({ name, dim }, "Created Qdrant collection");
+    this.logger?.info({ name, dim }, "Created vector store collection");
   }
 
   async upsert(name: string, points: QdrantPoint[]): Promise<void> {

@@ -255,7 +255,7 @@ export function getDefaultConfig(): BotConfig {
     youtubeSaveEnabled: false,
     musicBlockedGenres: [...DEFAULT_MUSIC_BLOCKED_GENRES],
     // Endpoint/model default empty → the clients use their built-in defaults
-    // (qdrant:6333 / ollama / embeddinggemma) or the VECTOR_DB_URL /
+    // (turbovec:6333 / ollama / embeddinggemma) or the VECTOR_DB_URL /
     // EMBEDDING_URL / EMBEDDING_MODEL env vars install.sh writes (two-track).
     ragEnabled: false,
     vectorDbUrl: "",

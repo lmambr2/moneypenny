@@ -571,7 +571,7 @@ fi
 set_env COMPOSE_FILE "$COMPOSE_FILE_VAL"
 set_env COMPOSE_PROFILES "$(IFS=,; echo "${PROFILES[*]}")"
 if [ "$WITH_RAG" -eq 1 ]; then
-  set_env VECTOR_DB_URL "http://qdrant:6333"
+  set_env VECTOR_DB_URL "http://turbovec:6333"
   set_env EMBEDDING_MODEL "$EMBED_MODEL"
   if [ "$EDITION" = "sbc" ]; then
     set_env EMBEDDING_URL "http://ollama:11434"

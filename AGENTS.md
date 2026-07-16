@@ -55,7 +55,7 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 | `ollama` / `rkllama` | `ollama` / `npu` | OpenAI-compatible `/v1` LLM (`npu` = SBC offline only) |
 | `stt-whisper`, `piper-tts` | `voice-edge` / `voice-server` | Dual-track STT: SBC=`stt-rknn`, Server=`stt-whisper-cpp` + Piper (`docs/voice-backends.md`). **No** sherpa/Kokoro (V2). |
 | `stt-mock` | `voice-dev` | CI-only STT stub |
-| `qdrant` | `rag` | Vector DB |
+| `turbovec` | `rag` | Vector DB (TurboQuant; replaces Qdrant) |
 | `tidal-bridge` | `stream` | Tidal stream resolve |
 | `teamspeak` | `server` | Optional TS6 server |
 

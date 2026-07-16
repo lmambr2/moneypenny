@@ -87,7 +87,7 @@ services:
       - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
       # RAG (Phase 5). Empty embedding URL → reuses the LLM endpoint (ollama).
       # Override EMBEDDING_MODEL in .env if needed (default embeddinggemma).
-      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://qdrant:6333}
+      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://turbovec:6333}
       - EMBEDDING_URL=${EMBEDDING_URL:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
       # Pi CPU embeddinggemma can take 3+ min/batch — avoid 180s ingest timeouts.
@@ -275,15 +275,20 @@ services:
     networks:
       - moneypenny
 
-  # ROADMAP Phase 5: Qdrant vector store (RAG substrate). Multi-arch (arm64 +
-  # amd64) so it serves both the RK3588 and the x86+GPU track unchanged; the bot
-  # reaches it at http://qdrant:6333. Opt-in via the `rag` profile.
-  qdrant:
-    image: qdrant/qdrant:latest
+  # ROADMAP Phase 5: TurboVec vector store (RAG substrate). Replaces Qdrant.
+  # Speaks the bot's tiny Qdrant-shaped REST surface (see services/turbovec-bridge).
+  # Vectors = TurboQuant IdMapIndex; payloads = SQLite on the same volume.
+  # Opt-in via the `rag` profile. Bot default: VECTOR_DB_URL=http://turbovec:6333
+  turbovec:
+    build: ./services/turbovec-bridge
     profiles: ["rag"]
     restart: unless-stopped
+    environment:
+      - PORT=6333
+      - TURBOVEC_DATA=/data
+      - TURBOVEC_BIT_WIDTH=${TURBOVEC_BIT_WIDTH:-4}
     volumes:
-      - qdrant-storage:/qdrant/storage
+      - turbovec-data:/data
     networks:
       - moneypenny
 
@@ -295,7 +300,7 @@ volumes:
   whisper-fw-cache:
   piper-models:
   mempalace-data:
-  qdrant-storage:
+  turbovec-data:
   tidal-session:
 
 networks:

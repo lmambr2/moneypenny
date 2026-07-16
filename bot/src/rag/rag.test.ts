@@ -50,7 +50,7 @@ describe("QdrantClient", () => {
   it("creates the collection when absent (404 → PUT with size+Cosine)", async () => {
     http.get.mockRejectedValue({ response: { status: 404 } });
     http.put.mockResolvedValue({ data: {} });
-    const q = new QdrantClient({ baseUrl: "http://qdrant:6333" });
+    const q = new QdrantClient({ baseUrl: "http://turbovec:6333" });
     await q.ensureCollection("docs", 768);
     expect(http.put).toHaveBeenCalledWith("/collections/docs", {
       vectors: { size: 768, distance: "Cosine" },

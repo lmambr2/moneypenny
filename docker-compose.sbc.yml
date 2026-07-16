@@ -20,7 +20,7 @@ services:
       - EMBEDDING_URL=${EMBEDDING_URL:-http://ollama:11434}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
       - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-600000}
-      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://qdrant:6333}
+      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://turbovec:6333}
       - MONEYPENNY_EDITION=sbc
 
   ollama:
