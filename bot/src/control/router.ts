@@ -1,36 +1,16 @@
-import {
-  AUDIO_COMMANDS,
-  isKnownCommand,
-  type ParsedCommand,
-  parseCommand,
-} from "../bot/commands.js";
+import { isKnownCommand, type ParsedCommand, parseCommand } from "../bot/commands.js";
 import type { BotInstance } from "../bot/instance.js";
-import {
-  type AnalystRequest,
-  appendAnalystSaveNotice,
-  parseAnalystCommand,
-} from "../docs/analyst.js";
-import {
-  buildWorkflowTask,
-  formatWorkflowFollowUp,
-  parseWorkflowCommand,
-  WORKFLOW_ACK_MESSAGE,
-  type WorkflowKind,
-  type WorkflowRequest,
-} from "../docs/workflow.js";
-import {
-  DELEGATE_ACK_MESSAGE,
-  DELEGATE_TOOL_NAME,
-  formatDelegateFollowUp,
-} from "../llm/delegate.js";
+import type { WorkflowKind, WorkflowRequest } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
-import { decideClarifyOnce } from "./clarify.js";
+import { MemoryClarifyService, type ClarifyService } from "./clarify-service.js";
+import { applyDeterministicGates } from "./deterministic-gates.js";
+import { executeLlmPath, llmUnavailableMessage } from "./llm-path.js";
 import { CommandRegistry } from "./registry.js";
-import { toolCallToCommand } from "./tool-map.js";
 
 export { toolCallToCommand, sourceFlags, knownLlmToolNames } from "./tool-map.js";
+export { MemoryClarifyService, type ClarifyService } from "./clarify-service.js";
 
 /**
  * CommandHandler — registered handlers the router delegates to after routing.
@@ -287,22 +267,16 @@ export function normalizeVoiceTranscript(transcript: string): string {
 
 export class ControlRouter {
   private logger: Logger;
-  /**
-   * PR-A1: handlers live on CommandRegistry (middleware-ready).
-   * Legacy Map removed — registry is the single registration surface.
-   */
+  /** PR-A1+: handlers + middleware pipeline. */
   private readonly registry = new CommandRegistry();
   private llm?: LlmAssist;
-  /** P4 — clarify-once on ambiguous fuzzy intent (default off). */
-  private clarifyOnceEnabled = false;
-  /** L-CL-1: conversationId + invokerUid keys that already got a clarify-once, by ask time. */
-  private clarifyPending = new Map<string, number>();
-  /** Expire clarify-pending keys so users who never answer don't accumulate forever. */
-  private static readonly CLARIFY_PENDING_TTL_MS = 10 * 60_000;
+  /** PR-A4: injectable clarify-once (default in-memory). */
+  private clarify: ClarifyService;
 
-  constructor(logger: Logger, llm?: LlmAssist) {
+  constructor(logger: Logger, llm?: LlmAssist, clarify?: ClarifyService) {
     this.logger = logger.child({ component: "control-router" });
     this.llm = llm;
+    this.clarify = clarify ?? new MemoryClarifyService();
   }
 
   /** Attach (or replace) the LLM module after construction. */
@@ -311,7 +285,7 @@ export class ControlRouter {
   }
 
   setClarifyOnceEnabled(enabled: boolean): void {
-    this.clarifyOnceEnabled = enabled;
+    this.clarify.setEnabled(enabled);
   }
 
   /** Whether an LLM module is wired (used for help text / status). */
@@ -492,7 +466,7 @@ export class ControlRouter {
     return null;
   }
 
-  /** Run a resolved deterministic decision through its registered handler. */
+  /** Run a resolved deterministic decision through gates + CommandRegistry. */
   private async executeDeterministic(
     decision: RouterDecision,
     context: RouterContext,
@@ -501,77 +475,9 @@ export class ControlRouter {
     let result: string | null = null;
 
     try {
-      // Rank gating (DESIGN §8) — the first gate. Applies to typed commands and
-      // LLM-tool-derived commands alike (both reach here), so natural language
-      // cannot escalate past the invoker's rank.
-      if (context.canRun && !context.canRun(cmd.name)) {
-        this.logger.debug(
-          { command: cmd.name, ...invokerFields(context) },
-          "Command denied by rights",
-        );
-        result = `You don't have permission to use '${cmd.name}'.`;
-        return result;
-      }
-
-      // !test demo track: only ranks with `test.skip` may interrupt it.
-      // Covers skip/clear/stop AND queue-replacing play (so !play cannot bump the demo).
-      // Token is NOT in @admin/@dj — Chairman / server-admin only.
-      if (context.canRun) {
-        const demoInterrupt =
-          cmd.name === "next" ||
-          cmd.name === "skip" ||
-          cmd.name === "clear" ||
-          cmd.name === "stop" ||
-          cmd.name === "play" ||
-          cmd.name === "playlist" ||
-          cmd.name === "album" ||
-          cmd.name === "artist" ||
-          cmd.name === "chevron7";
-        if (demoInterrupt) {
-          const demoPlaying =
-            typeof context.bot.isDemoTestPlaying === "function" && context.bot.isDemoTestPlaying();
-          if (demoPlaying && !context.canRun("test.skip")) {
-            this.logger.debug(
-              { command: cmd.name, ...invokerFields(context) },
-              "Demo track interrupt denied — needs test.skip (Chairman / server admin)",
-            );
-            result = "Only Chairman or server admin can skip or replace the !test demo track.";
-            return result;
-          }
-        }
-      }
-
-      // `!radio` is public (status / ops list), but the sensitive subcommands
-      // carry their own tokens (docs/radio.md §12): on/off needs the admin
-      // `radio.power`; `ops <profile>` needs `radio.ops` (granted to @dj + admin).
-      if (cmd.name === "radio" && context.canRun) {
-        const sub = (cmd.rawArgs[0] ?? "").toLowerCase();
-        if ((sub === "on" || sub === "off") && !context.canRun("radio.power")) {
-          result = "You don't have permission to toggle radio mode (needs 'radio.power').";
-          return result;
-        }
-        const opsArg = (cmd.rawArgs[1] ?? "").toLowerCase();
-        if (sub === "ops" && opsArg && opsArg !== "list" && !context.canRun("radio.ops")) {
-          result = "You don't have permission to set the op context (needs 'radio.ops').";
-          return result;
-        }
-        // §12: each operator control carries its own token (@dj + admin).
-        for (const [name, token] of [
-          ["bumper", "radio.bumper"],
-          ["say", "radio.say"],
-          ["skip", "radio.skip"],
-          ["pin", "radio.pin"],
-        ] as const) {
-          if (sub === name && !context.canRun(token)) {
-            result = `You don't have permission to use 'radio ${name}' (needs '${token}').`;
-            return result;
-          }
-        }
-      }
-
-      // Centralized audio command guard (owned by the router)
-      if (!context.bot.isConnected() && AUDIO_COMMANDS.has(cmd.name)) {
-        result = "Bot is not connected to TeamSpeak";
+      const denied = applyDeterministicGates(cmd, context, this.logger);
+      if (denied != null) {
+        result = denied;
         return result;
       }
 
@@ -592,235 +498,18 @@ export class ControlRouter {
     }
   }
 
-  /** Handle the LLM decision: Q&A for `ask`, tool-driven control for `intent`. */
+  /** LLM path: ask / intent / delegate / workflow (llm-path.ts). */
   private async executeLlm(intent: LlmIntent, context: RouterContext): Promise<string | null> {
     if (!this.llm) {
-      // No LLM wired. For an explicit `!ask` we say so; for unrecognized
-      // prefixed input we surface the old "unknown command" message.
-      if (intent.mode === "ask") {
-        return "The local LLM is not configured. Ask an admin to enable it.";
-      }
-      return `Unknown command. Try ${"!"}help.`;
+      return llmUnavailableMessage(intent);
     }
-
-    if (intent.mode === "ask") {
-      if (context.canRun && !context.canRun("ask")) {
-        return "You don't have permission to use 'ask'.";
-      }
-      if (!intent.text) return "Usage: !ask <question>";
-      return this.llm.ask(intent.text, context.conversationId, {
-        allowedClassifications: context.allowedClassifications,
-        userUid: context.invokerUid,
-      });
-    }
-
-    if (intent.mode === "delegate") {
-      if (context.canRun && !context.canRun("analyst")) {
-        return "You don't have permission to use 'analyst'.";
-      }
-      const parsed = parseAnalystCommand({
-        args: intent.text ?? "",
-        flags: intent.delegateFlags ?? new Set(),
-      });
-      if ("error" in parsed) return parsed.error;
-      if (this.llm.isDelegateConfigured && !this.llm.isDelegateConfigured()) {
-        return "Analyst delegation is not configured. Set a delegate URL in Settings.";
-      }
-      return this.runDelegate(parsed, undefined, context);
-    }
-
-    if (intent.mode === "workflow") {
-      const kind = intent.workflowKind ?? "intsum";
-      if (context.canRun && !context.canRun(kind)) {
-        return `You don't have permission to use '${kind}'.`;
-      }
-      if (this.llm.isDelegateConfigured && !this.llm.isDelegateConfigured()) {
-        return "Analyst delegation is not configured. Set a delegate URL in Settings.";
-      }
-      const parsed = parseWorkflowCommand(kind, {
-        args: intent.text ?? "",
-        flags: intent.workflowFlags ?? new Set(),
-      });
-      if ("error" in parsed) return parsed.error;
-      return this.runWorkflow(parsed, context);
-    }
-
-    // mode === "intent": fuzzy music control via tool-calling.
-    return this.executeIntent(intent.text, context);
-  }
-
-  /**
-   * Ask the LLM to interpret fuzzy text, then execute any music tool calls by
-   * mapping them to deterministic commands and running them through the SAME
-   * resolve+execute path the `!`-commands use (DESIGN §9 — shared executors).
-   */
-  private async executeIntent(text: string, context: RouterContext): Promise<string | null> {
-    if (!text) return null;
-
-    const moveClientEnabled = !context.canRun || context.canRun("moveclient");
-    const result = await this.llm!.chatForIntent(text, context.conversationId, {
-      moveClientEnabled,
+    return executeLlmPath(intent, context, {
+      llm: this.llm,
+      logger: this.logger,
+      registry: this.registry,
+      clarify: this.clarify,
+      resolveMusicForCommand: (cmd, ctx) => this.resolveMusicForCommand(cmd, ctx),
+      executeDeterministic: (d, ctx) => this.executeDeterministic(d, ctx),
     });
-    const toolCalls = result.toolCalls ?? [];
-
-    if (toolCalls.length === 0) {
-      // No actionable intent — return the model's plain answer if any.
-      return result.content;
-    }
-
-    // P4 clarify-once (optional). Key by conversation + invoker (L-CL-1).
-    try {
-      const conv = context.conversationId ?? "default";
-      const invoker = context.invokerUid ?? context.invokerName ?? "anon";
-      const pendingKey = `${conv}::${invoker}`;
-      const now = Date.now();
-      for (const [key, asked] of this.clarifyPending) {
-        if (now - asked > ControlRouter.CLARIFY_PENDING_TTL_MS) this.clarifyPending.delete(key);
-      }
-      const decision = decideClarifyOnce(toolCalls, {
-        enabled: this.clarifyOnceEnabled,
-        clarifyPending: this.clarifyPending.has(pendingKey),
-      });
-      if (decision.action === "clarify") {
-        this.clarifyPending.set(pendingKey, now);
-        return decision.question;
-      }
-      // User answered after clarify — clear pending for this invoker only.
-      this.clarifyPending.delete(pendingKey);
-    } catch {
-      /* fail-open */
-    }
-
-    const outputs: string[] = [];
-    for (const tc of toolCalls) {
-      if (tc.name === DELEGATE_TOOL_NAME) {
-        const task = String(tc.arguments?.task ?? "").trim();
-        const extra = String(tc.arguments?.context ?? "").trim();
-        if (!task) continue;
-        if (context.canRun && !context.canRun("analyst")) {
-          outputs.push("You don't have permission to delegate to the analyst.");
-          continue;
-        }
-        const req: AnalystRequest = { task, save: false, classification: "restricted" };
-        const out = await this.runDelegate(req, extra || undefined, context);
-        if (out) outputs.push(out);
-        continue;
-      }
-      const cmd = this.registry.mapToolCall(tc) ?? toolCallToCommand(tc);
-      if (!cmd) {
-        this.logger.warn({ tool: tc.name }, "LLM emitted an unknown/unmapped tool call");
-        continue;
-      }
-      try {
-        const resolvedMusic = await this.resolveMusicForCommand(cmd, context);
-        const out = await this.executeDeterministic(
-          { type: "deterministic", command: cmd, resolvedMusic },
-          context,
-        );
-        if (out) outputs.push(out);
-      } catch (err) {
-        this.logger.warn({ err, tool: tc.name }, "LLM tool execution failed");
-        outputs.push(`Couldn't ${tc.name.replace(/_/g, " ")} right now.`);
-      }
-    }
-
-    if (outputs.length > 0) return outputs.join("\n");
-    // Tools fired but produced no message — fall back to any model text.
-    return result.content;
-  }
-
-  /**
-   * Run delegate work — async (ack + postFollowUp) when the context provides a
-   * poster; otherwise await inline (unit tests and callers without TS I/O).
-   */
-  private async runDelegate(
-    req: AnalystRequest,
-    extraContext: string | undefined,
-    context: RouterContext,
-  ): Promise<string> {
-    const ctx = {
-      allowedClassifications: context.allowedClassifications,
-      userUid: context.invokerUid,
-    };
-
-    const finish = async (raw: string): Promise<string> => {
-      let result = formatDelegateFollowUp(raw, context.invokerName);
-      if (req.save) {
-        const saved = await context.bot.saveAnalystDoc(raw, req.classification);
-        result = appendAnalystSaveNotice(result, saved);
-      }
-      return result;
-    };
-
-    if (!context.postFollowUp) {
-      const raw = await this.llm!.delegate(req.task, extraContext, ctx);
-      return finish(raw);
-    }
-
-    void this.llm!.delegate(req.task, extraContext, ctx)
-      .then(async (result) => {
-        await context.postFollowUp!(await finish(result));
-      })
-      .catch(async (err) => {
-        context.logger.warn({ err, task: req.task.slice(0, 80) }, "Async delegate failed");
-        const msg = err instanceof Error ? err.message : "Analyst request failed.";
-        try {
-          await context.postFollowUp!(formatDelegateFollowUp(msg, context.invokerName));
-        } catch (postErr) {
-          context.logger.warn({ err: postErr }, "Failed to post delegate error follow-up");
-        }
-      });
-
-    return DELEGATE_ACK_MESSAGE;
-  }
-
-  /**
-   * Run workflow doc generation — async ack when postFollowUp is set (R1b pattern).
-   */
-  private async runWorkflow(req: WorkflowRequest, context: RouterContext): Promise<string> {
-    const ctx = {
-      allowedClassifications: context.allowedClassifications,
-      userUid: context.invokerUid,
-    };
-
-    const finish = async (raw: string): Promise<string> => {
-      let result = raw;
-      if (req.save) {
-        const saved = await context.bot.saveWorkflowDoc(req.kind, raw);
-        result = saved.ok
-          ? `${raw}\n\n💾 Saved to knowledge base: ${saved.source}`
-          : `${raw}\n\n⚠️ Could not save: ${saved.error}`;
-      }
-      return result;
-    };
-
-    const generate = () => {
-      if (this.llm!.generateWorkflowDoc) {
-        return this.llm!.generateWorkflowDoc(req, ctx);
-      }
-      return this.llm!.delegate(buildWorkflowTask(req), undefined, ctx);
-    };
-
-    if (!context.postFollowUp) {
-      return finish(await generate());
-    }
-
-    void generate()
-      .then(async (raw) => {
-        await context.postFollowUp!(
-          formatWorkflowFollowUp(req.kind, await finish(raw), context.invokerName),
-        );
-      })
-      .catch(async (err) => {
-        context.logger.warn({ err, kind: req.kind }, "Async workflow failed");
-        const msg = err instanceof Error ? err.message : "Document draft failed.";
-        try {
-          await context.postFollowUp!(formatWorkflowFollowUp(req.kind, msg, context.invokerName));
-        } catch (postErr) {
-          context.logger.warn({ err: postErr }, "Failed to post workflow error follow-up");
-        }
-      });
-
-    return WORKFLOW_ACK_MESSAGE;
   }
 }

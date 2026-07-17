@@ -31,6 +31,14 @@ assistant** authored each batch of work, since not every commit carries a
 - `toolCallToCommand` re-exported from router for existing imports
 - Registry `mapToolCall` / `toolToCommand` use shared map
 
+### Control: thin ControlRouter (PR-A4)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `clarify-service.ts` — injectable MemoryClarifyService
+- `deterministic-gates.ts` — rights / demo / radio / audio gates
+- `llm-path.ts` — ask / intent / delegate / workflow execution
+- ControlRouter is orchestration only (~515 LOC, down from ~910)
+
 ### RAG embeddings: nomic-embed-text-v2 / bge-large (replace embeddinggemma)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
