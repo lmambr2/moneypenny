@@ -29,9 +29,20 @@ function sendDocsMissing(_req: express.Request, res: express.Response): void {
     );
 }
 
+/** Swagger UI static assets only (Nest controllers own HTML/JSON routes). */
+export const registerOpenApiStatic: HttpPlugin = (ctx: HttpAppContext) => {
+  const { app, logger } = ctx;
+  const assetDir = swaggerUiAssetDir();
+  if (assetDir) {
+    app.use("/api/docs/static", express.static(assetDir, { maxAge: "1d", index: false }));
+  } else {
+    logger.warn("swagger-ui-dist not installed — /api/docs static assets unavailable");
+  }
+};
+
 /**
- * Public OpenAPI discovery (PR-C2) + interactive docs UI.
- * REST-only contract — no tRPC dual stack.
+ * Public OpenAPI discovery (PR-C2) + interactive docs UI (plugin path).
+ * Nest path uses SystemController for JSON/HTML + registerOpenApiStatic for assets.
  */
 export const registerOpenApi: HttpPlugin = (ctx: HttpAppContext) => {
   const { app, options, logger } = ctx;
@@ -45,10 +56,10 @@ export const registerOpenApi: HttpPlugin = (ctx: HttpAppContext) => {
     res.json(doc);
   });
 
-  // Interactive UI (Swagger UI). Assets from swagger-ui-dist; offline-capable once installed.
+  registerOpenApiStatic(ctx);
+
   const assetDir = swaggerUiAssetDir();
   if (assetDir) {
-    app.use("/api/docs/static", express.static(assetDir, { maxAge: "1d", index: false }));
     app.get("/api/docs", sendDocsHtml);
     app.get("/api/docs/", sendDocsHtml);
   } else {

@@ -19,7 +19,7 @@ import { StreamProvider } from "./music/stream.js";
 import { YouTubeProvider } from "./music/youtube.js";
 import { RadioAnalyzer, TagStore } from "./radio/index.js";
 import { reindexDoctrine, watchDoctrineDir } from "./rag/doctrine-ingest.js";
-import { EmbeddingsClient, QdrantClient, RerankerClient, RetrievalStore } from "./rag/index.js";
+import { EmbeddingsClient, RerankerClient, RetrievalStore, VectorClient } from "./rag/index.js";
 import { migrateRightsConfig } from "./rights/migrations.js";
 import { Watchdog } from "./watchdog.js";
 
@@ -160,7 +160,7 @@ async function main() {
       timeoutMs: embedTimeout,
       logger,
     });
-    const qdrant = new QdrantClient({ baseUrl: config.vectorDbUrl || undefined, logger });
+    const vectorStore = new VectorClient({ baseUrl: config.vectorDbUrl || undefined, logger });
     const rerankerUrl = (config.rerankerUrl || process.env.RERANKER_URL || "").trim();
     const reranker = rerankerUrl
       ? new RerankerClient({
@@ -171,7 +171,7 @@ async function main() {
       : undefined;
     retrieval = new RetrievalStore({
       embeddings,
-      qdrant,
+      vectorStore,
       collection: config.ragCollection,
       topK: config.ragTopK,
       reranker,

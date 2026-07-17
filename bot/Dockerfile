@@ -1,8 +1,20 @@
 # Moneypenny bot — production image (DESIGN §11)
 # Multi-stage: build the TS backend + Vue UI, then ship a slim non-root runtime.
+#
+# Architecture / audio-native (PR-B4):
+#   Native addons (@moneypenny/audio-native, better-sqlite3, opus) compile for
+#   the *image* arch. Build on an arm64 host (Pi) or use buildx with qemu for
+#   TARGETARCH=arm64 — plain `docker build` on x86 cannot emit arm64 .node
+#   without a cross linker. Fallback: @discordjs/opus if audio-native fails.
+#   Host script: ./scripts/build-audio-native.sh [--with-arm64]
+#   See bot/packages/audio-native/README.md
 
 # ── Stage 1: build ──────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS build
+
+# BuildKit injects TARGETARCH (amd64 | arm64). Used for operator logs only;
+# Node/Rust compile for the container platform automatically when not cross-linking.
+ARG TARGETARCH
 
 # Toolchain for native modules (@discordjs/opus, better-sqlite3, audio-native/libopus).
 # Rust is optional: if the audio-native build fails, encoder falls back to @discordjs/opus.
@@ -25,8 +37,10 @@ COPY web/package.json web/package-lock.json ./web/
 RUN cd web && npm ci
 
 # Build workspace packages → bot tsc → Vue UI.
+# `build:native || true` inside npm run build keeps image green if Rust/napi fails.
 COPY . .
-RUN npm run build
+RUN echo "building bot image arch=${TARGETARCH:-unknown}" \
+    && npm run build
 
 # Drop dev dependencies so only production deps (with compiled native addons)
 # are carried into the runtime image.

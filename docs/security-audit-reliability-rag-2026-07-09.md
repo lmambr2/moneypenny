@@ -1,3 +1,8 @@
+> **HISTORICAL ARCHIVE** — point-in-time audit/notes. Paths and stack may be stale
+> (e.g. `bot/src/ts-protocol`, `web/server.ts`, Qdrant). Current operator truth:
+> [AGENTS.md](../AGENTS.md), [docs/editions.md](./editions.md), [docs/ts6-client.md](./ts6-client.md),
+> [docs/rag-embeddings.md](./rag-embeddings.md), [docs/http-openapi.md](./http-openapi.md).
+
 # Security audit & bug hunt — reliability + RAG/memory/intent (2026-07-09)
 
 **Scope:** Commits **`41ce015`** (S-OC1–3 reliability) and **`03c38fd`** (P1–P5 RAG/memory/intent), plus call-sites required to understand wiring (`manager`, `instance`, `router`, `llm`, `config`, Settings).

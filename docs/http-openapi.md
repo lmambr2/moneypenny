@@ -29,6 +29,12 @@ open http://127.0.0.1:3000/api/docs
 | `GET /api/openapi.json` | public | OpenAPI **3.0** document |
 | `GET /api/docs` | public | Swagger UI (try-it-out; cookie auth for session routes) |
 | `GET /api/health` | public | Liveness |
+| `GET /api/bot/live` | session | Member live snapshot + station `feedback[]` |
+
+Default HTTP stack is **Nest** (`HTTP_FRAMEWORK=nest`): public system routes are
+`SystemController` (`bot/src/http/nest/controllers/system.controller.ts`); domain
+routers stay Express under `web/api/*`. Plugin-only mode:
+`HTTP_FRAMEWORK=plugins`.
 
 Document built from `bot/src/http/openapi/operations.ts` (catalog).  
 Drift guard: `src/http/openapi/route-catalog-drift.test.ts` fails CI if Express

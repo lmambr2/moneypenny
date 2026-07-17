@@ -70,7 +70,7 @@ import { createDatabase } from "./dist/data/database.js";
 import { DoctrineStore } from "./dist/data/doctrine.js";
 import {
   EmbeddingsClient,
-  QdrantClient,
+  VectorClient,
   RetrievalStore,
 } from "./dist/rag/index.js";
 import { reindexDoctrineSources } from "./dist/rag/doctrine-ingest.js";
@@ -99,13 +99,13 @@ const emb = new EmbeddingsClient({
   timeoutMs: parseInt(process.env.EMBEDDING_TIMEOUT_MS || "600000", 10) || 600_000,
   logger,
 });
-const qdrant = new QdrantClient({
+const vectorStore = new VectorClient({
   baseUrl: config.vectorDbUrl || process.env.VECTOR_DB_URL || "http://turbovec:6333",
   logger,
 });
 const retrieval = new RetrievalStore({
   embeddings: emb,
-  qdrant,
+  vectorStore,
   collection: config.ragCollection || "moneypenny_docs",
   topK: config.ragTopK || 4,
   logger,

@@ -334,7 +334,7 @@ moneypenny/
 │  │  ├─ control/                # CommandRegistry, tool-map, thin ControlRouter
 │  │  ├─ llm/                    # OpenAI-compatible client + tools
 │  │  ├─ rights/                 # rank-gating rules
-│  │  ├─ rag/                    # embeddings + TurboVec client (qdrant.ts API shape)
+│  │  ├─ rag/                    # embeddings + VectorClient (TurboVec REST)
 │  │  ├─ music/                  # Local / YouTube / Stream providers
 │  │  └─ audio/                  # queue/player/encoder (native Opus when built)
 │  └─ Dockerfile                 # non-root USER; workspace packages

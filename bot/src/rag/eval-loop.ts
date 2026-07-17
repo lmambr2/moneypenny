@@ -1,7 +1,7 @@
 /**
  * Light RAG / org-memory eval loop (feature-roadmap R3).
  * Scripted queries → expect non-empty doctrine and/or org memory hits.
- * Injectable stores — no live Qdrant/MemPalace required for CI.
+ * Injectable stores — no live vector store/MemPalace required for CI.
  */
 
 export type EvalExpect = "doctrine" | "org_memory" | "either" | "both";
@@ -53,7 +53,7 @@ export interface EvalReport {
 }
 
 /**
- * P5 skeleton: compute simple axes from injectable measurements (no live Qdrant).
+ * P5 skeleton: compute simple axes from injectable measurements (no live vector store).
  */
 export function computeMemoryAxes(input: {
   goldHits?: number;

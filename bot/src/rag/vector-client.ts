@@ -2,38 +2,36 @@ import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage, httpStatus } from "../util/error.js";
 
-export interface QdrantPoint {
+export interface VectorPoint {
   id: string | number;
   vector: number[];
   payload?: Record<string, unknown>;
 }
 
-export interface QdrantHit {
+export interface VectorHit {
   id: string | number;
   score: number;
   payload?: Record<string, unknown>;
 }
 
-export interface QdrantClientOptions {
+export interface VectorClientOptions {
   baseUrl?: string; // http://turbovec:6333 (TurboVec bridge; Qdrant-shaped subset)
   timeoutMs?: number;
   logger?: Logger;
 }
 
 /**
- * Minimal vector-store REST client for the Phase 5 substrate — only
- * ensureCollection / upsert / search / deleteBySource, Cosine-style.
- *
- * Speaks the tiny Qdrant-shaped subset implemented by **turbovec-bridge**
- * (`services/turbovec-bridge`, default `http://turbovec:6333`). Historical
- * class name kept so RetrievalStore / tests stay stable.
+ * TurboVec vector-store REST client (formerly named QdrantClient).
+ * Speaks the Qdrant-shaped subset implemented by **turbovec-bridge**
+ * (`services/turbovec-bridge`, default `http://turbovec:6333`):
+ * ensureCollection / upsert / search / deleteBySource, Cosine distance.
  */
-export class QdrantClient {
+export class VectorClient {
   private baseUrl: string;
   private logger?: Logger;
   private http: ReturnType<typeof axios.create>;
 
-  constructor(options: QdrantClientOptions = {}) {
+  constructor(options: VectorClientOptions = {}) {
     this.baseUrl = (options.baseUrl || process.env.VECTOR_DB_URL || "http://turbovec:6333").replace(
       /\/$/,
       "",
@@ -70,7 +68,7 @@ export class QdrantClient {
     this.logger?.info({ name, dim }, "Created vector store collection");
   }
 
-  async upsert(name: string, points: QdrantPoint[]): Promise<void> {
+  async upsert(name: string, points: VectorPoint[]): Promise<void> {
     if (points.length === 0) return;
     await this.http.put(`/collections/${name}/points?wait=true`, { points });
   }
@@ -80,14 +78,14 @@ export class QdrantClient {
     vector: number[],
     topK: number,
     filter?: unknown,
-  ): Promise<QdrantHit[]> {
+  ): Promise<VectorHit[]> {
     const { data } = await this.http.post(`/collections/${name}/points/search`, {
       vector,
       limit: topK,
       with_payload: true,
       ...(filter ? { filter } : {}),
     });
-    return (data?.result ?? []) as QdrantHit[];
+    return (data?.result ?? []) as VectorHit[];
   }
 
   /** Purge a source's chunks (re-ingest: drop stale chunks before re-upserting). */

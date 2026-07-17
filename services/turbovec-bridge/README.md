@@ -4,7 +4,7 @@
 
 - **Vectors:** [TurboVec](https://github.com/RyanCodrai/turbovec) `IdMapIndex` (TurboQuant, compressed)
 - **Payload / filters:** SQLite next to the index (classification allowlists, delete-by-source)
-- **API:** tiny Qdrant-**shaped** REST subset used by `bot/src/rag/qdrant.ts` (class name historical; default URL is TurboVec)
+- **API:** tiny Qdrant-**shaped** REST subset used by `bot/src/rag/vector-client.ts` (`VectorClient`; default URL is TurboVec)
 
 There is **no** live Qdrant container in the stack. Do not start Qdrant for RAG.
 

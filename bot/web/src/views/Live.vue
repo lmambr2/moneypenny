@@ -1,7 +1,9 @@
 <template>
   <div class="live">
     <h1 class="title">Live</h1>
-    <p class="sub">Read-only now playing, queue, and radio hint (G3). Available to all signed-in members.</p>
+    <p class="sub">
+      Station snapshot for all members: now playing, queue, radio, voice/RAG feedback.
+    </p>
 
     <section class="card">
       <div class="row">
@@ -14,16 +16,39 @@
       </div>
       <div class="row">
         <span class="label">Now</span>
-        <span v-if="live.nowPlaying">{{ live.nowPlaying.name }}<template v-if="live.nowPlaying.artist"> — {{ live.nowPlaying.artist }}</template></span>
+        <span v-if="live.nowPlaying">
+          {{ live.nowPlaying.name
+          }}<template v-if="live.nowPlaying.artist"> — {{ live.nowPlaying.artist }}</template>
+        </span>
         <span v-else class="muted">Nothing playing</span>
       </div>
-      <div class="row" v-if="live.radio">
+      <div v-if="live.radio" class="row">
         <span class="label">Radio</span>
         <span>
           {{ live.radio.enabled ? `On · ${live.radio.activeProfile}` : 'Off' }}
           <span class="muted"> — {{ live.radio.nextBumperHint }}</span>
         </span>
       </div>
+      <div v-if="live.voice" class="row">
+        <span class="label">Voice</span>
+        <span>
+          {{ live.voice.enabled ? 'On' : 'Off' }}
+          <span v-if="live.voice.enabled" class="muted">
+            — duck {{ live.voice.duckOnSpeech ? 'yes' : 'no' }}
+          </span>
+        </span>
+      </div>
+      <div v-if="live.rag" class="row">
+        <span class="label">RAG</span>
+        <span>{{ live.rag.enabled ? 'Doctrine on' : 'Off' }}</span>
+      </div>
+    </section>
+
+    <section v-if="live.feedback?.length" class="card feedback">
+      <h2>Station feedback</h2>
+      <ul>
+        <li v-for="(line, i) in live.feedback" :key="i">{{ line }}</li>
+      </ul>
     </section>
 
     <section class="card">
@@ -36,13 +61,15 @@
       <p v-else class="muted">Queue empty</p>
     </section>
 
-    <button class="btn" :disabled="busy" @click="refresh">{{ busy ? 'Refreshing…' : 'Refresh' }}</button>
+    <button class="btn" :disabled="busy" @click="refresh">
+      {{ busy ? 'Refreshing…' : 'Refresh' }}
+    </button>
     <p v-if="err" class="err">{{ err }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import api from '../api/axios.js';
 
 const live = ref<{
@@ -54,6 +81,9 @@ const live = ref<{
     activeProfile: string;
     nextBumperHint: string;
   } | null;
+  voice?: { enabled: boolean; duckOnSpeech: boolean };
+  rag?: { enabled: boolean };
+  feedback?: string[];
   scope?: { serverLabel?: string; channelHint?: string | null; channelPinned?: boolean };
 }>({
   connected: false,
@@ -63,6 +93,7 @@ const live = ref<{
 });
 const busy = ref(false);
 const err = ref('');
+let timer: ReturnType<typeof setInterval> | null = null;
 
 const scopeLine = computed(() => {
   const s = live.value.scope;
@@ -85,13 +116,32 @@ async function refresh() {
   }
 }
 
-onMounted(refresh);
+onMounted(() => {
+  void refresh();
+  timer = setInterval(() => {
+    void refresh();
+  }, 12_000);
+});
+onUnmounted(() => {
+  if (timer) clearInterval(timer);
+});
 </script>
 
 <style scoped>
-.live { max-width: 640px; margin: 0 auto; padding: 20px 16px 80px; }
-.title { margin: 0; font-size: 1.4rem; }
-.sub { color: var(--text-muted, #888); font-size: 0.9rem; margin: 6px 0 16px; }
+.live {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 20px 16px 80px;
+}
+.title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+.sub {
+  color: var(--text-muted, #888);
+  font-size: 0.9rem;
+  margin: 6px 0 16px;
+}
 .card {
   border: 1px solid var(--border, #333);
   border-radius: 12px;
@@ -99,16 +149,48 @@ onMounted(refresh);
   margin-bottom: 14px;
   background: var(--surface, #141418);
 }
-.row { display: flex; gap: 12px; margin: 6px 0; font-size: 0.95rem; }
-.label { min-width: 64px; color: var(--text-muted, #888); }
-.ok { color: #6c6; }
-.off { color: #c66; }
-.muted { opacity: 0.7; }
-.queue { margin: 0; padding-left: 1.2rem; }
-.btn {
-  border: none; border-radius: 8px; padding: 8px 14px;
-  background: var(--accent, #6c8cff); color: #fff; cursor: pointer;
+.row {
+  display: flex;
+  gap: 12px;
+  margin: 6px 0;
+  font-size: 0.95rem;
 }
-.err { color: #f66; margin-top: 10px; }
-h2 { margin: 0 0 8px; font-size: 1rem; }
+.label {
+  min-width: 64px;
+  color: var(--text-muted, #888);
+}
+.ok {
+  color: #6c6;
+}
+.off {
+  color: #c66;
+}
+.muted {
+  opacity: 0.7;
+}
+.queue {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+.feedback ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.92rem;
+}
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: var(--accent, #6c8cff);
+  color: #fff;
+  cursor: pointer;
+}
+.err {
+  color: #f66;
+  margin-top: 10px;
+}
+h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
 </style>

@@ -1042,7 +1042,7 @@ export class BotInstance extends EventEmitter {
     return this.llm.retrieveForHarness(question);
   }
 
-  /** G3 — member-safe live snapshot. */
+  /** G3 — member-safe live snapshot + operator feedback lines. */
   async getLiveStatus(): Promise<{
     connected: boolean;
     nowPlaying: { name: string; artist?: string } | null;
@@ -1054,6 +1054,10 @@ export class BotInstance extends EventEmitter {
       cuePending: boolean;
       nextBumperHint: string;
     } | null;
+    voice: { enabled: boolean; duckOnSpeech: boolean };
+    rag: { enabled: boolean };
+    /** Human-readable station feedback (radio/voice/rag/queue). */
+    feedback: string[];
     scope: ReturnType<typeof import("./scope.js").resolveScope>;
   }> {
     const { resolveScope, parseBotScope, defaultBotScope } = await import("./scope.js");
@@ -1088,11 +1092,43 @@ export class BotInstance extends EventEmitter {
         nextBumperHint: hint,
       };
     }
+    const voice = {
+      enabled: !!this.config.voice?.enabled,
+      duckOnSpeech: this.config.voice?.duckMusicOnSpeech !== false,
+    };
+    const rag = { enabled: !!this.config.ragEnabled };
+    const feedback: string[] = [];
+    feedback.push(this.connected ? "TeamSpeak connected." : "TeamSpeak offline.");
+    if (radio?.enabled) {
+      feedback.push(radio.cuePending ? "Radio: bumper pending." : `Radio: ${radio.nextBumperHint}`);
+    } else {
+      feedback.push("Radio off.");
+    }
+    if (cur) {
+      feedback.push(`Playing: ${cur.name}${cur.artist ? ` — ${cur.artist}` : ""}`);
+    } else if (q.length === 0) {
+      feedback.push("Queue empty — !play or enable radio.");
+    } else {
+      feedback.push(`Queue: ${q.length} track(s) waiting.`);
+    }
+    if (voice.enabled) {
+      feedback.push(
+        voice.duckOnSpeech
+          ? "Voice on (duck while listening)."
+          : "Voice on (duck off — STT under music may struggle).",
+      );
+    } else {
+      feedback.push("Voice loop off.");
+    }
+    feedback.push(rag.enabled ? "Doctrine RAG on." : "Doctrine RAG off.");
     return {
       connected: this.connected,
       nowPlaying: cur ? { name: cur.name, artist: cur.artist } : null,
       queue: q,
       radio,
+      voice,
+      rag,
+      feedback,
       scope,
     };
   }

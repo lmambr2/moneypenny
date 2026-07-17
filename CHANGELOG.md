@@ -8,6 +8,20 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### Six-track: arm native, bridges, live feedback, VectorClient, Nest, audit
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **Arm native audio:** Dockerfile `TARGETARCH` notes; `audio-native` README Pi-native path;
+  host build still `./scripts/build-audio-native.sh` (+ optional cross)
+- **Stream bridges:** [docs/stream-bridges.md](./docs/stream-bridges.md), compose comments,
+  `.env.example` / Settings dual-URL hints (`TIDAL_BRIDGE_URL` / `SPOTIFY_BRIDGE_URL`)
+- **Live station feedback:** `getLiveStatus` adds `voice` / `rag` / `feedback[]`; Live.vue
+  auto-refresh + feedback panel
+- **Rename:** `QdrantClient` → **`VectorClient`** (`bot/src/rag/vector-client.ts`)
+- **Nest controllers:** `SystemController` owns public health / OpenAPI / docs HTML;
+  `SYSTEM_BUNDLE_NEST` + `registerOpenApiStatic`
+- **Historical audits:** HISTORICAL ARCHIVE banners on security-audit* + audit-findings + honeybbq plan
+
 ### Docs + audit: post-architecture cleanup
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

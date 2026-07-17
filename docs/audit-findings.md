@@ -1,3 +1,9 @@
+> **HISTORICAL ARCHIVE** — point-in-time audit/notes (2026-06-20). Paths and stack
+> may be stale (e.g. early AGENTS layout, Qdrant). Current operator truth:
+> [AGENTS.md](../AGENTS.md), [docs/editions.md](./editions.md),
+> [docs/ts6-client.md](./ts6-client.md), [docs/rag-embeddings.md](./rag-embeddings.md),
+> [docs/http-openapi.md](./http-openapi.md), [docs/stream-bridges.md](./stream-bridges.md).
+
 # AGENTS.md Audit Findings & Remediation
 
 Audit date: 2026-06-20. Steering reference: `AGENTS.md`.

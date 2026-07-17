@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EmbeddingsClient } from "./embeddings.js";
 import { RetrievalStore } from "./index.js";
 import { l2Normalize } from "./normalize.js";
-import { QdrantClient } from "./qdrant.js";
+import { VectorClient } from "./vector-client.js";
 
 vi.mock("axios");
 
@@ -53,11 +53,11 @@ describe("EmbeddingsClient", () => {
   });
 });
 
-describe("QdrantClient", () => {
+describe("VectorClient", () => {
   it("creates the collection when absent (404 → PUT with size+Cosine)", async () => {
     http.get.mockRejectedValue({ response: { status: 404 } });
     http.put.mockResolvedValue({ data: {} });
-    const q = new QdrantClient({ baseUrl: "http://turbovec:6333" });
+    const q = new VectorClient({ baseUrl: "http://turbovec:6333" });
     await q.ensureCollection("docs", 768);
     expect(http.put).toHaveBeenCalledWith("/collections/docs", {
       vectors: { size: 768, distance: "Cosine" },
@@ -68,7 +68,7 @@ describe("QdrantClient", () => {
     http.get.mockResolvedValue({
       data: { result: { config: { params: { vectors: { size: 768 } } } } },
     });
-    const q = new QdrantClient();
+    const q = new VectorClient();
     await q.ensureCollection("docs", 768);
     expect(http.put).not.toHaveBeenCalled();
   });
@@ -77,7 +77,7 @@ describe("QdrantClient", () => {
     http.post.mockResolvedValue({
       data: { result: [{ id: "x", score: 0.9, payload: { text: "t" } }] },
     });
-    const q = new QdrantClient();
+    const q = new VectorClient();
     const hits = await q.search("docs", [1, 2, 3], 4);
     expect(hits[0]).toMatchObject({ id: "x", score: 0.9 });
     const [url, body] = http.post.mock.calls[0];
@@ -94,7 +94,7 @@ describe("RetrievalStore", () => {
       embed: vi.fn(),
       getModel: vi.fn().mockReturnValue("embeddinggemma"),
     };
-    const qdrant = {
+    const vectorStore = {
       ensureCollection: vi.fn().mockResolvedValue(undefined),
       upsert: vi.fn().mockResolvedValue(undefined),
       deleteBySource: vi.fn().mockResolvedValue(undefined),
@@ -102,34 +102,34 @@ describe("RetrievalStore", () => {
     };
     const store = new RetrievalStore({
       embeddings: embeddings as any,
-      qdrant: qdrant as any,
+      vectorStore: vectorStore as any,
       collection: "docs",
       topK: 2,
     });
-    return { store, embeddings, qdrant };
+    return { store, embeddings, vectorStore };
   }
 
   it("init probes dim and ensures the collection once", async () => {
-    const { store, embeddings, qdrant } = makeStore();
+    const { store, embeddings, vectorStore } = makeStore();
     await store.init();
     await store.init();
     expect(embeddings.dimension).toHaveBeenCalledTimes(1);
-    expect(qdrant.ensureCollection).toHaveBeenCalledWith("docs", 3);
+    expect(vectorStore.ensureCollection).toHaveBeenCalledWith("docs", 3);
   });
 
   it("ingest chunks → embeds → purges source → upserts", async () => {
-    const { store, embeddings, qdrant } = makeStore();
+    const { store, embeddings, vectorStore } = makeStore();
     embeddings.embed.mockResolvedValue([[1, 1, 1]]);
     const n = await store.ingest("doc.md", "# H\nsome body text", { classification: "unclass" });
     expect(n).toBe(1);
-    expect(qdrant.deleteBySource).toHaveBeenCalledWith("docs", "doc.md");
-    const [, points] = qdrant.upsert.mock.calls[0];
+    expect(vectorStore.deleteBySource).toHaveBeenCalledWith("docs", "doc.md");
+    const [, points] = vectorStore.upsert.mock.calls[0];
     expect(points[0]).toMatchObject({ vector: [1, 1, 1] });
     expect(points[0].payload).toMatchObject({ source: "doc.md", classification: "unclass" });
   });
 
   it("ingest batches large docs so ollama is not sent 100+ texts at once", async () => {
-    const { store, embeddings, qdrant } = makeStore();
+    const { store, embeddings, vectorStore } = makeStore();
     embeddings.embed.mockImplementation(async (input: string | string[]) => {
       const texts = Array.isArray(input) ? input : [input];
       return texts.map(() => [1, 1, 1]);
@@ -141,13 +141,13 @@ describe("RetrievalStore", () => {
     const n = await store.ingest("big.md", body);
     expect(n).toBeGreaterThan(8);
     expect(embeddings.embed.mock.calls.length).toBeGreaterThan(1);
-    expect(qdrant.upsert).toHaveBeenCalled();
+    expect(vectorStore.upsert).toHaveBeenCalled();
   });
 
   it("query embeds the question and maps hits to chunks", async () => {
-    const { store, embeddings, qdrant } = makeStore();
+    const { store, embeddings, vectorStore } = makeStore();
     embeddings.embed.mockResolvedValue([[9, 9, 9]]);
-    qdrant.search.mockResolvedValue([
+    vectorStore.search.mockResolvedValue([
       {
         id: "a",
         score: 0.8,
@@ -155,18 +155,18 @@ describe("RetrievalStore", () => {
       },
     ]);
     const out = await store.query("what is the answer?");
-    expect(qdrant.search).toHaveBeenCalledWith("docs", [9, 9, 9], 8, undefined);
+    expect(vectorStore.search).toHaveBeenCalledWith("docs", [9, 9, 9], 8, undefined);
     expect(out).toEqual([
       { text: "answer", source: "doc.md", score: 0.8, classification: "unclassified" },
     ]);
   });
 
   it("query passes a classification filter when allowedClassifications is given", async () => {
-    const { store, embeddings, qdrant } = makeStore();
+    const { store, embeddings, vectorStore } = makeStore();
     embeddings.embed.mockResolvedValue([[1, 2, 3]]);
-    qdrant.search.mockResolvedValue([]);
+    vectorStore.search.mockResolvedValue([]);
     await store.query("q", 4, ["unclassified", "restricted"]);
-    expect(qdrant.search).toHaveBeenCalledWith("docs", [1, 2, 3], 16, {
+    expect(vectorStore.search).toHaveBeenCalledWith("docs", [1, 2, 3], 16, {
       must: [{ key: "classification", match: { any: ["unclassified", "restricted"] } }],
     });
   });
@@ -178,9 +178,9 @@ describe("RetrievalStore", () => {
   });
 
   it("query drops chunks past valid_until", async () => {
-    const { store, embeddings, qdrant } = makeStore();
+    const { store, embeddings, vectorStore } = makeStore();
     embeddings.embed.mockResolvedValue([[1, 0, 0]]);
-    qdrant.search.mockResolvedValue([
+    vectorStore.search.mockResolvedValue([
       {
         id: "fresh",
         score: 0.9,

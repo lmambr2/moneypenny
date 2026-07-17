@@ -271,12 +271,10 @@ services:
     networks:
       - moneypenny
 
-  # Phase 3: Tidal stream bridge (DESIGN §7.3) — real HiFi streaming via your
-  # Tidal account. One-time device login: after `--profile stream up -d`, run
-  # `docker compose logs -f tidal-bridge`, open the link.tidal.com URL it prints,
-  # authorize once (token cached in the tidal-session volume). Then set
-  # STREAM_BRIDGE_URL=http://tidal-bridge:8081 in .env so the bot streams Tidal
-  # links directly. (No bridge → Tidal/Spotify links resolve to YouTube instead.)
+  # Stream bridges — docs/stream-bridges.md
+  # Tidal: profile `stream`. Device login once (logs print link.tidal.com).
+  # Bot: TIDAL_BRIDGE_URL=http://tidal-bridge:8081  (or STREAM_BRIDGE_URL).
+  # No bridge → Tidal/Spotify links fall back to YouTube search.
   tidal-bridge:
     build: ./services/tidal-bridge
     profiles: ["stream"]
@@ -288,9 +286,9 @@ services:
     networks:
       - moneypenny
 
-  # R-R6: Spotify librespot bridge (playlist expand + resolve). Needs Premium +
-  # optional LIBRESPOT_HTTP_BASE for real audio. See services/spotify-bridge/README.md
-  # STREAM_BRIDGE_URL=http://spotify-bridge:8082  (or tidal-bridge for Tidal).
+  # Spotify: profiles `stream` + `spotify`. Premium + tokens; optional librespot.
+  # Bot: SPOTIFY_BRIDGE_URL=http://spotify-bridge:8082
+  # See services/spotify-bridge/README.md
   spotify-bridge:
     build: ./services/spotify-bridge
     profiles: ["spotify", "stream"]

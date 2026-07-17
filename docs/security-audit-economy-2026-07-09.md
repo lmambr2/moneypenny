@@ -1,3 +1,8 @@
+> **HISTORICAL ARCHIVE** — point-in-time audit/notes. Paths and stack may be stale
+> (e.g. `bot/src/ts-protocol`, `web/server.ts`, Qdrant). Current operator truth:
+> [AGENTS.md](../AGENTS.md), [docs/editions.md](./editions.md), [docs/ts6-client.md](./ts6-client.md),
+> [docs/rag-embeddings.md](./rag-embeddings.md), [docs/http-openapi.md](./http-openapi.md).
+
 # Security audit — Economy dashboard / API — 2026-07-09
 
 **Scope:** New economy WebUI (`/economy`) and REST surface (`/api/economy/*`)

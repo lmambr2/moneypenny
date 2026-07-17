@@ -30,6 +30,15 @@ function fakeBot() {
         cuePending: false,
         nextBumperHint: "Next bumper in 2 track(s)",
       },
+      voice: { enabled: true, duckOnSpeech: true },
+      rag: { enabled: true },
+      feedback: [
+        "TeamSpeak connected.",
+        "Radio: Next bumper in 2 track(s)",
+        "Playing: Track A — Artist",
+        "Voice on (duck while listening).",
+        "Doctrine RAG on.",
+      ],
       scope: {
         channelHint: "Ops",
         serverLabel: "SC-TS",
@@ -126,6 +135,14 @@ describe("backlog API: hardening + live + recordings", () => {
     expect(res.body.queue[0].name).toBe("Next");
     expect(res.body.radio.nextBumperHint).toMatch(/bumper/i);
     expect(res.body.scope.serverLabel).toBe("SC-TS");
+    expect(res.body.voice).toEqual({ enabled: true, duckOnSpeech: true });
+    expect(res.body.rag).toEqual({ enabled: true });
+    expect(res.body.feedback).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/TeamSpeak connected/i),
+        expect.stringMatching(/Doctrine RAG on/i),
+      ]),
+    );
   });
 
   it("GET /memory/private records audit entry", async () => {

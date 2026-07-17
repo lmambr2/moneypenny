@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
  */
 
 export interface Chunk {
-  /** Deterministic, UUID-shaped (Qdrant point ids must be uint64 or UUID). */
+  /** Deterministic, UUID-shaped (vector-store point ids must be uint64 or UUID). */
   id: string;
   text: string;
   source: string;
@@ -36,7 +36,7 @@ const DEFAULTS: Required<ChunkOptions> = {
 };
 
 /**
- * Deterministic chunk id, formatted as a UUID string (Qdrant only accepts
+ * Deterministic chunk id, formatted as a UUID string (vector store only accepts
  * uint64 or UUID point ids). Same source+index → same id → upsert replaces.
  */
 export function chunkId(source: string, index: number): string {

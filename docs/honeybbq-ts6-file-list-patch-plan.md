@@ -1,3 +1,8 @@
+> **HISTORICAL ARCHIVE** — point-in-time audit/notes. Paths and stack may be stale
+> (e.g. `bot/src/ts-protocol`, `web/server.ts`, Qdrant). Current operator truth:
+> [AGENTS.md](../AGENTS.md), [docs/editions.md](./editions.md), [docs/ts6-client.md](./ts6-client.md),
+> [docs/rag-embeddings.md](./rag-embeddings.md), [docs/http-openapi.md](./http-openapi.md).
+
 # Future plan: `@honeybbq/teamspeak-client` — `notifychannelfilelist`
 
 **Status:** deferred (disk-mount path ships first for co-located Pi deploy).

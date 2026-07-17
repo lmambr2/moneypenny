@@ -1378,8 +1378,10 @@
         </label>
         <input v-model="ai.streamBridgeUrl" class="input" placeholder="http://tidal-bridge:8081" />
         <div class="profile-toggle-hint">
-          Optional sidecar for real Spotify/Tidal streaming. Without it, links resolve to Local/YouTube instead.
-          Docker: <code>docker compose --profile stream up -d</code>
+          Optional sidecar for real Spotify/Tidal streaming (see docs/stream-bridges.md). Without it, links
+          resolve to Local/YouTube. Docker:
+          <code>docker compose --profile stream up -d</code>. Per-platform env:
+          <code>TIDAL_BRIDGE_URL</code> / <code>SPOTIFY_BRIDGE_URL</code> override this field when set.
         </div>
       </div>
       <div v-if="ai.streamBridgeUrl.trim()" class="llm-status-card">

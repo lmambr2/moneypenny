@@ -24,11 +24,16 @@ npm run test -w @moneypenny/audio-native
 Produces `audio-native.<platform>.node` next to `index.cjs` (e.g.
 `linux-x64-gnu`, `linux-arm64-gnu` for the Pi).
 
-### SBC / arm64 without cross toolchain
+### SBC / arm64 (preferred: build on device)
 
-Build on the Pi (or arm64 Docker) so the triple matches:
+x86 hosts cannot emit a working `linux-arm64-gnu` `.node` without a full
+aarch64 cross toolchain + matching libopus. On the **Orange Pi / arm64 Docker**:
 
 ```bash
+# On the Pi (native arch) — simplest:
+cd bot && npm run build:native
+
+# Or qemu/buildx arm64 container (slow; needs binfmt):
 docker run --platform linux/arm64 --rm -v "$PWD":/src -w /src/bot/packages/audio-native \
   rust:1-bookworm bash -lc '
     apt-get update && apt-get install -y nodejs npm pkg-config libopus-dev
@@ -36,7 +41,9 @@ docker run --platform linux/arm64 --rm -v "$PWD":/src -w /src/bot/packages/audio
   '
 ```
 
-Copy `*.node` into the image / deploy tree; the loader picks the matching triple.
+`bot/Dockerfile` builds native for the **image** arch (`TARGETARCH`). Prefer
+`docker compose build` on the Pi for SBC so `audio-native.linux-arm64-gnu.node`
+is produced in-image. Missing addon → runtime falls back to `@discordjs/opus`.
 
 ## API
 

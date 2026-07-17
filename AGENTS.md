@@ -29,11 +29,11 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 | **Audio stack** | `bot/src/audio/` | Queue, player, Opus encode/decode (`opus-packet.ts`, `opus-voice.ts`) for TS voice |
 | **Radio** | `bot/src/radio/` + `bot/src/bot/commands/radio-commands.ts` | Program director, format clock, bumper factory, tag overlay, analyzer; seed pool mix (local/YT) lives in radio-commands |
 | **LLM client** | `bot/src/llm/` | OpenAI-compatible HTTP client, tool schema, conversation history |
-| **RAG** | `bot/src/rag/` | Chunking, embeddings HTTP client, vector client (`qdrant.ts` = TurboVec bridge REST, historical filename), `RetrievalStore` |
+| **RAG** | `bot/src/rag/` | Chunking, embeddings HTTP client, **`VectorClient`** (`vector-client.ts` — TurboVec Qdrant-shaped REST), `RetrievalStore` |
 | **Economy** | `bot/src/economy/` | Seed mine/refine; live craft/trade/UEX/wiki; **disk cache** `data/economy-cache/` + refresh — **no scrapers** (`docs/economy.md`) |
 | **Rights** | `bot/src/rights/` | Declarative rank gating (chat + voice scopes) |
 | **Voice pipeline** | `bot/src/voice/` | VAD, STT/TTS **HTTP clients**, `VoicePipeline` — not the sidecar processes |
-| **HTTP app** | `bot/src/http/` | Nest domain modules (default) + Express plugins; OpenAPI `GET /api/openapi.json` + Swagger UI `GET /api/docs`; `HTTP_FRAMEWORK=plugins` skips Nest |
+| **HTTP app** | `bot/src/http/` | Nest domain modules (default) + Express plugins; **SystemController** owns public health/OpenAPI/docs; OpenAPI `GET /api/openapi.json` + Swagger UI `GET /api/docs`; `HTTP_FRAMEWORK=plugins` skips Nest |
 | **Brain** | `bot/src/brain/` | Turn transport (in-process or `BRAIN_URL`); proposes tools — bot disposes; `POST /v1/turn` — Phase D |
 | **Audio native** | `bot/packages/audio-native` | Optional Rust Opus/VAD N-API; fallback `@discordjs/opus` — PR-B4 |
 | **Web API** | `bot/src/web/` | Domain routers (`api/*`), middleware, WS helpers — **all HTTP input validation lives here or in called modules** |
@@ -59,7 +59,7 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 | `stt-whisper`, `piper-tts` | `voice-edge` / `voice-server` | Dual-track STT: SBC=`stt-rknn`, Server=`stt-whisper-cpp` + Piper (`docs/voice-backends.md`). **No** sherpa/Kokoro (V2). |
 | `stt-mock` | `voice-dev` | CI-only STT stub |
 | `turbovec` | `rag` | Vector DB (TurboQuant; replaces Qdrant) |
-| `tidal-bridge` | `stream` | Tidal stream resolve |
+| `tidal-bridge` / `spotify-bridge` | `stream` (+ `spotify`) | HiFi stream resolve — [docs/stream-bridges.md](./docs/stream-bridges.md) |
 | `teamspeak` | `server` | Optional TS6 server |
 | MCP `/mcp` | bot (opt-in) | Grok Build / agent tools (`MCP_ENABLED` + token; [docs/mcp-server.md](./docs/mcp-server.md)) |
 

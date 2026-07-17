@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chunkId, chunkMarkdown } from "./chunk.js";
 
 describe("chunkId", () => {
-  it("is deterministic and UUID-shaped (Qdrant point id)", () => {
+  it("is deterministic and UUID-shaped (vector-store point id)", () => {
     const a = chunkId("doc.md", 0);
     expect(chunkId("doc.md", 0)).toBe(a);
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);

@@ -1,9 +1,9 @@
 import type { Logger } from "../logger.js";
 import { chunkMarkdown } from "./chunk.js";
 import type { EmbeddingsClient } from "./embeddings.js";
-import type { QdrantClient, QdrantPoint } from "./qdrant.js";
 import type { RerankerClient } from "./reranker.js";
 import { isDoctrineExpired } from "./validity.js";
+import type { VectorClient, VectorPoint } from "./vector-client.js";
 
 export {
   chunkId,
@@ -14,8 +14,8 @@ export {
 } from "./chunk.js";
 export { DEFAULT_EMBEDDING_MODEL, defaultModelForEdition, EmbeddingsClient } from "./embeddings.js";
 export { l2Normalize, l2NormalizeBatch } from "./normalize.js";
-export { QdrantClient } from "./qdrant.js";
 export { RerankerClient } from "./reranker.js";
+export { VectorClient } from "./vector-client.js";
 
 export interface RetrievedChunk {
   text: string;
@@ -26,7 +26,7 @@ export interface RetrievedChunk {
 
 export interface RetrievalStoreOptions {
   embeddings: EmbeddingsClient;
-  qdrant: QdrantClient;
+  vectorStore: VectorClient;
   collection: string;
   topK?: number;
   /** Optional cross-encoder; when set, over-fetch ANN then reorder. */
@@ -43,7 +43,7 @@ const EMBED_BATCH_SIZE = 8;
  */
 export class RetrievalStore {
   private embeddings: EmbeddingsClient;
-  private qdrant: QdrantClient;
+  private vectorStore: VectorClient;
   private collection: string;
   private topK: number;
   private reranker?: RerankerClient;
@@ -52,7 +52,7 @@ export class RetrievalStore {
 
   constructor(opts: RetrievalStoreOptions) {
     this.embeddings = opts.embeddings;
-    this.qdrant = opts.qdrant;
+    this.vectorStore = opts.vectorStore;
     this.collection = opts.collection;
     this.topK = opts.topK ?? 4;
     this.reranker = opts.reranker;
@@ -63,7 +63,7 @@ export class RetrievalStore {
   async init(): Promise<void> {
     if (this.ready) return;
     const dim = await this.embeddings.dimension();
-    await this.qdrant.ensureCollection(this.collection, dim);
+    await this.vectorStore.ensureCollection(this.collection, dim);
     this.ready = true;
     this.logger?.info(
       {
@@ -93,7 +93,7 @@ export class RetrievalStore {
       vectors.push(...batchVecs);
     }
 
-    const points: QdrantPoint[] = chunks.map((c, i) => ({
+    const points: VectorPoint[] = chunks.map((c, i) => ({
       id: c.id,
       vector: vectors[i],
       payload: {
@@ -104,8 +104,8 @@ export class RetrievalStore {
         ...metadata,
       },
     }));
-    await this.qdrant.deleteBySource(this.collection, source);
-    await this.qdrant.upsert(this.collection, points);
+    await this.vectorStore.deleteBySource(this.collection, source);
+    await this.vectorStore.upsert(this.collection, points);
     this.logger?.info({ source, chunks: points.length }, "Ingested document");
     return points.length;
   }
@@ -113,7 +113,7 @@ export class RetrievalStore {
   /** Remove all chunks of a source from the vector store (doctrine delete). */
   async purge(source: string): Promise<void> {
     await this.init();
-    await this.qdrant.deleteBySource(this.collection, source);
+    await this.vectorStore.deleteBySource(this.collection, source);
   }
 
   /**
@@ -155,7 +155,7 @@ export class RetrievalStore {
     const limit = topK ?? this.topK;
     // Over-fetch for optional rerank / post-filter
     const fetchK = this.reranker?.enabled ? Math.max(limit * 8, 20) : Math.max(limit * 4, limit);
-    const hits = await this.qdrant.search(this.collection, vec, fetchK, filter);
+    const hits = await this.vectorStore.search(this.collection, vec, fetchK, filter);
     let chunks: RetrievedChunk[] = hits
       .filter((h) => !isDoctrineExpired(payloadField(h.payload, "valid_until") || undefined))
       .map((h) => ({

@@ -2,6 +2,7 @@ import type http from "node:http";
 import { type DynamicModule, Module } from "@nestjs/common";
 import type { Express } from "express";
 import type { WebServerOptions } from "../types.js";
+import { SystemController } from "./controllers/system.controller.js";
 import {
   BrainHttpModule,
   McpHttpModule,
@@ -11,7 +12,7 @@ import {
   SystemHttpModule,
   WebsocketHttpModule,
 } from "./domain.modules.js";
-import { ALL_DOMAIN_BUNDLES } from "./domain-bundles.js";
+import { NEST_DOMAIN_BUNDLES } from "./domain-bundles.js";
 import { HttpBootstrapService } from "./http-bootstrap.service.js";
 import { DOMAIN_PLUGIN_BUNDLE, WEB_OPTIONS } from "./tokens.js";
 
@@ -22,8 +23,9 @@ export interface NestHttpModuleOptions {
 }
 
 /**
- * Root Nest module (PR-C3): domain HTTP modules 1:1 with product surfaces.
- * Route handlers remain Express routers under web/api/*; Nest owns DI composition.
+ * Root Nest module (PR-C3+): system Nest controllers + domain plugin bundles.
+ * Domain APIs (player/bot/music/…) remain Express routers under web/api/*;
+ * public system routes are Nest controllers.
  */
 @Module({})
 export class NestHttpAppModule {
@@ -39,12 +41,12 @@ export class NestHttpAppModule {
         SpaHttpModule,
         WebsocketHttpModule,
       ],
+      controllers: [SystemController],
       providers: [
         { provide: WEB_OPTIONS, useValue: opts.options },
         { provide: "EXPRESS_APP", useValue: opts.expressApp },
         { provide: "HTTP_SERVER", useValue: opts.httpServer },
-        // Domain plugin bundles (system → … → websocket) — single array provider.
-        { provide: DOMAIN_PLUGIN_BUNDLE, useValue: ALL_DOMAIN_BUNDLES },
+        { provide: DOMAIN_PLUGIN_BUNDLE, useValue: NEST_DOMAIN_BUNDLES },
         HttpBootstrapService,
       ],
       exports: [HttpBootstrapService],

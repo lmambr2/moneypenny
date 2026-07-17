@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Moneypenny TurboVec vector store — drop-in replacement for Qdrant's tiny surface
-used by bot/src/rag/qdrant.ts:
+used by bot/src/rag/vector-client.ts (VectorClient):
 
   GET  /collections/{name}
   PUT  /collections/{name}                    body: { vectors: { size, distance } }
