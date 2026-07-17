@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### Ops: napi scripts, OpenAPI UI, catalog drift, station backlog UX
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `./scripts/build-audio-native.sh` (+ optional arm64 cross); `npm run build:native:arm64`
+- Swagger UI at **`GET /api/docs`** (`swagger-ui-dist`); JSON still `/api/openapi.json`
+- OpenAPI route↔catalog drift test + deploy-preflight gate
+- Settings: doctrine prewarm callout, under-music checklist, ACE-Step mock/worker status
+- ACE-Step health surfaces `mock` / `workerConfigured` from adapter
+
 ### Audio native + Nest HTTP (PR-B4 / PR-C3)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

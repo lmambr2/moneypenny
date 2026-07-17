@@ -894,6 +894,8 @@ export class BotInstance extends EventEmitter {
     engine?: string;
     busy?: boolean;
     error?: string;
+    mock?: boolean;
+    workerConfigured?: boolean;
   }> {
     const url = (this.config.aceStepUrl || process.env.ACE_STEP_URL || "").trim();
     const configured = !!this.config.aceStepEnabled && !!url;
@@ -918,6 +920,8 @@ export class BotInstance extends EventEmitter {
       engine: h.engine,
       busy: h.busy,
       error: h.error,
+      mock: h.mock,
+      workerConfigured: h.workerConfigured,
     };
   }
 

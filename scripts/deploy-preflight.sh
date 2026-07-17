@@ -72,7 +72,8 @@ echo "--- Deploy-critical tests ---"
     src/control/router.test.ts \
     src/music/local.test.ts \
     src/voice/pipeline.test.ts \
-    src/bot/playback/engine.test.ts
+    src/bot/playback/engine.test.ts \
+    src/http/openapi/route-catalog-drift.test.ts
 )
 _deploy_ok "deploy-critical vitest"
 

@@ -1058,34 +1058,47 @@
           type="button"
           class="btn-sm"
           style="margin-left:8px"
-          :disabled="radioPanel.prewarming"
-          title="TTS-cache station ID + next 12h of time checks so live slots don't wait on synthesis. Needs Piper/TTS up. Chat: !radio prewarm"
-          @click="prewarmRadioBumpers(false)"
-        >
-          {{ radioPanel.prewarming ? 'Generating…' : 'Pre-generate bumpers' }}
-        </button>
-        <button
-          type="button"
-          class="btn-sm"
-          style="margin-left:8px"
           :disabled="radioPanel.clearingCache"
           title="Delete cached station IDs / time checks so the next bumper re-synthesizes with the current Piper voice. Use after changing TTS voice."
           @click="clearRadioBumperCache"
         >
           {{ radioPanel.clearingCache ? 'Clearing…' : 'Clear TTS bumper cache' }}
         </button>
-        <button
-          type="button"
-          class="btn-sm"
-          style="margin-left:8px"
-          :disabled="radioPanel.prewarming"
-          title="Also pre-render doctrine liners for the active profile's topics (LLM + RAG). Chat: !radio prewarm doctrine"
-          @click="prewarmRadioBumpers(true)"
-        >
-          + doctrine
-        </button>
+        <div class="llm-status-card" style="margin-top:12px">
+          <div class="profile-toggle-label" style="margin-bottom:6px">
+            <Icon icon="mdi:fire" class="setting-icon" /> Bumper prewarm (cache for live)
+          </div>
+          <p class="profile-toggle-hint" style="margin:0 0 8px">
+            Pre-generate fills the TTS cache so live slots don’t wait on Piper.
+            <strong>Doctrine</strong> also pre-renders liners for this profile’s topics (needs LLM + RAG + doctrine corpus).
+            Chat: <code>!radio prewarm</code> / <code>!radio prewarm doctrine</code>.
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="radioPanel.prewarming"
+              title="TTS-cache station ID + next 12h of time checks. Needs Piper/TTS up."
+              @click="prewarmRadioBumpers(false)"
+            >
+              {{ radioPanel.prewarming && !radioPanel.prewarmDoctrine ? 'Generating…' : 'Prewarm station + time' }}
+            </button>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="radioPanel.prewarming"
+              title="Station/time cache + doctrine liners for active profile topics (LLM + RAG)."
+              @click="prewarmRadioBumpers(true)"
+            >
+              {{ radioPanel.prewarming && radioPanel.prewarmDoctrine ? 'Generating…' : 'Prewarm + doctrine tips' }}
+            </button>
+          </div>
+          <p v-if="radioPanel.lastPrewarm" class="profile-toggle-hint" style="margin:8px 0 0">
+            Last prewarm: {{ radioPanel.lastPrewarm }}
+          </p>
+        </div>
         <p class="profile-toggle-hint" style="margin:8px 0 0">
-          <strong>Test</strong> = play a bumper immediately (forced). <strong>Pre-generate</strong> = fill TTS cache for later.
+          <strong>Test</strong> = play a bumper immediately (forced). <strong>Prewarm</strong> = fill TTS cache for later.
           Scheduled bumpers need someone in the channel; logs show
           <code>bumper injected</code> or <code>broadcast gate</code> if presence/cooldown blocked them.
         </p>
@@ -1323,13 +1336,21 @@
           />
           <span class="llm-status-text">
             {{ aceStep.available
-              ? `ACE-Step OK${aceStep.busy ? ' (busy)' : ''}${aceStep.engine ? ' · ' + aceStep.engine : ''}`
+              ? `ACE-Step OK${aceStep.busy ? ' (busy)' : ''}${aceStep.engine ? ' · ' + aceStep.engine : ''}${aceStep.mock ? ' · MOCK (silent stubs)' : ''}${aceStep.workerConfigured === false && !aceStep.mock ? ' · no worker URL' : ''}`
               : (aceStep.configured ? (aceStep.error || 'Configured but unreachable') : 'Not checked') }}
           </span>
           <button class="btn-sm" :disabled="aceStep.checking" @click="refreshAceStepStatus">
             {{ aceStep.checking ? 'Checking…' : 'Check' }}
           </button>
         </div>
+        <p v-if="aceStep.available && aceStep.mock" class="user-error" style="margin:8px 0 0">
+          Adapter is in <strong>mock mode</strong> (silent MP3 stubs). For real generation set
+          <code>ACE_STEP_MOCK=0</code> and <code>ACE_STEP_WORKER_URL</code> on the GPU host
+          (see <code>docs/ace-step-host.md</code>).
+        </p>
+        <p v-else-if="aceStep.available && aceStep.workerConfigured" class="user-success" style="margin:8px 0 0">
+          Non-mock path: worker URL configured on the adapter.
+        </p>
       </div>
 
       <label class="profile-toggle">
@@ -1500,6 +1521,22 @@
           Smoke test routes a transcript through the control router (no Opus capture). Save settings first — needs an active bot connection.
           STT: <code>http://stt-whisper:9000</code> (SBC: profile <code>voice-edge</code> / Whisper base NPU; Server: <code>voice-server</code>). TTS: Piper. Mock: <code>voice-dev</code> on :9001.
         </p>
+        <div class="llm-status-card" style="margin-top:10px">
+          <div class="profile-toggle-label" style="margin-bottom:6px">
+            <Icon icon="mdi:waveform" class="setting-icon" /> Under-music checklist
+          </div>
+          <p class="profile-toggle-hint" style="margin:0 0 8px">
+            Live-ready checks for duck + wake fallback (same as Harness). Does not need a TS connection.
+          </p>
+          <button type="button" class="btn-sm" :disabled="underMusic.busy" @click="runUnderMusicCheck">
+            {{ underMusic.busy ? 'Checking…' : 'Run under-music check' }}
+          </button>
+          <pre
+            v-if="underMusic.text"
+            class="profile-toggle-hint"
+            style="margin:8px 0 0;white-space:pre-wrap;font-family:inherit"
+          >{{ underMusic.text }}</pre>
+        </div>
       </div>
 
       <p v-if="aiError" class="user-error">{{ aiError }}</p>
@@ -2348,11 +2385,17 @@ function renameRadioProfile(raw: string) {
 }
 const radioPanel = reactive({
   prewarming: false,
+  prewarmDoctrine: false,
   clearingCache: false,
   busy: false,
   testing: false,
   error: '',
   statusText: '',
+  lastPrewarm: '',
+});
+const underMusic = reactive({
+  busy: false,
+  text: '',
 });
 const rightsDebug = reactive({
   uid: '',
@@ -2385,6 +2428,8 @@ const aceStep = reactive({
   busy: false,
   engine: '',
   error: '',
+  mock: false as boolean | undefined,
+  workerConfigured: undefined as boolean | undefined,
 });
 const rag = reactive({
   configured: false,
@@ -2732,12 +2777,42 @@ async function refreshAceStepStatus() {
     aceStep.busy = !!res.data.busy;
     aceStep.engine = res.data.engine ?? '';
     aceStep.error = res.data.error ?? '';
+    aceStep.mock = res.data.mock === true;
+    aceStep.workerConfigured =
+      res.data.workerConfigured === true
+        ? true
+        : res.data.workerConfigured === false
+          ? false
+          : undefined;
   } catch {
     aceStep.configured = ai.aceStepEnabled && !!ai.aceStepUrl.trim();
     aceStep.available = false;
     aceStep.error = 'status request failed';
+    aceStep.mock = undefined;
+    aceStep.workerConfigured = undefined;
   } finally {
     aceStep.checking = false;
+  }
+}
+
+async function runUnderMusicCheck() {
+  underMusic.busy = true;
+  underMusic.text = '';
+  try {
+    const res = await api.get('/api/bot/voice/under-music-check');
+    const r = res.data;
+    underMusic.text = [
+      `Under-music check: ${r.ok ? 'PASS' : 'FAIL'}`,
+      ...(r.plan?.notes ?? []),
+      ...((r.results ?? []) as Array<{ id: string; pass: boolean; reason?: string }>).map(
+        (x) => `${x.pass ? '✓' : '✗'} ${x.id}${x.reason ? ` — ${x.reason}` : ''}`,
+      ),
+    ].join('\n');
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { error?: string } }; message?: string };
+    underMusic.text = e.response?.data?.error ?? e.message ?? 'Check failed';
+  } finally {
+    underMusic.busy = false;
   }
 }
 
@@ -2825,6 +2900,7 @@ async function testRadioBumper() {
 /** Pre-render station/time (and optional doctrine) bumpers into TTS cache. */
 async function prewarmRadioBumpers(includeDoctrine: boolean) {
   radioPanel.prewarming = true;
+  radioPanel.prewarmDoctrine = includeDoctrine;
   radioPanel.error = '';
   try {
     const res = await api.post('/api/bot/radio/prewarm-bumpers', {
@@ -2833,13 +2909,16 @@ async function prewarmRadioBumpers(includeDoctrine: boolean) {
     });
     const r = res.data?.rendered ?? 0;
     const f = res.data?.failed ?? 0;
-    radioPanel.statusText = `Pre-generate: ${r} cached${f ? `, ${f} failed/skipped` : ''}${
-      includeDoctrine ? ' (incl. doctrine)' : ''
+    const msg = `Prewarm: ${r} cached${f ? `, ${f} failed/skipped` : ''}${
+      includeDoctrine ? ' (incl. doctrine tips)' : ' (station + time only)'
     }.`;
+    radioPanel.statusText = msg;
+    radioPanel.lastPrewarm = `${new Date().toLocaleString()} — ${msg}`;
   } catch (e: any) {
-    radioPanel.error = e?.response?.data?.error ?? 'Bumper pre-generate failed (check TTS)';
+    radioPanel.error = e?.response?.data?.error ?? 'Bumper prewarm failed (check TTS / LLM for doctrine)';
   } finally {
     radioPanel.prewarming = false;
+    radioPanel.prewarmDoctrine = false;
   }
 }
 

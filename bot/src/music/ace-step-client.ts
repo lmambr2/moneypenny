@@ -10,6 +10,10 @@ export interface AceStepHealth {
   engine?: string;
   busy?: boolean;
   error?: string;
+  /** Adapter returns true when ACE_STEP_MOCK=1 (silent stubs). */
+  mock?: boolean;
+  /** True when ACE_STEP_WORKER_URL is set on the adapter. */
+  workerConfigured?: boolean;
 }
 
 export interface AceStepGenerateRequest {
@@ -62,10 +66,15 @@ export class AceStepClient {
     try {
       const { data, status } = await this.http.get("/health", { timeout: 5_000 });
       if (status >= 200 && status < 300 && data && typeof data === "object") {
+        const d = data as AceStepHealth & Record<string, unknown>;
         return {
-          ok: !!(data as AceStepHealth).ok,
-          engine: (data as AceStepHealth).engine ?? "ace-step",
-          busy: !!(data as AceStepHealth).busy,
+          ok: !!d.ok,
+          engine: d.engine ?? "ace-step",
+          busy: !!d.busy,
+          ...(typeof d.mock === "boolean" ? { mock: d.mock } : {}),
+          ...(typeof d.workerConfigured === "boolean"
+            ? { workerConfigured: d.workerConfigured }
+            : {}),
         };
       }
       return { ok: false, error: `HTTP ${status}` };

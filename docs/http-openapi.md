@@ -20,14 +20,19 @@ With the bot running:
 
 ```bash
 curl -sS http://127.0.0.1:3000/api/openapi.json | head
+# Interactive UI (Swagger UI, local assets via swagger-ui-dist)
+open http://127.0.0.1:3000/api/docs
 ```
 
-- **Public** (no session): `GET /api/openapi.json`, `GET /api/health`
-- Document built from `bot/src/http/openapi/operations.ts` (catalog)
-- Renderer: `bot/src/http/openapi/document.ts` → OpenAPI **3.0**
+| Path | Auth | Notes |
+|------|------|--------|
+| `GET /api/openapi.json` | public | OpenAPI **3.0** document |
+| `GET /api/docs` | public | Swagger UI (try-it-out; cookie auth for session routes) |
+| `GET /api/health` | public | Liveness |
 
-Import into Postman, Insomnia, or any OpenAPI 3 viewer. No Swagger UI is
-bundled on-device (SBC footprint); point an external viewer at the JSON.
+Document built from `bot/src/http/openapi/operations.ts` (catalog).  
+Drift guard: `src/http/openapi/route-catalog-drift.test.ts` fails CI if Express
+routes and the catalog diverge.
 
 ---
 

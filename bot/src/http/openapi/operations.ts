@@ -49,6 +49,8 @@ export const API_OPERATIONS: ApiOperation[] = [
   op("get", "/api/health", "Liveness probe", ["system"], "public"),
   op("get", "/api/config/public-url", "Configured public WebUI URL", ["system"], "public"),
   op("get", "/api/openapi.json", "OpenAPI 3 document for this REST API", ["system"], "public"),
+  op("get", "/api/docs", "Swagger UI for station REST API", ["system"], "public"),
+  op("get", "/api/docs/", "Swagger UI (trailing slash)", ["system"], "public"),
   op(
     "post",
     "/v1/turn",

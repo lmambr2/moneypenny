@@ -104,8 +104,10 @@ off-by-default, etc.).
 fix, station ID liners, multi-zone time checks, cori-medium, doctrine LLM
 empty-content salvage, presence gate, AM color, prewarm.
 
-**Remaining Station gaps:** live under-music smoke checklist; Spotify audio
-path; ACE-Step non-mock worker; doctrine prewarm UX more obvious.
+**Remaining Station gaps (2026-07-16):** Spotify/Tidal real stream still needs
+the optional stream bridge sidecar. ACE-Step real audio needs `ACE_STEP_MOCK=0`
++ worker URL (Settings shows mock vs worker). Under-music checklist + doctrine
+prewarm buttons shipped in Settings (2026-07-16).
 
 ---
 
