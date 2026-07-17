@@ -51,18 +51,18 @@ off-by-default, etc.).
      └───────────────┘ └─────────────┘ └──────┬──────────┘
                                               │
                                      ┌────────▼────────┐
-                                     │ Qdrant (RAG)    │
+                                     │ TurboVec (RAG)  │
                                      │ MemPalace (KG)  │
                                      └─────────────────┘
 ```
 
 | Layer | Language / service | Keep / move? |
 |-------|-------------------|--------------|
-| TS6, music, radio, rights, web | **TypeScript** | **Keep** — spine |
+| TS6, music, radio, rights, web | **TypeScript** | **Keep** — spine (`@moneypenny/ts6-client`, Nest HTTP) |
 | STT / TTS / bridges / ACE adapter | **Python sidecars** | **Keep** — already extracted |
-| Chat + embeddings | **Ollama / OpenAI `/v1`** | **Keep** — not in-process TS ML |
-| Vectors | **Qdrant** | **Keep** |
-| Agent orchestration | Thin TS tool loop today | **Extract only if pain** → FastAPI “brain” |
+| Chat + embeddings | **Ollama / OpenAI `/v1`** | **Keep** — nomic (SBC) / bge (Server) embeds |
+| Vectors | **TurboVec** (Qdrant-shaped REST) | **Keep** |
+| Agent orchestration | `bot/src/brain` + harness | In-process default; `BRAIN_URL` optional remote |
 
 **Non-goals (explicit):**
 
@@ -182,7 +182,7 @@ until pain criteria hit (see below).
 ```
 TS bot (TS6 + music + rights + radio) ──HTTP──► brain (future FastAPI)
 web dashboard (Vue) ──────────────────────────► brain (same loop)
-brain ──► ollama / qdrant / mempalace / stt / tts (sidecars unchanged)
+brain ──► ollama / turbovec / mempalace / stt / tts (sidecars; bot disposes tools)
 ```
 
 | Responsibility | Owner today | Owner if extracted |

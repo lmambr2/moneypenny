@@ -16,17 +16,20 @@ memory, radio polish) on the **dual-edition** product.
 ```
   ┌── SBC edition (RK3588) ──┐          ┌── Server edition (x86+GPU) ──┐
   │ bot, rights, music       │  chat    │ ollama Gemma 4 12B (+ 31B)  │
-  │ ollama embeddinggemma    │ ───────► │ optional heavy STT large-v3 │
+  │ ollama nomic-embed-v2    │ ───────► │ optional heavy STT large-v3 │
   │ turbovec, Whisper base NPU│          └─────────────────────────────┘
   │ piper-tts                │
   │ (opt rkllama offline)    │   OR server all-in-one (Topology B)
   └──────────────────────────┘
 
   bot ─── llmUrl ─────────── OpenAI /v1 (LAN or local)
-      ─── embeddingUrl ───── ollama embeddinggemma (usually SBC)
+      ─── embeddingUrl ───── ollama nomic-embed-text-v2-moe (SBC) / bge-large (Server)
       ─── stt / tts ──────── stt-whisper + piper-tts
+      ─── VECTOR_DB_URL ──── turbovec:6333 (Qdrant-shaped REST bridge)
 
   ControlRouter ─ deterministic │ !ask / fuzzy → LLM tools
+  HTTP ──────── Nest + Express plugins · OpenAPI /api/docs · POST /v1/turn
+  TS6 ───────── @moneypenny/ts6-client (workspace package)
   Retrieval ─── TurboVec + rank-gated doctrine (Phase 5–6)
   Memory ────── MemPalace + per-user facts (Phase 7)
 ```
@@ -53,9 +56,10 @@ Two retrieval stores, deliberately separate and complementary:
 > points at LAN or local 12B (`llmUrl`); embeddings stay on-device
 > (`embeddingUrl=http://ollama:11434`). **SBC** and **Server** editions package
 > the two host roles ([docs/editions.md](./docs/editions.md)). Production:
-> Gemma 4 12B QAT on server, E2B fallback + embeddinggemma on SBC; analyst
-> Gemma 4 31B on the same or second host. **DESIGN §R1:** `!analyst` /
+> Gemma 4 12B QAT on server, E2B fallback + **nomic-embed-text-v2-moe** on SBC;
+> analyst Gemma 4 31B on the same or second host. **DESIGN §R1:** `!analyst` /
 > `delegate_to_agent` (`bot/src/llm/delegate.ts`); warmup in `bot/src/llm/warmup.ts`.
+> Vectors: **TurboVec** (`services/turbovec-bridge`). See [docs/rag-embeddings.md](./docs/rag-embeddings.md).
 
 ### R1b — async analyst jobs (shipped 2026-06-20)
 

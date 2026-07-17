@@ -19,7 +19,7 @@ this public GitHub tree. The public repo has **no** real RAG corpus.
 
 | Store | What it is | How content gets in | Editable? | Used by |
 |-------|------------|---------------------|-----------|---------|
-| **RAG / doctrine** | Org knowledge base — `.md` files under `bot/data/doctrine/`, embedded in Qdrant | Git push, Library upload, `moneypenny-drop`, manual file drop, `!intsum -s` / `!aar -s` | Yes — **Library → Doctrine** (web UI) | `!ask`, `!analyst` (citations) |
+| **RAG / doctrine** | Org knowledge base — `.md` files under `bot/data/doctrine/`, embedded in TurboVec | Git push, Library upload, `moneypenny-drop`, manual file drop, `!intsum -s` / `!aar -s` | Yes — **Library → Doctrine** (web UI) | `!ask`, `!analyst` (citations) |
 | **MemPalace** | Per-user conversational memory | `!remember <fact>` only (optional sidecar sync) | Via `!recall` / MemPalace dashboard — **not** doctrine | `!ask` for that user only |
 
 **There is no symlink or auto-bridge from MemPalace → RAG.** Copy text into doctrine via an ingest path if you want it in the shared knowledge base.
@@ -28,9 +28,9 @@ this public GitHub tree. The public repo has **no** real RAG corpus.
 
 ## Prerequisites (RAG must be on)
 
-1. Qdrant running (`docker compose --profile rag up -d`).
+1. TurboVec running (`docker compose --profile rag up -d`).
 2. **Knowledge base** enabled in Settings (`ragEnabled: true`); restart if it was off at boot.
-3. Embedding model reachable (default: `embeddinggemma` on Ollama).
+3. Embedding model reachable (SBC default: `nomic-embed-text-v2-moe` on Ollama; Server: `bge-large-en-v1.5`).
 
 Verify: Library lists doctrine docs; `!ask <question>` returns grounded answers.
 
@@ -111,7 +111,7 @@ MemPalace sidecar stores per-user rooms + shared `org_kg` / diary rooms for sema
 
 ## Rank-gating vs ingestion (common mistake)
 
-- **Ingestion** = getting `.md` files into `bot/data/doctrine/` and Qdrant (table above).
+- **Ingestion** = getting `.md` files into `bot/data/doctrine/` and TurboVec (table above).
 - **Rank-gating** = which `classification` levels a member's TeamSpeak groups may **retrieve** during `!ask` / `!analyst`.
 
 Config: `scripts/rights-rank-gating.json` → Settings rights JSON. Debug: Settings → **Rights debug** or `GET /api/bot/rights/debug`.
@@ -124,7 +124,7 @@ Config: `scripts/rights-rank-gating.json` → Settings rights JSON. Debug: Setti
 |---------|-------|
 | `!analyst` says not configured | Settings → Delegate analyst URL/model |
 | `!analyst` denied | Invoker needs `@analyst` in their server groups |
-| Doc saved but `!ask` can't find it | `ragEnabled` on? Qdrant up? Run `!reindex` |
+| Doc saved but `!ask` can't find it | `ragEnabled` on? TurboVec up? Run `!reindex` |
 | Chunks missing for some members | Doc `classification` vs member's `doctrine:*` rights |
 | Analyst answer wrong about ingestion | Cite **this cheatsheet** or `docs/rag-ingestion.md` — not rank-gating docs |
 

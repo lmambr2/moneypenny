@@ -170,7 +170,7 @@ export class RetrievalStore {
         text,
         chunks.map((c) => c.text),
       );
-      if (ranked && ranked.length) {
+      if (ranked?.length) {
         chunks = ranked
           .map((r) => {
             const c = chunks[r.index];

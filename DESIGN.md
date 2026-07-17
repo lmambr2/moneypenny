@@ -324,27 +324,26 @@ moneypenny/
 ├─ host-setup/                   # NPU driver 0.9.8 + runtime 1.2.x; check-npu.sh
 ├─ models/convert/               # x86-only Qwen3 -> .rkllm (W8A8) conversion
 ├─ bot/                          # the FORK (TypeScript)
+│  ├─ packages/
+│  │  ├─ ts6-client/             # @moneypenny/ts6-client (TS3/TS6)
+│  │  └─ audio-native/           # optional Rust Opus/VAD N-API
 │  ├─ src/
-│  │  ├─ packages/ts6-client/    # @moneypenny/ts6-client (TS3/TS6; public barrel)
-│  │  ├─ http/                   # createWebServer + Express plugins (PR-C1)
+│  │  ├─ http/                   # Nest + Express plugins; OpenAPI /api/docs
+│  │  ├─ brain/                  # completeTurn / InProcess|Http brain; dispose tools
 │  │  ├─ web/                    # domain API routers + middleware + Vue SPA
-│  │  ├─ bot/commands.ts         # extend: add `ask`, wire control router (§4)
-│  │  ├─ control/router.ts       # NEW: deterministic-first dispatch
-│  │  ├─ llm/                    # NEW: RKLLama client + tool schema/executors (§9)
-│  │  ├─ rights/                 # NEW: rank-gating rules (§8)
-│  │  ├─ music/
-│  │  │  ├─ local.ts             # NEW: LocalProvider (§7.1)
-│  │  │  ├─ stream.ts            # NEW: StreamProvider (§7.3)
-│  │  │  ├─ youtube.ts           # KEEP
-│  │  │  └─ (netease/qq/bilibili REMOVED)
-│  │  └─ audio/                  # inherited queue/player/encoder
-│  └─ Dockerfile                 # add non-root USER (§11)
+│  │  ├─ control/                # CommandRegistry, tool-map, thin ControlRouter
+│  │  ├─ llm/                    # OpenAI-compatible client + tools
+│  │  ├─ rights/                 # rank-gating rules
+│  │  ├─ rag/                    # embeddings + TurboVec client (qdrant.ts API shape)
+│  │  ├─ music/                  # Local / YouTube / Stream providers
+│  │  └─ audio/                  # queue/player/encoder (native Opus when built)
+│  └─ Dockerfile                 # non-root USER; workspace packages
 ├─ services/
-│  ├─ teamspeak/                 # TS6 server compose (optional profile)
-│  └─ rkllama/                   # NPU passthrough + Qwen3 config
-├─ voice/                        # Phase 2: stt (sherpa-onnx), tts (kokoro), capture/
-├─ scripts/                      # smoke-phase0/1, healthcheck
-└─ docs/                         # runbook, model-conversion, troubleshooting
+│  ├─ turbovec-bridge/           # TurboVec (Qdrant-shaped REST)
+│  ├─ stt-* / piper-tts/         # voice sidecars
+│  └─ rkllama/                   # NPU offline chat opt-in
+├─ scripts/                      # deploy, reembed, phase0, audio-native build
+└─ docs/                         # runbooks (editions, rag, brain, http-openapi, …)
 ```
 
 ---

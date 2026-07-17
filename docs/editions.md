@@ -1,8 +1,8 @@
 # Moneypenny editions — SBC and Server
 
 One repository, one bot binary, **two product editions**. Same contracts
-(OpenAI `/v1`, Whisper STT HTTP, Piper TTS HTTP, Qdrant, rank gating). Different
-**compose overlays, defaults, and host expectations**.
+(OpenAI `/v1`, Whisper STT HTTP, Piper TTS HTTP, **TurboVec** vectors, rank gating).
+Different **compose overlays, defaults, and host expectations**.
 
 **Supported hosts (now):** Orange Pi / RK3588 (**SBC**) and **x86_64 Linux** with
 **AMD** GPU (ROCm / host Ollama). NVIDIA compose paths may exist but are
@@ -16,9 +16,9 @@ always co-locates with that install. Chat may still point at a remote Ollama.
 |---|---|---|
 | **Hardware** | Orange Pi 5 Max / RK3588, 16 GB, arm64 | x86_64 Linux, **AMD** GPU preferred (e.g. R9700) |
 | **Bot primary host** | **Yes** — this install path | **Yes** — this install path |
-| **Typical stack** | bot + embed + Qdrant + edge voice; chat often LAN 12B | bot + embed + Qdrant + voice + **host Ollama** 12B (+ 31B if fits); optional **TS6** |
+| **Typical stack** | bot + embed + TurboVec + edge voice; chat often LAN 12B | bot + embed + TurboVec + voice + **host Ollama** 12B (+ 31B if fits); optional **TS6** |
 | **Chat LLM** | LAN **Gemma 4 12B QAT** preferred; on-device **E2B** fallback | **Host Ollama** Gemma 4 **12B QAT** (`!ask`); **31B analyst opt-in** (Settings toggle; only if VRAM fits or swap OK) |
-| **Embeddings / vectors** | On this host (`embeddinggemma` + Qdrant) | On this host |
+| **Embeddings / vectors** | On this host (`nomic-embed-text-v2-moe` + TurboVec) | On this host (`bge-large-en-v1.5` default + TurboVec) |
 | **STT (dual track)** | **`stt-rknn`**: RKNN NPU **base** → faster-whisper CPU fallback | **`stt-whisper-cpp`**: whisper.cpp + **Vulkan** on AMD (`medium`) |
 | **TTS** | Piper `en_GB-cori-medium` (British female medium) | Same |
 | **NPU** | **RKNN Whisper** priority; offline chat opt-in only | N/A |
@@ -26,7 +26,8 @@ always co-locates with that install. Chat may still point at a remote Ollama.
 | **Installer** | `./install.sh --edition sbc` | `./install.sh --edition server` |
 
 See also: [voice-backends.md](./voice-backends.md), [remote-llm.md](./remote-llm.md),
-[RELEASES.md](../RELEASES.md), [DESIGN.md](../DESIGN.md) §Editions.
+[rag-embeddings.md](./rag-embeddings.md), [RELEASES.md](../RELEASES.md),
+[DESIGN.md](../DESIGN.md) §Editions.
 
 ---
 
@@ -43,18 +44,18 @@ You do **not** run two bot primaries for one TS identity — pick one install pa
 per deployment. The other machine can still host **only** Ollama (or only be
 unused).
 
-**Split-brain storage rule:** `llmUrl` may be remote; **embeddings + Qdrant stay
+**Split-brain storage rule:** `llmUrl` may be remote; **embeddings + TurboVec stay
 on the bot host** (whichever edition you installed).
 
 ```
         ┌─ install --edition sbc ─────────────────────────┐
-        │  BOT · music · rights · embed · qdrant · voice  │
+        │  BOT · music · rights · embed · turbovec · voice │
         │  llmUrl ──► (optional) Server host Ollama 12B   │
         │  fallback · local E2B                           │
         └─────────────────────────────────────────────────┘
 
         ┌─ install --edition server ──────────────────────┐
-        │  BOT · music · rights · embed · qdrant · voice  │
+        │  BOT · music · rights · embed · turbovec · voice │
         │  host Ollama 12B (+ 31B if fits) · optional TS6 │
         │  whisper.cpp Vulkan (AMD) · piper               │
         └─────────────────────────────────────────────────┘
@@ -65,7 +66,7 @@ on the bot host** (whichever edition you installed).
 ## Topology A — bot on SBC (split-brain chat)
 
 ```
-SBC: bot + embed + qdrant + tiny STT + piper
+SBC: bot + embed + turbovec + tiny STT + piper
   └─ llmUrl → Server host Ollama :11434 (12B)
   └─ llmFallbackUrl → local E2B
 ```
@@ -112,7 +113,7 @@ Prefer **host Ollama** on the Server for AMD; Docker Ollama is a simpler fallbac
 |---------|-------------------|----------------------|
 | `core` | when bot on Pi | always (primary) |
 | `ollama` | E2B fallback + embed (or host Ollama via URL) | optional if host Ollama |
-| `rag` | if bot on Pi | recommended |
+| `rag` | if bot on Pi (`turbovec`) | recommended |
 | `voice-edge` | recommended | — |
 | `voice-server` | — | recommended (→ Vulkan path on AMD) |
 | `server` | rare | **TS6** when co-located |
@@ -128,6 +129,7 @@ Prefer **host Ollama** on the Server for AMD; Docker Ollama is a simpler fallbac
 - Rank gating, radio, roast, doctrine RAG ingest paths
 - STT/TTS HTTP contracts
 - Security posture (localhost binds, CSRF, rights in executor)
+- HTTP app (Nest + Express plugins), `@moneypenny/ts6-client`, brain `/v1/turn`
 
 Only **where models run**, **STT backend**, and **default profiles** change.
 

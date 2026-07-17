@@ -68,5 +68,5 @@ or call from the SPA origin.
 | Step | Status |
 |------|--------|
 | **C1** Plugin `createWebServer` | Done |
-| **C2** REST + OpenAPI (no dual stack) | This doc |
-| **C3** Nest/Fastify DI | Deferred |
+| **C2** REST + OpenAPI + `/api/docs` UI | Done (this doc) |
+| **C3** Nest domain modules + Express adapter | Done (`HTTP_FRAMEWORK=nest` default; `plugins` escape hatch) |

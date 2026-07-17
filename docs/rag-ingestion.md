@@ -1,7 +1,7 @@
 # Loading documents into the knowledge base (RAG)
 
 Moneypenny's `!ask` and `!analyst` answers from a **doctrine corpus** — Markdown
-documents you load, embedded into a vector store (Qdrant) and retrieved at query
+documents you load, embedded into a vector store (TurboVec) and retrieved at query
 time, rank-gated by each document's classification. The fast chat model and the
 delegate analyst both receive the same retrieved chunks (and per-user memory on
 `!ask`). This doc covers **every way to get documents in**, plus what you need
@@ -36,7 +36,7 @@ None of the ingestion paths embed anything unless retrieval is on:
 2. **`ragEnabled` on** — Settings → *AI & Permissions* → **Knowledge base**, or
    `ragEnabled: true` in `config.json`. (If it was off at boot, restart the bot
    so the retrieval store is constructed.)
-3. **An embedding model** reachable — default is `embeddinggemma` (Gemma-family)
+3. **An embedding model** reachable — SBC default `nomic-embed-text-v2-moe`; Server `bge-large-en-v1.5` (see [rag-embeddings.md](./rag-embeddings.md))
    on ollama for Pi and x86.
    Empty `EMBEDDING_URL` reuses the LLM endpoint.
 

@@ -1,7 +1,7 @@
 # Remote LLM (Phase 4) — split-brain across editions
 
 Point **chat / tool-calling / roast grading** at a faster host while keeping
-**embeddings + Qdrant** on the bot host. Different URLs for `llmUrl` and
+**embeddings + TurboVec** on the bot host. Different URLs for `llmUrl` and
 `embeddingUrl` in Settings → AI & Permissions.
 
 This is the **recommended production topology**: **SBC edition** on the Orange
@@ -26,8 +26,8 @@ music intent, roast grading, and voice LLM replies.
 ```
 SBC edition (docker)                Server / LAN Ollama
 ├─ bot ──chat/tools──► http://192.168.x.x:11434  (gemma-4-12B QAT)
-├─ ollama ─embed────► http://ollama:11434        (embeddinggemma)
-├─ qdrant            (vectors stay on SBC)
+├─ ollama ─embed────► http://ollama:11434        (nomic-embed-text-v2-moe)
+├─ turbovec          (vectors stay on SBC)
 └─ stt-whisper tiny + piper-tts
 ```
 
@@ -83,7 +83,7 @@ Settings → AI & Permissions (or `bot/data/config.json`):
   "llmFallbackUrl": "http://ollama:11434",
   "llmFallbackModel": "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL",
   "embeddingUrl": "http://ollama:11434",
-  "embeddingModel": "embeddinggemma",
+  "embeddingModel": "nomic-embed-text-v2-moe",
   "ragEnabled": true
 }
 ```
@@ -114,7 +114,7 @@ run `!ask` — first reply should be seconds, not a minute.
 |------|--------------|-------|---------|
 | Fast chat / tools | Server / LAN | Gemma 4 **12B** QAT | **On** |
 | Analyst delegate | Same host (or second) | Gemma 4 **31B** QAT | **Off** |
-| Fallback + embed | SBC / bot host | E2B + embeddinggemma | as configured |
+| Fallback + embed | SBC / bot host | E2B + nomic-embed-text-v2-moe | as configured |
 
 **Do not leave 12B and 31B both loaded unless VRAM can hold them.**
 

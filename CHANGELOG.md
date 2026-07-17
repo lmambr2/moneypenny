@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### Docs + audit: post-architecture cleanup
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Living docs updated: TurboVec (not Qdrant), nomic/bge embeds, Nest HTTP,
+  `@moneypenny/ts6-client`, brain `/v1/turn`, packages layout (DESIGN/AGENTS)
+- Editions, remote-llm, rag-ingestion*, roadmap, feature-roadmap, mcp-server,
+  http-openapi, ts6-client status tables aligned with shipped stack
+- Light code cleanup (optional-chain, comment accuracy)
+
 ### Ops: napi scripts, OpenAPI UI, catalog drift, station backlog UX
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

@@ -128,7 +128,7 @@ export class LlmClient {
       "",
     );
     this.model = options.model || process.env.RKLLAMA_MODEL || DEFAULT_CHAT_MODEL;
-    // 180s: on the Pi, !ask chains embed (embeddinggemma) then chat (Gemma).
+    // 180s: on the Pi, !ask chains embed (nomic/bge) then chat (Gemma).
     // Cold load + ~10 tok/s decode can exceed 120s when both models contend.
     this.timeoutMs = options.timeoutMs ?? 180_000;
     this.logger = options.logger;

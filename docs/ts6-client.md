@@ -104,11 +104,11 @@ Logger: inject any pino-compatible `Ts6Logger` — the package never imports
 |------|--------|
 | **B1** Workspace package extract | Done |
 | **B2** Public surface; host uses barrel only | Done |
-| **B3** Dual-protocol docs + smoke notes | This doc |
-| **B4** Rust Opus/VAD (Neon) | **Deferred** — only if profiled bottleneck |
+| **B3** Dual-protocol docs + smoke notes | Done (this doc) |
+| **B4** Rust Opus/VAD N-API (`@moneypenny/audio-native`) | Done (optional; falls back to `@discordjs/opus`) |
 
-Nest/Fastify (Phase C) and brain extract (Phase D) are separate; do not couple
-them to this package.
+Related (separate packages/layers): Nest HTTP app (`bot/src/http/`), brain
+`POST /v1/turn` (`bot/src/brain/`). This package stays TS6-only.
 
 ---
 

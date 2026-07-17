@@ -36,7 +36,7 @@ example Grok config `.grok/config.toml.example`. Tool registry: `MCP_TOOL_NAMES`
 | Replace bot with Grok Build | Bot owns TS6, Opus, queue, radio fail-open |
 | Simulate typing `!play …` in TS chat | Fragile; tools use structured args |
 | Full command-string parity day one | Ship phased tool sets |
-| Extract Python “brain” (`POST /v1/turn`) | MCP is a *client*; brain extract stays deferred ([brain-boundary](./brain-boundary.md)) |
+| Replace bot brain with external-only agent | MCP is a *client*; brain transport is optional (`BRAIN_URL`; [brain-boundary](./brain-boundary.md)) |
 | Distributed multi-tenant SaaS MCP | Single-operator / org LAN product |
 | Let Grok bypass rank gates | Bot re-checks every mutation |
 
@@ -536,7 +536,7 @@ When the user asks about music, doctrine, or the TS bot:
 |---------|----------|
 | Grok agent model | Custom `[model.*]` → LAN OpenAI-compatible endpoint |
 | Tool calling quality | Prefer models with reliable tool/JSON use; fall back to cloud Grok for hard multi-step |
-| Bot `!ask` / embeddings | Unchanged (Pi embeddinggemma + TurboVec + configured chat LLM) |
+| Bot `!ask` / embeddings | Unchanged (Pi nomic-embed + TurboVec + configured chat LLM) |
 | Offline | MCP + local model + bot on LAN works without xAI if custom model is default |
 
 **Honest limit:** small local models are worse at long multi-tool plans. Phase 1
