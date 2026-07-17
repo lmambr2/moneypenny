@@ -33,7 +33,7 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 | **Economy** | `bot/src/economy/` | Seed mine/refine; live craft/trade/UEX/wiki; **disk cache** `data/economy-cache/` + refresh — **no scrapers** (`docs/economy.md`) |
 | **Rights** | `bot/src/rights/` | Declarative rank gating (chat + voice scopes) |
 | **Voice pipeline** | `bot/src/voice/` | VAD, STT/TTS **HTTP clients**, `VoicePipeline` — not the sidecar processes |
-| **HTTP app** | `bot/src/http/` | `createWebServer` + Express plugins (security, session, API mount, SPA, WS) — PR-C1 |
+| **HTTP app** | `bot/src/http/` | `createWebServer` + Express plugins (security, session, API mount, SPA, WS) — PR-C1; OpenAPI at `GET /api/openapi.json` — PR-C2 (REST only, no tRPC) |
 | **Web API** | `bot/src/web/` | Domain routers (`api/*`), middleware, WS helpers — **all HTTP input validation lives here or in called modules** |
 | **Data** | `bot/src/data/` | SQLite (`better-sqlite3`), `config.json`, doctrine registry, users/sessions, avatars |
 | **Ingest** | `bot/src/ingest/` | TeamSpeak `moneypenny-drop` channel file polling |

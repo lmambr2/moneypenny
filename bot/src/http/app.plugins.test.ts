@@ -18,6 +18,7 @@ describe("http app plugin wiring", () => {
     const order = [
       "registerSecurity",
       "registerPublicRoutes",
+      "registerOpenApi",
       "registerMcp",
       "registerSession",
       "registerProtectedApi",

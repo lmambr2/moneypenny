@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### HTTP: REST + OpenAPI catalog (PR-C2)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Keep REST only — **no tRPC dual stack**
+- `bot/src/http/openapi/operations.ts` — operation catalog (session, player, bot, music, rag, economy, users, audit)
+- `GET /api/openapi.json` public discovery (OpenAPI 3.0)
+- Docs: [docs/http-openapi.md](./docs/http-openapi.md)
+- MCP remains separate Bearer surface (`/mcp`), not listed as cookie routes
+
 ### HTTP: extract createWebServer plugins (PR-C1)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

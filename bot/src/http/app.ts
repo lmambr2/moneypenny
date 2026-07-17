@@ -5,6 +5,7 @@ import { createAuditStore } from "../data/audit.js";
 import { createSessionStore } from "../data/sessions.js";
 import { createUserStore } from "../data/users.js";
 import { registerMcp } from "./plugins/mcp.js";
+import { registerOpenApi } from "./plugins/openapi.js";
 import { registerProtectedApi } from "./plugins/protected-api.js";
 import { registerPublicRoutes } from "./plugins/public-routes.js";
 import { registerSecurity } from "./plugins/security.js";
@@ -22,6 +23,7 @@ const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const PLUGINS: HttpPlugin[] = [
   registerSecurity,
   registerPublicRoutes,
+  registerOpenApi,
   registerMcp,
   registerSession,
   registerProtectedApi,
