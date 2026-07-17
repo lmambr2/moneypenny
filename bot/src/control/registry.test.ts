@@ -113,7 +113,7 @@ describe("CommandRegistry", () => {
     const reg = new CommandRegistry();
     expect(reg.toolToCommand("play_music", { query: "x" })?.name).toBe("play");
     expect(reg.toolToCommand("now_playing", {})?.name).toBe("now");
-    expect(reg.toolToCommand("set_volume", { query: "40" })?.name).toBe("vol");
+    expect(reg.toolToCommand("set_volume", { level: 40 })?.name).toBe("vol");
   });
 
   it("toolToCommand uses llmTool alias when set on a custom spec", () => {

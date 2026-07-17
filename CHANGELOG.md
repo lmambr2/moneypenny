@@ -24,6 +24,13 @@ assistant** authored each batch of work, since not every commit carries a
 - Asserts every resolved/delegated/special command is registered
 - Manifest `llmTool` aliases for play_music / queue / skip / now_playing / …
 
+### Control: tool-map replaces toolCallToCommand switch (PR-A3)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `bot/src/control/tool-map.ts` — SPECIAL_TOOL_MAPPERS + manifest aliases
+- `toolCallToCommand` re-exported from router for existing imports
+- Registry `mapToolCall` / `toolToCommand` use shared map
+
 ### RAG embeddings: nomic-embed-text-v2 / bge-large (replace embeddinggemma)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

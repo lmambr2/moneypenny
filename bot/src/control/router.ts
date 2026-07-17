@@ -28,6 +28,9 @@ import type { Playlist, Song } from "../music/provider.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
 import { decideClarifyOnce } from "./clarify.js";
 import { CommandRegistry } from "./registry.js";
+import { toolCallToCommand } from "./tool-map.js";
+
+export { toolCallToCommand, sourceFlags, knownLlmToolNames } from "./tool-map.js";
 
 /**
  * CommandHandler — registered handlers the router delegates to after routing.
@@ -703,7 +706,7 @@ export class ControlRouter {
         if (out) outputs.push(out);
         continue;
       }
-      const cmd = toolCallToCommand(tc);
+      const cmd = this.registry.mapToolCall(tc) ?? toolCallToCommand(tc);
       if (!cmd) {
         this.logger.warn({ tool: tc.name }, "LLM emitted an unknown/unmapped tool call");
         continue;
@@ -819,100 +822,5 @@ export class ControlRouter {
       });
 
     return WORKFLOW_ACK_MESSAGE;
-  }
-}
-
-/** Map source preference from the play_music/queue tools to a provider flag. */
-function sourceFlags(source?: string): Set<string> {
-  const flags = new Set<string>();
-  if (source === "youtube") flags.add("y");
-  else if (source === "local") flags.add("l");
-  // "auto" / undefined → no flag → BotInstance defaults to Local (primary).
-  return flags;
-}
-
-/**
- * Translate an LLM music-control tool call into a synthetic ParsedCommand so it
- * can run through the deterministic router exactly like a typed `!`-command.
- * Returns null for tools we don't recognize.
- */
-export function toolCallToCommand(tc: {
-  name: string;
-  arguments?: Record<string, unknown>;
-}): ParsedCommand | null {
-  const a = tc.arguments ?? {};
-  const make = (name: string, args = ""): ParsedCommand => ({
-    name,
-    args,
-    rawArgs: args ? args.split(/\s+/) : [],
-    flags: new Set<string>(),
-  });
-
-  switch (tc.name) {
-    case "play_music": {
-      const query = String(a.query ?? "").trim();
-      if (!query) return null;
-      return {
-        ...make("play", query),
-        flags: sourceFlags(typeof a.source === "string" ? a.source : undefined),
-      };
-    }
-    case "queue": {
-      const query = String(a.query ?? "").trim();
-      if (!query) return null;
-      // §9 queue(query) = add to the end of the queue without interrupting.
-      return make("add", query);
-    }
-    case "select_tracks": {
-      // Gemma on NPU often picks select_tracks for plain "play jazz" — map a lone
-      // genre to play_music so we search/resolve instead of tag-only selection.
-      const genres = a.genreAny;
-      if (
-        Array.isArray(genres) &&
-        genres.length === 1 &&
-        typeof genres[0] === "string" &&
-        !a.mood &&
-        !a.bpmMin &&
-        !a.bpmMax &&
-        !a.ratingMin
-      ) {
-        const q = genres[0].replace(/^\[|\]$/g, "").trim();
-        if (q) return make("play", q);
-      }
-      return make("selecttracks", JSON.stringify(a));
-    }
-    case "skip":
-      return make("skip");
-    case "pause":
-      return make("pause");
-    case "resume":
-      return make("resume");
-    case "stop":
-      return make("stop");
-    case "set_volume": {
-      const level = Number(a.level);
-      if (!Number.isFinite(level)) return null;
-      return make("vol", String(Math.round(level)));
-    }
-    case "now_playing":
-      return make("now");
-    case "move_client": {
-      const client = String(a.client ?? a.target ?? "").trim();
-      const channel = String(a.channel ?? "").trim();
-      if (!client || !channel) return null;
-      return {
-        name: "moveclient",
-        args: `${client} ${channel}`,
-        rawArgs: [client, channel],
-        flags: new Set<string>(),
-      };
-    }
-    case "move_all_clients": {
-      const channel = String(a.channel ?? "").trim();
-      if (!channel) return null;
-      return make("moveall", channel);
-    }
-    default:
-      return null;
   }
 }

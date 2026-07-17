@@ -1,9 +1,8 @@
 /**
- * Declarative command registry (PR-A1).
+ * Declarative command registry (PR-A1 / A2 / A3).
  *
- * Holds handlers + optional middleware pipeline. ControlRouter dual-writes
- * registerHandler into this registry so execution can migrate off the
- * internal Map without a big-bang rewrite.
+ * Holds handlers + optional middleware pipeline. Tool-call mapping lives in
+ * tool-map.ts (special mappers) + CommandSpec.llmTool aliases.
  */
 import {
   COMMAND_MANIFEST,
@@ -11,6 +10,7 @@ import {
   type ParsedCommand,
 } from "../bot/commands.js";
 import type { CommandHandler, RouterContext, RouterDecision } from "./router.js";
+import { toolCallToCommand, type ToolCallInput } from "./tool-map.js";
 
 export type ControlMiddleware = (
   ctx: RouterContext,
@@ -70,36 +70,16 @@ export class CommandRegistry {
   }
 
   /**
-   * Map an LLM tool name + args to a ParsedCommand using manifest llmTool
-   * aliases. Special multi-arg tools (move_client, select_tracks, …) still
-   * go through toolCallToCommand in the router — this covers simple 1:1 maps.
+   * Map an LLM tool call to a ParsedCommand via the shared tool-map
+   * (special mappers + manifest llmTool aliases).
    */
   toolToCommand(toolName: string, args: Record<string, unknown> = {}): ParsedCommand | null {
-    const cmdName = this.toolAliases.get(toolName) ?? this.toolAliases.get(toolName.toLowerCase());
-    if (!cmdName) return null;
+    return toolCallToCommand({ name: toolName, arguments: args });
+  }
 
-    const q =
-      typeof args.query === "string"
-        ? args.query.trim()
-        : typeof args.target === "string"
-          ? args.target.trim()
-          : typeof args.prompt === "string"
-            ? args.prompt.trim()
-            : typeof args.task === "string"
-              ? args.task.trim()
-              : "";
-
-    const flags = new Set<string>();
-    if (args.platform === "youtube" || args.source === "youtube") flags.add("y");
-    if (args.platform === "local" || args.source === "local") flags.add("l");
-    if (args.platform === "stream" || args.source === "stream") flags.add("s");
-
-    return {
-      name: cmdName,
-      args: q,
-      rawArgs: q ? q.split(/\s+/).filter(Boolean) : [],
-      flags,
-    };
+  /** Same as toolToCommand but accepts a full tool-call object. */
+  mapToolCall(tc: ToolCallInput): ParsedCommand | null {
+    return toolCallToCommand(tc);
   }
 
   /**

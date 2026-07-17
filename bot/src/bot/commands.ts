@@ -82,7 +82,12 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "radio", kind: "delegated" },
   { name: "rate", kind: "delegated" },
   { name: "unrate", kind: "delegated" },
-  { name: "selecttracks", kind: "delegated" }, // §9.4; mostly via the select_tracks LLM tool
+  {
+    name: "selecttracks",
+    kind: "delegated",
+    llmTool: "select_tracks",
+    description: "Tag/BPM/rating selection; LLM tool select_tracks",
+  },
   // Channel admin.
   { name: "move", kind: "delegated", admin: true },
   { name: "moveclient", kind: "delegated", admin: true, llmTool: "move_client" },
