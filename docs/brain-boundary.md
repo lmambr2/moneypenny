@@ -144,7 +144,7 @@ when the client asks (harness always disposes; `/v1/turn` only if `executeTools`
 - Cloud-default LLM  
 - Brain enforcing rights (bot re-checks every proposal)  
 - Streaming SSE (nice-to-have later)  
-- Nest / LangGraph inside the station process  
+- LangGraph / multi-agent frameworks inside the station process (Nest HTTP shell is already present)
 
 ---
 
