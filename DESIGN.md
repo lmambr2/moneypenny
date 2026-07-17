@@ -325,7 +325,7 @@ moneypenny/
 ├─ models/convert/               # x86-only Qwen3 -> .rkllm (W8A8) conversion
 ├─ bot/                          # the FORK (TypeScript)
 │  ├─ src/
-│  │  ├─ packages/ts6-client/    # @moneypenny/ts6-client (TS3/TS6)
+│  │  ├─ packages/ts6-client/    # @moneypenny/ts6-client (TS3/TS6; public barrel)
 │  │  ├─ web/                    # inherited auth + Vue API (keep; harden per §11)
 │  │  ├─ bot/commands.ts         # extend: add `ask`, wire control router (§4)
 │  │  ├─ control/router.ts       # NEW: deterministic-first dispatch

@@ -156,6 +156,26 @@ export interface TS3VoiceData {
   data: Buffer;
 }
 
+/**
+ * Events emitted by {@link TS3Client} (public surface — PR-B2).
+ *
+ * Hosts (BotInstance) should only depend on this class + these event names;
+ * do not reach into protocol-detect / http-query internals for station ops.
+ */
+export type TS3ClientEventMap = {
+  connected: [];
+  disconnected: [];
+  textMessage: [TS3TextMessage];
+  poke: [TS3Poke];
+  voiceData: [TS3VoiceData];
+  /** Presence — alone-stop / radio recount (full-client, not Query polling). */
+  clientEnter: [ClientInfo];
+  clientLeave: [ClientLeftViewEvent];
+  clientMoved: [ClientMovedEvent];
+  /** S-OC2: sendVoice failure window — hosts should fail open / reconnect. */
+  voiceTransportUnhealthy: [];
+};
+
 export class TS3Client extends EventEmitter {
   private client: TS3FullClient | null = null;
   private identity: Identity;

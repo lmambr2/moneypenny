@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### Packages: `@moneypenny/ts6-client` public surface + dual-protocol docs (PR-B2 / B3)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Host imports only the package root (no subpath imports in bot)
+- Documented public surface: connect / text / voice / file-drop + `TS3ClientEventMap`
+- Barrel export surface locked by `public-api.test.ts`
+- Dual-protocol detect docs: [docs/ts6-client.md](./docs/ts6-client.md) + package README
+- PR-B4 (Rust Opus/VAD) explicitly deferred until profiled need
+
 ### Packages: extract `@moneypenny/ts6-client` (PR-B1)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
@@ -15,7 +24,7 @@ assistant** authored each batch of work, since not every commit carries a
 - Moved `bot/src/ts-protocol/*` → `bot/packages/ts6-client` (`@moneypenny/ts6-client`)
 - Logger decoupled via local `Ts6Logger` interface (pino-compatible inject)
 - Bot imports package by name; Docker copies workspace package into runtime image
-- Package owns its vitest suite (31 tests)
+- Package owns its vitest suite
 
 ## 2026-07-15
 

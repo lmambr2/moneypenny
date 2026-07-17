@@ -22,7 +22,8 @@ file-drop — **not** as a substitute for the full-client voice bot.
 
 **Do not** replace honeybbq with a pure Query client for the music bot (no voice).
 
-Related: [feature-roadmap.md](./feature-roadmap.md) (teamspeak.js watch note),
+Related: [ts6-client.md](./ts6-client.md) (package public surface + dual-protocol detect),
+[feature-roadmap.md](./feature-roadmap.md) (teamspeak.js watch note),
 [rank-gating.md](./rank-gating.md) (HTTP Query groups),
 [hardening.md](./hardening.md) (query ports).
 

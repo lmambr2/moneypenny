@@ -4,8 +4,7 @@ import axios from "axios";
 import type { QueuedSong } from "../audio/queue.js";
 import type { ProfileConfig } from "../data/database.js";
 import type { Logger } from "../logger.js";
-import { escapeTS3, type TS3Client } from "@moneypenny/ts6-client";
-import { HttpQueryError } from "@moneypenny/ts6-client/http-query";
+import { escapeTS3, HttpQueryError, type TS3Client } from "@moneypenny/ts6-client";
 
 const TS3_NICKNAME_MAX = 30;
 /** Avatar size for TS profile upload (server typically enforces ~300-500 KB).

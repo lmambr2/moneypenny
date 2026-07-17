@@ -1,4 +1,4 @@
-import type { QueryClient } from "@moneypenny/ts6-client/move-resolver";
+import type { QueryClient } from "@moneypenny/ts6-client";
 
 export interface MoveAllPending {
   channel: string;
