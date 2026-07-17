@@ -102,15 +102,18 @@ describe("CommandRegistry", () => {
   });
 
   it("toolToCommand maps play + platform flags", () => {
-    const reg = new CommandRegistry([
-      ...COMMAND_MANIFEST,
-      // force llmTool alias for test clarity
-    ]);
-    // play is in manifest as name "play"
+    const reg = new CommandRegistry();
     const cmd = reg.toolToCommand("play", { query: "dragula", platform: "youtube" });
     expect(cmd?.name).toBe("play");
     expect(cmd?.args).toBe("dragula");
     expect(cmd?.flags.has("y")).toBe(true);
+  });
+
+  it("toolToCommand uses COMMAND_MANIFEST llmTool aliases (play_music, now_playing)", () => {
+    const reg = new CommandRegistry();
+    expect(reg.toolToCommand("play_music", { query: "x" })?.name).toBe("play");
+    expect(reg.toolToCommand("now_playing", {})?.name).toBe("now");
+    expect(reg.toolToCommand("set_volume", { query: "40" })?.name).toBe("vol");
   });
 
   it("toolToCommand uses llmTool alias when set on a custom spec", () => {

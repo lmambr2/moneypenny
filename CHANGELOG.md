@@ -16,6 +16,14 @@ assistant** authored each batch of work, since not every commit carries a
 - ControlRouter executes via registry (behavior-preserving)
 - CommandSpec gains optional `rightsToken` / `llmTool` / `voiceScope` metadata
 
+### Control: registerBotCommands on registry (PR-A2)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `registerBotCommands(registry, host)` is the primary handler installer
+- `registerBotCommandHandlers(router, host)` → thin wrapper over `router.getRegistry()`
+- Asserts every resolved/delegated/special command is registered
+- Manifest `llmTool` aliases for play_music / queue / skip / now_playing / …
+
 ### RAG embeddings: nomic-embed-text-v2 / bge-large (replace embeddinggemma)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

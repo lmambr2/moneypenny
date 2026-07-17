@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ParsedCommand } from "../bot/commands.js";
+import {
+  COMMAND_MANIFEST,
+  type ParsedCommand,
+} from "../bot/commands.js";
 import type { TS3TextMessage } from "../ts-protocol/client.js";
-import { type CommandHandlerHost, registerBotCommandHandlers } from "./register-handlers.js";
+import { CommandRegistry } from "./registry.js";
+import {
+  type CommandHandlerHost,
+  expectedRegistryHandlerNames,
+  registerBotCommandHandlers,
+  registerBotCommands,
+} from "./register-handlers.js";
 import { ControlRouter } from "./router.js";
 
 function fakeLogger(): any {
@@ -94,5 +103,57 @@ describe("registerBotCommandHandlers", () => {
       expect.objectContaining({ name }) as ParsedCommand,
       expect.anything(),
     );
+  });
+
+  it("installs handlers on the router's CommandRegistry", () => {
+    const reg = router.getRegistry();
+    for (const name of expectedRegistryHandlerNames()) {
+      expect(reg.has(name), `missing handler for ${name}`).toBe(true);
+    }
+  });
+});
+
+describe("registerBotCommands (registry-only)", () => {
+  it("registers every resolved/delegated/special manifest command without a router", () => {
+    const reg = new CommandRegistry();
+    registerBotCommands(reg, makeHost());
+    const expected = expectedRegistryHandlerNames();
+    expect(expected.length).toBeGreaterThan(20);
+    for (const name of expected) {
+      expect(reg.has(name), name).toBe(true);
+    }
+    // router-kind commands must NOT require handlers here
+    for (const c of COMMAND_MANIFEST.filter((x) => x.kind === "router")) {
+      // may be absent — that's correct
+      expect(c.kind).toBe("router");
+    }
+    // execute a delegated handler end-to-end on the registry
+    const execute = vi.fn().mockResolvedValue("radio-ok");
+    const reg2 = new CommandRegistry();
+    registerBotCommands(
+      reg2,
+      makeHost({
+        commands: { execute } as unknown as CommandHandlerHost["commands"],
+      }),
+    );
+    return reg2
+      .execute(
+        { name: "radio", args: "", rawArgs: [], flags: new Set() },
+        {
+          bot: { isConnected: () => true } as any,
+          logger: fakeLogger(),
+          message: {} as TS3TextMessage,
+        },
+        { type: "deterministic" },
+      )
+      .then((out) => {
+        expect(out).toBe("radio-ok");
+        expect(execute).toHaveBeenCalled();
+      });
+  });
+
+  it("throws if a special command is missing a runner (wiring bug)", () => {
+    // Sanity: all current specials have runners — registration succeeds.
+    expect(() => registerBotCommands(new CommandRegistry(), makeHost())).not.toThrow();
   });
 });

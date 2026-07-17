@@ -48,27 +48,28 @@ export interface CommandSpec {
  */
 export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   // Music — resolve local first, then fall through to executeCommand.
-  { name: "play", kind: "resolved", audio: true },
-  { name: "add", kind: "resolved", audio: true },
+  // llmTool aliases match LLM tool-call names (PR-A2 metadata; toolCallToCommand still owns specials).
+  { name: "play", kind: "resolved", audio: true, llmTool: "play_music" },
+  { name: "add", kind: "resolved", audio: true, llmTool: "queue" },
   { name: "playnext", kind: "resolved", audio: true },
   { name: "pn", kind: "resolved", audio: true },
   { name: "playlist", kind: "resolved", audio: true },
   { name: "album", kind: "resolved", audio: true },
   // Transport + queue (delegated to the executor switch).
-  { name: "skip", kind: "delegated", audio: true },
+  { name: "skip", kind: "delegated", audio: true, llmTool: "skip" },
   { name: "next", kind: "delegated", audio: true },
   { name: "prev", kind: "delegated", audio: true },
-  { name: "pause", kind: "delegated" },
-  { name: "resume", kind: "delegated" },
-  { name: "stop", kind: "delegated", admin: true },
+  { name: "pause", kind: "delegated", llmTool: "pause" },
+  { name: "resume", kind: "delegated", llmTool: "resume" },
+  { name: "stop", kind: "delegated", admin: true, llmTool: "stop" },
   { name: "clear", kind: "delegated", admin: true },
-  { name: "vol", kind: "delegated", admin: true },
+  { name: "vol", kind: "delegated", admin: true, llmTool: "set_volume" },
   { name: "remove", kind: "delegated", admin: true },
   { name: "mode", kind: "delegated", admin: true },
   // Playback ban list (search / auto-DJ / resolve) — DJ/admin; !ban = current track + skip.
   { name: "ban", kind: "delegated", admin: true },
   { name: "unban", kind: "delegated", admin: true },
-  { name: "now", kind: "delegated" },
+  { name: "now", kind: "delegated", llmTool: "now_playing" },
   { name: "queue", kind: "delegated" },
   { name: "list", kind: "delegated" },
   { name: "artist", kind: "delegated", audio: true },
@@ -84,8 +85,8 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "selecttracks", kind: "delegated" }, // §9.4; mostly via the select_tracks LLM tool
   // Channel admin.
   { name: "move", kind: "delegated", admin: true },
-  { name: "moveclient", kind: "delegated", admin: true },
-  { name: "moveall", kind: "delegated", admin: true },
+  { name: "moveclient", kind: "delegated", admin: true, llmTool: "move_client" },
+  { name: "moveall", kind: "delegated", admin: true, llmTool: "move_all_clients" },
   { name: "follow", kind: "delegated", admin: true },
   // Community / knowledge (service-backed runners in register-handlers).
   { name: "roast", kind: "special" },
