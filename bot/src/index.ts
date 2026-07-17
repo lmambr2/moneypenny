@@ -26,7 +26,7 @@ import {
 } from "./rag/index.js";
 import { migrateRightsConfig } from "./rights/migrations.js";
 import { Watchdog } from "./watchdog.js";
-import { createWebServer } from "./web/server.js";
+import { createWebServer } from "./http/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");

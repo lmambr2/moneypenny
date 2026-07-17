@@ -1,21 +1,15 @@
 import express from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
+import { securityHeadersMiddleware } from "./security.js";
 
 /**
- * The clickjacking-defence middleware is mounted at the top of
- * `createWebServer` in `server.ts`. This test asserts the exact behavior
- * we expect from that middleware in isolation. The wiring inside
- * `server.ts` is verified by code review (git diff).
+ * Clickjacking-defence middleware (mounted by registerSecurity in http/app).
  */
 describe("security headers (anti-clickjacking)", () => {
   function buildApp() {
     const app = express();
-    app.use((_req, res, next) => {
-      res.setHeader("X-Frame-Options", "DENY");
-      res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
-      next();
-    });
+    app.use(securityHeadersMiddleware);
     app.get("/", (_req, res) => res.json({ ok: true }));
     app.post("/", (_req, res) => res.json({ ok: true }));
     return app;

@@ -326,7 +326,8 @@ moneypenny/
 ├─ bot/                          # the FORK (TypeScript)
 │  ├─ src/
 │  │  ├─ packages/ts6-client/    # @moneypenny/ts6-client (TS3/TS6; public barrel)
-│  │  ├─ web/                    # inherited auth + Vue API (keep; harden per §11)
+│  │  ├─ http/                   # createWebServer + Express plugins (PR-C1)
+│  │  ├─ web/                    # domain API routers + middleware + Vue SPA
 │  │  ├─ bot/commands.ts         # extend: add `ask`, wire control router (§4)
 │  │  ├─ control/router.ts       # NEW: deterministic-first dispatch
 │  │  ├─ llm/                    # NEW: RKLLama client + tool schema/executors (§9)

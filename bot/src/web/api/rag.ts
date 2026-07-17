@@ -30,7 +30,7 @@ import { multerArray, uploadedFiles } from "./upload.js";
  * Admin RAG API (ROADMAP Phase 5 substrate + Phase 6 doctrine). `/ingest` +
  * `/query` are the raw primitives; `/doctrine/*` is the document knowledge base —
  * upload `.md` (frontmatter → classification/tags metadata), list, delete, and
- * reindex. Mounted admin-only (see web/server.ts).
+ * reindex. Mounted admin-only (see http/plugins/protected-api.ts).
  */
 export function createRagRouter(
   retrieval: RetrievalStore,

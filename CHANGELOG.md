@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### HTTP: extract createWebServer plugins (PR-C1)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `bot/src/http/app.ts` — `createWebServer` composition only
+- Plugins: security, public routes, MCP, session, protected API, static SPA, WebSocket
+- Domain routers remain under `bot/src/web/api/*` (behavior-preserving)
+- Removed monolithic `bot/src/web/server.ts`
+- Security-headers test uses shared `securityHeadersMiddleware`
+
 ### Packages: `@moneypenny/ts6-client` public surface + dual-protocol docs (PR-B2 / B3)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
