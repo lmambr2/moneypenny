@@ -1,8 +1,8 @@
 import {
+  type BrainTransport,
   completeTurn,
   disposeToolProposals,
   resolveBrainTransport,
-  type BrainTransport,
   type TurnMode,
 } from "../brain/index.js";
 import type {

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createAuditStore } from "../data/audit.js";
 import { recordMcpToolAudit } from "./audit-hook.js";
 import { loadMcpConfig } from "./config.js";
-import { runMcpTool, type McpMountOptions } from "./server.js";
+import { type McpMountOptions, runMcpTool } from "./server.js";
 import * as tools from "./tools.js";
 import type { McpSubject } from "./types.js";
 
@@ -63,7 +63,12 @@ function mountOpts(audit: ReturnType<typeof createAuditStore>, bot = mockBot()):
       getAllBots: () => [bot],
     } as any,
     config: {} as any,
-    logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), child: () => ({ info: vi.fn() }) } as any,
+    logger: {
+      info: vi.fn(),
+      error: vi.fn(),
+      warn: vi.fn(),
+      child: () => ({ info: vi.fn() }),
+    } as any,
     audit,
   };
 }
@@ -84,20 +89,17 @@ describe("recordMcpToolAudit", () => {
       );
     `);
     const audit = createAuditStore(db);
-    recordMcpToolAudit(
-      audit,
-      subject(),
-      "music_play",
-      {
-        ok: true,
-        code: "OK",
-        message: "Playing",
-        data: null,
-        meta: { bot_id: "b1", duration_ms: 3, request_id: "r1" },
-      },
-    );
+    recordMcpToolAudit(audit, subject(), "music_play", {
+      ok: true,
+      code: "OK",
+      message: "Playing",
+      data: null,
+      meta: { bot_id: "b1", duration_ms: 3, request_id: "r1" },
+    });
     const row = db
-      .prepare("SELECT actorId, actorUsername, targetUserId, targetUsername, action FROM user_audit")
+      .prepare(
+        "SELECT actorId, actorUsername, targetUserId, targetUsername, action FROM user_audit",
+      )
       .get() as {
       actorId: string;
       actorUsername: string;
@@ -126,18 +128,13 @@ describe("recordMcpToolAudit", () => {
       );
     `);
     const audit = createAuditStore(db);
-    recordMcpToolAudit(
-      audit,
-      subject("readonly"),
-      "music_stop",
-      {
-        ok: false,
-        code: "PERMISSION_DENIED",
-        message: "nope",
-        data: null,
-        meta: { bot_id: "b1", duration_ms: 1, request_id: "r2" },
-      },
-    );
+    recordMcpToolAudit(audit, subject("readonly"), "music_stop", {
+      ok: false,
+      code: "PERMISSION_DENIED",
+      message: "nope",
+      data: null,
+      meta: { bot_id: "b1", duration_ms: 1, request_id: "r2" },
+    });
     const row = db.prepare("SELECT action FROM user_audit").get() as { action: string };
     expect(row.action).toBe("mcp.tool.denied");
   });
@@ -182,9 +179,11 @@ describe("runMcpTool (real handlers + audit)", () => {
     const cmd = (bot.executeRoutedCommand as any).mock.calls[0][0];
     expect(cmd.name).toBe("play");
 
-    const row = db
-      .prepare("SELECT action, targetUsername, targetUserId FROM user_audit")
-      .get() as { action: string; targetUsername: string; targetUserId: string };
+    const row = db.prepare("SELECT action, targetUsername, targetUserId FROM user_audit").get() as {
+      action: string;
+      targetUsername: string;
+      targetUserId: string;
+    };
     expect(row.action).toBe("mcp.tool");
     expect(row.targetUsername).toBe("music_play");
     expect(row.targetUserId).toBe("b1");

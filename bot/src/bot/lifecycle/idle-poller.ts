@@ -1,6 +1,6 @@
+import type { TS3Client } from "@moneypenny/ts6-client";
 import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
-import type { TS3Client } from "@moneypenny/ts6-client";
 
 export type ChannelClient = Awaited<ReturnType<TS3Client["getClientsInChannel"]>>[number];
 

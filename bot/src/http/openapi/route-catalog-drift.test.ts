@@ -2,7 +2,7 @@
  * PR — API ops: fail CI when Express routes drift from OpenAPI catalog.
  * Regenerating: hand-edit operations.ts (or run scripts/sync-openapi-routes.mjs).
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -41,10 +41,7 @@ function collectRouterRoutes(): Set<string> {
     for (const m of text.matchAll(ROUTE_RE)) {
       const method = m[1].toLowerCase();
       const rel = m[2];
-      const full =
-        rel === "/"
-          ? base
-          : base + (rel.startsWith("/") ? rel : `/${rel}`);
+      const full = rel === "/" ? base : base + (rel.startsWith("/") ? rel : `/${rel}`);
       out.add(`${method} ${normalizePath(full)}`);
     }
   }
@@ -72,16 +69,12 @@ function collectRouterRoutes(): Set<string> {
 describe("OpenAPI route catalog drift", () => {
   it("catalog matches Express router + app mounts", () => {
     const live = collectRouterRoutes();
-    const catalog = new Set(
-      API_OPERATIONS.map((o) => `${o.method} ${o.path}`),
-    );
+    const catalog = new Set(API_OPERATIONS.map((o) => `${o.method} ${o.path}`));
 
     const missing = [...live].filter((k) => !catalog.has(k)).sort();
     const extra = [...catalog].filter((k) => !live.has(k)).sort();
 
-    expect(missing, `routes missing from API_OPERATIONS:\n${missing.join("\n")}`).toEqual(
-      [],
-    );
+    expect(missing, `routes missing from API_OPERATIONS:\n${missing.join("\n")}`).toEqual([]);
     expect(extra, `catalog entries with no route:\n${extra.join("\n")}`).toEqual([]);
   });
 });

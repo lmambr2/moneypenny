@@ -1,9 +1,6 @@
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import type { CommandExecutor } from "../bot/commands/executor.js";
-import {
-  COMMAND_MANIFEST,
-  commandsOfKind,
-  type ParsedCommand,
-} from "../bot/commands.js";
+import { COMMAND_MANIFEST, commandsOfKind, type ParsedCommand } from "../bot/commands.js";
 import type { KgService } from "../bot/community/kg.js";
 import type { MemoryService } from "../bot/community/memory.js";
 import type { OpsService } from "../bot/community/ops.js";
@@ -11,7 +8,6 @@ import type { RoastService } from "../bot/community/roast.js";
 import type { KnowledgeService } from "../bot/knowledge/service.js";
 import type { PlaybackEngine } from "../bot/playback/engine.js";
 import { type EconomyCommand, handleEconomyCommand } from "../economy/service.js";
-import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import type { CommandRegistry } from "./registry.js";
 import type { ControlRouter, RouterContext } from "./router.js";
 
@@ -149,10 +145,7 @@ export function registerBotCommands(registry: CommandRegistry, host: CommandHand
       if (ctx.canRun && !ctx.canRun("generate")) {
         return "You don't have permission to use !generate (DJ/admin).";
       }
-      return host.generate.handleGenerate(
-        cmd.args,
-        ctx.invokerUid ?? ctx.invokerName ?? "anon",
-      );
+      return host.generate.handleGenerate(cmd.args, ctx.invokerUid ?? ctx.invokerName ?? "anon");
     },
   };
 

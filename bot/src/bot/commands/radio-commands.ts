@@ -1,3 +1,4 @@
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import type { QueuedSong } from "../../audio/queue.js";
 import { isBlockedGenreSong } from "../../music/genre-block.js";
 import { isNonMusicContent } from "../../music/non-music.js";
@@ -17,7 +18,6 @@ import {
   type TagStore,
 } from "../../radio/index.js";
 import { orderKeysByRatingWeight } from "../../radio/rating-weight.js";
-import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import type { ParsedCommand } from "../commands.js";
 import type { CommandExecutorDeps } from "./executor.js";
 

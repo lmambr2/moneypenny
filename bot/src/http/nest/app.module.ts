@@ -1,8 +1,7 @@
-import http from "node:http";
-import { DynamicModule, Module } from "@nestjs/common";
+import type http from "node:http";
+import { type DynamicModule, Module } from "@nestjs/common";
 import type { Express } from "express";
 import type { WebServerOptions } from "../types.js";
-import { ALL_DOMAIN_BUNDLES } from "./domain-bundles.js";
 import {
   BrainHttpModule,
   McpHttpModule,
@@ -12,6 +11,7 @@ import {
   SystemHttpModule,
   WebsocketHttpModule,
 } from "./domain.modules.js";
+import { ALL_DOMAIN_BUNDLES } from "./domain-bundles.js";
 import { HttpBootstrapService } from "./http-bootstrap.service.js";
 import { DOMAIN_PLUGIN_BUNDLE, WEB_OPTIONS } from "./tokens.js";
 

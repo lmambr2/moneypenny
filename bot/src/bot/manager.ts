@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
+import type { ServerProtocol } from "@moneypenny/ts6-client";
 import type { AvatarStore } from "../data/avatars.js";
 import { mergeBotSecret } from "../data/bot-secrets.js";
 import type { BotConfig } from "../data/config.js";
@@ -10,7 +11,6 @@ import type { Logger } from "../logger.js";
 import type { MusicProvider } from "../music/provider.js";
 import type { TagStore } from "../radio/index.js";
 import type { RetrievalStore } from "../rag/index.js";
-import type { ServerProtocol } from "@moneypenny/ts6-client";
 import { BotInstance } from "./instance.js";
 import { ReconnectScheduler } from "./reconnect-scheduler.js";
 

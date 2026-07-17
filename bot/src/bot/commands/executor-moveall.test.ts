@@ -1,6 +1,6 @@
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotConfig } from "../../data/config.js";
-import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { CommandExecutor } from "./executor.js";
 
 function makeExecutor(

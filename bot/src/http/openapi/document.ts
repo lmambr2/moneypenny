@@ -86,7 +86,9 @@ export function buildOpenApiDocument(opts?: { serverUrl?: string }): Record<stri
         "CSRF: mutating `/api/*` requests require a same-origin `Origin`/`Referer`.",
       ].join("\n"),
     },
-    servers: [{ url: opts?.serverUrl ?? "/", description: "Station bind (often http://127.0.0.1:3000)" }],
+    servers: [
+      { url: opts?.serverUrl ?? "/", description: "Station bind (often http://127.0.0.1:3000)" },
+    ],
     tags: [
       { name: "system", description: "Health and discovery" },
       { name: "session", description: "Login / setup / me" },

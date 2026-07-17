@@ -20,68 +20,24 @@
 
 // ── Connect + client ───────────────────────────────────────────────────────
 export type { FileUploadInfo } from "@honeybbq/teamspeak-client";
-
-export {
-  TS3Client,
-  escapeTS3,
-  extractFileRows,
-  parseFtFileList,
-  type ChannelFile,
-  type TS3ClientEventMap,
-  type TS3ClientOptions,
-  type TS3Poke,
-  type TS3TextMessage,
-  type TS3VoiceData,
-} from "./client.js";
-
-export type { ServerProtocol } from "./protocol-detect.js";
-export {
-  detectServerProtocol,
-  type DetectOptions,
-  type ProtocolDetectResult,
-} from "./protocol-detect.js";
-
-// ── Voice ──────────────────────────────────────────────────────────────────
-export {
-  CODEC_OPUS_MUSIC,
-  CODEC_OPUS_VOICE,
-  VoiceConnection,
-  type VoiceOptions,
-} from "./voice.js";
-
-export {
-  VoiceTransportHealth,
-  type VoiceTransportHealthOptions,
-} from "./voice-transport-health.js";
-
-// ── HTTP Query (TS6) ───────────────────────────────────────────────────────
-export {
-  HttpQueryError,
-  TS6HttpQuery,
-  type HttpQueryOptions,
-  type HttpQueryResult,
-} from "./http-query.js";
-
-// ── Move / presence helpers ────────────────────────────────────────────────
-export {
-  extractQueryRows,
-  parseChannelRows,
-  parseClientRows,
-  resolveChannelQuery,
-  resolveClientQuery,
-  serverGroupsByClidFromRows,
-  type QueryChannel,
-  type QueryClient,
-  type ResolveResult,
-} from "./move-resolver.js";
-
 export {
   asChannelId,
   filterClientsInChannel,
   resolveOwnChannelId,
   sameChannelId,
 } from "./channel-presence.js";
-
+export {
+  type ChannelFile,
+  escapeTS3,
+  extractFileRows,
+  parseFtFileList,
+  TS3Client,
+  type TS3ClientEventMap,
+  type TS3ClientOptions,
+  type TS3Poke,
+  type TS3TextMessage,
+  type TS3VoiceData,
+} from "./client.js";
 // ── Encoding / identity (advanced) ─────────────────────────────────────────
 export {
   decodeResponse,
@@ -90,7 +46,13 @@ export {
   parseErrorLine,
   unescapeValue,
 } from "./commands.js";
-
+// ── HTTP Query (TS6) ───────────────────────────────────────────────────────
+export {
+  HttpQueryError,
+  type HttpQueryOptions,
+  type HttpQueryResult,
+  TS6HttpQuery,
+} from "./http-query.js";
 export {
   computeUid,
   exportIdentity,
@@ -98,5 +60,34 @@ export {
   importIdentity,
   type TS3Identity,
 } from "./identity.js";
-
 export type { Logger, Ts6Logger } from "./logger.js";
+
+// ── Move / presence helpers ────────────────────────────────────────────────
+export {
+  extractQueryRows,
+  parseChannelRows,
+  parseClientRows,
+  type QueryChannel,
+  type QueryClient,
+  type ResolveResult,
+  resolveChannelQuery,
+  resolveClientQuery,
+  serverGroupsByClidFromRows,
+} from "./move-resolver.js";
+export type { ServerProtocol } from "./protocol-detect.js";
+export {
+  type DetectOptions,
+  detectServerProtocol,
+  type ProtocolDetectResult,
+} from "./protocol-detect.js";
+// ── Voice ──────────────────────────────────────────────────────────────────
+export {
+  CODEC_OPUS_MUSIC,
+  CODEC_OPUS_VOICE,
+  VoiceConnection,
+  type VoiceOptions,
+} from "./voice.js";
+export {
+  VoiceTransportHealth,
+  type VoiceTransportHealthOptions,
+} from "./voice-transport-health.js";

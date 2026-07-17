@@ -1,4 +1,9 @@
-import { BrainUnavailableError, type BrainTransport, type TurnRequest, type TurnResult } from "./types.js";
+import {
+  type BrainTransport,
+  BrainUnavailableError,
+  type TurnRequest,
+  type TurnResult,
+} from "./types.js";
 
 export interface HttpBrainOptions {
   /** Base URL of remote brain (e.g. http://brain:8090) — no trailing slash. */
@@ -39,7 +44,10 @@ export function createHttpBrain(opts: HttpBrainOptions): BrainTransport {
           return softError(req, body.error ?? "invalid turn request");
         }
         if (!res.ok) {
-          throw new BrainUnavailableError(`Brain HTTP ${res.status}`, res.status >= 500 ? 503 : 503);
+          throw new BrainUnavailableError(
+            `Brain HTTP ${res.status}`,
+            res.status >= 500 ? 503 : 503,
+          );
         }
         const data = (await res.json()) as Partial<TurnResult>;
         return normalizeRemoteResult(req, data);
@@ -99,9 +107,9 @@ function normalizeRemoteResult(req: TurnRequest, data: Partial<TurnResult>): Tur
     : [];
 
   return {
-    turnId: typeof data.turnId === "string" && data.turnId ? data.turnId : `brain-remote-${Date.now()}`,
-    clientTurnId:
-      typeof data.clientTurnId === "string" ? data.clientTurnId : req.clientTurnId,
+    turnId:
+      typeof data.turnId === "string" && data.turnId ? data.turnId : `brain-remote-${Date.now()}`,
+    clientTurnId: typeof data.clientTurnId === "string" ? data.clientTurnId : req.clientTurnId,
     replyText: typeof data.replyText === "string" ? data.replyText : "",
     sources,
     toolProposals: proposals,

@@ -1,6 +1,6 @@
+import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { ControlRouter, RouterContext } from "../../control/router.js";
 import type { Logger } from "../../logger.js";
-import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { ParsedCommand } from "../commands.js";
 import type { BotInstance } from "../instance.js";
 import type { RightsRuntime } from "../rights/runtime.js";

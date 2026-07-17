@@ -342,10 +342,15 @@ export async function radioSet(
   const sub = str(args.args) || str(args.command) || str(args.subcommand);
   return withBot(ctx, args.bot_id, async (bot, botId) => {
     if (args.dry_run === true) {
-      return okEnvelope(ctx, `[dry-run] would radio ${sub || "(status)"}`, {
-        dry_run: true,
-        args: sub,
-      }, botId);
+      return okEnvelope(
+        ctx,
+        `[dry-run] would radio ${sub || "(status)"}`,
+        {
+          dry_run: true,
+          args: sub,
+        },
+        botId,
+      );
     }
     const cmd = simpleCommand("radio", sub);
     if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
@@ -493,11 +498,16 @@ export async function econRun(
   const rest = str(args.args);
   return withBot(ctx, args.bot_id, async (bot, botId) => {
     if (args.dry_run === true) {
-      return okEnvelope(ctx, `[dry-run] would !${command} ${rest}`.trim(), {
-        dry_run: true,
-        command,
-        args: rest,
-      }, botId);
+      return okEnvelope(
+        ctx,
+        `[dry-run] would !${command} ${rest}`.trim(),
+        {
+          dry_run: true,
+          command,
+          args: rest,
+        },
+        botId,
+      );
     }
     const cmd = simpleCommand(command, rest);
     if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
@@ -514,10 +524,15 @@ export async function workorderRun(
   const needsAdmin = /\bclear\b/i.test(rest);
   return withBot(ctx, args.bot_id, async (bot, botId) => {
     if (args.dry_run === true) {
-      return okEnvelope(ctx, `[dry-run] would !workorder ${rest}`.trim(), {
-        dry_run: true,
-        args: rest,
-      }, botId);
+      return okEnvelope(
+        ctx,
+        `[dry-run] would !workorder ${rest}`.trim(),
+        {
+          dry_run: true,
+          args: rest,
+        },
+        botId,
+      );
     }
     const cmd = simpleCommand("workorder", rest);
     if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);
@@ -544,10 +559,15 @@ export async function generateMusic(
   if (!prompt) return errEnvelope(ctx, "VALIDATION_ERROR", "prompt is required");
   return withBot(ctx, args.bot_id, async (bot, botId) => {
     if (args.dry_run === true) {
-      return okEnvelope(ctx, `[dry-run] would generate: ${prompt}`, {
-        dry_run: true,
-        prompt,
-      }, botId);
+      return okEnvelope(
+        ctx,
+        `[dry-run] would generate: ${prompt}`,
+        {
+          dry_run: true,
+          prompt,
+        },
+        botId,
+      );
     }
     const cmd = simpleCommand("generate", prompt);
     if (!cmd) return errEnvelope(ctx, "INTERNAL", "parse failed", botId);

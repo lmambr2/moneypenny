@@ -1,10 +1,10 @@
+import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { DEFAULT_DEMO_VIDEO_URL, extractVideoId, isDemoTestTrack } from "../../music/youtube.js";
 import type { TagStore } from "../../radio/index.js";
-import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import { AUDIO_COMMANDS, type ParsedCommand } from "../commands.js";
 import { MoveAllPendingStore } from "../control/move-all-pending.js";
 import { MoveClientRateLimiter } from "../control/move-rate.js";

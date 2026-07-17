@@ -1,5 +1,5 @@
-import type { Request } from "express";
 import { timingSafeEqual } from "node:crypto";
+import type { Request } from "express";
 import type { McpConfig } from "./config.js";
 import type { McpSubject } from "./types.js";
 

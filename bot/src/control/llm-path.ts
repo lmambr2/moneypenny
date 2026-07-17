@@ -23,12 +23,7 @@ import type { Logger } from "../logger.js";
 import type { ClarifyService } from "./clarify-service.js";
 import { clarifyPendingKey } from "./clarify-service.js";
 import type { CommandRegistry } from "./registry.js";
-import type {
-  LlmAssist,
-  LlmIntent,
-  RouterContext,
-  RouterDecision,
-} from "./router.js";
+import type { LlmAssist, LlmIntent, RouterContext, RouterDecision } from "./router.js";
 
 export type ResolveMusicFn = (
   cmd: import("../bot/commands.js").ParsedCommand,

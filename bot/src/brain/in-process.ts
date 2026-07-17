@@ -1,10 +1,4 @@
-import type {
-  BrainTransport,
-  ToolProposal,
-  TurnRequest,
-  TurnResult,
-  TurnSource,
-} from "./types.js";
+import type { BrainTransport, ToolProposal, TurnRequest, TurnResult, TurnSource } from "./types.js";
 
 export interface InProcessBrainLlm {
   ask(question: string, conversationId?: string): Promise<string>;

@@ -9,6 +9,6 @@
  */
 
 export { createPluginWebServer, createWebServer, orderedHttpPlugins } from "./app.js";
-export { buildOpenApiDocument, API_OPERATIONS } from "./openapi/index.js";
+export { API_OPERATIONS, buildOpenApiDocument } from "./openapi/index.js";
 export { securityHeadersMiddleware } from "./plugins/security.js";
 export type { HttpAppContext, HttpPlugin, WebServer, WebServerOptions } from "./types.js";

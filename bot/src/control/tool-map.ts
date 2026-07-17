@@ -4,10 +4,7 @@
  * Replaces the switch in router.ts. Special multi-arg / semantic tools are
  * registered as mappers; simple 1:1 aliases come from COMMAND_MANIFEST.llmTool.
  */
-import {
-  COMMAND_MANIFEST,
-  type ParsedCommand,
-} from "../bot/commands.js";
+import { COMMAND_MANIFEST, type ParsedCommand } from "../bot/commands.js";
 
 export type ToolCallInput = {
   name: string;
@@ -133,7 +130,13 @@ export function toolCallToCommand(tc: ToolCallInput): ParsedCommand | null {
     cmdName === name
   ) {
     // now_playing / skip / etc. — empty args
-    if (name === "now_playing" || name === "skip" || name === "pause" || name === "resume" || name === "stop") {
+    if (
+      name === "now_playing" ||
+      name === "skip" ||
+      name === "pause" ||
+      name === "resume" ||
+      name === "stop"
+    ) {
       return make(cmdName);
     }
   }
@@ -148,7 +151,11 @@ export function toolCallToCommand(tc: ToolCallInput): ParsedCommand | null {
           ? a.prompt.trim()
           : "";
   const flags = sourceFlags(
-    typeof a.source === "string" ? a.source : typeof a.platform === "string" ? a.platform : undefined,
+    typeof a.source === "string"
+      ? a.source
+      : typeof a.platform === "string"
+        ? a.platform
+        : undefined,
   );
   return make(cmdName, q, flags);
 }

@@ -1,6 +1,6 @@
+import type { TS3Client } from "@moneypenny/ts6-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueuedSong } from "../audio/queue.js";
-import type { TS3Client } from "@moneypenny/ts6-client";
 import { BotProfileManager } from "./profile.js";
 
 function makeMockTs(): TS3Client & {

@@ -1,7 +1,7 @@
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotInstance } from "../bot/instance.js";
 import type { Logger } from "../logger.js";
-import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { registerBotCommandHandlers } from "./register-handlers.js";
 import {
   ControlRouter,

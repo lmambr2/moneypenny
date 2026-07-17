@@ -3,7 +3,9 @@ import type { Logger } from "../logger.js";
 import { applyDeterministicGates } from "./deterministic-gates.js";
 import type { RouterContext } from "./router.js";
 
-function ctx(partial: Partial<RouterContext> & { connected?: boolean; demo?: boolean }): RouterContext {
+function ctx(
+  partial: Partial<RouterContext> & { connected?: boolean; demo?: boolean },
+): RouterContext {
   return {
     bot: {
       isConnected: () => partial.connected !== false,

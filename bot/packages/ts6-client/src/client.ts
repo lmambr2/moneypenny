@@ -21,13 +21,13 @@ import {
   poke as tsPoke,
   type VoiceData,
 } from "@honeybbq/teamspeak-client";
-import type { Logger } from "./logger.js";
 import {
   asChannelId,
   filterClientsInChannel,
   resolveOwnChannelId as resolveOwnChannelIdPure,
 } from "./channel-presence.js";
 import { HttpQueryError, TS6HttpQuery } from "./http-query.js";
+import type { Logger } from "./logger.js";
 import {
   extractQueryRows,
   parseChannelRows,

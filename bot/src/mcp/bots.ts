@@ -10,9 +10,7 @@ export function resolveBot(
   botIdArg?: unknown,
 ): { bot: BotInstance; botId: string } | { error: string; code: string } {
   const requested =
-    typeof botIdArg === "string" && botIdArg.trim()
-      ? botIdArg.trim()
-      : config.botId;
+    typeof botIdArg === "string" && botIdArg.trim() ? botIdArg.trim() : config.botId;
 
   if (requested) {
     const bot = botManager.getBot(requested);
@@ -55,4 +53,4 @@ export function asWebUser(ctx: McpContext): {
   };
 }
 
-export { okEnvelope, errEnvelope };
+export { errEnvelope, okEnvelope };

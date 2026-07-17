@@ -71,14 +71,23 @@ export const API_OPERATIONS: ApiOperation[] = [
   ),
 
   // ── Session (pre-auth + cookie) ──────────────────────────────────────────
-  op("get", "/api/session/needs-setup", "Whether first-run admin setup is required", ["session"], "public"),
+  op(
+    "get",
+    "/api/session/needs-setup",
+    "Whether first-run admin setup is required",
+    ["session"],
+    "public",
+  ),
   op(
     "post",
     "/api/session/setup",
     "Create first admin user (only when needs-setup)",
     ["session"],
     "public",
-    jsonObject({ username: { type: "string" }, password: { type: "string" } }, ["username", "password"]),
+    jsonObject({ username: { type: "string" }, password: { type: "string" } }, [
+      "username",
+      "password",
+    ]),
   ),
   op(
     "post",
@@ -86,7 +95,10 @@ export const API_OPERATIONS: ApiOperation[] = [
     "Login; sets httpOnly session cookie",
     ["session"],
     "public",
-    jsonObject({ username: { type: "string" }, password: { type: "string" } }, ["username", "password"]),
+    jsonObject({ username: { type: "string" }, password: { type: "string" } }, [
+      "username",
+      "password",
+    ]),
   ),
   op("post", "/api/session/logout", "Clear session cookie", ["session"], "public"),
   op("get", "/api/session/me", "Current user", ["session"], "session"),

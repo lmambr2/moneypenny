@@ -10,6 +10,7 @@ import { FileDropStore } from "./data/file-drop.js";
 import { startEconomyCacheScheduler } from "./economy/cache/refresh.js";
 import { initEconomyDiskCache } from "./economy/cache/store.js";
 import { initWorkOrderStore } from "./economy/work-orders.js";
+import { createWebServer } from "./http/index.js";
 import { warmLlmModels } from "./llm/warmup.js";
 import { createLogger } from "./logger.js";
 import { LocalProvider } from "./music/local.js";
@@ -18,15 +19,9 @@ import { StreamProvider } from "./music/stream.js";
 import { YouTubeProvider } from "./music/youtube.js";
 import { RadioAnalyzer, TagStore } from "./radio/index.js";
 import { reindexDoctrine, watchDoctrineDir } from "./rag/doctrine-ingest.js";
-import {
-  EmbeddingsClient,
-  QdrantClient,
-  RerankerClient,
-  RetrievalStore,
-} from "./rag/index.js";
+import { EmbeddingsClient, QdrantClient, RerankerClient, RetrievalStore } from "./rag/index.js";
 import { migrateRightsConfig } from "./rights/migrations.js";
 import { Watchdog } from "./watchdog.js";
-import { createWebServer } from "./http/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");

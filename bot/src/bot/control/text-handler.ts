@@ -1,8 +1,8 @@
+import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { ControlRouter, RouterContext } from "../../control/router.js";
 import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
 import type { RightsEngine } from "../../rights/index.js";
-import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { RoastService } from "../community/roast.js";
 import type { BotInstance } from "../instance.js";
 import type { LlmRuntime } from "../llm/runtime.js";

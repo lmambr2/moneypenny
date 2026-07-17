@@ -1,3 +1,4 @@
+import type { TS3Client } from "@moneypenny/ts6-client";
 import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
 import {
@@ -6,7 +7,6 @@ import {
   RightsEngine,
   type Subject,
 } from "../../rights/index.js";
-import type { TS3Client } from "@moneypenny/ts6-client";
 import { resolveSubject } from "./subject.js";
 
 export interface RightsRuntimeDeps {

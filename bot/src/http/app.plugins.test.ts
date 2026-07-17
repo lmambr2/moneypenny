@@ -9,15 +9,7 @@ describe("http app plugin wiring", () => {
   it("orders domain bundles by ascending order field", () => {
     const sorted = [...ALL_DOMAIN_BUNDLES].sort((a, b) => a.order - b.order);
     const names = sorted.map((b) => b.name);
-    expect(names).toEqual([
-      "system",
-      "mcp",
-      "session",
-      "brain",
-      "station-api",
-      "spa",
-      "websocket",
-    ]);
+    expect(names).toEqual(["system", "mcp", "session", "brain", "station-api", "spa", "websocket"]);
   });
 
   it("flattened plugin list is non-empty and stable length", () => {

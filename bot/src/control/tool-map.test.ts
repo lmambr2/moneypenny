@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   knownLlmToolNames,
-  sourceFlags,
   SPECIAL_TOOL_MAPPERS,
+  sourceFlags,
   toolCallToCommand,
 } from "./tool-map.js";
 
@@ -49,9 +49,9 @@ describe("tool-map (PR-A3)", () => {
     });
     expect(m?.name).toBe("moveclient");
     expect(m?.rawArgs).toEqual(["Bob", "Hangar"]);
-    expect(toolCallToCommand({ name: "move_all_clients", arguments: { channel: "Lobby" } })?.name).toBe(
-      "moveall",
-    );
+    expect(
+      toolCallToCommand({ name: "move_all_clients", arguments: { channel: "Lobby" } })?.name,
+    ).toBe("moveall");
   });
 
   it("simple aliases via manifest", () => {

@@ -1,7 +1,7 @@
+import type { TS3Client, TS3Poke, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { AudioPlayer } from "../../audio/player.js";
 import type { Logger } from "../../logger.js";
 import type { RadioDirector } from "../../radio/index.js";
-import type { TS3Client, TS3Poke, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { PokeHandler } from "../control/poke-handler.js";
 import type { TextMessageHandler } from "../control/text-handler.js";
 import type { KnowledgeService } from "../knowledge/service.js";

@@ -1,4 +1,4 @@
-import http from "node:http";
+import type http from "node:http";
 import { Inject, Injectable, type OnModuleInit } from "@nestjs/common";
 import cookieParser from "cookie-parser";
 import type { Express } from "express";
@@ -73,10 +73,7 @@ export class HttpBootstrapService implements OnModuleInit {
         return new Promise((resolve) => {
           server.listen(options.port, host, () => {
             this.started = true;
-            logger.info(
-              { host, port: options.port, framework: "nestjs" },
-              "Web server started",
-            );
+            logger.info({ host, port: options.port, framework: "nestjs" }, "Web server started");
             if (host === "0.0.0.0") {
               logger.warn(
                 "Web server bound to 0.0.0.0 (all interfaces). Ensure the port is firewalled to LAN/localhost or fronted by a TLS proxy (DESIGN §11).",

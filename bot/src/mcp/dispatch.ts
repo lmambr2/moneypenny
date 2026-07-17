@@ -1,4 +1,4 @@
-import { parseCommand, type ParsedCommand } from "../bot/commands.js";
+import { type ParsedCommand, parseCommand } from "../bot/commands.js";
 import type { BotInstance } from "../bot/instance.js";
 import { profileAllows } from "./auth.js";
 import { asWebUser, errEnvelope, okEnvelope } from "./bots.js";

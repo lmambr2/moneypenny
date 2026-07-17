@@ -18,7 +18,12 @@ describe("MCP HTTP mount", () => {
         mcpConfig,
         botManager: { getAllBots: () => [], getBot: () => undefined } as any,
         config: {} as any,
-        logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), child: () => ({ info: vi.fn(), error: vi.fn() }) } as any,
+        logger: {
+          info: vi.fn(),
+          error: vi.fn(),
+          warn: vi.fn(),
+          child: () => ({ info: vi.fn(), error: vi.fn() }),
+        } as any,
       }),
     );
 

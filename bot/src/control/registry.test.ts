@@ -181,10 +181,15 @@ describe("middleware helpers", () => {
         return next();
       },
     );
-    await mw(mockCtx(), { name: "x", args: "", rawArgs: [], flags: new Set() }, emptyDecision, async () => {
-      order.push("3");
-      return "done";
-    });
+    await mw(
+      mockCtx(),
+      { name: "x", args: "", rawArgs: [], flags: new Set() },
+      emptyDecision,
+      async () => {
+        order.push("3");
+        return "done";
+      },
+    );
     expect(order).toEqual(["1", "2", "3"]);
   });
 });

@@ -1,3 +1,4 @@
+import type { TS3Client } from "@moneypenny/ts6-client";
 import type { BotConfig } from "../../data/config.js";
 import type { DoctrineStore } from "../../data/doctrine.js";
 import type { FileDropStore } from "../../data/file-drop.js";
@@ -14,7 +15,6 @@ import {
   reindexDoctrineSources,
 } from "../../rag/doctrine-ingest.js";
 import type { RetrievalStore } from "../../rag/index.js";
-import type { TS3Client } from "@moneypenny/ts6-client";
 
 export interface KnowledgeServiceDeps {
   config: BotConfig;

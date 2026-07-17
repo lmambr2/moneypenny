@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { completeTurn } from "./complete-turn.js";
 import { disposeToolProposals } from "./dispose.js";
+import { resolveBrainTransport } from "./factory.js";
 import { createHttpBrain } from "./http-brain.js";
 import { createInProcessBrain } from "./in-process.js";
-import { resolveBrainTransport } from "./factory.js";
 import { BrainUnavailableError } from "./types.js";
 
 describe("InProcessBrain", () => {
@@ -42,9 +42,7 @@ describe("InProcessBrain", () => {
       text: "play ambient",
       mode: "intent",
     });
-    expect(r.toolProposals).toEqual([
-      { name: "play_music", arguments: { query: "ambient" } },
-    ]);
+    expect(r.toolProposals).toEqual([{ name: "play_music", arguments: { query: "ambient" } }]);
     expect(r.replyText).toBe("Sure");
   });
 
@@ -75,17 +73,18 @@ describe("disposeToolProposals", () => {
 
 describe("HttpBrain", () => {
   it("posts to /v1/turn and normalizes result", async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          turnId: "remote-1",
-          replyText: "hi",
-          sources: [],
-          toolProposals: [{ name: "skip", arguments: {} }],
-          error: null,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            turnId: "remote-1",
+            replyText: "hi",
+            sources: [],
+            toolProposals: [{ name: "skip", arguments: {} }],
+            error: null,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     );
     const brain = createHttpBrain({
       baseUrl: "http://brain.example",

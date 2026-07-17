@@ -49,7 +49,14 @@ function mockCtx(overrides?: Partial<McpContext>): McpContext {
     getRadioStatus: () => ({ enabled: false }),
     getRagStatus: async () => ({ configured: true, available: true, docCount: 3 }),
     listDoctrineDocs: () => [
-      { source: "ops.md", classification: "unclassified", tags: [], chunks: 2, bytes: 10, updatedAt: 1 },
+      {
+        source: "ops.md",
+        classification: "unclassified",
+        tags: [],
+        chunks: 2,
+        bytes: 10,
+        updatedAt: 1,
+      },
     ],
     getPlayHistoryRecords: (limit: number) =>
       [
@@ -64,10 +71,9 @@ function mockCtx(overrides?: Partial<McpContext>): McpContext {
         },
       ].slice(0, limit),
     listHarnessTurns: (limit: number) =>
-      [{ id: "h1", at: 1, user: "q", reply: "a", sources: [], tools: [], mode: "ask" as const }].slice(
-        0,
-        limit,
-      ),
+      [
+        { id: "h1", at: 1, user: "q", reply: "a", sources: [], tools: [], mode: "ask" as const },
+      ].slice(0, limit),
     executeRoutedCommand: vi.fn(async (cmd: { name: string }) => ({
       message: `ok:${cmd.name}`,
       denied: false,
@@ -273,7 +279,8 @@ describe("MCP tools", () => {
       "radio",
     );
     expect((await tools.doctrineReindex({ sources: ["a.md"] }, ctx)).ok).toBe(true);
-    const reindexCmd = (ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock.calls[1][0];
+    const reindexCmd = (ctx.botManager.getAllBots()[0] as any).executeRoutedCommand.mock
+      .calls[1][0];
     expect(reindexCmd.name).toBe("reindex");
     expect(reindexCmd.args).toContain("a.md");
   });

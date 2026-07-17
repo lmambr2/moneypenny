@@ -19,11 +19,14 @@ function sendDocsHtml(_req: express.Request, res: express.Response): void {
 }
 
 function sendDocsMissing(_req: express.Request, res: express.Response): void {
-  res.status(503).type("html").send(
-    `<!doctype html><meta charset="utf-8"><title>API docs</title>
+  res
+    .status(503)
+    .type("html")
+    .send(
+      `<!doctype html><meta charset="utf-8"><title>API docs</title>
      <p>Install <code>swagger-ui-dist</code> or open
      <a href="/api/openapi.json">/api/openapi.json</a>.</p>`,
-  );
+    );
 }
 
 /**
@@ -49,7 +52,9 @@ export const registerOpenApi: HttpPlugin = (ctx: HttpAppContext) => {
     app.get("/api/docs", sendDocsHtml);
     app.get("/api/docs/", sendDocsHtml);
   } else {
-    logger.warn("swagger-ui-dist not installed — /api/docs disabled (JSON still at /api/openapi.json)");
+    logger.warn(
+      "swagger-ui-dist not installed — /api/docs disabled (JSON still at /api/openapi.json)",
+    );
     app.get("/api/docs", sendDocsMissing);
     app.get("/api/docs/", sendDocsMissing);
   }

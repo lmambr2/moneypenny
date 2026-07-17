@@ -4,13 +4,9 @@
  * Holds handlers + optional middleware pipeline. Tool-call mapping lives in
  * tool-map.ts (special mappers) + CommandSpec.llmTool aliases.
  */
-import {
-  COMMAND_MANIFEST,
-  type CommandSpec,
-  type ParsedCommand,
-} from "../bot/commands.js";
+import { COMMAND_MANIFEST, type CommandSpec, type ParsedCommand } from "../bot/commands.js";
 import type { CommandHandler, RouterContext, RouterDecision } from "./router.js";
-import { toolCallToCommand, type ToolCallInput } from "./tool-map.js";
+import { type ToolCallInput, toolCallToCommand } from "./tool-map.js";
 
 export type ControlMiddleware = (
   ctx: RouterContext,

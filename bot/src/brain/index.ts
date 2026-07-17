@@ -1,6 +1,6 @@
 export { completeTurn } from "./complete-turn.js";
-export { disposeToolProposals, type DisposeResult, type ToolExecutor } from "./dispose.js";
-export { resolveBrainTransport, type ResolveBrainOptions } from "./factory.js";
+export { type DisposeResult, disposeToolProposals, type ToolExecutor } from "./dispose.js";
+export { type ResolveBrainOptions, resolveBrainTransport } from "./factory.js";
 export {
   createHttpBrain,
   type HttpBrainOptions,
@@ -11,8 +11,8 @@ export {
   type InProcessBrainLlm,
 } from "./in-process.js";
 export {
-  BrainUnavailableError,
   type BrainTransport,
+  BrainUnavailableError,
   type ToolProposal,
   type TurnChannel,
   type TurnMode,

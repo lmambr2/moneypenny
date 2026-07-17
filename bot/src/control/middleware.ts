@@ -11,10 +11,7 @@ import { invokerFields } from "./router.js";
 
 /** Structured log before handler (does not change result). */
 export const logInvoker: ControlMiddleware = async (ctx, cmd, _decision, next) => {
-  ctx.logger.info(
-    { command: cmd.name, ...invokerFields(ctx) },
-    "control middleware",
-  );
+  ctx.logger.info({ command: cmd.name, ...invokerFields(ctx) }, "control middleware");
   return next();
 };
 

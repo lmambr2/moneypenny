@@ -1,5 +1,6 @@
 import path from "node:path";
 import { Writable } from "node:stream";
+import type { ChannelFile, TS3Client } from "@moneypenny/ts6-client";
 import type { BotConfig } from "../data/config.js";
 import type { DoctrineStore } from "../data/doctrine.js";
 import type { FileDropStore } from "../data/file-drop.js";
@@ -7,7 +8,6 @@ import type { Logger } from "../logger.js";
 import type { MusicProvider } from "../music/provider.js";
 import { ingestDoctrineDoc, MAX_DOCTRINE_FILE_BYTES } from "../rag/doctrine-ingest.js";
 import type { RetrievalStore } from "../rag/index.js";
-import type { ChannelFile, TS3Client } from "@moneypenny/ts6-client";
 import { errorMessage } from "../util/error.js";
 import {
   channelFilesDir,

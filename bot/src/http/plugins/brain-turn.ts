@@ -1,4 +1,5 @@
 import express from "express";
+import type { BotManager } from "../../bot/manager.js";
 import {
   completeTurn,
   disposeToolProposals,
@@ -6,9 +7,8 @@ import {
   type TurnMode,
   type TurnRequest,
 } from "../../brain/index.js";
-import type { BotManager } from "../../bot/manager.js";
-import { createRequireAuth } from "../../web/middleware/requireAuth.js";
 import { requireAdmin } from "../../web/middleware/requireAdmin.js";
+import { createRequireAuth } from "../../web/middleware/requireAuth.js";
 import type { HttpAppContext, HttpPlugin } from "../types.js";
 
 /**
@@ -33,8 +33,7 @@ export const registerBrainTurn: HttpPlugin = (ctx: HttpAppContext) => {
         return;
       }
 
-      const mode: TurnMode =
-        body.mode === "intent" || body.mode === "delegate" ? body.mode : "ask";
+      const mode: TurnMode = body.mode === "intent" || body.mode === "delegate" ? body.mode : "ask";
       const channel =
         body.channel === "teamspeak" || body.channel === "voice" || body.channel === "dashboard"
           ? body.channel
@@ -53,15 +52,16 @@ export const registerBrainTurn: HttpPlugin = (ctx: HttpAppContext) => {
                   ? body.subject.serverGroups.filter((g: unknown) => typeof g === "string")
                   : undefined,
                 allowedClassifications: Array.isArray(body.subject.allowedClassifications)
-                  ? body.subject.allowedClassifications.filter((g: unknown) => typeof g === "string")
+                  ? body.subject.allowedClassifications.filter(
+                      (g: unknown) => typeof g === "string",
+                    )
                   : undefined,
               }
             : undefined,
         mode,
         options: {
           includeSources: body.options?.includeSources !== false,
-          maxTools:
-            typeof body.options?.maxTools === "number" ? body.options.maxTools : undefined,
+          maxTools: typeof body.options?.maxTools === "number" ? body.options.maxTools : undefined,
         },
       };
 

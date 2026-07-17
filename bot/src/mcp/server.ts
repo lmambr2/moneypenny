@@ -3,10 +3,10 @@
  * See docs/mcp-server.md.
  */
 import { randomUUID } from "node:crypto";
-import type { Request, RequestHandler, Response, Router } from "express";
-import { Router as createRouter } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { Request, RequestHandler, Response, Router } from "express";
+import { Router as createRouter } from "express";
 import * as z from "zod/v4";
 import type { BotManager } from "../bot/manager.js";
 import type { AuditStore } from "../data/audit.js";
@@ -33,11 +33,7 @@ export interface McpMountOptions {
 
 type ToolFn = (args: Record<string, unknown>, ctx: McpContext) => Promise<McpToolEnvelope>;
 
-function makeCtx(
-  opts: McpMountOptions,
-  subject: McpSubject,
-  requestId: string,
-): McpContext {
+function makeCtx(opts: McpMountOptions, subject: McpSubject, requestId: string): McpContext {
   return {
     config: opts.mcpConfig,
     botManager: opts.botManager,
@@ -58,7 +54,11 @@ export async function runMcpTool(
   name: string,
   fn: ToolFn,
   args: Record<string, unknown>,
-): Promise<{ content: ReturnType<typeof envelopeToToolContent>["content"]; isError?: boolean; envelope: McpToolEnvelope }> {
+): Promise<{
+  content: ReturnType<typeof envelopeToToolContent>["content"];
+  isError?: boolean;
+  envelope: McpToolEnvelope;
+}> {
   const requestId = randomUUID();
   const ctx = makeCtx(opts, subject, requestId);
   let envelope: McpToolEnvelope;
@@ -102,26 +102,17 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     version: APP_VERSION,
   });
 
-  const reg = (
-    name: string,
-    description: string,
-    schema: z.ZodRawShape,
-    fn: ToolFn,
-  ) => {
-    server.registerTool(
-      name,
-      { description, inputSchema: schema },
-      async (args) => {
-        const { content, isError } = await runMcpTool(
-          opts,
-          subject,
-          name,
-          fn,
-          (args ?? {}) as Record<string, unknown>,
-        );
-        return { content, isError };
-      },
-    );
+  const reg = (name: string, description: string, schema: z.ZodRawShape, fn: ToolFn) => {
+    server.registerTool(name, { description, inputSchema: schema }, async (args) => {
+      const { content, isError } = await runMcpTool(
+        opts,
+        subject,
+        name,
+        fn,
+        (args ?? {}) as Record<string, unknown>,
+      );
+      return { content, isError };
+    });
   };
 
   reg(
@@ -148,18 +139,10 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     tools.statusQueue,
   );
 
-  reg(
-    "status_radio",
-    "Autonomous radio / auto-DJ director status.",
-    {},
-    tools.statusRadio,
-  );
+  reg("status_radio", "Autonomous radio / auto-DJ director status.", {}, tools.statusRadio);
 
-  reg(
-    "status_rag",
-    "Doctrine knowledge base / TurboVec RAG substrate status.",
-    {},
-    (a, c) => tools.statusRag(a, c, opts.config),
+  reg("status_rag", "Doctrine knowledge base / TurboVec RAG substrate status.", {}, (a, c) =>
+    tools.statusRag(a, c, opts.config),
   );
 
   const playSchema = {
@@ -193,7 +176,12 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     tools.musicPlayNext,
   );
 
-  reg("music_skip", "Skip to the next track in the queue.", { bot_id: botIdField }, tools.musicSkip);
+  reg(
+    "music_skip",
+    "Skip to the next track in the queue.",
+    { bot_id: botIdField },
+    tools.musicSkip,
+  );
   reg("music_pause", "Pause playback.", { bot_id: botIdField }, tools.musicPause);
   reg("music_resume", "Resume paused playback.", { bot_id: botIdField }, tools.musicResume);
 
@@ -202,7 +190,10 @@ function createMcpServerForRequest(opts: McpMountOptions, subject: McpSubject): 
     "Ban a track from search/auto-DJ (empty query = current track). High-impact: pass confirm:true.",
     {
       query: z.string().optional().describe("Title/artist or fingerprint; omit for current track"),
-      confirm: z.boolean().optional().describe("Required true when MCP_REQUIRE_CONFIRM is on (default)"),
+      confirm: z
+        .boolean()
+        .optional()
+        .describe("Required true when MCP_REQUIRE_CONFIRM is on (default)"),
       bot_id: botIdField,
     },
     tools.musicBan,
@@ -494,9 +485,7 @@ export const MCP_MODERATION_TOOLS = ["mod_mute", "mod_kick"] as const;
 export const MCP_TOOL_NAMES = [...MCP_TOOL_NAMES_BASE, ...MCP_MODERATION_TOOLS] as const;
 
 export function mcpToolNamesForConfig(enableModeration: boolean): readonly string[] {
-  return enableModeration
-    ? MCP_TOOL_NAMES
-    : MCP_TOOL_NAMES_BASE;
+  return enableModeration ? MCP_TOOL_NAMES : MCP_TOOL_NAMES_BASE;
 }
 
 /**

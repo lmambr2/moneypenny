@@ -5,17 +5,17 @@ import type { QdrantClient, QdrantPoint } from "./qdrant.js";
 import type { RerankerClient } from "./reranker.js";
 import { isDoctrineExpired } from "./validity.js";
 
-export { EmbeddingsClient, defaultModelForEdition, DEFAULT_EMBEDDING_MODEL } from "./embeddings.js";
-export { QdrantClient } from "./qdrant.js";
-export { RerankerClient } from "./reranker.js";
-export { l2Normalize, l2NormalizeBatch } from "./normalize.js";
 export {
+  chunkId,
   chunkMarkdown,
   chunkText,
-  chunkId,
   DEFAULT_CHUNK_MAX_CHARS,
   DEFAULT_CHUNK_OVERLAP,
 } from "./chunk.js";
+export { DEFAULT_EMBEDDING_MODEL, defaultModelForEdition, EmbeddingsClient } from "./embeddings.js";
+export { l2Normalize, l2NormalizeBatch } from "./normalize.js";
+export { QdrantClient } from "./qdrant.js";
+export { RerankerClient } from "./reranker.js";
 
 export interface RetrievedChunk {
   text: string;
@@ -154,9 +154,7 @@ export class RetrievalStore {
         : undefined;
     const limit = topK ?? this.topK;
     // Over-fetch for optional rerank / post-filter
-    const fetchK = this.reranker?.enabled
-      ? Math.max(limit * 8, 20)
-      : Math.max(limit * 4, limit);
+    const fetchK = this.reranker?.enabled ? Math.max(limit * 8, 20) : Math.max(limit * 4, limit);
     const hits = await this.qdrant.search(this.collection, vec, fetchK, filter);
     let chunks: RetrievedChunk[] = hits
       .filter((h) => !isDoctrineExpired(payloadField(h.payload, "valid_until") || undefined))

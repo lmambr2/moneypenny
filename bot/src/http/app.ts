@@ -13,9 +13,7 @@ const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
  * Flatten domain bundles into ordered plugin list (shared by Express + Nest paths).
  */
 export function orderedHttpPlugins(): HttpPlugin[] {
-  return [...ALL_DOMAIN_BUNDLES]
-    .sort((a, b) => a.order - b.order)
-    .flatMap((b) => b.plugins);
+  return [...ALL_DOMAIN_BUNDLES].sort((a, b) => a.order - b.order).flatMap((b) => b.plugins);
 }
 
 /**

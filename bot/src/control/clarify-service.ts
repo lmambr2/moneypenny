@@ -2,11 +2,7 @@
  * Clarify-once service (PR-A4). Injectable façade over decideClarifyOnce.
  * Default is in-memory; swap for Redis later without touching the router.
  */
-import {
-  decideClarifyOnce,
-  type ClarifyDecision,
-  type ToolCallLike,
-} from "./clarify.js";
+import { type ClarifyDecision, decideClarifyOnce, type ToolCallLike } from "./clarify.js";
 
 export interface ClarifyService {
   /** Whether clarify-once is enabled. */
@@ -16,10 +12,7 @@ export interface ClarifyService {
    * Apply clarify-once for this invoker/conversation.
    * Updates internal pending state when a clarify question is issued.
    */
-  evaluate(
-    pendingKey: string,
-    toolCalls: ToolCallLike[],
-  ): ClarifyDecision;
+  evaluate(pendingKey: string, toolCalls: ToolCallLike[]): ClarifyDecision;
   /** Clear pending for a key (after proceed / answer). */
   clearPending(pendingKey: string): void;
 }

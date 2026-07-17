@@ -1,16 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  COMMAND_MANIFEST,
-  type ParsedCommand,
-} from "../bot/commands.js";
 import type { TS3TextMessage } from "@moneypenny/ts6-client";
-import { CommandRegistry } from "./registry.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { COMMAND_MANIFEST, type ParsedCommand } from "../bot/commands.js";
 import {
   type CommandHandlerHost,
   expectedRegistryHandlerNames,
   registerBotCommandHandlers,
   registerBotCommands,
 } from "./register-handlers.js";
+import { CommandRegistry } from "./registry.js";
 import { ControlRouter } from "./router.js";
 
 function fakeLogger(): any {

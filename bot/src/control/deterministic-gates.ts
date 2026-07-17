@@ -2,8 +2,9 @@
  * Pre-handler gates for deterministic commands (PR-A4).
  * Extracted from ControlRouter.executeDeterministic for testability.
  */
-import { AUDIO_COMMANDS } from "../bot/commands.js";
+
 import type { ParsedCommand } from "../bot/commands.js";
+import { AUDIO_COMMANDS } from "../bot/commands.js";
 import type { Logger } from "../logger.js";
 import { invokerFields, type RouterContext } from "./router.js";
 

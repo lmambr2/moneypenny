@@ -2915,7 +2915,8 @@ async function prewarmRadioBumpers(includeDoctrine: boolean) {
     radioPanel.statusText = msg;
     radioPanel.lastPrewarm = `${new Date().toLocaleString()} — ${msg}`;
   } catch (e: any) {
-    radioPanel.error = e?.response?.data?.error ?? 'Bumper prewarm failed (check TTS / LLM for doctrine)';
+    radioPanel.error =
+      e?.response?.data?.error ?? 'Bumper prewarm failed (check TTS / LLM for doctrine)';
   } finally {
     radioPanel.prewarming = false;
     radioPanel.prewarmDoctrine = false;

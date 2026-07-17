@@ -21,9 +21,7 @@ describe("loadMcpConfig", () => {
   });
 
   it("normalizes path", () => {
-    expect(loadMcpConfig({ MCP_ENABLED: "1", MCP_TOKEN: "t", MCP_PATH: "mcp" }).path).toBe(
-      "/mcp",
-    );
+    expect(loadMcpConfig({ MCP_ENABLED: "1", MCP_TOKEN: "t", MCP_PATH: "mcp" }).path).toBe("/mcp");
     expect(loadMcpConfig({ MCP_ENABLED: "1", MCP_TOKEN: "t", MCP_PATH: "/mcp/" }).path).toBe(
       "/mcp",
     );

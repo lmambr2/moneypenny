@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { dirname, isAbsolute, join } from "node:path";
+import { TS3Client, type TS3ClientOptions, type TS3TextMessage } from "@moneypenny/ts6-client";
 import { AudioPlayer } from "../audio/player.js";
 import { type PlayMode, PlayQueue, type QueuedSong } from "../audio/queue.js";
 import { registerBotCommandHandlers } from "../control/register-handlers.js";
@@ -47,7 +48,6 @@ import {
   createStarCitizenOrgStatusPlugin,
   ExternalStatusRegistry,
 } from "../tools/external-status.js";
-import { TS3Client, type TS3ClientOptions, type TS3TextMessage } from "@moneypenny/ts6-client";
 import { KokoroTtsClient, type TtsProvider } from "../voice/index.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
 import {

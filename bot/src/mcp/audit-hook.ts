@@ -15,11 +15,7 @@ export function recordMcpToolAudit(
   if (!audit) return;
   try {
     const denied = !envelope.ok && envelope.code === "PERMISSION_DENIED";
-    const action = denied
-      ? "mcp.tool.denied"
-      : envelope.ok
-        ? "mcp.tool"
-        : "mcp.tool.error";
+    const action = denied ? "mcp.tool.denied" : envelope.ok ? "mcp.tool" : "mcp.tool.error";
     audit.record({
       actorId: subject.invokerUid,
       actorUsername: `${subject.invokerName}|${subject.rightsProfile}|${subject.tokenId}`,

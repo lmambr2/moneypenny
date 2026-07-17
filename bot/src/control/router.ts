@@ -1,16 +1,16 @@
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { isKnownCommand, type ParsedCommand, parseCommand } from "../bot/commands.js";
 import type { BotInstance } from "../bot/instance.js";
 import type { WorkflowKind, WorkflowRequest } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
-import type { TS3TextMessage } from "@moneypenny/ts6-client";
-import { MemoryClarifyService, type ClarifyService } from "./clarify-service.js";
+import { type ClarifyService, MemoryClarifyService } from "./clarify-service.js";
 import { applyDeterministicGates } from "./deterministic-gates.js";
 import { executeLlmPath, llmUnavailableMessage } from "./llm-path.js";
 import { CommandRegistry } from "./registry.js";
 
-export { toolCallToCommand, sourceFlags, knownLlmToolNames } from "./tool-map.js";
-export { MemoryClarifyService, type ClarifyService } from "./clarify-service.js";
+export { type ClarifyService, MemoryClarifyService } from "./clarify-service.js";
+export { knownLlmToolNames, sourceFlags, toolCallToCommand } from "./tool-map.js";
 
 /**
  * CommandHandler — registered handlers the router delegates to after routing.

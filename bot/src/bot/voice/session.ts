@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CODEC_OPUS_VOICE, type TS3Client, type TS3VoiceData } from "@moneypenny/ts6-client";
 import { createOpusEncoder, type Encoder } from "../../audio/encoder.js";
 import { decodeVoiceOpusPacket } from "../../audio/opus-voice.js";
 import type { AudioPlayer } from "../../audio/player.js";
@@ -10,7 +11,6 @@ import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
-import { CODEC_OPUS_VOICE, type TS3Client, type TS3VoiceData } from "@moneypenny/ts6-client";
 import {
   defaultVoiceConfig,
   isPlaybackControlReply,
