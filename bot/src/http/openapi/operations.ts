@@ -49,6 +49,24 @@ export const API_OPERATIONS: ApiOperation[] = [
   op("get", "/api/health", "Liveness probe", ["system"], "public"),
   op("get", "/api/config/public-url", "Configured public WebUI URL", ["system"], "public"),
   op("get", "/api/openapi.json", "OpenAPI 3 document for this REST API", ["system"], "public"),
+  op(
+    "post",
+    "/v1/turn",
+    "Brain turn (propose tools; optional executeTools dispose)",
+    ["brain"],
+    "admin",
+    jsonObject(
+      {
+        text: { type: "string" },
+        channel: { type: "string", enum: ["dashboard", "teamspeak", "voice"] },
+        mode: { type: "string", enum: ["ask", "intent", "delegate"] },
+        clientTurnId: { type: "string" },
+        executeTools: { type: "boolean" },
+        dryRun: { type: "boolean" },
+      },
+      ["text"],
+    ),
+  ),
 
   // ── Session (pre-auth + cookie) ──────────────────────────────────────────
   op("get", "/api/session/needs-setup", "Whether first-run admin setup is required", ["session"], "public"),

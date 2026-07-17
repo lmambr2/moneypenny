@@ -21,6 +21,7 @@ describe("http app plugin wiring", () => {
       "registerOpenApi",
       "registerMcp",
       "registerSession",
+      "registerBrainTurn",
       "registerProtectedApi",
       "registerStaticSpa",
       "registerWebSocket",

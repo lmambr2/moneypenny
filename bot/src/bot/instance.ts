@@ -950,7 +950,6 @@ export class BotInstance extends EventEmitter {
     },
   ): Promise<import("../harness/index.js").HarnessTurn> {
     const { runHarnessTurn, InMemoryHarnessStore } = await import("../harness/index.js");
-    const { decideHarnessTool } = await import("../harness/tool-policy.js");
     if (!this.harnessStore) {
       this.harnessStore = new InMemoryHarnessStore(50);
     }
@@ -964,36 +963,79 @@ export class BotInstance extends EventEmitter {
           }
         : null,
       retrieve: async (q) => this.llm.retrieveForHarness(q),
+      brainUrl: (process.env.BRAIN_URL ?? "").trim() || undefined,
+      channel: "dashboard",
       executeTool: async (name, args) => {
-        const decision = decideHarnessTool(name, {
+        return this.disposeBrainTool(name, args, {
           dryRun: opts?.dryRun === true,
           allowDangerous:
             opts?.allowDangerous === true || this.config.harnessIntentAllowDangerous === true,
         });
-        if (decision.action === "dry_run") {
-          return { ok: true, result: `[dry-run] would run ${name}` };
-        }
-        if (decision.action === "block") {
-          return { ok: false, error: decision.reason };
-        }
-        try {
-          const { toolCallToCommand } = await import("../control/router.js");
-          const cmd = toolCallToCommand({ name, arguments: args });
-          if (!cmd) {
-            return { ok: false, error: `unknown or invalid tool: ${name}` };
-          }
-          const text = await this.commands.execute(cmd);
-          return { ok: true, result: text ?? "(ok)" };
-        } catch (err) {
-          return {
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          };
-        }
       },
       store: this.harnessStore,
       conversationId: "harness-dashboard",
     });
+  }
+
+  /**
+   * Phase D — dispose a single brain tool proposal (rights / dry-run via harness policy).
+   * Used by harness and POST /v1/turn when executeTools is true.
+   */
+  async disposeBrainTool(
+    name: string,
+    args: Record<string, unknown>,
+    opts?: { dryRun?: boolean; allowDangerous?: boolean },
+  ): Promise<{ ok: boolean; result?: string; error?: string }> {
+    const { decideHarnessTool } = await import("../harness/tool-policy.js");
+    const decision = decideHarnessTool(name, {
+      dryRun: opts?.dryRun === true,
+      allowDangerous:
+        opts?.allowDangerous === true || this.config.harnessIntentAllowDangerous === true,
+    });
+    if (decision.action === "dry_run") {
+      return { ok: true, result: `[dry-run] would run ${name}` };
+    }
+    if (decision.action === "block") {
+      return { ok: false, error: decision.reason };
+    }
+    try {
+      const { toolCallToCommand } = await import("../control/router.js");
+      const cmd = toolCallToCommand({ name, arguments: args });
+      if (!cmd) {
+        return { ok: false, error: `unknown or invalid tool: ${name}` };
+      }
+      const text = await this.commands.execute(cmd);
+      return { ok: true, result: text ?? "(ok)" };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /** Phase D — LLM surface for in-process brain (null when LLM off). */
+  getLlmModuleForBrain(): {
+    ask: (q: string, conv?: string) => Promise<string>;
+    chatForIntent: (
+      q: string,
+      conv?: string,
+    ) => Promise<{
+      content: string | null;
+      toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>;
+    }>;
+  } | null {
+    const mod = this.llm.getModule();
+    if (!mod) return null;
+    return {
+      ask: (q, conv) => mod.ask(q, conv),
+      chatForIntent: (q, conv) => mod.chatForIntent(q, conv),
+    };
+  }
+
+  /** Phase D — RAG chunks for brain sources. */
+  async retrieveForBrain(question: string) {
+    return this.llm.retrieveForHarness(question);
   }
 
   /** G3 — member-safe live snapshot. */

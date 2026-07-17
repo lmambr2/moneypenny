@@ -57,7 +57,7 @@ export interface RunHarnessTurnDeps {
   retrieve?: (question: string) => Promise<HarnessRetrieveChunk[]>;
   /**
    * Optional tool executor for intent mode. Never throws into music transport —
-   * return { ok:false } on failure.
+   * return { ok:false } on failure. Bot *disposes* brain tool proposals here.
    */
   executeTool?: (
     name: string,
@@ -68,6 +68,15 @@ export interface RunHarnessTurnDeps {
   conversationId?: string;
   idFactory?: () => string;
   now?: () => number;
+  /**
+   * Phase D — inject a brain transport (tests / custom).
+   * When omitted, built from llm+retrieve or BRAIN_URL / brainUrl.
+   */
+  brain?: import("../brain/index.js").BrainTransport;
+  /** Remote brain base URL; empty uses in-process. Overrides env when set. */
+  brainUrl?: string;
+  channel?: import("../brain/index.js").TurnChannel;
+  fetchImpl?: typeof fetch;
 }
 
 export interface HarnessTurnStore {

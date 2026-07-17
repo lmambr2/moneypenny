@@ -4,6 +4,7 @@ import express from "express";
 import { createAuditStore } from "../data/audit.js";
 import { createSessionStore } from "../data/sessions.js";
 import { createUserStore } from "../data/users.js";
+import { registerBrainTurn } from "./plugins/brain-turn.js";
 import { registerMcp } from "./plugins/mcp.js";
 import { registerOpenApi } from "./plugins/openapi.js";
 import { registerProtectedApi } from "./plugins/protected-api.js";
@@ -26,6 +27,7 @@ const PLUGINS: HttpPlugin[] = [
   registerOpenApi,
   registerMcp,
   registerSession,
+  registerBrainTurn,
   registerProtectedApi,
   registerStaticSpa,
   registerWebSocket,

@@ -8,6 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### Brain: Phase D turn transport (propose / dispose)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `bot/src/brain/` — `completeTurn`, `InProcessBrain`, `HttpBrain`, `disposeToolProposals`
+- Harness uses brain → bot dispose (rights/dry-run unchanged)
+- `POST /v1/turn` admin API (optional `executeTools`); OpenAPI tag `brain`
+- `BRAIN_URL` env: empty = in-process LLM+RAG; set = remote `POST {url}/v1/turn`
+- Soft-fail on brain outage (no music block); docs: [docs/brain-boundary.md](./docs/brain-boundary.md)
+
 ### HTTP: REST + OpenAPI catalog (PR-C2)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

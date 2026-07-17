@@ -98,6 +98,7 @@ export function buildOpenApiDocument(opts?: { serverUrl?: string }): Record<stri
       { name: "economy", description: "Star Citizen economy tools" },
       { name: "users", description: "User admin" },
       { name: "audit", description: "Audit log" },
+      { name: "brain", description: "Phase D turn API (brain proposes / bot disposes)" },
     ],
     paths,
     components: {
