@@ -12,12 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install deps first (cache-friendly). Root + web each have their own lockfile.
+# Workspace package.json must be present so npm ci can link @moneypenny/ts6-client.
 COPY package.json package-lock.json ./
+COPY packages/ts6-client/package.json ./packages/ts6-client/
 RUN npm ci
 COPY web/package.json web/package-lock.json ./web/
 RUN cd web && npm ci
 
-# Build backend (tsc → dist/) and frontend (vue-tsc + vite → web/dist/).
+# Build workspace package → bot tsc → Vue UI.
 COPY . .
 RUN npm run build
 
@@ -76,7 +78,9 @@ RUN userdel -r node 2>/dev/null || true; \
     useradd -m -u 1000 -g 1000 -s /usr/sbin/nologin moneypenny
 
 # Copy only what the runtime needs, owned by the non-root user.
+# Workspace packages are symlinked from node_modules → packages/*; ship both.
 COPY --from=build --chown=moneypenny:moneypenny /app/node_modules ./node_modules
+COPY --from=build --chown=moneypenny:moneypenny /app/packages ./packages
 COPY --from=build --chown=moneypenny:moneypenny /app/dist ./dist
 COPY --from=build --chown=moneypenny:moneypenny /app/web/dist ./web/dist
 COPY --chown=moneypenny:moneypenny package.json ./

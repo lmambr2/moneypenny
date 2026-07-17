@@ -6,7 +6,7 @@ import {
   RightsEngine,
   type Subject,
 } from "../../rights/index.js";
-import type { TS3Client } from "../../ts-protocol/client.js";
+import type { TS3Client } from "@moneypenny/ts6-client";
 import { resolveSubject } from "./subject.js";
 
 export interface RightsRuntimeDeps {

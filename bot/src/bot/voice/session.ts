@@ -10,8 +10,8 @@ import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
-import type { TS3Client, TS3VoiceData } from "../../ts-protocol/client.js";
-import { CODEC_OPUS_VOICE } from "../../ts-protocol/voice.js";
+import type { TS3Client, TS3VoiceData } from "@moneypenny/ts6-client";
+import { CODEC_OPUS_VOICE } from "@moneypenny/ts6-client/voice";
 import {
   defaultVoiceConfig,
   isPlaybackControlReply,

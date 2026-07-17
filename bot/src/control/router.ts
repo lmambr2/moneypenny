@@ -3,7 +3,7 @@ import type { BotInstance } from "../bot/instance.js";
 import type { WorkflowKind, WorkflowRequest } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
-import type { TS3TextMessage } from "../ts-protocol/client.js";
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { MemoryClarifyService, type ClarifyService } from "./clarify-service.js";
 import { applyDeterministicGates } from "./deterministic-gates.js";
 import { executeLlmPath, llmUnavailableMessage } from "./llm-path.js";

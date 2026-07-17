@@ -325,7 +325,7 @@ moneypenny/
 ├─ models/convert/               # x86-only Qwen3 -> .rkllm (W8A8) conversion
 ├─ bot/                          # the FORK (TypeScript)
 │  ├─ src/
-│  │  ├─ ts-protocol/            # inherited TS3/TS6 client (keep)
+│  │  ├─ packages/ts6-client/    # @moneypenny/ts6-client (TS3/TS6)
 │  │  ├─ web/                    # inherited auth + Vue API (keep; harden per §11)
 │  │  ├─ bot/commands.ts         # extend: add `ask`, wire control router (§4)
 │  │  ├─ control/router.ts       # NEW: deterministic-first dispatch
@@ -464,7 +464,7 @@ Appealing for the org, but the on-NPU small model + 2048-token context **cannot*
 > **Status (2026-06): MVP shipped.** `!moveclient <nickname|clid> <channel>` (admin) moves
 > *other* clients via TS6 HTTP Query `clientmove` (fallback: full-client API on TS3).
 > Rank-gated as an admin command; sliding-window rate limit (5/min). Voice inherits
-> the same path when STT transcribes a prefixed `moveclient` command (`bot/src/ts-protocol/move-resolver.ts`).
+> the same path when STT transcribes a prefixed `moveclient` command (`bot/packages/ts6-client` move-resolver).
 
 Lowest risk, doesn't touch the NPU. Moving *other* clients is a privileged admin action;
 the bot's TS identity needs `i_client_move_power` granted minimally. Executor-side rank

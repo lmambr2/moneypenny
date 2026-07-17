@@ -2,7 +2,7 @@ import type { BotConfig } from "../../data/config.js";
 import type { RoastQuote, RoastStore } from "../../data/roast.js";
 import type { LlmModule } from "../../llm/index.js";
 import type { Logger } from "../../logger.js";
-import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
+import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 
 export const ROAST_REEL_SIZE = 5;
 export const ROAST_MIN_GRADED_FOR_AUTO = 3;

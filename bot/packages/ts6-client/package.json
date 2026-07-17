@@ -1,0 +1,68 @@
+{
+  "name": "@moneypenny/ts6-client",
+  "version": "0.1.0",
+  "description": "TeamSpeak 3/6 dual-protocol client for Moneypenny (voice, query, file transfer)",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./http-query": {
+      "types": "./dist/http-query.d.ts",
+      "import": "./dist/http-query.js"
+    },
+    "./move-resolver": {
+      "types": "./dist/move-resolver.d.ts",
+      "import": "./dist/move-resolver.js"
+    },
+    "./voice": {
+      "types": "./dist/voice.d.ts",
+      "import": "./dist/voice.js"
+    },
+    "./channel-presence": {
+      "types": "./dist/channel-presence.d.ts",
+      "import": "./dist/channel-presence.js"
+    },
+    "./commands": {
+      "types": "./dist/commands.d.ts",
+      "import": "./dist/commands.js"
+    },
+    "./identity": {
+      "types": "./dist/identity.d.ts",
+      "import": "./dist/identity.js"
+    },
+    "./protocol-detect": {
+      "types": "./dist/protocol-detect.d.ts",
+      "import": "./dist/protocol-detect.js"
+    },
+    "./voice-transport-health": {
+      "types": "./dist/voice-transport-health.d.ts",
+      "import": "./dist/voice-transport-health.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "tsc -p tsconfig.json --noEmit && vitest run"
+  },
+  "dependencies": {
+    "@honeybbq/teamspeak-client": "^0.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

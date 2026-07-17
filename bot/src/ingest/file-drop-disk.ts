@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ChannelFile } from "../ts-protocol/client.js";
+import type { ChannelFile } from "@moneypenny/ts6-client";
 
 /** TS6 on-disk layout: `<root>/virtualserver_<sid>/channel_<cid>/…` */
 export function channelFilesDir(

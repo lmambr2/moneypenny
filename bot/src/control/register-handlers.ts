@@ -11,7 +11,7 @@ import type { RoastService } from "../bot/community/roast.js";
 import type { KnowledgeService } from "../bot/knowledge/service.js";
 import type { PlaybackEngine } from "../bot/playback/engine.js";
 import { type EconomyCommand, handleEconomyCommand } from "../economy/service.js";
-import type { TS3TextMessage } from "../ts-protocol/client.js";
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import type { CommandRegistry } from "./registry.js";
 import type { ControlRouter, RouterContext } from "./router.js";
 

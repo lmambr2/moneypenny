@@ -1,6 +1,6 @@
 import type { Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import type { ChannelFile } from "../ts-protocol/client.js";
+import type { ChannelFile } from "@moneypenny/ts6-client";
 import { type FileDropDeps, scanDropChannel } from "./file-drop.js";
 
 function file(name: string, extra: Partial<ChannelFile> = {}): ChannelFile {

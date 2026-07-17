@@ -47,7 +47,7 @@ import {
   createStarCitizenOrgStatusPlugin,
   ExternalStatusRegistry,
 } from "../tools/external-status.js";
-import { TS3Client, type TS3ClientOptions, type TS3TextMessage } from "../ts-protocol/client.js";
+import { TS3Client, type TS3ClientOptions, type TS3TextMessage } from "@moneypenny/ts6-client";
 import { KokoroTtsClient, type TtsProvider } from "../voice/index.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
 import {

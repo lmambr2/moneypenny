@@ -21,7 +21,7 @@ import {
   poke as tsPoke,
   type VoiceData,
 } from "@honeybbq/teamspeak-client";
-import type { Logger } from "../logger.js";
+import type { Logger } from "./logger.js";
 import {
   asChannelId,
   filterClientsInChannel,

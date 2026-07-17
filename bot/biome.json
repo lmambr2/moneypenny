@@ -9,6 +9,7 @@
   "files": {
     "includes": [
       "src/**",
+      "packages/*/src/**",
       "web/src/**",
       "biome.json",
       "package.json",

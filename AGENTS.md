@@ -22,7 +22,7 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 
 | Subsystem | Path | Owns |
 |-----------|------|------|
-| **TS6 client** | `bot/src/ts-protocol/` | Dual-protocol connection, chat in/out, voice PCM in, file transfer, channel queries |
+| **TS6 client** | `bot/packages/ts6-client` (`@moneypenny/ts6-client`) | Dual-protocol connection, chat in/out, voice PCM in, file transfer, channel queries |
 | **Bot runtime** | `bot/src/bot/` | `BotManager` / `BotInstance`: connect/disconnect, command execution, playback engine, voice session, idle poller, phase-0 auto-play |
 | **Control router** | `bot/src/control/` | Deterministic-first dispatch; `!ask` / fuzzy intent → LLM tools; voice routing; handler registration |
 | **Music providers** | `bot/src/music/` | `LocalProvider`, `YouTubeProvider`, `StreamProvider` — search, resolve, URLs, path guards |

@@ -1,6 +1,6 @@
 import type { Logger } from "../../logger.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
-import type { TS3Client, TS3TextMessage } from "../../ts-protocol/client.js";
+import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 
 /**
  * Doctrine classification ladder (Phase 6 rank-gating). `unclassified` is always

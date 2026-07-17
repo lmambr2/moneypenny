@@ -3,7 +3,7 @@ import {
   COMMAND_MANIFEST,
   type ParsedCommand,
 } from "../bot/commands.js";
-import type { TS3TextMessage } from "../ts-protocol/client.js";
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { CommandRegistry } from "./registry.js";
 import {
   type CommandHandlerHost,

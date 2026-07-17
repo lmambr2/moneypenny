@@ -6,6 +6,17 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-16
+
+### Packages: extract `@moneypenny/ts6-client` (PR-B1)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- npm workspaces under `bot/` (`packages/*`)
+- Moved `bot/src/ts-protocol/*` → `bot/packages/ts6-client` (`@moneypenny/ts6-client`)
+- Logger decoupled via local `Ts6Logger` interface (pino-compatible inject)
+- Bot imports package by name; Docker copies workspace package into runtime image
+- Package owns its vitest suite (31 tests)
+
 ## 2026-07-15
 
 ### Control: CommandRegistry + middleware skeleton (PR-A1)

@@ -13,7 +13,7 @@ file-drop — **not** as a substitute for the full-client voice bot.
 
 | Path | Role | Library / code |
 |------|------|----------------|
-| **Full client** (primary) | Voice, channel chat, poke, presence events | `@honeybbq/teamspeak-client` → `bot/src/ts-protocol/client.ts` |
+| **Full client** (primary) | Voice, channel chat, poke, presence events | `@honeybbq/teamspeak-client` → `@moneypenny/ts6-client` (`bot/packages/ts6-client`) |
 | **HTTP Query** (optional) | Group enrichment, some admin reads | `TS6HttpQuery` + `TS6_QUERY_HOST` / `TS6_API_KEY` |
 | **SSH Query** (ops only) | Manual admin / tooling | `ssh -p 10022 …` per TS6 server config |
 

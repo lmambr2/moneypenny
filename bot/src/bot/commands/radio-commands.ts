@@ -17,7 +17,7 @@ import {
   type TagStore,
 } from "../../radio/index.js";
 import { orderKeysByRatingWeight } from "../../radio/rating-weight.js";
-import type { TS3TextMessage } from "../../ts-protocol/client.js";
+import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import type { ParsedCommand } from "../commands.js";
 import type { CommandExecutorDeps } from "./executor.js";
 
