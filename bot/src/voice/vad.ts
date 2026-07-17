@@ -10,7 +10,13 @@
  *
  * Operates on 16-bit little-endian PCM. Multi-channel input is treated as
  * interleaved; energy is computed across all samples.
+ *
+ * PR-B4: RMS prefers Rust N-API `@moneypenny/audio-native` when built.
  */
+
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 export interface SegmenterOptions {
   sampleRate: number;
@@ -25,7 +31,30 @@ export interface SegmenterOptions {
   maxUtteranceMs?: number;
 }
 
+let nativeRms: ((pcm: Buffer) => number) | null | undefined;
+
+function loadNativeRms(): ((pcm: Buffer) => number) | null {
+  if (nativeRms !== undefined) return nativeRms;
+  try {
+    const mod = require("@moneypenny/audio-native") as { pcmRms: (pcm: Buffer) => number };
+    nativeRms = mod.pcmRms;
+    return nativeRms;
+  } catch {
+    nativeRms = null;
+    return null;
+  }
+}
+
+/** RMS of s16le PCM. Prefers Rust N-API (PR-B4) when available. */
 export function rms16(pcm: Buffer): number {
+  const native = loadNativeRms();
+  if (native) {
+    try {
+      return native(pcm);
+    } catch {
+      // fall through
+    }
+  }
   const n = Math.floor(pcm.length / 2);
   if (n === 0) return 0;
   let sumSq = 0;

@@ -270,7 +270,7 @@ async function main() {
     logger.info("Phase 0 validation mode detected (TS6_* variables present)");
   }
 
-  const webServer = createWebServer({
+  const webServer = await createWebServer({
     port: config.webPort,
     host: process.env.BIND_ADDRESS || config.bindAddress || "127.0.0.1",
     botManager,

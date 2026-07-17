@@ -4,46 +4,30 @@ import express from "express";
 import { createAuditStore } from "../data/audit.js";
 import { createSessionStore } from "../data/sessions.js";
 import { createUserStore } from "../data/users.js";
-import { registerBrainTurn } from "./plugins/brain-turn.js";
-import { registerMcp } from "./plugins/mcp.js";
-import { registerOpenApi } from "./plugins/openapi.js";
-import { registerProtectedApi } from "./plugins/protected-api.js";
-import { registerPublicRoutes } from "./plugins/public-routes.js";
-import { registerSecurity } from "./plugins/security.js";
-import { registerSession } from "./plugins/session.js";
-import { registerStaticSpa } from "./plugins/static-spa.js";
-import { registerWebSocket } from "./plugins/websocket.js";
+import { ALL_DOMAIN_BUNDLES } from "./nest/domain-bundles.js";
 import type { HttpAppContext, HttpPlugin, WebServer, WebServerOptions } from "./types.js";
 
 const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
- * Plugin order matters (auth gates, body parsers, SPA fallback).
- * Domain routers stay in `web/api/*`; this file only composes HTTP plugins.
+ * Flatten domain bundles into ordered plugin list (shared by Express + Nest paths).
  */
-const PLUGINS: HttpPlugin[] = [
-  registerSecurity,
-  registerPublicRoutes,
-  registerOpenApi,
-  registerMcp,
-  registerSession,
-  registerBrainTurn,
-  registerProtectedApi,
-  registerStaticSpa,
-  registerWebSocket,
-];
+export function orderedHttpPlugins(): HttpPlugin[] {
+  return [...ALL_DOMAIN_BUNDLES]
+    .sort((a, b) => a.order - b.order)
+    .flatMap((b) => b.plugins);
+}
 
 /**
- * Build the station HTTP + WebSocket server (PR-C1).
- * Express today; plugins keep a path open for Fastify-style modules later (Phase C3).
+ * Classic plugin composition without Nest (fallback / tests).
+ * Prefer {@link createWebServer} which uses Nest domain modules (PR-C3).
  */
-export function createWebServer(options: WebServerOptions): WebServer {
+export function createPluginWebServer(options: WebServerOptions): WebServer {
   const app = express();
   const server = http.createServer(app);
   const logger = options.logger.child({ component: "web" });
+  const plugins = orderedHttpPlugins();
 
-  // S2: JSON body limits are scoped behind auth in registerProtectedApi.
-  // Pre-auth surface (login/setup) keeps the body-parser default (100kb).
   app.use(cookieParser());
 
   const users = createUserStore(options.database.db);
@@ -62,7 +46,7 @@ export function createWebServer(options: WebServerOptions): WebServer {
     onStop,
   };
 
-  for (const plugin of PLUGINS) {
+  for (const plugin of plugins) {
     plugin(ctx);
   }
 
@@ -77,7 +61,10 @@ export function createWebServer(options: WebServerOptions): WebServer {
       const host = options.host || "127.0.0.1";
       return new Promise((resolve) => {
         server.listen(options.port, host, () => {
-          logger.info({ host, port: options.port }, "Web server started");
+          logger.info(
+            { host, port: options.port, framework: "express-plugins" },
+            "Web server started",
+          );
           if (host === "0.0.0.0") {
             logger.warn(
               "Web server bound to 0.0.0.0 (all interfaces). Ensure the port is firewalled to LAN/localhost or fronted by a TLS proxy (DESIGN §11).",
@@ -109,4 +96,19 @@ export function createWebServer(options: WebServerOptions): WebServer {
       server.close();
     },
   };
+}
+
+/**
+ * Build the station HTTP + WebSocket server.
+ *
+ * - Default (PR-C3): NestJS domain modules + Express adapter
+ * - `HTTP_FRAMEWORK=plugins`: pure Express plugin path (no Nest)
+ */
+export async function createWebServer(options: WebServerOptions): Promise<WebServer> {
+  const framework = (process.env.HTTP_FRAMEWORK ?? "nest").toLowerCase();
+  if (framework === "plugins" || framework === "express") {
+    return createPluginWebServer(options);
+  }
+  const { createNestWebServer } = await import("./nest/create-nest-server.js");
+  return createNestWebServer(options);
 }

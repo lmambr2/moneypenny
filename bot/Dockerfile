@@ -4,22 +4,27 @@
 # ── Stage 1: build ──────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS build
 
-# Toolchain for native modules (@discordjs/opus, better-sqlite3).
+# Toolchain for native modules (@discordjs/opus, better-sqlite3, audio-native/libopus).
+# Rust is optional: if the audio-native build fails, encoder falls back to @discordjs/opus.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 build-essential git ca-certificates \
+    python3 build-essential git ca-certificates pkg-config libopus-dev \
+    curl \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
     && rm -rf /var/lib/apt/lists/*
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
 # Install deps first (cache-friendly). Root + web each have their own lockfile.
-# Workspace package.json must be present so npm ci can link @moneypenny/ts6-client.
+# Workspace package.json must be present so npm ci can link @moneypenny/* packages.
 COPY package.json package-lock.json ./
 COPY packages/ts6-client/package.json ./packages/ts6-client/
+COPY packages/audio-native/package.json ./packages/audio-native/
 RUN npm ci
 COPY web/package.json web/package-lock.json ./web/
 RUN cd web && npm ci
 
-# Build workspace package → bot tsc → Vue UI.
+# Build workspace packages → bot tsc → Vue UI.
 COPY . .
 RUN npm run build
 
@@ -55,8 +60,9 @@ FROM node:20-bookworm-slim AS runtime
 
 # Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
 # aubio-tools: BPM detection for the radio analyzer sidecar (docs/radio.md §9.5).
+# libopus0: optional @moneypenny/audio-native (PR-B4); discordjs/opus still works without it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg python3 python3-pip ca-certificates pandoc aubio-tools libfftw3-double3 \
+    ffmpeg python3 python3-pip ca-certificates pandoc aubio-tools libfftw3-double3 libopus0 \
     && pip3 install --no-cache-dir --break-system-packages yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=analyzer /usr/local/bin/keyfinder-cli /usr/local/bin/keyfinder-cli

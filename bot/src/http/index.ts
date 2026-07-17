@@ -1,12 +1,14 @@
 /**
- * HTTP application layer (PR-C1/C2).
+ * HTTP application layer (PR-C1/C2/C3).
  *
- * Plugin composition lives here; domain routers remain under `web/api/*`.
- * Vue SPA still builds to `web/dist` and is served by registerStaticSpa.
- * OpenAPI: GET /api/openapi.json (REST only — no tRPC dual stack).
+ * - C1: Express plugins
+ * - C2: OpenAPI catalog at GET /api/openapi.json (REST only — no tRPC)
+ * - C3: NestJS domain modules (default); HTTP_FRAMEWORK=plugins for plugin-only
+ *
+ * Domain routers remain under `web/api/*`.
  */
 
-export { createWebServer } from "./app.js";
+export { createPluginWebServer, createWebServer, orderedHttpPlugins } from "./app.js";
 export { buildOpenApiDocument, API_OPERATIONS } from "./openapi/index.js";
 export { securityHeadersMiddleware } from "./plugins/security.js";
 export type { HttpAppContext, HttpPlugin, WebServer, WebServerOptions } from "./types.js";

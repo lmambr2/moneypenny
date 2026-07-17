@@ -1,36 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { orderedHttpPlugins } from "./app.js";
+import { ALL_DOMAIN_BUNDLES } from "./nest/domain-bundles.js";
 
 /**
- * Smoke: plugin composition order is intentional (auth before protected bodies, SPA last).
+ * Smoke: domain bundles compose plugins in security → … → ws order.
  */
 describe("http app plugin wiring", () => {
-  it("registers plugins in security → public → mcp → session → api → spa → ws order", () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, "app.ts"), "utf8");
-    // Only the PLUGINS array (imports mention the same symbols earlier).
-    const arrayStart = src.indexOf("const PLUGINS");
-    expect(arrayStart).toBeGreaterThanOrEqual(0);
-    const arrayEnd = src.indexOf("];", arrayStart);
-    const block = src.slice(arrayStart, arrayEnd);
-    const order = [
-      "registerSecurity",
-      "registerPublicRoutes",
-      "registerOpenApi",
-      "registerMcp",
-      "registerSession",
-      "registerBrainTurn",
-      "registerProtectedApi",
-      "registerStaticSpa",
-      "registerWebSocket",
-    ];
-    let last = -1;
-    for (const name of order) {
-      const idx = block.indexOf(name);
-      expect(idx, name).toBeGreaterThan(last);
-      last = idx;
-    }
+  it("orders domain bundles by ascending order field", () => {
+    const sorted = [...ALL_DOMAIN_BUNDLES].sort((a, b) => a.order - b.order);
+    const names = sorted.map((b) => b.name);
+    expect(names).toEqual([
+      "system",
+      "mcp",
+      "session",
+      "brain",
+      "station-api",
+      "spa",
+      "websocket",
+    ]);
+  });
+
+  it("flattened plugin list is non-empty and stable length", () => {
+    const plugins = orderedHttpPlugins();
+    expect(plugins.length).toBeGreaterThanOrEqual(7);
+    // Same plugins as sum of bundles
+    const expected = ALL_DOMAIN_BUNDLES.reduce((n, b) => n + b.plugins.length, 0);
+    expect(plugins.length).toBe(expected);
   });
 });

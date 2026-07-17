@@ -8,6 +8,16 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-16
 
+### Audio native + Nest HTTP (PR-B4 / PR-C3)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **B4** `@moneypenny/audio-native` — Rust N-API Opus + energy RMS/VAD (libopus);
+  encoder/VAD prefer native, fall back to `@discordjs/opus` / TS RMS
+- **C3** NestJS domain modules + Express adapter (default `HTTP_FRAMEWORK=nest`);
+  `HTTP_FRAMEWORK=plugins` keeps pure Express plugins
+- Domain modules: system, mcp, session, brain, station-api, spa, websocket
+- Docker build installs Rust + `libopus-dev` (native optional; fallback still works)
+
 ### Brain: Phase D turn transport (propose / dispose)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

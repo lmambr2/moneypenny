@@ -5,6 +5,9 @@ npm-debug.log*
 # Build outputs
 dist/
 build/
+# Rust / N-API workspace crates
+**/target/
+bot/packages/audio-native/*.node
 
 # Environment & secrets
 .env
