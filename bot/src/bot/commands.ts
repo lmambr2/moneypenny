@@ -102,6 +102,9 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "forget", kind: "special" },
   { name: "kg", kind: "special" },
   { name: "diary", kind: "special" },
+  // Personal hangar + org rollup (ships.org = Colonel/Chairman).
+  { name: "ships", kind: "special" },
+  { name: "hangar", kind: "special" },
   // Org/ops brief + external status plugins (feature-roadmap G1/G2).
   { name: "ops", kind: "special" },
   // G4 moderation (rights-gated; fail-open on transport).
@@ -130,7 +133,7 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
 ];
 
 /** Rights tokens that are gated but not typed commands themselves. */
-const ADMIN_TOKENS = ["radio.power", "workorder.clear"] as const;
+const ADMIN_TOKENS = ["radio.power", "workorder.clear", "ships.org"] as const;
 
 export const PUBLIC_COMMANDS = new Set(COMMAND_MANIFEST.filter((c) => !c.admin).map((c) => c.name));
 

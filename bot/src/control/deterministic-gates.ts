@@ -48,6 +48,19 @@ export function applyDeterministicGates(
     }
   }
 
+  // `!ships` org / edit-others (hangar — Colonel/Chairman ships.org)
+  if ((cmd.name === "ships" || cmd.name === "hangar") && context.canRun) {
+    const sub = (cmd.rawArgs[0] ?? "").toLowerCase();
+    const orgish =
+      sub === "org" ||
+      sub === "import" ||
+      sub === "export" ||
+      (cmd.rawArgs[1] ?? "").toLowerCase() === "for";
+    if (orgish && !context.canRun("ships.org")) {
+      return "○ That needs Colonel or Chairman (ships.org).";
+    }
+  }
+
   // `!radio` sensitive subcommands (docs/radio.md §12)
   if (cmd.name === "radio" && context.canRun) {
     const sub = (cmd.rawArgs[0] ?? "").toLowerCase();

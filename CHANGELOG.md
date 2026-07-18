@@ -6,7 +6,18 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
-## 2026-07-17
+## 2026-07-18
+
+### Hangars: personal + org (Colonel/Chairman), Ship_List.md
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `!ships` / `!hangar` — personal hangar (add/remove/set/list/claim, qty `xN`)
+- Unknown hull names stored with **warning** (manual review)
+- **`ships.org`** — Colonel / Chairman (and server-admin / CoC/CSA staff via migration):
+  `org` / `org who` / `org of` / `org list`, edit others (`add for …`), `import`/`export`
+- Import seeds from doctrine **Ship_List.md**; export regenerates it (secret RAG)
+- SQLite `user_ships` + `hangar_profiles`; MemPalace `hangar:` mirror for self
+- Rights migration **v12**; template `scripts/rights-rank-gating.json` updated
 
 ### Fix: voice pause/resume lost the same song
 **Author: Grok (xAI), driven by Lane Ambrose.**

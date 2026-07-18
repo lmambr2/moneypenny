@@ -128,6 +128,22 @@ const DELTAS: readonly RightsDelta[] = [
       admin: ["ban", "unban"],
     },
   },
+  {
+    // Personal hangars + org rollup (Ship_List.md projection).
+    // ships.org: Colonel / Chairman only (production rule names).
+    version: 12,
+    defaultAllow: ["ships", "hangar"],
+    ruleAllowByName: {
+      "colonel-officer": ["ships.org"],
+      chairman: ["ships.org"],
+      "server-admin": ["ships.org"],
+      "coc-staff": ["ships.org"],
+      "csa-staff": ["ships.org"],
+      // Template / starter names
+      "field-grade-officer": ["ships.org"],
+      "command-staff": ["ships.org"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

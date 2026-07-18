@@ -91,6 +91,23 @@ other officers keep normal clear/stop for station music but cannot end the
 smoke track. Grant `test.skip` only on your **server-admin** and **Chairman**
 rules (see production names `server-admin` / `chairman`).
 
+### `ships.org` — org hangar rollup (Colonel / Chairman)
+
+Personal hangars (`!ships add/list/…`) are on **defaultAllow** for everyone.
+Org commands and editing others need the **`ships.org`** token:
+
+| Command | Token |
+|---------|--------|
+| `!ships` / `!ships add` (self) | public (`ships`) |
+| `!ships org` / `org who` / `org of` / `org list` | `ships.org` |
+| `!ships add for <nick>` / `import` / `export` | `ships.org` |
+
+Production rules (migration v12): `colonel-officer`, `chairman`, `server-admin`,
+`coc-staff`, `csa-staff`. Template: field-grade / command-staff / server-admin.
+
+Org export rewrites doctrine **`Ship_List.md`** (`classification: secret`) for RAG.
+After export, run **`!reindex`**. Personal hangars never feed radio memory bumpers.
+
 Set `adminGroups` to the server-group IDs that should inherit admin rights for
 web UI users who are not nickname-matched in-channel (usually your officer and
 server-admin groups).

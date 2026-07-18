@@ -3,6 +3,7 @@
     "play", "add", "queue", "list", "now", "lyrics", "vote", "help",
     "playlist", "album", "prev", "next", "skip", "pause", "resume",
     "artist", "ask", "test", "roast", "roastout", "roastin", "remember", "recall", "forget", "kg", "diary",
+    "ships", "hangar",
     "rate", "unrate", "selecttracks", "radio", "playnext", "pn", "chevron7",
     "mine", "refine", "craft", "econ", "trade", "workorder", "work-items", "workitems",
     "ops"
@@ -57,12 +58,12 @@
     {
       "name": "field-grade-officer",
       "match": { "serverGroups": ["105"] },
-      "allow": ["@admin", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+      "allow": ["@admin", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret", "ships.org"]
     },
     {
       "name": "command-staff",
       "match": { "serverGroups": ["106"] },
-      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret", "ships.org"]
     },
     {
       "name": "server-admin",
@@ -73,18 +74,19 @@
         "@doctrine_restricted",
         "@doctrine_confidential",
         "@doctrine_secret",
-        "test.skip"
+        "test.skip",
+        "ships.org"
       ]
     },
     {
       "name": "staff-tier-a",
       "match": { "serverGroups": ["108"] },
-      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret", "ships.org"]
     },
     {
       "name": "staff-tier-b",
       "match": { "serverGroups": ["109"] },
-      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret"]
+      "allow": ["@admin", "@analyst", "@doctrine_restricted", "@doctrine_confidential", "@doctrine_secret", "ships.org"]
     },
     {
       "name": "department-staff",

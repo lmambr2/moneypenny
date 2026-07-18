@@ -1,6 +1,7 @@
 import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import type { CommandExecutor } from "../bot/commands/executor.js";
 import { COMMAND_MANIFEST, commandsOfKind, type ParsedCommand } from "../bot/commands.js";
+import type { HangarService } from "../bot/community/hangar.js";
 import type { KgService } from "../bot/community/kg.js";
 import type { MemoryService } from "../bot/community/memory.js";
 import type { OpsService } from "../bot/community/ops.js";
@@ -18,6 +19,9 @@ export interface CommandHandlerHost {
   roast: RoastService;
   memory: MemoryService;
   kg: KgService;
+  hangar?: HangarService;
+  /** Channel clients for hangar nick resolution (optional). */
+  getHangarClients?: () => Promise<Array<{ uid?: string; nickname?: string; id?: number }>>;
   ops?: OpsService;
   moderation?: (
     action: "mute" | "kick",
@@ -97,6 +101,16 @@ export function registerBotCommands(registry: CommandRegistry, host: CommandHand
     forget: async (cmd, ctx) => host.memory.handleForget(cmd.args, ctx.invokerUid),
     kg: async (cmd, ctx) => host.kg.handleKg(cmd.args, ctx.invokerUid, ctx.canRun),
     diary: async (cmd, ctx) => host.kg.handleDiary(cmd.args, ctx.invokerUid, ctx.canRun),
+    ships: async (cmd, ctx) => {
+      if (!host.hangar) return "Hangar is not available on this bot.";
+      const clients = (await host.getHangarClients?.()) ?? [];
+      return host.hangar.handle(cmd.args, ctx.invokerUid, ctx.canRun, clients);
+    },
+    hangar: async (cmd, ctx) => {
+      if (!host.hangar) return "Hangar is not available on this bot.";
+      const clients = (await host.getHangarClients?.()) ?? [];
+      return host.hangar.handle(cmd.args, ctx.invokerUid, ctx.canRun, clients);
+    },
     ops: async (cmd, ctx) => {
       if (!host.ops) return "Ops status is not available on this bot.";
       return host.ops.handle(cmd.args, ctx.canRun);

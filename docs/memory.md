@@ -27,6 +27,8 @@ Admin **Harness** panel shows two walls side-by-side:
 | Scope | Commands / API | Broadcast? |
 |-------|----------------|------------|
 | **Private** | `!remember` · `GET /api/bot/memory/private?uid=` | **Never** |
+| **Hangar** | `!ships` / `!hangar` (own hulls) · MemPalace `hangar:` line | **Never** on radio |
+| **Org hangars** | `!ships org …` (Colonel / Chairman · `ships.org`) | Export → `Ship_List.md` (secret RAG) |
 | **Org KG** | `!kg` · `POST /api/bot/org-kg` | Only with “Org memory on air” |
 
 `GET /api/bot/memory/scopes` returns the same catalog + isolation rule.
@@ -122,6 +124,9 @@ Voice `remember` needs a real payload (≥2 words or ≥8 chars after the verb).
 | `!remember <fact>` | Any | SQLite + async MemPalace when enabled |
 | `!recall` | Any | MemPalace list if available, else SQLite |
 | `!forget <n\|all>` | Any | Awaits MemPalace delete; indices from `!recall` |
+| `!ships` / `!hangar` | Any (own) | Personal hangar: add/remove/list/set/claim |
+| `!ships org …` | **Colonel / Chairman** (`ships.org`) | Org who/list/of; import/export `Ship_List.md` |
+| `!ships add for <target>` | Colonel / Chairman | Edit another member’s hangar |
 | `!kg remember …` | Analyst | `from:` / `until:` optional |
 | `!kg who <name> [asof:date]` | Query | Temporal roster |
 | `!kg list` / `!kg forget` | List / analyst | |

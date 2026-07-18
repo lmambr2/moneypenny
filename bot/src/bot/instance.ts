@@ -14,9 +14,11 @@ import type { FileDropStore } from "../data/file-drop.js";
 import { KgStore } from "../data/kg.js";
 import { MemoryStore } from "../data/memory.js";
 import { RoastStore } from "../data/roast.js";
+import { UserShipsStore } from "../data/user-ships.js";
 import type { WorkflowKind } from "../docs/workflow.js";
 import { startEconomyCacheScheduler } from "../economy/cache/refresh.js";
 import { initEconomyDiskCache } from "../economy/cache/store.js";
+import { getScTradeClient } from "../economy/sc-trade.js";
 import { initWorkOrderStore } from "../economy/work-orders.js";
 import type { Logger } from "../logger.js";
 import { MemPalaceClient } from "../memory/mempalace-client.js";
@@ -57,6 +59,7 @@ import {
 } from "../voice/under-music.js";
 import { CommandExecutor } from "./commands/executor.js";
 import type { ParsedCommand } from "./commands.js";
+import { HangarService } from "./community/hangar.js";
 import { KgService } from "./community/kg.js";
 import { MemoryService } from "./community/memory.js";
 import { OpsService } from "./community/ops.js";
@@ -126,6 +129,9 @@ export class BotInstance extends EventEmitter {
   private roast: RoastService;
   private memory: MemoryService;
   private kg: KgService;
+  private hangar: HangarService;
+  private hangarShips: UserShipsStore;
+  private doctrineStore: DoctrineStore | undefined;
   private ops: OpsService;
   private statusRegistry: ExternalStatusRegistry;
   private knowledge: KnowledgeService;
@@ -431,6 +437,26 @@ export class BotInstance extends EventEmitter {
       logger: this.logger,
     });
 
+    this.hangarShips = new UserShipsStore(this.database.db);
+    this.hangar = new HangarService({
+      store: this.hangarShips,
+      mempalace: this.mempalace,
+      mempalaceEnabled: () => !!this.config.mempalaceEnabled,
+      catalogShipNames: async () => {
+        try {
+          const ships = await getScTradeClient(this.logger).getShips();
+          return (ships ?? []).map((s) => s.name).filter(Boolean);
+        } catch {
+          return [];
+        }
+      },
+      readShipList: () => this.doctrineStore?.readFile("Ship_List.md") ?? null,
+      writeShipList: (md) => {
+        this.doctrineStore?.saveFile("Ship_List.md", md);
+      },
+      logger: this.logger,
+    });
+
     // === Radio / autonomous DJ (docs/radio.md R-R1) ===
     // Always constructed so hot-reloading radio.enabled needs no re-init; the
     // director short-circuits to playNext() while disabled (byte-identical).
@@ -613,6 +639,14 @@ export class BotInstance extends EventEmitter {
       roast: this.roast,
       memory: this.memory,
       kg: this.kg,
+      hangar: this.hangar,
+      getHangarClients: async () => {
+        try {
+          return await this.tsClient.getClientsInChannel();
+        } catch {
+          return [];
+        }
+      },
       ops: this.ops,
       moderation: (action, target, canRun) => this.moderationAction(action, target, canRun),
       knowledge: this.knowledge,
@@ -742,6 +776,7 @@ export class BotInstance extends EventEmitter {
   }
 
   setDoctrine(store: DoctrineStore | undefined): void {
+    this.doctrineStore = store;
     this.knowledge.setDoctrine(store);
   }
 
