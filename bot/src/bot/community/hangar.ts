@@ -434,11 +434,20 @@ export class HangarService {
     if (!md) return "Ship_List.md not found under doctrine.";
     const entries = parseShipListMarkdown(md);
     if (entries.length === 0) return "Ship_List.md had no parseable hangar lines.";
+
+    // Replace callsign-bucket hangars so re-import is idempotent (no doubled qty).
+    // Does not clear claimed uid: hangars.
+    const codes = new Set(entries.map((e) => e.callsign.toUpperCase()));
+    for (const cs of codes) {
+      const key = callsignOwnerKey(cs);
+      this.deps.store.clearShips(key);
+      this.deps.store.ensureCallsignProfile(cs);
+    }
+
     let ships = 0;
-    const codes = new Set<string>();
+    let hulls = 0;
     for (const e of entries) {
       const profile = this.deps.store.ensureCallsignProfile(e.callsign);
-      codes.add(e.callsign);
       this.deps.store.addShip({
         ownerKey: profile.ownerKey,
         shipId: shipIdFromName(e.shipName),
@@ -448,8 +457,12 @@ export class HangarService {
         catalogMatched: false,
       });
       ships++;
+      hulls += e.qty;
     }
-    return `Imported **${ships}** line(s) across **${codes.size}** callsigns from Ship_List.md. Members: !ships claim <CODE>.`;
+    return (
+      `Imported **${ships}** line(s) · **${hulls}** hulls · **${codes.size}** callsigns from Ship_List.md. ` +
+      `Members: !ships claim <CODE>. Re-import replaces callsign buckets only.`
+    );
   }
 
   private exportShipList(): string {
