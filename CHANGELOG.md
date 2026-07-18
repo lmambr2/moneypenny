@@ -11,14 +11,14 @@ assistant** authored each batch of work, since not every commit carries a
 ### Fix: voice pause/resume lost the same song
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
-- **Root cause:** soft `player.pause()` was destroyed when TTS spoke "Paused"
-  (`player.play` replaces the stream → idle). `resume` only flipped
-  `paused→playing`, so it no-op'd and still said "Resumed". Radio dead-air /
-  alone-stop then **auto-programmed a new seed pool** over the paused track.
-- **Fix:** PlaybackEngine operator **pause checkpoint** (song id + elapsed);
-  resume re-seeks the same track after TTS. Radio skips restock while
-  `isUserPaused()`. Alone-stop resume log snapshots human count at start.
-  Resume TTS no longer inherits pause's "hold queue" suppress flag.
+- **Root cause (round 1):** soft `player.pause()` destroyed by TTS "Paused";
+  resume no-op'd; radio seed-pool restocked.
+- **Root cause (round 2):** suppress/savedMusic armed *after* TTS — so "Paused"
+  TTS trackEnd **restored music**, then leftover suppress made "Resumed" TTS
+  **hold the queue** (kept playing after pause; silence after resume).
+- **Fix:** pause checkpoint + hard stop; re-seek on resume; radio respects
+  `isUserPaused()`; **preparePlaybackControlReply before TTS**; speak() never
+  captures savedMusic while pause suppress is armed.
 - Honest replies: "Already paused" / "Nothing to resume" / "Already playing"
 
 ## 2026-07-16

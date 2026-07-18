@@ -171,6 +171,7 @@ describe("PlaybackEngine pause / resume checkpoint", () => {
   let play: ReturnType<typeof vi.fn>;
   let pause: ReturnType<typeof vi.fn>;
   let resume: ReturnType<typeof vi.fn>;
+  let stop: ReturnType<typeof vi.fn>;
   let getState: ReturnType<typeof vi.fn>;
   let getElapsed: ReturnType<typeof vi.fn>;
   let queue: PlayQueue;
@@ -180,6 +181,7 @@ describe("PlaybackEngine pause / resume checkpoint", () => {
     play = vi.fn();
     pause = vi.fn();
     resume = vi.fn();
+    stop = vi.fn();
     getState = vi.fn(() => "playing");
     getElapsed = vi.fn(() => 42);
     queue = new PlayQueue();
@@ -211,7 +213,7 @@ describe("PlaybackEngine pause / resume checkpoint", () => {
         resetFailures: vi.fn(),
         getState,
         getElapsed,
-        stop: vi.fn(),
+        stop,
         setVolume: vi.fn(),
         getVolume: () => 50,
       } as any,
@@ -231,27 +233,14 @@ describe("PlaybackEngine pause / resume checkpoint", () => {
     });
   });
 
-  it("pause records checkpoint and soft-pauses", () => {
+  it("pause records checkpoint and hard-stops the stream", () => {
     expect(engine.pausePlayback()).toBe("Paused");
-    expect(pause).toHaveBeenCalled();
+    expect(stop).toHaveBeenCalled();
     expect(engine.isUserPaused()).toBe(true);
   });
 
-  it("soft resume when still paused", async () => {
-    getState.mockReturnValue("paused");
-    engine.pausePlayback();
-    resume.mockImplementation(() => {
-      getState.mockReturnValue("playing");
-    });
-    const msg = await engine.resumePlayback();
-    expect(msg).toBe("Resumed");
-    expect(resume).toHaveBeenCalled();
-    expect(engine.isUserPaused()).toBe(false);
-  });
-
-  it("re-seeks same song when stream was killed (idle after TTS)", async () => {
+  it("re-seeks same song from checkpoint after pause", async () => {
     expect(engine.pausePlayback()).toBe("Paused");
-    // TTS "Paused" stops ffmpeg → idle, but checkpoint remains
     getState.mockReturnValue("idle");
     const msg = await engine.resumePlayback();
     expect(msg).toBe("Resumed");

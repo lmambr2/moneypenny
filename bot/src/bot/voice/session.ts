@@ -289,6 +289,7 @@ export class VoiceSession {
       buildContext: (u) => this.buildContext(u),
       onTurn: ({ transcript, reply, speakerUid }) =>
         this.deps.logger.info({ transcript, reply, speakerUid }, "Voice turn"),
+      preparePlaybackControlReply: (reply) => this.preparePlaybackControlReply(reply),
     });
     this.cleanup();
     this.inboundPackets = 0;
@@ -411,12 +412,31 @@ export class VoiceSession {
   }
 
   /**
+   * Arm pause/stop (or clear for resume) *before* TTS speaks the ack.
+   * If this runs only after TTS, trackEnd restores music on "Paused" and then
+   * leftover suppress eats the "Resumed" restore — music keeps playing after
+   * pause and dies after resume.
+   */
+  preparePlaybackControlReply(reply: string): void {
+    if (voiceReplyClearsSavedMusic(reply)) {
+      this.savedMusic = null;
+      this.suppressNextTrackAdvance = true;
+      return;
+    }
+    if (isPlaybackControlReply(reply)) {
+      // Resume/skip: allow TTS trackEnd to restore the stream speak() saves.
+      this.suppressNextTrackAdvance = false;
+    }
+  }
+
+  /**
    * Player trackEnd hook — resume interrupted music or swallow the event when a
    * voice transport command (pause/stop) just finished speaking.
    */
   async handleTrackEnd(playNext: () => Promise<boolean>): Promise<boolean> {
     if (this.suppressNextTrackAdvance) {
       this.suppressNextTrackAdvance = false;
+      this.savedMusic = null;
       this.deps.logger.info("Voice: holding queue after pause/stop reply");
       return true;
     }
@@ -1328,6 +1348,8 @@ export class VoiceSession {
       // Pause/resume/skip must end the armed window — otherwise flushStreamBuffer
       // keeps treating inbound audio as command capture and drops it while music
       // plays at full volume (no duck), so the next "moneypenny" never reaches KWS.
+      // Suppress/savedMusic were already armed in preparePlaybackControlReply
+      // before TTS; only re-assert if still needed (e.g. TTS skipped).
       this.disarmSpeaker(clientId);
       this.releaseCaptureDuck(clientId);
       void this.sttClient?.resetStream(clientId);
@@ -1336,13 +1358,9 @@ export class VoiceSession {
         "Voice: playback command done — disarmed for next wake",
       );
       if (voiceReplyClearsSavedMusic(reply)) {
-        // Pause/stop: drop interrupt handoff and do not advance queue when TTS ends.
         this.savedMusic = null;
+        // Keep suppress if TTS trackEnd has not consumed it yet.
         this.suppressNextTrackAdvance = true;
-      } else {
-        // Resume/skip: allow TTS trackEnd to restore music (savedMusic from speak()).
-        // Clear any leftover pause suppress so "Resumed" TTS does not hold the queue.
-        this.suppressNextTrackAdvance = false;
       }
       return;
     }
@@ -1462,7 +1480,20 @@ export class VoiceSession {
           if (!this.tempDir) this.tempDir = mkdtempSync(join(tmpdir(), "moneypenny-tts-"));
           const file = join(this.tempDir, `reply.${format}`);
           writeFileSync(file, audio);
-          if (this.captureDuck) {
+          // Pause/stop acks: never capture savedMusic — trackEnd must leave the
+          // queue parked (suppressNextTrackAdvance). Resume/skip/other TTS still
+          // save so music can restore after the spoken reply.
+          if (this.suppressNextTrackAdvance) {
+            this.savedMusic = null;
+            if (this.captureDuck) {
+              this.captureDuck = null;
+              this.captureDuckClientId = null;
+              this.clearDuckWatchdog();
+            }
+            if (this.deps.player.isSttDucked()) {
+              this.deps.player.restoreFromSttDuck();
+            }
+          } else if (this.captureDuck) {
             this.deps.player.restoreFromSttDuck();
             this.savedMusic = this.captureDuck;
             this.captureDuck = null;

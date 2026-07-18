@@ -6,6 +6,7 @@ import {
   isPlaybackStartReply,
   shouldSpeakVoiceReply,
   voicePlayPendingAck,
+  voiceReplyClearsSavedMusic,
   voiceSpokenAck,
 } from "./playback-reply.js";
 import type { SttProvider, TtsProvider, Utterance, VoiceOutput } from "./types.js";
@@ -50,6 +51,11 @@ export interface VoicePipelineOptions {
   isPlayInFlight?: (speakerClientId: number) => boolean;
   markPlayInFlight?: (speakerClientId: number, query: string) => void;
   clearPlayInFlight?: (speakerClientId: number) => void;
+  /**
+   * Called after execute, *before* TTS for pause/stop/resume/skip.
+   * Must arm pause suppress before TTS so trackEnd does not restore music.
+   */
+  preparePlaybackControlReply?: (reply: string) => void;
 }
 
 /**
@@ -195,6 +201,18 @@ export class VoicePipeline {
         this.opts.disarm?.(clientId);
       } else if (reply) {
         this.opts.arm?.(clientId);
+      }
+
+      // BEFORE TTS: pause/stop must arm suppress so the ack's trackEnd does not
+      // restore music; resume/skip must clear suppress so the ack *can* restore.
+      if (reply && isPlaybackControlReply(reply)) {
+        this.opts.preparePlaybackControlReply?.(reply);
+        if (voiceReplyClearsSavedMusic(reply)) {
+          this.logger?.info(
+            { reply },
+            "Voice: pause/stop armed before TTS (no music restore on ack end)",
+          );
+        }
       }
     } catch (err) {
       this.logger?.warn(

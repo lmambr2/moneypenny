@@ -557,23 +557,21 @@ export class PlaybackEngine {
   pausePlayback(): string {
     const state = this.opts.player.getState();
     const current = this.opts.queue.current();
-    if (state === "playing" && current) {
-      this.userPause = {
-        songId: current.id,
-        elapsed: Math.max(0, Math.floor(this.opts.player.getElapsed())),
-      };
-      this.opts.player.pause();
+    if ((state === "playing" || state === "paused") && current) {
+      // Capture position then hard-stop the stream. Soft pause alone is fragile:
+      // voice TTS uses player.play() which replaces the session; a late trackEnd
+      // used to restore music after "Paused". Checkpoint + stop is the durable
+      // operator pause; resume re-seeks from here.
+      const elapsed =
+        state === "playing" || state === "paused"
+          ? Math.max(0, Math.floor(this.opts.player.getElapsed()))
+          : 0;
+      this.userPause = { songId: current.id, elapsed };
+      this.opts.player.stop();
       this.emitState();
       return "Paused";
     }
-    if (state === "paused" || this.userPause) {
-      // Refresh checkpoint if still soft-paused (elapsed still advancing? no).
-      if (state === "paused" && current && !this.userPause) {
-        this.userPause = {
-          songId: current.id,
-          elapsed: Math.max(0, Math.floor(this.opts.player.getElapsed())),
-        };
-      }
+    if (this.userPause) {
       this.emitState();
       return "Already paused";
     }
@@ -598,8 +596,8 @@ export class PlaybackEngine {
       return "Already playing";
     }
 
-    // Soft pause still holds the stream (no TTS interrupt yet).
-    if (state === "paused") {
+    // Legacy soft-pause (if any path still uses player.pause without stop).
+    if (state === "paused" && this.userPause) {
       this.opts.player.resume();
       this.userPause = null;
       this.emitState();

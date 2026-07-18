@@ -153,6 +153,41 @@ describe("VoicePipeline", () => {
     expect(turn.reply).toBe("Paused");
   });
 
+  it("arms preparePlaybackControlReply before speaking pause/resume acks", async () => {
+    const order: string[] = [];
+    const prepare = vi.fn((reply: string) => {
+      order.push(`prepare:${reply}`);
+    });
+    const speak = vi.fn(async () => {
+      order.push("speak");
+    });
+    const router = new ControlRouter(fakeLogger());
+    router.registerHandler({
+      name: "pause",
+      execute: async () => {
+        order.push("execute");
+        return "Paused";
+      },
+    });
+    const pipeline = new VoicePipeline({
+      ...pipelineOpts({
+        isArmed: () => true,
+        preparePlaybackControlReply: prepare,
+        respondWithVoice: true,
+        tts: {
+          synthesize: async () => ({ audio: Buffer.from("x"), format: "wav" }),
+        },
+        output: { speak },
+      }),
+      router,
+      stt: sttReturning("pause"),
+    });
+    const turn = await pipeline.handleUtterance(utterance());
+    expect(turn.reply).toBe("Paused");
+    expect(prepare).toHaveBeenCalledWith("Paused");
+    expect(order).toEqual(["execute", "prepare:Paused", "speak"]);
+  });
+
   it("ignores banter without KWS or text wake fallback", async () => {
     const pause = vi.fn();
     const router = new ControlRouter(fakeLogger());
