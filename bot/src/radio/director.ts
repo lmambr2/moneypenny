@@ -57,6 +57,11 @@ export interface RadioDirectorDeps {
    *  active profile. Resolves false when no profile/source matched. */
   autoProgram?: () => Promise<boolean>;
   /**
+   * Operator pause checkpoint (PlaybackEngine). When true, dead-air / alone-stop
+   * resume must not auto-program a new seed pool over the paused track.
+   */
+  isUserPaused?: () => boolean;
+  /**
    * Optional presence refresh right before a bumper decision (e.g. after !skip).
    * Should call onPoll with a fresh human count — keeps minPresent accurate
    * without waiting for the 30s idle poller tick.
@@ -314,6 +319,7 @@ export class RadioDirector {
     // Alone (0 humans) → stop; someone joins → resume. Event-driven primary path.
     void this.enforceAloneStop(cfg).then((stopped) => {
       if (stopped) return;
+      if (this.deps.isUserPaused?.()) return; // operator pause owns idle/paused state
       if (this.deps.player.getState() !== "idle") return;
       // Seed rebuild still in progress — don't stack another dead-air restock.
       if (this.autoProgramInFlight) return;
@@ -424,6 +430,7 @@ export class RadioDirector {
     this.deadAirHandle = null;
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
+    if (this.deps.isUserPaused?.()) return; // keep paused track / queue current
     if (this.deps.player.getState() !== "idle") return; // music resumed meanwhile
     if (await this.enforceAloneStop(cfg)) return;
     const wantProgram = cfg.clock?.deadAir?.thenAutoProgram ?? true;
@@ -512,21 +519,30 @@ export class RadioDirector {
   /** Human joined after alone-stop → restock and play immediately. */
   private async resumeAfterAloneStop(cfg: RadioConfig): Promise<void> {
     if (!cfg.enabled) return;
-    if (this.aloneHumanCount() < 1) return;
-    this.cancelDeadAir();
-    if (await this.tryAutoProgram()) {
+    const humansAtStart = this.aloneHumanCount();
+    if (humansAtStart < 1) return;
+    // Operator paused intentionally — don't replace their track with seed pool.
+    if (this.deps.isUserPaused?.()) {
       this.deps.logger.info(
-        { humans: this.aloneHumanCount() },
-        "radio: resumed — human joined (was alone)",
+        { humans: humansAtStart },
+        "radio: human present but operator-paused — skip auto-program",
       );
       return;
     }
-    if (this.deps.player.getState() === "idle") this.armDeadAir();
+    this.cancelDeadAir();
+    if (await this.tryAutoProgram()) {
+      this.deps.logger.info({ humans: humansAtStart }, "radio: resumed — human joined (was alone)");
+      return;
+    }
+    if (this.deps.player.getState() === "idle" && !this.deps.isUserPaused?.()) {
+      this.armDeadAir();
+    }
   }
 
   private async tryAutoProgram(): Promise<boolean> {
     if (!this.deps.autoProgram) return false;
     if (this.autoProgramInFlight) return false;
+    if (this.deps.isUserPaused?.()) return false;
     const cfg = this.deps.getConfig();
     // Don't restock when alone (unless alone-stop disabled).
     if (this.emptyStopSeconds(cfg) >= 0 && this.aloneHumanCount() < 1) {
@@ -565,6 +581,7 @@ export class RadioDirector {
   private armDeadAir(): void {
     const cfg = this.deps.getConfig();
     if (!cfg.enabled) return;
+    if (this.deps.isUserPaused?.()) return;
     if (this.autoProgramInFlight) return;
     this.cancelDeadAir();
     // Don't make a forced cue wait out the full dead-air delay — fire ASAP.

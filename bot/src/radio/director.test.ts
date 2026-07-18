@@ -590,6 +590,49 @@ describe("RadioDirector", () => {
       expect(h.autoProgram).toHaveBeenCalled();
     });
 
+    it("does not auto-program over an operator pause", async () => {
+      let userPaused = true;
+      const autoProgram = vi.fn(async () => true);
+      const director = new RadioDirector({
+        getConfig: () => ({
+          ...defaultRadioConfig(),
+          enabled: true,
+          emptyChannelStopSeconds: 0,
+          minPresentToBroadcast: 1,
+        }),
+        player: {
+          getState: () => "idle" as PlayerState,
+          play: vi.fn(),
+          resetFailures: vi.fn(),
+        },
+        bumperFactory: { build: vi.fn(async () => null) },
+        playNext: vi.fn(async () => false),
+        autoProgram,
+        stopForEmptyChannel: vi.fn(),
+        isUserPaused: () => userPaused,
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never,
+        now: () => 1_000_000_000,
+        setTimer: () => 0 as unknown as ReturnType<typeof setTimeout>,
+        clearTimer: vi.fn(),
+      });
+      director.onPoll([], 0);
+      await new Promise((r) => setTimeout(r, 0));
+      director.onPoll([], 1);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(autoProgram).not.toHaveBeenCalled();
+
+      userPaused = false;
+      director.onPoll([], 1);
+      await new Promise((r) => setTimeout(r, 0));
+      // Not alone-stopped anymore (already cleared); idle + presence arms dead-air path only.
+      // Directly assert tryAutoProgram gate via another alone cycle:
+      director.onPoll([], 0);
+      await new Promise((r) => setTimeout(r, 0));
+      director.onPoll([], 1);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(autoProgram).toHaveBeenCalled();
+    });
+
     it("emptyChannelStopSeconds=-1 keeps legacy keep-playing behavior", async () => {
       h = harness({
         everyNSongs: 99,

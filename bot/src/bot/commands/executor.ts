@@ -131,7 +131,7 @@ export class CommandExecutor {
       case "pause":
         return this.cmdPause();
       case "resume":
-        return this.cmdResume();
+        return await this.cmdResume();
       case "stop":
         return this.cmdStop();
       case "next":
@@ -270,16 +270,16 @@ export class CommandExecutor {
   }
 
   private cmdPause(): string {
-    this.deps.player.pause();
-    return "Paused";
+    // Prefer PlaybackEngine checkpoint so TTS "Paused" cannot orphan resume.
+    return this.deps.playback.pausePlayback();
   }
 
-  private cmdResume(): string {
-    this.deps.player.resume();
-    return "Resumed";
+  private async cmdResume(): Promise<string> {
+    return this.deps.playback.resumePlayback();
   }
 
   private cmdStop(): string {
+    this.deps.playback.clearUserPause?.();
     this.deps.player.stop();
     this.deps.queue.clear();
     this.deps.profileManager.onSongChange(null).catch(() => {});
@@ -287,6 +287,7 @@ export class CommandExecutor {
   }
 
   private async cmdNext(): Promise<string> {
+    this.deps.playback.clearUserPause?.();
     // A manual skip is a track boundary: with radio on, the wheel advances and
     // a due (or cued) bumper plays instead of jumping straight to the next
     // song. Radio off → onTrackBoundary is a plain playNext, identical to before.

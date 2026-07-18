@@ -1336,8 +1336,13 @@ export class VoiceSession {
         "Voice: playback command done — disarmed for next wake",
       );
       if (voiceReplyClearsSavedMusic(reply)) {
+        // Pause/stop: drop interrupt handoff and do not advance queue when TTS ends.
         this.savedMusic = null;
         this.suppressNextTrackAdvance = true;
+      } else {
+        // Resume/skip: allow TTS trackEnd to restore music (savedMusic from speak()).
+        // Clear any leftover pause suppress so "Resumed" TTS does not hold the queue.
+        this.suppressNextTrackAdvance = false;
       }
       return;
     }

@@ -62,9 +62,25 @@ export class PlaybackEngine {
    * by playDemoTrack). Always includes DEFAULT_DEMO_VIDEO_ID.
    */
   private protectedDemoIds = new Set<string>([DEFAULT_DEMO_VIDEO_ID]);
+  /**
+   * Operator pause checkpoint. Soft `player.pause()` is destroyed when TTS
+   * speaks "Paused" (player.play replaces the stream). Keep song position so
+   * resume re-seeks the same track, and so radio dead-air does not restock.
+   */
+  private userPause: { songId: string; elapsed: number } | null = null;
 
   constructor(opts: PlaybackEngineOptions) {
     this.opts = opts;
+  }
+
+  /** True while the operator has paused (soft pause or TTS-killed stream). */
+  isUserPaused(): boolean {
+    if (this.userPause) return true;
+    return this.opts.player.getState() === "paused";
+  }
+
+  clearUserPause(): void {
+    this.userPause = null;
   }
 
   /** True while the queue's current track is the !test / PHASE0 demo. */
@@ -272,10 +288,13 @@ export class PlaybackEngine {
     return { ...cmd, args: resolved, rawArgs: resolved.split(/\s+/) };
   }
 
-  async resolveAndPlay(song: QueuedSong): Promise<boolean> {
+  async resolveAndPlay(
+    song: QueuedSong,
+    opts?: { seekSeconds?: number; skipHistory?: boolean },
+  ): Promise<boolean> {
     const next = this.playResolveSerial.then(
-      () => this.resolveAndPlayOnce(song),
-      () => this.resolveAndPlayOnce(song),
+      () => this.resolveAndPlayOnce(song, opts),
+      () => this.resolveAndPlayOnce(song, opts),
     );
     this.playResolveSerial = next.then(
       () => true,
@@ -284,7 +303,10 @@ export class PlaybackEngine {
     return next;
   }
 
-  private async resolveAndPlayOnce(song: QueuedSong): Promise<boolean> {
+  private async resolveAndPlayOnce(
+    song: QueuedSong,
+    opts?: { seekSeconds?: number; skipHistory?: boolean },
+  ): Promise<boolean> {
     if (!this.opts.isConnected()) {
       this.opts.logger.warn(
         { songId: song.id, name: song.name },
@@ -368,16 +390,22 @@ export class PlaybackEngine {
         return false;
       }
       song.url = url;
-      this.opts.player.play(url, 0, song.duration);
-      this.opts.database.addPlayHistory({
-        botId: this.opts.botId,
-        songId: song.id,
-        songName: song.name,
-        artist: song.artist,
-        album: song.album,
-        platform: song.platform,
-        coverUrl: song.coverUrl,
-      });
+      // New intentional play (not a pause-resume seek) clears operator pause.
+      // skipHistory resumes keep the flag until resumePlayback clears it after success.
+      if (!opts?.skipHistory) this.userPause = null;
+      const seek = Math.max(0, opts?.seekSeconds ?? 0);
+      this.opts.player.play(url, seek, song.duration);
+      if (!opts?.skipHistory) {
+        this.opts.database.addPlayHistory({
+          botId: this.opts.botId,
+          songId: song.id,
+          songName: song.name,
+          artist: song.artist,
+          album: song.album,
+          platform: song.platform,
+          coverUrl: song.coverUrl,
+        });
+      }
       this.opts.profileManager.onSongChange(song).catch((err) => {
         this.opts.logger.warn({ err }, "Profile update failed after song change");
       });
@@ -508,26 +536,104 @@ export class PlaybackEngine {
   }
 
   clearQueueAndStop(): void {
+    this.userPause = null;
     this.opts.queue.clear();
     this.opts.player.stop();
     this.emitState();
   }
 
   async skipNext(): Promise<void> {
+    this.userPause = null;
     const next = this.opts.queue.next();
     if (next) await this.resolveAndPlay(next);
     else this.opts.player.stop();
     this.emitState();
   }
 
-  pausePlayback(): void {
-    this.opts.player.pause();
-    this.emitState();
+  /**
+   * Operator pause. Records a checkpoint so resume can re-seek after TTS
+   * "Paused" destroys the soft-paused ffmpeg session.
+   */
+  pausePlayback(): string {
+    const state = this.opts.player.getState();
+    const current = this.opts.queue.current();
+    if (state === "playing" && current) {
+      this.userPause = {
+        songId: current.id,
+        elapsed: Math.max(0, Math.floor(this.opts.player.getElapsed())),
+      };
+      this.opts.player.pause();
+      this.emitState();
+      return "Paused";
+    }
+    if (state === "paused" || this.userPause) {
+      // Refresh checkpoint if still soft-paused (elapsed still advancing? no).
+      if (state === "paused" && current && !this.userPause) {
+        this.userPause = {
+          songId: current.id,
+          elapsed: Math.max(0, Math.floor(this.opts.player.getElapsed())),
+        };
+      }
+      this.emitState();
+      return "Already paused";
+    }
+    // Idle with a current track (e.g. alone-stop race mid-stream) — mark intent.
+    if (current) {
+      this.userPause = { songId: current.id, elapsed: 0 };
+      this.emitState();
+      return "Paused";
+    }
+    return "Nothing is playing";
   }
 
-  resumePlayback(): void {
-    this.opts.player.resume();
-    this.emitState();
+  /**
+   * Operator resume. Soft resume if still paused; otherwise re-play the
+   * checkpointed queue current from the saved elapsed.
+   * Clears the pause flag only after playback actually starts so concurrent
+   * radio dead-air restock cannot win the race.
+   */
+  async resumePlayback(): Promise<string> {
+    const state = this.opts.player.getState();
+    if (state === "playing" && !this.userPause) {
+      return "Already playing";
+    }
+
+    // Soft pause still holds the stream (no TTS interrupt yet).
+    if (state === "paused") {
+      this.opts.player.resume();
+      this.userPause = null;
+      this.emitState();
+      return "Resumed";
+    }
+
+    const current = this.opts.queue.current();
+    const checkpoint = this.userPause;
+    if (current && checkpoint && current.id === checkpoint.songId) {
+      const elapsed = checkpoint.elapsed;
+      const ok = await this.resolveAndPlay(current, {
+        seekSeconds: elapsed,
+        skipHistory: true,
+      });
+      if (!ok) return "Could not resume — try play again";
+      this.userPause = null;
+      this.emitState();
+      return "Resumed";
+    }
+
+    // Checkpoint lost but queue still has a current track — restart it.
+    if (current) {
+      const ok = await this.resolveAndPlay(current, {
+        seekSeconds: checkpoint?.elapsed ?? 0,
+        skipHistory: true,
+      });
+      if (!ok) return "Could not resume — try play again";
+      this.userPause = null;
+      this.emitState();
+      return "Resumed";
+    }
+
+    this.userPause = null;
+    return "Nothing to resume";
   }
 
   setVolume(volume: number): void {

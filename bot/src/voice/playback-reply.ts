@@ -1,6 +1,8 @@
 /**
  * After voice TTS, `trackEnd` uses `savedMusic` to restore interrupted playback.
- * Pause/stop should drop that handoff; resume/skip need it so music restarts after the ack.
+ * Pause/stop should drop that handoff (PlaybackEngine keeps a separate operator
+ * pause checkpoint so resume can re-seek the same song). Resume/skip need the
+ * speak() handoff so music restarts after the spoken ack.
  */
 export function voiceReplyClearsSavedMusic(reply: string | null): boolean {
   if (!reply) return false;

@@ -6,6 +6,21 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-17
+
+### Fix: voice pause/resume lost the same song
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **Root cause:** soft `player.pause()` was destroyed when TTS spoke "Paused"
+  (`player.play` replaces the stream → idle). `resume` only flipped
+  `paused→playing`, so it no-op'd and still said "Resumed". Radio dead-air /
+  alone-stop then **auto-programmed a new seed pool** over the paused track.
+- **Fix:** PlaybackEngine operator **pause checkpoint** (song id + elapsed);
+  resume re-seeks the same track after TTS. Radio skips restock while
+  `isUserPaused()`. Alone-stop resume log snapshots human count at start.
+  Resume TTS no longer inherits pause's "hold queue" suppress flag.
+- Honest replies: "Already paused" / "Nothing to resume" / "Already playing"
+
 ## 2026-07-16
 
 ### Six-track: arm native, bridges, live feedback, VectorClient, Nest, audit

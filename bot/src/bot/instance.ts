@@ -505,9 +505,12 @@ export class BotInstance extends EventEmitter {
       autoProgram: () => this.commands.autoProgramRadio(),
       // Alone (0 humans / only bot) → stop + clear; human joins → resume.
       stopForEmptyChannel: () => {
+        this.playback.clearUserPause();
         this.player.stop();
         this.queue.clear();
       },
+      // Operator pause holds the queue current — do not restock over a pause.
+      isUserPaused: () => this.playback.isUserPaused(),
       // §6.3: broadcast floor = intersection of every present member's clearance
       // (idle-poller ClientInfo: uid + serverGroups; the bot itself is skipped).
       resolveFloor: (clients) => {
@@ -1460,12 +1463,16 @@ export class BotInstance extends EventEmitter {
     return this.playback.skipNext();
   }
 
-  pausePlayback(): void {
-    this.playback.pausePlayback();
+  pausePlayback(): string {
+    return this.playback.pausePlayback();
   }
 
-  resumePlayback(): void {
-    this.playback.resumePlayback();
+  isUserPaused(): boolean {
+    return this.playback.isUserPaused();
+  }
+
+  async resumePlayback(): Promise<string> {
+    return this.playback.resumePlayback();
   }
 
   setVolume(volume: number): void {

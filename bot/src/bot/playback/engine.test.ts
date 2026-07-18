@@ -165,3 +165,103 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
     expect(getSongUrl).not.toHaveBeenCalled();
   });
 });
+
+describe("PlaybackEngine pause / resume checkpoint", () => {
+  let engine: PlaybackEngine;
+  let play: ReturnType<typeof vi.fn>;
+  let pause: ReturnType<typeof vi.fn>;
+  let resume: ReturnType<typeof vi.fn>;
+  let getState: ReturnType<typeof vi.fn>;
+  let getElapsed: ReturnType<typeof vi.fn>;
+  let queue: PlayQueue;
+  let getSongUrl: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    play = vi.fn();
+    pause = vi.fn();
+    resume = vi.fn();
+    getState = vi.fn(() => "playing");
+    getElapsed = vi.fn(() => 42);
+    queue = new PlayQueue();
+    queue.add({
+      id: "song-a",
+      name: "Track A",
+      artist: "Artist",
+      album: "",
+      duration: 180,
+      coverUrl: "",
+      platform: "local",
+    });
+    queue.play();
+    getSongUrl = vi.fn().mockResolvedValue("/music/a.mp3");
+    const local = {
+      platform: "local" as const,
+      getSongUrl,
+      search: vi.fn(),
+      findSongByVideoId: vi.fn(),
+      refresh: vi.fn(),
+      getMusicDir: () => "/music",
+    };
+    engine = new PlaybackEngine({
+      botId: "b1",
+      player: {
+        play,
+        pause,
+        resume,
+        resetFailures: vi.fn(),
+        getState,
+        getElapsed,
+        stop: vi.fn(),
+        setVolume: vi.fn(),
+        getVolume: () => 50,
+      } as any,
+      queue,
+      localProvider: local as any,
+      youtubeProvider: { platform: "youtube" } as any,
+      streamProvider: { platform: "stream" } as any,
+      ytLibrary: { lookup: () => null, saveInBackground: vi.fn() } as any,
+      database: { addPlayHistory: vi.fn() } as any,
+      config: { youtubeSaveEnabled: false, musicBlockedGenres: [] } as any,
+      profileManager: { onSongChange: vi.fn().mockResolvedValue(undefined) } as any,
+      logger: fakeLogger(),
+      events: { emit: vi.fn() },
+      isConnected: () => true,
+      isAdvancing: () => false,
+      setAdvancing: vi.fn(),
+    });
+  });
+
+  it("pause records checkpoint and soft-pauses", () => {
+    expect(engine.pausePlayback()).toBe("Paused");
+    expect(pause).toHaveBeenCalled();
+    expect(engine.isUserPaused()).toBe(true);
+  });
+
+  it("soft resume when still paused", async () => {
+    getState.mockReturnValue("paused");
+    engine.pausePlayback();
+    resume.mockImplementation(() => {
+      getState.mockReturnValue("playing");
+    });
+    const msg = await engine.resumePlayback();
+    expect(msg).toBe("Resumed");
+    expect(resume).toHaveBeenCalled();
+    expect(engine.isUserPaused()).toBe(false);
+  });
+
+  it("re-seeks same song when stream was killed (idle after TTS)", async () => {
+    expect(engine.pausePlayback()).toBe("Paused");
+    // TTS "Paused" stops ffmpeg → idle, but checkpoint remains
+    getState.mockReturnValue("idle");
+    const msg = await engine.resumePlayback();
+    expect(msg).toBe("Resumed");
+    expect(play).toHaveBeenCalledWith("/music/a.mp3", 42, 180);
+    expect(engine.isUserPaused()).toBe(false);
+  });
+
+  it("does not claim Resumed when queue is empty", async () => {
+    getState.mockReturnValue("idle");
+    queue.clear();
+    expect(await engine.resumePlayback()).toBe("Nothing to resume");
+  });
+});
