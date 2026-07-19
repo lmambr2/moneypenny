@@ -1,5 +1,5 @@
 import type { TS3TextMessage } from "@moneypenny/ts6-client";
-import type { QueuedSong } from "../../audio/queue.js";
+import { isRadioFill, type QueuedSong } from "../../audio/queue.js";
 import { isBlockedGenreSong } from "../../music/genre-block.js";
 import { isNonMusicContent } from "../../music/non-music.js";
 import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
@@ -489,13 +489,66 @@ export class RadioCommands {
     // Remember seed-sourced ids so the next restock prefers other tracks.
     this.noteSeedProgrammed(pool.map((s) => s.id));
 
+    // Preserve human !add / !playnext tracks. Radio restock used to queue.clear()
+    // + play(), which wiped user queue and jumped to a new seed (felt like
+    // "!add skipped / overwrote the queue").
+    const prevList = this.deps.queue.list();
+    const curIdx = this.deps.queue.getCurrentIndex();
+    const current = this.deps.queue.current();
+    const playerState = this.deps.player.getState();
+    const keepStream = playerState === "playing" || playerState === "paused";
+
+    const userPending: QueuedSong[] = [];
+    for (let i = 0; i < prevList.length; i++) {
+      if (i === curIdx) continue;
+      const s = prevList[i]!;
+      if (!isRadioFill(s)) userPending.push(s);
+    }
+
     this.deps.queue.clear();
+
+    // Head: keep whatever is currently playing (user or radio) so we don't
+    // SIGKILL mid-track when restocking.
+    if (current) {
+      this.deps.queue.add({ ...current });
+    }
+    for (const s of userPending) {
+      this.deps.queue.add({ ...s, source: s.source ?? "user" });
+    }
+    const keptIds = new Set<string>();
+    if (current?.id) keptIds.add(current.id);
+    for (const s of userPending) {
+      if (s.id) keptIds.add(s.id);
+    }
     for (const song of pool) {
+      if (song.id && keptIds.has(song.id)) continue;
       this.deps.queue.add({ ...song, source: "radio" });
     }
-    const first = this.deps.queue.play();
-    this.deps.player.resetFailures();
-    if (first) await this.deps.playback.resolveAndPlay(first);
+
+    if (keepStream && current) {
+      // Current song is index 0 after rebuild — do not restart ffmpeg.
+      this.deps.queue.playAt(0);
+      this.deps.logger?.info?.(
+        {
+          keptUser: userPending.length,
+          radioPool: pool.length,
+          queueSize: this.deps.queue.size(),
+        },
+        "radio: restock preserved now-playing + user queue",
+      );
+    } else {
+      const first = this.deps.queue.play();
+      this.deps.player.resetFailures();
+      if (first) await this.deps.playback.resolveAndPlay(first);
+      this.deps.logger?.info?.(
+        {
+          keptUser: userPending.length,
+          radioPool: pool.length,
+          started: first?.name,
+        },
+        "radio: restock started (idle or empty stream)",
+      );
+    }
     // Start timer bumpers only for pure relay; stop when profile is library/spotify/etc.
     this.deps.onRelayChanged?.(activeRelay);
     return pool.length;

@@ -20,6 +20,30 @@ function song(partial: Partial<Song> & { id: string; name: string }): Song {
   };
 }
 
+/** Minimal queue surface for autoProgram restock (preserves user tracks). */
+function mockQueue(opts?: {
+  list?: unknown[];
+  current?: unknown;
+  currentIndex?: number;
+  onAdd?: (s: Song) => void;
+}) {
+  const added: Song[] = [];
+  return {
+    clear: vi.fn(),
+    add: vi.fn((s: Song) => {
+      added.push(s);
+      opts?.onAdd?.(s);
+    }),
+    play: vi.fn(() => added[0] ?? null),
+    playAt: vi.fn(),
+    list: vi.fn(() => opts?.list ?? []),
+    current: vi.fn(() => opts?.current ?? null),
+    getCurrentIndex: vi.fn(() => opts?.currentIndex ?? -1),
+    size: () => added.length,
+    _added: added,
+  };
+}
+
 describe("isRadioSeedFriendlySong", () => {
   it("accepts normal-length tracks", () => {
     expect(isRadioSeedFriendlySong(song({ id: "a", name: "Night Drive", duration: 240 }))).toBe(
@@ -226,7 +250,7 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
       playlists: [],
       albums: [],
     }));
-    const added: Array<{ id: string; platform?: string }> = [];
+    const queue = mockQueue();
     const deps = {
       config: {
         commandPrefix: "!",
@@ -242,12 +266,7 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
           },
         },
       },
-      queue: {
-        clear: vi.fn(),
-        add: vi.fn((s: Song) => added.push({ id: s.id, platform: s.platform })),
-        play: vi.fn(() => library[1]),
-        size: () => added.length,
-      },
+      queue,
       player: { resetFailures: vi.fn(), getState: () => "idle" },
       playback: { resolveAndPlay: vi.fn(async () => true), searchFirst: vi.fn() },
       getProvider: vi.fn((flags: Set<string>) => {
@@ -260,6 +279,7 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     const cmds = new RadioCommands(deps, async () => []);
     const ok = await cmds.autoProgram();
     expect(ok).toBe(true);
+    const added = queue._added;
     expect(added.map((a) => a.id)).not.toContain("mix");
     expect(added.map((a) => a.id)).not.toContain("ytmix");
     expect(added.length).toBeGreaterThanOrEqual(2);
@@ -283,7 +303,7 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
       playlists: [],
       albums: [],
     }));
-    const added: string[] = [];
+    const queue = mockQueue();
     const deps = {
       config: {
         commandPrefix: "!",
@@ -303,12 +323,7 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
           },
         },
       },
-      queue: {
-        clear: vi.fn(),
-        add: vi.fn((s: Song) => added.push(s.id)),
-        play: vi.fn(() => library[0]),
-        size: () => added.length,
-      },
+      queue,
       player: { resetFailures: vi.fn(), getState: () => "idle" },
       playback: { resolveAndPlay: vi.fn(async () => true), searchFirst: vi.fn() },
       getProvider: vi.fn((flags: Set<string>) => {
@@ -321,7 +336,61 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     const cmds = new RadioCommands(deps, async () => []);
     expect(await cmds.autoProgram()).toBe(true);
     expect(ytSearch).not.toHaveBeenCalled();
-    expect(added).toEqual(["s1"]);
+    expect(queue._added.map((s) => s.id)).toEqual(["s1"]);
+  });
+
+  it("restock preserves user !add tracks while playing", async () => {
+    const userTrack = {
+      ...song({ id: "user1", name: "User Add" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const nowPlaying = {
+      ...song({ id: "now", name: "Now Playing" }),
+      source: "radio" as const,
+      platform: "local" as const,
+    };
+    const localSearch = vi.fn(async () => ({
+      songs: [song({ id: "seed1", name: "Seed A", duration: 180 })],
+      playlists: [],
+      albums: [],
+    }));
+    const queue = mockQueue({
+      list: [nowPlaying, userTrack],
+      current: nowPlaying,
+      currentIndex: 0,
+    });
+    const resolveAndPlay = vi.fn(async () => true);
+    const deps = {
+      config: {
+        commandPrefix: "!",
+        aceStepAutoFill: false,
+        radio: {
+          enabled: true,
+          activeProfile: "lobby",
+          profiles: {
+            lobby: {
+              name: "lobby",
+              music: { seedQueries: ["rock"], seedSources: ["local"], shuffle: false },
+            },
+          },
+        },
+      },
+      queue,
+      player: { resetFailures: vi.fn(), getState: () => "playing" },
+      playback: { resolveAndPlay, searchFirst: vi.fn() },
+      getProvider: vi.fn(() => ({ platform: "local", search: localSearch })),
+      logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+    } as unknown as CommandExecutorDeps;
+
+    const cmds = new RadioCommands(deps, async () => []);
+    expect(await cmds.autoProgram()).toBe(true);
+    expect(resolveAndPlay).not.toHaveBeenCalled(); // keep stream
+    expect(queue.playAt).toHaveBeenCalledWith(0);
+    const ids = queue._added.map((s) => s.id);
+    expect(ids[0]).toBe("now");
+    expect(ids).toContain("user1");
+    expect(ids).toContain("seed1");
   });
 
   it("profile aceStepAutoFill true runs gen even when global autoFill is off", async () => {
@@ -349,12 +418,7 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
           },
         },
       },
-      queue: {
-        clear: vi.fn(),
-        add: vi.fn(),
-        play: vi.fn(() => genSong),
-        size: () => 0,
-      },
+      queue: mockQueue(),
       player: { resetFailures: vi.fn(), getState: () => "idle" },
       playback: {
         resolveAndPlay: vi.fn(async () => true),
@@ -396,7 +460,7 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
           },
         },
       },
-      queue: { clear: vi.fn(), add: vi.fn(), play: vi.fn(), size: () => 0 },
+      queue: mockQueue(),
       player: { resetFailures: vi.fn(), getState: () => "idle" },
       playback: {
         resolveAndPlay: vi.fn(),

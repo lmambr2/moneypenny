@@ -44,6 +44,10 @@ describe("RadioCommands autoProgram ACE-Step fill", () => {
       clear: vi.fn(),
       add: vi.fn(),
       play: vi.fn(() => song),
+      playAt: vi.fn(),
+      list: vi.fn(() => []),
+      current: vi.fn(() => null),
+      getCurrentIndex: vi.fn(() => -1),
       size: () => 0,
     };
     const player = { resetFailures: vi.fn(), getState: () => "idle" };
