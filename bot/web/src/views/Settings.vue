@@ -608,13 +608,31 @@
             0 = stop as soon as you&rsquo;re alone · -1 = keep playing empty · join again to restart.
           </p>
         </div>
-        <div class="form-group" title="Word budget for TTS/doctrine liners (~2.5 words/sec). Truncates long scripts so bumpers stay short.">
-          <label>Max bumper length (s)</label>
-          <input v-model.number="ai.radioMaxBumperSeconds" type="number" min="5" step="1" class="input" />
-        </div>
         <div class="form-group" title="Spoken bumpers play at max(music volume, this %). Keeps announcements audible when the music fader is low. Does not apply the music-color filter.">
           <label>Speech volume floor (%)</label>
           <input v-model.number="ai.radioSpeechVolumePct" type="number" min="1" max="100" step="1" class="input" />
+        </div>
+      </div>
+
+      <!-- Own row so max length is never lost in a cramped 5-col wrap -->
+      <div v-if="ai.radioEnabled" class="form-row" style="margin: 0 0 8px">
+        <div
+          class="form-group"
+          style="flex: 1; max-width: 280px"
+          title="Word budget for TTS/doctrine/station-ID liners (~2.5 words/sec). Truncates long scripts so spoken bumpers stay short. Save to apply; clear TTS bumper cache after big changes."
+        >
+          <label>Max bumper length (seconds)</label>
+          <input
+            v-model.number="ai.radioMaxBumperSeconds"
+            type="number"
+            min="5"
+            max="180"
+            step="1"
+            class="input"
+          />
+          <p class="profile-toggle-hint" style="margin:4px 0 0">
+            Caps spoken bumper scripts (default 30s). Does not cut prerecorded jingles.
+          </p>
         </div>
       </div>
 
@@ -3156,8 +3174,16 @@ async function saveAiSettings() {
           if (!Number.isFinite(n)) return 0;
           return Math.max(-1, Math.floor(n));
         })(),
-        maxBumperSeconds: ai.radioMaxBumperSeconds,
-        speechVolumePct: ai.radioSpeechVolumePct,
+        maxBumperSeconds: (() => {
+          const n = Number(ai.radioMaxBumperSeconds);
+          if (!Number.isFinite(n)) return 30;
+          return Math.max(5, Math.min(180, Math.floor(n)));
+        })(),
+        speechVolumePct: (() => {
+          const n = Number(ai.radioSpeechVolumePct);
+          if (!Number.isFinite(n)) return 85;
+          return Math.max(1, Math.min(100, Math.floor(n)));
+        })(),
         activeProfile: ai.radioActiveProfile,
         // Keep radio TTS aligned with voice settings (station IDs / time checks).
         ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-medium',

@@ -85,6 +85,7 @@ export interface CommandExecutorDeps {
  * file and the URL only needs to be reachable once.
  */
 const SG1_THEME_URL = "https://www.youtube.com/watch?v=aafGXNWHGaw";
+const SG1_THEME_VIDEO_ID = "aafGXNWHGaw";
 
 /**
  * Deterministic `!command` implementations. Delegates playback to PlaybackEngine.
@@ -217,15 +218,59 @@ export class CommandExecutor {
   }
 
   private async cmdChevron7(): Promise<string> {
-    const cmd: ParsedCommand = {
-      name: "play",
-      args: SG1_THEME_URL,
-      rawArgs: [SG1_THEME_URL],
-      flags: new Set<string>(),
+    // Prefer local library (YtLibrary / [videoId] filename) — yt-dlp on Pi often
+    // fails without a JS runtime, which made chevron7 report "won't engage".
+    const localHit = await this.tryLocalSg1Theme();
+    if (localHit) {
+      this.deps.queue.clear();
+      this.deps.queue.add({ ...localHit, platform: "local", source: "user" });
+      this.deps.queue.play();
+      this.deps.player.resetFailures();
+      const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
+      if (ok) return "Chevron seven... locked! 🌌 Dialing the SG-1 theme (local).";
+    }
+
+    // Force YouTube provider for the canonical URL, then text search fallbacks.
+    const attempts: ParsedCommand[] = [
+      {
+        name: "play",
+        args: SG1_THEME_URL,
+        rawArgs: [SG1_THEME_URL, "-y"],
+        flags: new Set(["y"]),
+      },
+      {
+        name: "play",
+        args: "Stargate SG-1 Opening season 1-2-3 HD",
+        rawArgs: ["Stargate", "SG-1", "Opening", "season", "1-2-3", "HD", "-y"],
+        flags: new Set(["y"]),
+      },
+      {
+        name: "play",
+        args: "Stargate SG-1 theme official",
+        rawArgs: ["Stargate", "SG-1", "theme", "official"],
+        flags: new Set(),
+      },
+    ];
+    for (const cmd of attempts) {
+      const r = await this.replaceQueueWithFirstHit(cmd);
+      if (r.ok) return "Chevron seven... locked! 🌌 Dialing the SG-1 theme.";
+    }
+    return "Chevron seven won't engage — SG-1 theme not in library and YouTube resolve failed.";
+  }
+
+  /** Local copy of SG-1 open (filename contains [aafGXNWHGaw]). */
+  private async tryLocalSg1Theme(): Promise<Song | null> {
+    const local = this.deps.getProvider(new Set(["l"])) as {
+      findSongByVideoId?: (id: string) => Promise<Song | null>;
+      refresh?: () => Promise<number>;
     };
-    const r = await this.replaceQueueWithFirstHit(cmd);
-    if (r.ok) return "Chevron seven... locked! 🌌 Dialing the SG-1 theme.";
-    return "Chevron seven won't engage — could not dial the SG-1 theme.";
+    if (typeof local.findSongByVideoId !== "function") return null;
+    let song = await local.findSongByVideoId(SG1_THEME_VIDEO_ID);
+    if (!song && typeof local.refresh === "function") {
+      await local.refresh();
+      song = await local.findSongByVideoId(SG1_THEME_VIDEO_ID);
+    }
+    return song;
   }
 
   private async cmdAdd(cmd: ParsedCommand): Promise<string> {
