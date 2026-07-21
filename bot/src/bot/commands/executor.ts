@@ -137,7 +137,7 @@ export class CommandExecutor {
         return this.cmdStop();
       case "next":
       case "skip":
-        return this.cmdNext();
+        return this.cmdNext(cmd);
       case "prev":
         return this.cmdPrev();
       case "vol":
@@ -331,8 +331,16 @@ export class CommandExecutor {
     return "Stopped and queue cleared";
   }
 
-  private async cmdNext(): Promise<string> {
+  /**
+   * `!next` / `!skip` — advance one track (radio boundary / bumper aware).
+   * `!next <query>` — jump to a matching queue entry, or search and start it now
+   * (args used to be ignored, so `!next titanium` only skipped once).
+   */
+  private async cmdNext(cmd: ParsedCommand): Promise<string> {
     this.deps.playback.clearUserPause?.();
+    const query = cmd.args.trim();
+    if (query) return this.cmdNextNamed(query, cmd);
+
     // A manual skip is a track boundary: with radio on, the wheel advances and
     // a due (or cued) bumper plays instead of jumping straight to the next
     // song. Radio off → onTrackBoundary is a plain playNext, identical to before.
@@ -346,6 +354,33 @@ export class CommandExecutor {
     const current = this.deps.queue.current();
     if (current) return `Now playing: ${current.name} - ${current.artist}`;
     return "Queue is empty";
+  }
+
+  /** Jump to queue match or search+play immediately for `!next <query>`. */
+  private async cmdNextNamed(query: string, cmd: ParsedCommand): Promise<string> {
+    const matchIdx = findQueueIndexByQuery(this.deps.queue, query);
+    if (matchIdx != null) {
+      const song = this.deps.queue.playAt(matchIdx);
+      if (!song) return "Queue is empty";
+      this.deps.player.resetFailures();
+      const ok = await this.deps.playback.resolveAndPlay(song);
+      if (!ok) return `Cannot play: ${song.name}`;
+      return `Skipped to: ${song.name} - ${song.artist}`;
+    }
+
+    const hit = await this.deps.playback.searchFirst(cmd, 1);
+    if (!hit) return `No results found for: ${query}`;
+    const { provider, song } = hit;
+    const queued = { ...song, platform: provider.platform, source: "user" as const };
+    const wasIdle = this.deps.queue.getCurrentIndex() < 0 || this.deps.queue.size() === 0;
+    this.deps.queue.addNext(queued);
+    const targetIdx = wasIdle ? this.deps.queue.size() - 1 : this.deps.queue.getCurrentIndex() + 1;
+    const target = this.deps.queue.playAt(targetIdx);
+    if (!target) return `Cannot play: ${song.name}`;
+    this.deps.player.resetFailures();
+    const ok = await this.deps.playback.resolveAndPlay(target);
+    if (!ok) return `Cannot play: ${song.name}`;
+    return `Now playing: ${song.name} - ${song.artist}`;
   }
 
   private async cmdPrev(): Promise<string> {
@@ -457,7 +492,12 @@ export class CommandExecutor {
       }
     }
 
-    const nextMsg = await this.cmdNext();
+    const nextMsg = await this.cmdNext({
+      name: "next",
+      args: "",
+      rawArgs: [],
+      flags: new Set(),
+    });
     return `Banned: ${song.name} — ${song.artist}. ${nextMsg}`;
   }
 
@@ -728,7 +768,7 @@ export class CommandExecutor {
       "Music",
       `${p}play <query|url> — Local first, else YouTube (-y forces YT, -l Local). URLs: YT/X/Twitter/Bandcamp/Spotify/Tidal/stream`,
       `${p}add <song> · ${p}playnext <song> (${p}pn) — Queue · play next`,
-      `${p}skip/next · ${p}prev · ${p}pause · ${p}resume · ${p}stop — Transport`,
+      `${p}skip/next [query] · ${p}prev · ${p}pause · ${p}resume · ${p}stop — Skip, or jump to / start <query>`,
       `${p}queue · ${p}now · ${p}clear · ${p}remove <n> · ${p}vol <0-100> · ${p}mode <seq|loop|random|rloop>`,
       `${p}playlist <name|id> · ${p}album <id> · ${p}artist <name> · ${p}lyrics · ${p}vote`,
       `${p}test — Demo track (local copy if saved, else ${DEFAULT_DEMO_VIDEO_URL})`,
@@ -777,4 +817,36 @@ export class CommandExecutor {
     }
     return this.deps.playback.playDemoTrack();
   }
+}
+
+/** Match queue entries by case-insensitive name/artist/album token inclusion. */
+export function findQueueIndexByQuery(
+  queue: Pick<PlayQueue, "list" | "getCurrentIndex">,
+  query: string,
+): number | null {
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const songs = queue.list();
+  const cur = queue.getCurrentIndex();
+  const matches = (i: number): boolean => {
+    const s = songs[i];
+    if (!s) return false;
+    const hay = `${s.name} ${s.artist} ${s.album}`.toLowerCase();
+    return tokens.every((t) => hay.includes(t));
+  };
+
+  // Prefer upcoming tracks after the current one, then anything else (not current).
+  for (let i = cur + 1; i < songs.length; i++) {
+    if (matches(i)) return i;
+  }
+  for (let i = 0; i < songs.length; i++) {
+    if (i === cur) continue;
+    if (matches(i)) return i;
+  }
+  return null;
 }
