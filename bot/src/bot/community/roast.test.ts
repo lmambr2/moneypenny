@@ -4,6 +4,7 @@ import type { RoastQuote } from "../../data/roast.js";
 import { RoastStore } from "../../data/roast.js";
 import {
   formatRoastReel,
+  looksLikeImageOrBinaryPayload,
   parseRoastGrade,
   RoastService,
   roastCooldownRemainingMs,
@@ -94,6 +95,48 @@ describe("RoastService", () => {
 
   it("sanitizeRoastCapture strips BBCode and URLs", () => {
     expect(sanitizeRoastCapture("[b]hello[/b] https://x.com/y world")).toBe("hello world");
+  });
+
+  it("sanitizeRoastCapture rejects image data-URLs and base64 magic", () => {
+    const pngB64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    expect(sanitizeRoastCapture(`data:image/png;base64,${pngB64}`)).toBe("");
+    expect(sanitizeRoastCapture(pngB64)).toBe("");
+    expect(
+      sanitizeRoastCapture(
+        "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/",
+      ),
+    ).toBe("");
+    expect(sanitizeRoastCapture("[img]https://cdn.example/pic.png[/img]")).toBe("");
+    expect(sanitizeRoastCapture("just normal chat lol")).toBe("just normal chat lol");
+  });
+
+  it("looksLikeImageOrBinaryPayload flags high-entropy base64 blobs", () => {
+    const blob = `${"ABCD".repeat(20)}==`;
+    expect(looksLikeImageOrBinaryPayload(blob)).toBe(true);
+    expect(looksLikeImageOrBinaryPayload("hey everyone, that was wild yesterday")).toBe(false);
+  });
+
+  it("captureLine drops image pastes", () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    service.captureLine({
+      targetMode: 2,
+      invokerId: "7",
+      invokerUid: "u-img",
+      invokerName: "Paster",
+      message: `data:image/png;base64,${png}`,
+    } as any);
+    expect(store.ungradedCount()).toBe(0);
+
+    service.captureLine({
+      targetMode: 2,
+      invokerId: "7",
+      invokerUid: "u-txt",
+      invokerName: "Talker",
+      message: "this is fine, right?",
+    } as any);
+    expect(store.ungradedCount()).toBe(1);
   });
 
   it("opt-out then opt-in resumes capture", () => {

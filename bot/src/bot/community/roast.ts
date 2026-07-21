@@ -60,14 +60,64 @@ export function roastCooldownRemainingMs(lastRoastAt: number, cooldownMinutes: n
   return Math.max(0, cooldownMs - (Date.now() - lastRoastAt));
 }
 
-/** Strip TS BBCode / collapse whitespace; cap length for the grader. */
+/**
+ * True when the chat payload is (or is mostly) an image / binary paste rather
+ * than roastable prose. TeamSpeak clients sometimes paste pictures as
+ * data-URLs, raw base64, or [img]…[/img] — those must never reach the LLM.
+ */
+export function looksLikeImageOrBinaryPayload(raw: string): boolean {
+  const s = raw.replace(/\r\n/g, "\n").trim();
+  if (!s) return false;
+
+  // Explicit media markers (case-insensitive).
+  if (/data:image\//i.test(s)) return true;
+  if (/\[img[\s=\]]/i.test(s)) return true;
+  if (/\b(?:image\/(?:png|jpe?g|gif|webp|bmp|svg\+xml)|application\/octet-stream)\b/i.test(s)) {
+    return true;
+  }
+
+  // Common base64 magic for image formats (with optional data-url wrapper stripped).
+  const compact = s.replace(/\s+/g, "");
+  const b64Body = compact.replace(/^data:[^;]+;base64,/i, "");
+  if (/^(?:iVBORw0KGgo|\/9j\/|R0lGOD|UklGR|Qk[0-9A-Za-z]|PHN2Zy|AAABAA)/.test(b64Body)) {
+    return true;
+  }
+
+  // Long high-entropy base64-ish blob with little real prose.
+  if (b64Body.length >= 48) {
+    const b64Chars = (b64Body.match(/[A-Za-z0-9+/=]/g) ?? []).length;
+    const ratio = b64Chars / b64Body.length;
+    if (ratio >= 0.92) {
+      const spaces = (s.match(/\s/g) ?? []).length;
+      const wordTokens = s.split(/\s+/).filter((w) => /[a-zA-Z]{3,}/.test(w));
+      // Real chat has words/spaces; raw image data does not.
+      if (spaces / Math.max(s.length, 1) < 0.06 && wordTokens.length < 4) return true;
+    }
+    // Any single run of 80+ base64 chars is almost never a chat message.
+    if (/[A-Za-z0-9+/]{80,}={0,2}/.test(b64Body)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Strip TS BBCode / collapse whitespace; cap length for the grader.
+ * Returns "" when the line is image/binary raw data (not roastable text).
+ */
 export function sanitizeRoastCapture(raw: string, maxLen = 400): string {
+  if (looksLikeImageOrBinaryPayload(raw)) return "";
+
   let t = raw
     .replace(/\r\n/g, "\n")
+    .replace(/\[img[^\]]*\][\s\S]*?\[\/img\]/gi, " ") // drop image embeds entirely
     .replace(/\[\/?[a-z0-9=_\-#]+\]/gi, " ") // [url] [b] etc.
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  // Re-check after stripping — leftover base64 body with tags removed.
+  if (looksLikeImageOrBinaryPayload(t)) return "";
+
   if (t.length > maxLen) t = t.slice(0, maxLen).trimEnd();
   return t;
 }
@@ -191,6 +241,11 @@ export class RoastService {
       'with ONLY a JSON object: {"score": <integer 0-10>, "reason": "<short reason>"}.';
     for (const q of batch) {
       try {
+        // Legacy rows may still hold image/base64 pastes from before the filter.
+        if (looksLikeImageOrBinaryPayload(q.text)) {
+          this.deps.store.setGrade(q.id, 0, "non-text (image/binary)");
+          continue;
+        }
         const out = await llm.complete(
           `Chat line from ${q.userName}: ${JSON.stringify(q.text)}`,
           system,
