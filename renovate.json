@@ -1,0 +1,74 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "_comment": [
+    "Renovate is the version-update bot for this repo. There is deliberately no",
+    ".github/dependabot.yml — running both duplicates every PR. Dependabot",
+    "SECURITY updates are a separate repo setting that needs no config file, and",
+    "are left ON as a backstop.",
+    "",
+    "Renovate was chosen over Dependabot for two reasons specific to this repo:",
+    "it can manage npm `overrides` (every remaining advisory here is resolved",
+    "through one, and Dependabot ignores them entirely), and it handles the three",
+    "package ecosystems as one queue.",
+    "",
+    "Two blind spots no bot covers — keep the CI jobs that do:",
+    "  * npm audit runs as its own CI job; the old `tar` override pinned BACKWARD",
+    "    onto a vulnerable version while looking like a mitigation.",
+    "  * allowScripts keys are version-pinned, so a native-dep bump silently stops",
+    "    the addon building. scripts/check-allow-scripts.mjs guards it."
+  ],
+  "baseBranches": ["dev"],
+  "timezone": "America/Denver",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "postUpdateOptions": ["npmDedupe"],
+  "lockFileMaintenance": { "enabled": true, "schedule": ["before 6am on monday"] },
+  "vulnerabilityAlerts": { "labels": ["security"], "schedule": ["at any time"] },
+  "packageRules": [
+    {
+      "description": "Group low-risk updates so the queue stays readable on a solo repo.",
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "dev dependencies"
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchDepTypes": ["dependencies"],
+      "groupName": "production minor and patch"
+    },
+    {
+      "description": "Protocol + credential layer. DESIGN §6.2 requires an exact pin and a source review before any bump — never automated.",
+      "matchPackageNames": ["@honeybbq/teamspeak-client"],
+      "enabled": false
+    },
+    {
+      "description": "better-sqlite3 13 requires Node >= 22; the bot image is node:20. Revisit with the base image, not on its own.",
+      "matchPackageNames": ["better-sqlite3"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "vue-tsc 3.x cannot load TypeScript 7 — it resolves typescript/lib/tsc.js, which TS 7 no longer exports.",
+      "matchFileNames": ["bot/web/package.json"],
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Native addons need their allowScripts key bumped in the same PR or the build is silently skipped.",
+      "matchPackageNames": ["better-sqlite3", "@discordjs/opus", "esbuild", "ffmpeg-static"],
+      "addLabels": ["native-addon"],
+      "prBodyNotes": [
+        ":warning: Native addon. `allowScripts` in the package.json is VERSION-PINNED — update the key to match or npm silently skips the build and `npm ci` still exits 0. CI's check-allow-scripts job will fail if they diverge."
+      ]
+    },
+    {
+      "description": "Keep SHA-pinned actions fresh.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    }
+  ]
+}

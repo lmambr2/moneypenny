@@ -1,6 +1,17 @@
 /**
  * Thin fetch wrappers for bot outbound HTTP (audit C2 — prefer over axios).
  * Timeouts via AbortSignal; errors carry optional HTTP status.
+ *
+ * SSRF CONTRACT — these helpers intentionally do NOT validate the target.
+ * Most callers are supposed to reach private addresses: the LLM at `llmUrl`,
+ * embeddings, the STT/TTS sidecars, TurboVec. Adding `assertSafePlaybackTarget`
+ * here would block all of them and break the bot.
+ *
+ * The guard therefore belongs at any call site whose URL is attacker-
+ * influenceable — cover art, stream-bridge responses, scraped page metadata.
+ * `BotProfileManager.downloadImage` is the worked example. CodeQL reports
+ * js/request-forgery against these functions because taint flows through them;
+ * that is expected, and the fix is never to guard here.
  */
 
 import { errorMessage } from "./error.js";
