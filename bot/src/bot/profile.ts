@@ -4,6 +4,7 @@ import { escapeTS3, HttpQueryError, type TS3Client } from "@moneypenny/ts6-clien
 import type { QueuedSong } from "../audio/queue.js";
 import type { ProfileConfig } from "../data/database.js";
 import type { Logger } from "../logger.js";
+import { assertSafePlaybackTarget } from "../music/url-guard.js";
 import { fetchBuffer } from "../util/http.js";
 
 const TS3_NICKNAME_MAX = 30;
@@ -438,6 +439,14 @@ export class BotProfileManager {
 
   private async downloadImage(url: string): Promise<Buffer | null> {
     try {
+      // Cover URLs are attacker-influenceable: they arrive from stream-bridge
+      // responses, YouTube metadata and file tags. Without this the bot will
+      // fetch loopback / link-local / cloud-metadata / sidecar addresses on
+      // demand (CodeQL js/request-forgery). Same gate playback URLs pass.
+      if (!(await assertSafePlaybackTarget(url))) {
+        this.logger.warn({ url: url.slice(0, 80) }, "Cover URL failed public safety check");
+        return null;
+      }
       const buf = await fetchBuffer(url, { timeoutMs: 8000 });
       if (buf.length > 2 * 1024 * 1024) {
         this.logger.warn({ url, bytes: buf.length }, "Cover image exceeds 2 MB cap");

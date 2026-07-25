@@ -41,10 +41,13 @@ def _engine() -> str:
 def _resolve_model(voice: str | None) -> str | None:
     """Pick onnx for the requested voice id, else PIPER_MODEL, else first .onnx in models dir."""
     v = (voice or PIPER_VOICE or "").strip()
+    # `voice` is request-supplied. Reject anything that could climb out of the
+    # models dir before it is ever joined to a path — "../../x" would otherwise
+    # resolve outside PIPER_MODELS_DIR and load an arbitrary .onnx file.
+    if v and (Path(v).is_absolute() or set(Path(v).parts) & {"..", "/"} or "/" in v or "\\" in v):
+        v = ""
     candidates: list[Path] = []
     if v:
-        candidates.append(Path(PIPER_MODELS_DIR) / f"{v}.onnx")
-        # Accept bare speaker names mapped to default quality files if present
         candidates.append(Path(PIPER_MODELS_DIR) / f"{v}.onnx")
     if PIPER_MODEL:
         candidates.append(Path(PIPER_MODEL))
