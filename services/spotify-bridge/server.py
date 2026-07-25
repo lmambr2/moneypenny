@@ -150,7 +150,6 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path == "/health":
-            web_api = bool(CLIENT_ID and (ACCESS_TOKEN or REFRESH_TOKEN or CLIENT_SECRET))
             # webApi usable when we have client + refresh/access; secret alone insufficient
             web_ready = bool(
                 (ACCESS_TOKEN)

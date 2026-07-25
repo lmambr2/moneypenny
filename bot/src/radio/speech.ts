@@ -11,7 +11,7 @@
  * voice session's captureDuck/savedMusic state. Voice can adopt this later.
  */
 import { createHash } from "node:crypto";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AudioPlayer } from "../audio/player.js";
@@ -63,11 +63,19 @@ export class SpeechSink {
         });
       }
       const ext = format.replace(/[^a-z0-9]/gi, "").toLowerCase() || "wav";
-      const path = join(tmpdir(), `moneypenny-bumper-${hash}.${ext}`);
-      writeFileSync(path, audio);
+      // This is the NON-cacheable branch, i.e. classified/restricted lines.
+      // The old path was `${tmpdir()}/moneypenny-bumper-${sha1}.${ext}`, which
+      // is both predictable — a local user can pre-create it as a symlink and
+      // the write follows it — and world-readable under a default umask, so
+      // restricted audio sat in shared /tmp (CodeQL js/insecure-temporary-file).
+      // mkdtemp gives a 0700 directory with an unguessable name; the file is
+      // 0600 inside it and the whole directory is removed together.
+      const dir = mkdtempSync(join(tmpdir(), "moneypenny-bumper-"));
+      const path = join(dir, `speech.${ext}`);
+      writeFileSync(path, audio, { mode: 0o600 });
       setTimeout(() => {
         try {
-          rmSync(path, { force: true });
+          rmSync(dir, { recursive: true, force: true });
         } catch {
           /* ignore */
         }

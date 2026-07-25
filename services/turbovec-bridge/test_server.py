@@ -113,7 +113,7 @@ class TestRoundTrip:
 
         # String id from production log that triggered the bug path
         id_hi = "0533a324-23fa-3592-74aa-fe71faaf8888"
-        uid = tv.str_to_u64(id_hi)
+        tv.str_to_u64(id_hi)
         # Even if this particular hash is low-bit, insert a second synthetic
         # point path by using many random-looking ids until one has high bit.
         id_force = id_hi

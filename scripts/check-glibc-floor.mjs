@@ -56,8 +56,6 @@ if (dirs.length === 0) {
   dirs.push(path.join(repoRoot, "bot", "node_modules"), path.join(repoRoot, "bot", "packages"));
 }
 
-const [floorMajor, floorMinor] = floor.split(".").map(Number);
-
 function cmpVersion(a, b) {
   const [am, an] = a.split(".").map(Number);
   const [bm, bn] = b.split(".").map(Number);
