@@ -127,7 +127,8 @@ tag select, playlists) use `source: "user"` (or omit source).
 **`!add` (and other human adds)** insert **after** the current song and any
 other human-priority tracks, but **before** the first radio-fill track — so
 you never wait behind a long auto-DJ queue. Radio fill always appends at the
-end. `!playnext` still means “immediate next.”
+end. `!playnext` / `!pn` still mean “up next” (insert after current). To cut
+to a title/URL now, use `!jump` / `!go` (or `!play`).
 
 ### Alone stop (music) — honeybbq membership events
 
@@ -744,7 +745,7 @@ subcommand is its **own rights token** so it can be granted granularly.
 | `!radio ops list` | `radio` | member | List profiles. |
 | `!radio bumper [topic]` | `radio.bumper` | **`@dj`** + admin | Force a bumper now (§6.4). |
 | `!radio say <text>` | `radio.say` | **`@dj`** + admin | One-off liner (floor + length checked). |
-| `!radio skip` | `radio.skip` | **`@dj`** + admin | Skip the queued/forced bumper. |
+| `!radio skipbumper` (or legacy `!radio skip`) | `radio.skip` | **`@dj`** + admin | Skip the queued/forced **bumper** (not the music track). |
 | `!radio pin` | `radio.pin` | admin | Promote last generated bumper → prerecorded pool (§6.5). |
 | `!rate <1-5> [query]` · `!unrate` | `rate` | member | Rate now-playing (or a track); per-rater, aggregated (§9.7). |
 

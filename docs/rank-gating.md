@@ -85,11 +85,12 @@ Names are illustrative — use whatever your TS groups are actually called.
 
 ### `test.skip` — protect the `!test` demo track
 
-`!next` / `!skip` / `!clear` / `!stop` while the demo is playing require the
+`!skip` / `!next` / `!clear` / `!stop` while the demo is playing require the
 **`test.skip`** token. It is **not** part of `@admin` or `@dj`, so colonels and
 other officers keep normal clear/stop for station music but cannot end the
 smoke track. Grant `test.skip` only on your **server-admin** and **Chairman**
 rules (see production names `server-admin` / `chairman`).
+(`!jump` / `!go` that replace the demo also need the same gate where enforced.)
 
 ### `ships.org` — org hangar rollup (Colonel / Chairman)
 
