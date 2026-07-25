@@ -3,8 +3,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import axios from "axios";
 import { errorMessage } from "../util/error.js";
+import { fetchJson } from "../util/http.js";
 import { shouldBlockAsNonMusic, type YtDlpMusicMeta } from "./non-music.js";
 import type {
   AuthStatus,
@@ -45,14 +45,18 @@ const execFileAsync = promisify(execFile);
 async function getOEmbedEntry(videoId: string): Promise<YtDlpEntry | null> {
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-    const { data } = await axios.get(oembedUrl, { timeout: 10000 });
+    const data = await fetchJson<{
+      title?: string;
+      author_name?: string;
+      thumbnail_url?: string;
+    }>(oembedUrl, { timeoutMs: 10_000 });
     return {
       id: videoId,
-      title: data.title,
-      uploader: data.author_name,
-      channel: data.author_name,
+      title: data.title ?? videoId,
+      uploader: data.author_name ?? "",
+      channel: data.author_name ?? "",
       duration: 0,
-      thumbnail: data.thumbnail_url,
+      thumbnail: data.thumbnail_url ?? "",
       webpage_url: `https://www.youtube.com/watch?v=${videoId}`,
     };
   } catch {

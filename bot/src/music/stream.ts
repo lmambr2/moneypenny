@@ -1,6 +1,6 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
+import { fetchJson, fetchText, withQuery } from "../util/http.js";
 import type {
   AuthStatus,
   LyricLine,
@@ -104,9 +104,8 @@ export async function resolveExternalTrackQuery(
 ): Promise<string | null> {
   if (!isPublicPlaybackUrl(url)) return null;
   try {
-    const { data: html } = await axios.get<string>(url, {
-      timeout: 10_000,
-      responseType: "text",
+    const html = await fetchText(url, {
+      timeoutMs: 10_000,
       headers: { "User-Agent": "Mozilla/5.0 (compatible; Moneypenny/1.0)" },
     });
     const og = (prop: string): string | null => {
@@ -265,9 +264,8 @@ export class StreamProvider implements MusicProvider {
     const base = this.bridgeFor(ref);
     if (!base) return null;
     try {
-      const { data } = await axios.get<BridgeResolved>(`${base}/resolve`, {
-        params: { uri: ref },
-        timeout: this.timeoutMs,
+      const data = await fetchJson<BridgeResolved>(withQuery(`${base}/resolve`, { uri: ref }), {
+        timeoutMs: this.timeoutMs,
       });
       if (!data?.streamUrl) return null;
       // Never feed ffmpeg a private/literal or DNS-rebinding SSRF target.
@@ -368,7 +366,7 @@ export class StreamProvider implements MusicProvider {
       if (!/playlist/i.test(ref)) return [];
     }
     try {
-      const { data } = await axios.get<{
+      const data = await fetchJson<{
         tracks?: Array<{
           uri?: string;
           id?: string;
@@ -380,9 +378,8 @@ export class StreamProvider implements MusicProvider {
           streamUrl?: string;
         }>;
         error?: string;
-      }>(`${base}/playlist`, {
-        params: { uri: ref },
-        timeout: this.timeoutMs,
+      }>(withQuery(`${base}/playlist`, { uri: ref }), {
+        timeoutMs: this.timeoutMs,
       });
       const tracks = data?.tracks;
       if (!Array.isArray(tracks) || tracks.length === 0) {

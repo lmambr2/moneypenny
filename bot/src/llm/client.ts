@@ -1,6 +1,6 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
+import { fetchJson } from "../util/http.js";
 import { DEFAULT_CHAT_MODEL } from "./models.js";
 
 export interface LlmClientOptions {
@@ -120,7 +120,6 @@ export class LlmClient {
   private model: string;
   private timeoutMs: number;
   private logger?: Logger;
-  private axiosInstance: ReturnType<typeof axios.create>;
 
   constructor(options: LlmClientOptions = {}) {
     this.baseUrl = (options.baseUrl || process.env.RKLLAMA_URL || "http://localhost:8080").replace(
@@ -132,12 +131,6 @@ export class LlmClient {
     // Cold load + ~10 tok/s decode can exceed 120s when both models contend.
     this.timeoutMs = options.timeoutMs ?? 180_000;
     this.logger = options.logger;
-
-    this.axiosInstance = axios.create({
-      baseURL: this.baseUrl,
-      timeout: this.timeoutMs,
-      headers: { "Content-Type": "application/json" },
-    });
   }
 
   getBaseUrl(): string {
@@ -159,12 +152,13 @@ export class LlmClient {
     };
 
     try {
-      const { data } = await this.axiosInstance.post<ChatCompletionResponse>(
-        "/v1/chat/completions",
-        payload,
-        req.signal ? { signal: req.signal } : undefined,
-      );
-      return data;
+      return await fetchJson<ChatCompletionResponse>(`${this.baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: req.signal,
+      });
     } catch (err: unknown) {
       this.logger?.warn(
         { err: errorMessage(err), baseUrl: this.baseUrl },

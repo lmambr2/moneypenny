@@ -1,5 +1,5 @@
 /**
- * SSRF guard for URLs passed to ffmpeg / yt-dlp / axios.
+ * SSRF guard for URLs passed to ffmpeg / yt-dlp / outbound HTTP.
  * Blocks loopback, link-local, cloud metadata, private ranges, and Docker-internal hostnames.
  */
 

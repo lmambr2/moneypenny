@@ -1,6 +1,6 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage, httpStatus } from "../util/error.js";
+import { fetchJson, withQuery } from "../util/http.js";
 
 export interface VectorPoint {
   id: string | number;
@@ -29,7 +29,8 @@ export interface VectorClientOptions {
 export class VectorClient {
   private baseUrl: string;
   private logger?: Logger;
-  private http: ReturnType<typeof axios.create>;
+  private timeoutMs: number;
+  private jsonHeaders = { "Content-Type": "application/json" };
 
   constructor(options: VectorClientOptions = {}) {
     this.baseUrl = (options.baseUrl || process.env.VECTOR_DB_URL || "http://turbovec:6333").replace(
@@ -37,17 +38,19 @@ export class VectorClient {
       "",
     );
     this.logger = options.logger;
-    this.http = axios.create({
-      baseURL: this.baseUrl,
-      timeout: options.timeoutMs ?? 30000,
-      headers: { "Content-Type": "application/json" },
-    });
+    this.timeoutMs = options.timeoutMs ?? 30_000;
+  }
+
+  private url(path: string): string {
+    return `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
   }
 
   /** Create the collection if absent; warn (don't auto-destroy) on a dim mismatch. */
   async ensureCollection(name: string, dim: number): Promise<void> {
     try {
-      const { data } = await this.http.get(`/collections/${name}`);
+      const data = await fetchJson<{
+        result?: { config?: { params?: { vectors?: { size?: number } } } };
+      }>(this.url(`/collections/${name}`), { timeoutMs: this.timeoutMs });
       const existing = data?.result?.config?.params?.vectors?.size;
       if (existing && existing !== dim) {
         this.logger?.warn(
@@ -64,13 +67,23 @@ export class VectorClient {
         );
       }
     }
-    await this.http.put(`/collections/${name}`, { vectors: { size: dim, distance: "Cosine" } });
+    await fetchJson(this.url(`/collections/${name}`), {
+      method: "PUT",
+      timeoutMs: this.timeoutMs,
+      headers: this.jsonHeaders,
+      body: JSON.stringify({ vectors: { size: dim, distance: "Cosine" } }),
+    });
     this.logger?.info({ name, dim }, "Created vector store collection");
   }
 
   async upsert(name: string, points: VectorPoint[]): Promise<void> {
     if (points.length === 0) return;
-    await this.http.put(`/collections/${name}/points?wait=true`, { points });
+    await fetchJson(withQuery(this.url(`/collections/${name}/points`), { wait: true }), {
+      method: "PUT",
+      timeoutMs: this.timeoutMs,
+      headers: this.jsonHeaders,
+      body: JSON.stringify({ points }),
+    });
   }
 
   async search(
@@ -79,19 +92,32 @@ export class VectorClient {
     topK: number,
     filter?: unknown,
   ): Promise<VectorHit[]> {
-    const { data } = await this.http.post(`/collections/${name}/points/search`, {
-      vector,
-      limit: topK,
-      with_payload: true,
-      ...(filter ? { filter } : {}),
-    });
+    const data = await fetchJson<{ result?: VectorHit[] }>(
+      this.url(`/collections/${name}/points/search`),
+      {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
+        headers: this.jsonHeaders,
+        body: JSON.stringify({
+          vector,
+          limit: topK,
+          with_payload: true,
+          ...(filter ? { filter } : {}),
+        }),
+      },
+    );
     return (data?.result ?? []) as VectorHit[];
   }
 
   /** Purge a source's chunks (re-ingest: drop stale chunks before re-upserting). */
   async deleteBySource(name: string, source: string): Promise<void> {
-    await this.http.post(`/collections/${name}/points/delete?wait=true`, {
-      filter: { must: [{ key: "source", match: { value: source } }] },
+    await fetchJson(withQuery(this.url(`/collections/${name}/points/delete`), { wait: true }), {
+      method: "POST",
+      timeoutMs: this.timeoutMs,
+      headers: this.jsonHeaders,
+      body: JSON.stringify({
+        filter: { must: [{ key: "source", match: { value: source } }] },
+      }),
     });
   }
 }

@@ -1,6 +1,6 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
-import { errorMessage } from "../util/error.js";
+import { errorMessage, httpStatus } from "../util/error.js";
+import { isHttpRequestError } from "../util/http.js";
 import {
   type ChatCompletionRequest,
   type ChatCompletionResponse,
@@ -26,25 +26,18 @@ export interface LlmEndpointHealth {
 
 /** Errors where retrying on a secondary endpoint is worthwhile. */
 export function isRetryableLlmError(err: unknown): boolean {
-  if (!axios.isAxiosError(err)) {
-    const msg = errorMessage(err).toLowerCase();
-    return (
-      msg.includes("timeout") ||
-      msg.includes("econnrefused") ||
-      msg.includes("enotfound") ||
-      msg.includes("network")
-    );
-  }
+  const msg = errorMessage(err).toLowerCase();
   if (
-    err.code === "ECONNABORTED" ||
-    err.code === "ECONNREFUSED" ||
-    err.code === "ENOTFOUND" ||
-    err.code === "ETIMEDOUT" ||
-    err.code === "EHOSTUNREACH"
+    msg.includes("timeout") ||
+    msg.includes("aborted") ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("network") ||
+    msg.includes("fetch failed")
   ) {
     return true;
   }
-  const status = err.response?.status;
+  const status = httpStatus(err) ?? (isHttpRequestError(err) ? err.status : undefined);
   return status === 502 || status === 503 || status === 504 || status === 408;
 }
 

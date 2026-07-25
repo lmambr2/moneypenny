@@ -10,8 +10,9 @@
  *
  * Docs: https://uexcorp.space/ — API host api.uexcorp.space
  */
-import axios from "axios";
+
 import type { Logger } from "../logger.js";
+import { fetchJson, withQuery } from "../util/http.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 import { fuzzyBestMatch, fuzzyScore } from "./fuzzy.js";
 
@@ -235,11 +236,11 @@ export class UexClient {
   private async loadCommodities(): Promise<UexCommodity[]> {
     if (this.fetchCommodities) return this.fetchCommodities();
     const url = `${this.baseUrl}/2.0/commodities`;
-    const { data } = await axios.get(url, {
-      timeout: this.timeoutMs,
+    const data = await fetchJson<{ data?: UexCommodity[] } | UexCommodity[]>(url, {
+      timeoutMs: this.timeoutMs,
       headers: this.authHeaders(),
     });
-    const list = (data?.data ?? data) as UexCommodity[];
+    const list = ((data as { data?: UexCommodity[] })?.data ?? data) as UexCommodity[];
     if (!Array.isArray(list)) throw new Error("UEX commodities: unexpected payload");
     this.logger?.debug({ count: list.length }, "UEX commodities cached");
     return list;
@@ -308,13 +309,14 @@ export class UexClient {
 
   private async loadTerminalPrices(commodityId: number): Promise<UexTerminalPrice[]> {
     if (this.fetchTerminalPrices) return this.fetchTerminalPrices(commodityId);
-    const url = `${this.baseUrl}/2.0/commodities_prices`;
-    const { data } = await axios.get(url, {
-      timeout: this.timeoutMs,
-      headers: this.authHeaders(),
-      params: { id_commodity: commodityId },
+    const url = withQuery(`${this.baseUrl}/2.0/commodities_prices`, {
+      id_commodity: commodityId,
     });
-    const list = (data?.data ?? data) as UexTerminalPrice[];
+    const data = await fetchJson<{ data?: UexTerminalPrice[] } | UexTerminalPrice[]>(url, {
+      timeoutMs: this.timeoutMs,
+      headers: this.authHeaders(),
+    });
+    const list = ((data as { data?: UexTerminalPrice[] })?.data ?? data) as UexTerminalPrice[];
     if (!Array.isArray(list)) throw new Error("UEX commodities_prices: unexpected payload");
     this.logger?.debug({ commodityId, count: list.length }, "UEX terminal prices cached");
     return list;

@@ -2,8 +2,8 @@
  * HTTP client for an ACE-Step music-generation sidecar (docs/ace-step.md A1).
  * Bot never embeds ACE-Step — same pattern as STT/TTS/LLM.
  */
-import axios, { type AxiosInstance } from "axios";
 import type { Logger } from "../logger.js";
+import { fetchBuffer, fetchWithTimeout } from "../util/http.js";
 
 export interface AceStepHealth {
   ok: boolean;
@@ -35,49 +35,75 @@ export interface AceStepJob {
   progress?: number;
 }
 
+export type AceStepFetch = typeof fetch;
+
 export interface AceStepClientOpts {
   url: string;
   timeoutMs?: number;
   logger?: Logger;
-  /** Injectable for tests. */
-  http?: AxiosInstance;
+  /** Injectable for tests (global fetch signature). */
+  fetchImpl?: AceStepFetch;
 }
 
 export class AceStepClient {
   private base: string;
   private timeoutMs: number;
-  private http: AxiosInstance;
   private logger?: Logger;
+  private fetchImpl: AceStepFetch;
 
   constructor(opts: AceStepClientOpts) {
     this.base = opts.url.replace(/\/$/, "");
     this.timeoutMs = opts.timeoutMs ?? 30_000;
     this.logger = opts.logger;
-    this.http =
-      opts.http ??
-      axios.create({
-        baseURL: this.base,
-        timeout: this.timeoutMs,
-        validateStatus: () => true,
+    this.fetchImpl = opts.fetchImpl ?? fetch;
+  }
+
+  private async request(
+    path: string,
+    init: RequestInit & { timeoutMs?: number } = {},
+  ): Promise<Response> {
+    const timeoutMs = init.timeoutMs ?? this.timeoutMs;
+    const { timeoutMs: _, ...rest } = init;
+    // Prefer util helper when using global fetch; for injectables wire AbortSignal ourselves.
+    if (this.fetchImpl === fetch) {
+      return fetchWithTimeout(`${this.base}${path}`, {
+        method: (rest.method as string) ?? "GET",
+        headers: rest.headers as Record<string, string> | undefined,
+        body: rest.body as BodyInit | null | undefined,
+        timeoutMs,
+        signal: rest.signal ?? undefined,
       });
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await this.fetchImpl(`${this.base}${path}`, {
+        ...rest,
+        signal: rest.signal ?? ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async health(): Promise<AceStepHealth> {
     try {
-      const { data, status } = await this.http.get("/health", { timeout: 5_000 });
-      if (status >= 200 && status < 300 && data && typeof data === "object") {
-        const d = data as AceStepHealth & Record<string, unknown>;
-        return {
-          ok: !!d.ok,
-          engine: d.engine ?? "ace-step",
-          busy: !!d.busy,
-          ...(typeof d.mock === "boolean" ? { mock: d.mock } : {}),
-          ...(typeof d.workerConfigured === "boolean"
-            ? { workerConfigured: d.workerConfigured }
-            : {}),
-        };
+      const res = await this.request("/health", { timeoutMs: 5_000 });
+      if (res.ok) {
+        const d = (await res.json()) as AceStepHealth & Record<string, unknown>;
+        if (d && typeof d === "object") {
+          return {
+            ok: !!d.ok,
+            engine: d.engine ?? "ace-step",
+            busy: !!d.busy,
+            ...(typeof d.mock === "boolean" ? { mock: d.mock } : {}),
+            ...(typeof d.workerConfigured === "boolean"
+              ? { workerConfigured: d.workerConfigured }
+              : {}),
+          };
+        }
       }
-      return { ok: false, error: `HTTP ${status}` };
+      return { ok: false, error: `HTTP ${res.status}` };
     } catch (err) {
       this.logger?.debug({ err }, "ACE-Step health failed");
       return { ok: false, error: err instanceof Error ? err.message : "unreachable" };
@@ -100,14 +126,18 @@ export class AceStepClient {
       lyrics: req.lyrics ?? null,
       tags: req.tags ?? [],
     };
-    const { data, status } = await this.http.post("/v1/generate", body, {
-      timeout: this.timeoutMs,
+    const res = await this.request("/v1/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      timeoutMs: this.timeoutMs,
     });
-    if (status < 200 || status >= 300) {
+    const data: unknown = await res.json().catch(() => ({}));
+    if (!res.ok) {
       const msg =
         data && typeof data === "object" && "error" in data
           ? String((data as { error: unknown }).error)
-          : `HTTP ${status}`;
+          : `HTTP ${res.status}`;
       throw new Error(msg);
     }
     return normalizeJob(data);
@@ -115,14 +145,15 @@ export class AceStepClient {
 
   async getJob(id: string): Promise<AceStepJob> {
     if (!id?.trim()) throw new Error("job id required");
-    const { data, status } = await this.http.get(`/v1/jobs/${encodeURIComponent(id)}`, {
-      timeout: this.timeoutMs,
+    const res = await this.request(`/v1/jobs/${encodeURIComponent(id)}`, {
+      timeoutMs: this.timeoutMs,
     });
-    if (status < 200 || status >= 300) {
+    const data: unknown = await res.json().catch(() => ({}));
+    if (!res.ok) {
       const msg =
         data && typeof data === "object" && "error" in data
           ? String((data as { error: unknown }).error)
-          : `HTTP ${status}`;
+          : `HTTP ${res.status}`;
       throw new Error(msg);
     }
     return normalizeJob(data);
@@ -134,21 +165,25 @@ export class AceStepClient {
    */
   async downloadAudio(id: string): Promise<Buffer> {
     if (!id?.trim()) throw new Error("job id required");
-    const { data, status, headers } = await this.http.get(
-      `/v1/jobs/${encodeURIComponent(id)}/audio`,
-      {
-        timeout: Math.max(this.timeoutMs, 120_000),
-        responseType: "arraybuffer",
-      },
-    );
-    if (status < 200 || status >= 300) {
-      throw new Error(`audio download HTTP ${status}`);
+    if (this.fetchImpl === fetch) {
+      const buf = await fetchBuffer(`${this.base}/v1/jobs/${encodeURIComponent(id)}/audio`, {
+        timeoutMs: Math.max(this.timeoutMs, 120_000),
+      });
+      if (buf.length === 0) throw new Error("empty audio response");
+      const max = 80 * 1024 * 1024;
+      if (buf.length > max) throw new Error(`audio too large (${buf.length} bytes)`);
+      return buf;
     }
-    const buf = Buffer.from(data as ArrayBuffer);
+    const res = await this.request(`/v1/jobs/${encodeURIComponent(id)}/audio`, {
+      timeoutMs: Math.max(this.timeoutMs, 120_000),
+    });
+    if (!res.ok) throw new Error(`audio download HTTP ${res.status}`);
+    const ab = await res.arrayBuffer();
+    const buf = Buffer.from(ab);
     if (buf.length === 0) throw new Error("empty audio response");
-    const max = 80 * 1024 * 1024; // 80 MiB hard cap
+    const max = 80 * 1024 * 1024;
     if (buf.length > max) throw new Error(`audio too large (${buf.length} bytes)`);
-    const ct = String(headers?.["content-type"] ?? "");
+    const ct = res.headers.get("content-type") ?? "";
     if (ct && !/audio|octet-stream|mpeg|wav|mp3/i.test(ct)) {
       this.logger?.warn({ contentType: ct, id }, "ACE-Step audio unexpected content-type");
     }

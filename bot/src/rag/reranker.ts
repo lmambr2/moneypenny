@@ -1,6 +1,6 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
+import { fetchJson } from "../util/http.js";
 
 export interface RerankerClientOptions {
   /** OpenAI-compat or TEI-style base (POST /v1/rerank or /rerank). Empty = disabled. */
@@ -24,24 +24,16 @@ export class RerankerClient {
   private model: string;
   private timeoutMs: number;
   private logger?: Logger;
-  private http: ReturnType<typeof axios.create> | null;
 
   constructor(options: RerankerClientOptions = {}) {
     this.baseUrl = (options.baseUrl || process.env.RERANKER_URL || "").replace(/\/$/, "");
     this.model = options.model || process.env.RERANKER_MODEL || "bge-reranker-large";
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.logger = options.logger;
-    this.http = this.baseUrl
-      ? axios.create({
-          baseURL: this.baseUrl,
-          timeout: this.timeoutMs,
-          headers: { "Content-Type": "application/json" },
-        })
-      : null;
   }
 
   get enabled(): boolean {
-    return !!this.http;
+    return !!this.baseUrl;
   }
 
   getModel(): string {
@@ -53,14 +45,19 @@ export class RerankerClient {
    * or null if disabled / failed.
    */
   async rerank(query: string, documents: string[]): Promise<RerankHit[] | null> {
-    if (!this.http || !query.trim() || documents.length === 0) return null;
+    if (!this.baseUrl || !query.trim() || documents.length === 0) return null;
+    const headers = { "Content-Type": "application/json" };
+    const bodyBase = { model: this.model, query, documents };
     try {
       // Text Embeddings Inference + some Ollama proxies
-      const { data } = await this.http.post("/rerank", {
-        model: this.model,
-        query,
-        documents,
-        top_n: documents.length,
+      const data = await fetchJson<{
+        results?: Array<{ index?: number; relevance_score?: number; score?: number }>;
+        data?: Array<{ index?: number; relevance_score?: number; score?: number }>;
+      }>(`${this.baseUrl}/rerank`, {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
+        headers,
+        body: JSON.stringify({ ...bodyBase, top_n: documents.length }),
       });
       const results = (data?.results ?? data?.data ?? []) as Array<{
         index?: number;
@@ -77,10 +74,13 @@ export class RerankerClient {
     } catch (err: unknown) {
       // Alternate path: OpenAI-style
       try {
-        const { data } = await this.http.post("/v1/rerank", {
-          model: this.model,
-          query,
-          documents,
+        const data = await fetchJson<{
+          results?: Array<{ index?: number; relevance_score?: number; score?: number }>;
+        }>(`${this.baseUrl}/v1/rerank`, {
+          method: "POST",
+          timeoutMs: this.timeoutMs,
+          headers,
+          body: JSON.stringify(bodyBase),
         });
         const results = (data?.results ?? []) as Array<{
           index?: number;

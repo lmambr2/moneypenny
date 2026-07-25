@@ -11,7 +11,13 @@ import "./bot-request.js";
 import { z } from "zod";
 import type { QueuedSong } from "../../audio/queue.js";
 import type { BotInstance } from "../../bot/instance.js";
-import { requireBody, zPlayerModeToken, zSeekSeconds, zVolume } from "../validate.js";
+import {
+  requireBody,
+  zNonEmptyString,
+  zPlayerModeToken,
+  zSeekSeconds,
+  zVolume,
+} from "../validate.js";
 
 const VALID_PLATFORMS = new Set(["local", "youtube", "stream"]);
 
@@ -162,15 +168,17 @@ export function createPlayerRouter(
     res.json({ message });
   };
 
+  const playQueryBody = z.object({
+    query: zNonEmptyString,
+    platform: z.string().optional(),
+  });
+
   router.post("/:botId/play", async (req, res) => {
     try {
       const bot = requireBot(req);
-      const { query, platform } = req.body;
-      if (!query) {
-        res.status(400).json({ error: "query is required", code: "VALIDATION_ERROR" });
-        return;
-      }
-      const cmd = parseCommand(`!play ${platformFlag(platform)} ${query}`.trim(), "!");
+      const body = requireBody(res, playQueryBody, req.body);
+      if (!body) return;
+      const cmd = parseCommand(`!play ${platformFlag(body.platform)} ${body.query}`.trim(), "!");
       if (!cmd) {
         res.status(400).json({ error: "Invalid command", code: "VALIDATION_ERROR" });
         return;
@@ -185,12 +193,9 @@ export function createPlayerRouter(
   router.post("/:botId/add", async (req, res) => {
     try {
       const bot = requireBot(req);
-      const { query, platform } = req.body;
-      if (!query || typeof query !== "string" || !query.trim()) {
-        res.status(400).json({ error: "query is required", code: "VALIDATION_ERROR" });
-        return;
-      }
-      const cmd = parseCommand(`!add ${platformFlag(platform)} ${query}`.trim(), "!");
+      const body = requireBody(res, playQueryBody, req.body);
+      if (!body) return;
+      const cmd = parseCommand(`!add ${platformFlag(body.platform)} ${body.query}`.trim(), "!");
       if (!cmd) {
         res.status(400).json({ error: "Invalid command", code: "VALIDATION_ERROR" });
         return;

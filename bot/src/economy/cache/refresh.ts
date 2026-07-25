@@ -2,8 +2,8 @@
  * Warm / refresh economy disk cache from remote catalogs.
  * Polite: limited pages, sequential sources, fail-soft per source.
  */
-import axios from "axios";
 import type { Logger } from "../../logger.js";
+import { fetchJson, withQuery } from "../../util/http.js";
 import { getScCraftClient } from "../sc-craft.js";
 import { getScTradeClient } from "../sc-trade.js";
 import { getScWikiClient } from "../sc-wiki.js";
@@ -138,11 +138,13 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
       let wikiComCount = 0;
       for (let page = 1; page <= pages; page++) {
         try {
-          const { data } = await axios.get("https://api.star-citizen.wiki/api/commodities", {
-            timeout: 15_000,
-            headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-            params: { page, limit: 50 },
-          });
+          const data = await fetchJson<{ data?: unknown[] }>(
+            withQuery("https://api.star-citizen.wiki/api/commodities", { page, limit: 50 }),
+            {
+              timeoutMs: 15_000,
+              headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+            },
+          );
           const list = Array.isArray(data?.data) ? data.data : [];
           wikiComCount += list.length;
           disk.set(
@@ -201,11 +203,13 @@ export async function refreshEconomyCatalogs(opts: RefreshOptions = {}): Promise
       let n = 0;
       for (let page = 1; page <= pages; page++) {
         try {
-          const { data } = await axios.get("https://sc-craft.tools/api/blueprints", {
-            timeout: 12_000,
-            headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-            params: { page, limit: 50 },
-          });
+          const data = await fetchJson<{ items?: unknown[] }>(
+            withQuery("https://sc-craft.tools/api/blueprints", { page, limit: 50 }),
+            {
+              timeoutMs: 12_000,
+              headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+            },
+          );
           const items = Array.isArray(data?.items) ? data.items : [];
           n += items.length;
           disk.set(

@@ -7,8 +7,9 @@
  *
  * Docs: https://api.star-citizen.wiki/developers · OpenAPI /api/openapi
  */
-import axios from "axios";
+
 import type { Logger } from "../logger.js";
+import { fetchJson, withQuery } from "../util/http.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 
 const DEFAULT_BASE = "https://api.star-citizen.wiki";
@@ -101,11 +102,13 @@ export class ScWikiClient {
       if (this.fetchSearch) {
         hits = await this.fetchSearch(q);
       } else {
-        const { data } = await axios.get(`${this.baseUrl}/api/search`, {
-          timeout: this.timeoutMs,
-          headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-          params: { "filter[query]": q },
-        });
+        const data = await fetchJson(
+          withQuery(`${this.baseUrl}/api/search`, { "filter[query]": q }),
+          {
+            timeoutMs: this.timeoutMs,
+            headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+          },
+        );
         hits = normalizeSearchPayload(data);
       }
       this.disk.set("sc-wiki", cacheKey, hits, this.ttlMs);
@@ -135,11 +138,17 @@ export class ScWikiClient {
           unknown
         >;
       } else {
-        const { data } = await axios.get(`${this.baseUrl}/api/${kind}/${encodeURIComponent(s)}`, {
-          timeout: this.timeoutMs,
-          headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-        });
-        payload = (data?.data ?? data) as Record<string, unknown>;
+        const data = await fetchJson<{ data?: Record<string, unknown> } | Record<string, unknown>>(
+          `${this.baseUrl}/api/${kind}/${encodeURIComponent(s)}`,
+          {
+            timeoutMs: this.timeoutMs,
+            headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+          },
+        );
+        payload = ((data as { data?: Record<string, unknown> })?.data ?? data) as Record<
+          string,
+          unknown
+        >;
       }
       if (!payload || typeof payload !== "object") return cached?.data ?? null;
       this.disk.set("sc-wiki", cacheKey, payload, this.ttlMs);
@@ -162,10 +171,13 @@ export class ScWikiClient {
         };
         code = data?.data?.code ?? null;
       } else {
-        const { data } = await axios.get(`${this.baseUrl}/api/game-versions/default`, {
-          timeout: this.timeoutMs,
-          headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-        });
+        const data = await fetchJson<{ data?: { code?: string } }>(
+          `${this.baseUrl}/api/game-versions/default`,
+          {
+            timeoutMs: this.timeoutMs,
+            headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+          },
+        );
         code = data?.data?.code ?? null;
       }
       if (code) this.disk.set("sc-wiki", "game-version", { code }, this.ttlMs);

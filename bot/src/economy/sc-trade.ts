@@ -11,8 +11,10 @@
  * Docs: https://sc-trade.tools/swagger-ui/index.html
  * Licence: https://www.patreon.com/cw/sc_trade_tools/membership
  */
-import axios, { type AxiosError } from "axios";
+
 import type { Logger } from "../logger.js";
+import { errorMessage, httpStatus } from "../util/error.js";
+import { fetchJson, isHttpRequestError } from "../util/http.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 import { fuzzyBestMatch } from "./fuzzy.js";
 
@@ -341,11 +343,11 @@ export class ScTradeClient {
         if (this.fetchShips) {
           data = await this.fetchShips();
         } else {
-          const res = await axios.get(`${this.baseUrl}/api/ships`, {
-            timeout: this.timeoutMs,
+          const res = await fetchJson<ScTradeShip[]>(`${this.baseUrl}/api/ships`, {
+            timeoutMs: this.timeoutMs,
             headers: this.headers(false),
           });
-          data = Array.isArray(res.data) ? res.data : [];
+          data = Array.isArray(res) ? res : [];
         }
         const at = Date.now();
         this.shipsCache = { at, data };
@@ -393,11 +395,14 @@ export class ScTradeClient {
         if (this.fetchLocations) {
           data = await this.fetchLocations();
         } else {
-          const res = await axios.get(`${this.baseUrl}/api/locations`, {
-            timeout: this.timeoutMs,
-            headers: this.headers(false),
-          });
-          data = Array.isArray(res.data) ? res.data : [];
+          const res = await fetchJson<Array<{ name: string; type?: string }>>(
+            `${this.baseUrl}/api/locations`,
+            {
+              timeoutMs: this.timeoutMs,
+              headers: this.headers(false),
+            },
+          );
+          data = Array.isArray(res) ? res : [];
         }
         const at = Date.now();
         this.locationsCache = { at, data };
@@ -636,24 +641,19 @@ export class ScTradeClient {
   }
 
   private async postJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
-    const res = await axios.post(`${this.baseUrl}${path}`, body, {
-      timeout: this.timeoutMs,
+    return fetchJson<T>(`${this.baseUrl}${path}`, {
+      method: "POST",
+      timeoutMs: this.timeoutMs,
       headers: this.headers(true),
+      body: JSON.stringify(body),
     });
-    return res.data as T;
   }
 
   private describeError(err: unknown): string {
-    const ax = err as AxiosError;
-    const status = ax.response?.status;
-    const data = ax.response?.data;
+    const status = httpStatus(err);
     let detail = "";
-    if (typeof data === "string") detail = data.slice(0, 200);
-    else if (data && typeof data === "object") {
-      detail = JSON.stringify(data).slice(0, 200);
-    } else if (err instanceof Error) {
-      detail = err.message;
-    }
+    if (isHttpRequestError(err) && err.body) detail = err.body.slice(0, 200);
+    else detail = errorMessage(err).slice(0, 200);
     if (status === 403) {
       return (
         "sc-trade rejected the API token (403). Check SC_TRADE_API_TOKEN / Patreon licence. " +

@@ -8,19 +8,19 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-07-25
 
-### Audit C1–C7 / D2 / partial C2–E
+### Audit C1–E complete (Nest out, fetch, zod, voice slimming)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
-- **C1** Delete Nest dual-path — Express plugins only (`createWebServer`, `domain-bundles.ts`); drop Nest deps + decorator tsconfig flags; docs aligned
-- **C6** Rename `SherpaSttClient`/`KokoroTtsClient` → `HttpSttClient`/`HttpTtsClient` (deprecated aliases kept)
-- **C2** (partial) `bot/src/util/http.ts` fetch helpers; voice STT/TTS/probe + MemPalace on fetch
-- **C4** Zod boundary helpers (`bot/src/web/validate.ts`); player volume/mode/seek use them
-- **C5** `createVadSegmenter` factory + `VadSegmenter` interface (Silero falls back to energy)
-- **C3** Opus encoder backend diagnostics helper (`createOpusEncoderLogged`)
-- **C7** Document TS 6 (bot/packages) vs TS 5.8 (Vue/`vue-tsc`) pin split in AGENTS.md
-- **D1** (partial) `buildLiveStatus` extracted from `BotInstance`
-- **D2** `SpeakerArmTracker` owns post-wake arm FSM; VoiceSession delegates
-- **E** Tests for http util, validate, speaker-arm, VAD factory, live-status
+- **C1** Delete Nest dual-path — Express plugins only; drop Nest deps + decorator tsconfig flags; docs aligned
+- **C2** Drop `axios` from bot runtime — all outbound HTTP via `util/http` fetch (RAG, LLM, economy, music, voice, MemPalace)
+- **C3** Opus encoder backend diagnostics (`createOpusEncoderLogged`); arm64 native path unchanged
+- **C4** Zod boundary helpers; player play/add/volume/mode/seek + session setup/login/password
+- **C5** `createVadSegmenter` + `VadSegmenter` (Silero falls back to energy)
+- **C6** `HttpSttClient` / `HttpTtsClient` (deprecated Sherpa/Kokoro aliases)
+- **C7** Document TS 6 (bot/packages) vs TS 5.8 (Vue/`vue-tsc`) pin split
+- **D1** `buildLiveStatus` extracted from `BotInstance`
+- **D2** `SpeakerArmTracker` post-wake arm FSM
+- **E** Tests for helpers + axios-free RAG/stream/ACE-Step/LLM fallback suites
 
 ## 2026-07-18
 

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
+import { z } from "zod";
 import type { AuditStore } from "../../data/audit.js";
 import type { SessionStore } from "../../data/sessions.js";
 import { SESSION_TTL_MS } from "../../data/sessions.js";
@@ -10,6 +11,7 @@ import {
   SESSION_COOKIE_NAME,
   validateSessionFromHeaders,
 } from "../auth/validateSession.js";
+import { parseWithSchema, zPassword, zUsername } from "../validate.js";
 
 const FAILED_LOGIN_DELAY_MS = 250;
 
@@ -29,14 +31,6 @@ function clearSessionCookie(res: Response): void {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isValidUsername(v: unknown): v is string {
-  return typeof v === "string" && /^[A-Za-z0-9_\-.]{3,32}$/.test(v);
-}
-
-function isValidPassword(v: unknown): v is string {
-  return typeof v === "string" && v.length >= 8 && v.length <= 200;
 }
 
 export function createSessionRouter(
@@ -65,15 +59,19 @@ export function createSessionRouter(
   });
 
   router.post("/setup", async (req, res) => {
-    const { username, password } = req.body ?? {};
     if (users.countUsers() !== 0) {
       res.status(409).json({ error: "already initialized" });
       return;
     }
-    if (!isValidUsername(username) || !isValidPassword(password)) {
+    const parsed = parseWithSchema(
+      z.object({ username: zUsername, password: zPassword }),
+      req.body ?? {},
+    );
+    if (!parsed.ok) {
       res.status(400).json({ error: "invalid username or password" });
       return;
     }
+    const { username, password } = parsed.data;
     try {
       const user = await users.createFirstUser(username, password);
       if (!user) {
@@ -102,11 +100,15 @@ export function createSessionRouter(
   });
 
   router.post("/login", async (req, res) => {
-    const { username, password } = req.body ?? {};
-    if (typeof username !== "string" || typeof password !== "string") {
+    const parsed = parseWithSchema(
+      z.object({ username: z.string().min(1), password: z.string().min(1) }),
+      req.body ?? {},
+    );
+    if (!parsed.ok) {
       res.status(400).json({ error: "invalid request" });
       return;
     }
+    const { username, password } = parsed.data;
     const user = users.findByUsername(username);
     const ok = user ? await users.verifyPassword(password, user.passwordHash) : false;
     if (!user || !ok) {
@@ -144,11 +146,12 @@ export function createSessionRouter(
       res.status(401).json({ error: "invalid credentials" });
       return;
     }
-    if (!isValidPassword(newPassword)) {
+    const newParsed = parseWithSchema(zPassword, newPassword);
+    if (!newParsed.ok) {
       res.status(400).json({ error: "invalid request" });
       return;
     }
-    await users.changePassword(u.id, newPassword);
+    await users.changePassword(u.id, newParsed.data);
     const currentToken = extractSessionToken(req.headers.cookie);
     sessions.deleteAllForUser(u.id, currentToken ?? undefined);
     try {

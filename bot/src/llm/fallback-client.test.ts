@@ -1,5 +1,5 @@
-import axios from "axios";
 import { describe, expect, it, vi } from "vitest";
+import { HttpRequestError } from "../util/http.js";
 import type { ChatCompletionResponse } from "./client.js";
 import { FallbackLlmClient, isRetryableLlmError } from "./fallback-client.js";
 
@@ -12,17 +12,16 @@ function okResp(text: string): ChatCompletionResponse {
 
 describe("isRetryableLlmError", () => {
   it("treats connection refused as retryable", () => {
-    expect(isRetryableLlmError(new axios.AxiosError("x", "ECONNREFUSED"))).toBe(true);
+    expect(isRetryableLlmError(new Error("ECONNREFUSED"))).toBe(true);
+    expect(
+      isRetryableLlmError(new HttpRequestError("fetch failed", { cause: new Error("x") })),
+    ).toBe(true);
   });
   it("treats 4xx app errors as non-retryable", () => {
-    const err = new axios.AxiosError("bad", "ERR_BAD_REQUEST", undefined, undefined, {
-      status: 400,
-      statusText: "Bad Request",
-      headers: {},
-      config: {} as any,
-      data: {},
-    });
-    expect(isRetryableLlmError(err)).toBe(false);
+    expect(isRetryableLlmError(new HttpRequestError("HTTP 400", { status: 400 }))).toBe(false);
+  });
+  it("treats 503 as retryable", () => {
+    expect(isRetryableLlmError(new HttpRequestError("HTTP 503", { status: 503 }))).toBe(true);
   });
 });
 
@@ -45,7 +44,7 @@ describe("FallbackLlmClient", () => {
   it("falls back on retryable primary failure", async () => {
     const primary = {
       chat: vi.fn(async () => {
-        throw new axios.AxiosError("down", "ECONNREFUSED");
+        throw new Error("ECONNREFUSED");
       }),
     };
     const fallback = { chat: vi.fn(async () => okResp("fallback")) };

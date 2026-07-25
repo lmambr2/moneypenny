@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { escapeTS3, HttpQueryError, type TS3Client } from "@moneypenny/ts6-client";
-import axios from "axios";
 import type { QueuedSong } from "../audio/queue.js";
 import type { ProfileConfig } from "../data/database.js";
 import type { Logger } from "../logger.js";
+import { fetchBuffer } from "../util/http.js";
 
 const TS3_NICKNAME_MAX = 30;
 /** Avatar size for TS profile upload (server typically enforces ~300-500 KB).
@@ -438,12 +438,12 @@ export class BotProfileManager {
 
   private async downloadImage(url: string): Promise<Buffer | null> {
     try {
-      const resp = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 8000,
-        maxContentLength: 2 * 1024 * 1024, // 2 MB cap
-      });
-      return Buffer.from(resp.data);
+      const buf = await fetchBuffer(url, { timeoutMs: 8000 });
+      if (buf.length > 2 * 1024 * 1024) {
+        this.logger.warn({ url, bytes: buf.length }, "Cover image exceeds 2 MB cap");
+        return null;
+      }
+      return buf;
     } catch (err) {
       this.logger.warn({ err, url }, "Failed to download cover image");
       return null;

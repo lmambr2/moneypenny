@@ -1,24 +1,33 @@
-import type { AxiosInstance } from "axios";
 import { describe, expect, it, vi } from "vitest";
 import { AceStepClient } from "./ace-step-client.js";
 
-function mockHttp(handlers: {
-  get?: (url: string) => { status: number; data: unknown };
-  post?: (url: string, body: unknown) => { status: number; data: unknown };
-}): AxiosInstance {
-  return {
-    get: vi.fn(async (url: string) => handlers.get?.(url) ?? { status: 404, data: {} }),
-    post: vi.fn(
-      async (url: string, body: unknown) => handlers.post?.(url, body) ?? { status: 404, data: {} },
-    ),
-  } as unknown as AxiosInstance;
+function mockFetch(handlers: {
+  get?: (path: string) => { status: number; data: unknown };
+  post?: (path: string, body: unknown) => { status: number; data: unknown };
+}): typeof fetch {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const path = url.replace(/^https?:\/\/[^/]+/, "");
+    const method = (init?.method ?? "GET").toUpperCase();
+    let result: { status: number; data: unknown };
+    if (method === "POST") {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      result = handlers.post?.(path, body) ?? { status: 404, data: {} };
+    } else {
+      result = handlers.get?.(path) ?? { status: 404, data: {} };
+    }
+    return new Response(JSON.stringify(result.data), {
+      status: result.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
 }
 
 describe("AceStepClient", () => {
   it("health returns ok when sidecar is up", async () => {
     const client = new AceStepClient({
       url: "http://ace:7865",
-      http: mockHttp({
+      fetchImpl: mockFetch({
         get: (u) =>
           u === "/health"
             ? { status: 200, data: { ok: true, engine: "ace-step", busy: false } }
@@ -32,7 +41,7 @@ describe("AceStepClient", () => {
   it("health fails closed on network/HTTP errors", async () => {
     const client = new AceStepClient({
       url: "http://ace:7865",
-      http: mockHttp({
+      fetchImpl: mockFetch({
         get: () => {
           throw new Error("ECONNREFUSED");
         },
@@ -50,7 +59,7 @@ describe("AceStepClient", () => {
     });
     const client = new AceStepClient({
       url: "http://ace:7865",
-      http: mockHttp({ post: (u, b) => post(u, b) }),
+      fetchImpl: mockFetch({ post: (u, b) => post(u, b) }),
     });
     const job = await client.generate({ prompt: "focus ambient 110bpm", durationSec: 90 });
     expect(job).toEqual({
@@ -64,7 +73,7 @@ describe("AceStepClient", () => {
   });
 
   it("generate rejects empty prompt", async () => {
-    const client = new AceStepClient({ url: "http://ace:7865", http: mockHttp({}) });
+    const client = new AceStepClient({ url: "http://ace:7865", fetchImpl: mockFetch({}) });
     await expect(client.generate({ prompt: "  " })).rejects.toThrow(/prompt/i);
   });
 
@@ -72,7 +81,7 @@ describe("AceStepClient", () => {
     let n = 0;
     const client = new AceStepClient({
       url: "http://ace:7865",
-      http: mockHttp({
+      fetchImpl: mockFetch({
         get: (u) => {
           if (!u.startsWith("/v1/jobs/")) return { status: 404, data: {} };
           n += 1;

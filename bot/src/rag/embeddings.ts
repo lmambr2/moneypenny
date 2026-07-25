@@ -1,6 +1,6 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
+import { fetchJson } from "../util/http.js";
 import { l2NormalizeBatch } from "./normalize.js";
 
 /** SBC default: Nomic Embed v2 MoE on Ollama (English + multilingual, 768-d). */
@@ -39,7 +39,6 @@ export class EmbeddingsClient {
   private timeoutMs: number;
   private normalize: boolean;
   private logger?: Logger;
-  private http: ReturnType<typeof axios.create>;
   private dim: number | null = null;
   /** Ollama on the Pi serves one embed at a time — serialize to avoid queue timeouts. */
   private embedQueue: Promise<unknown> = Promise.resolve();
@@ -59,11 +58,6 @@ export class EmbeddingsClient {
     this.timeoutMs = options.timeoutMs ?? 600_000;
     this.normalize = options.normalize !== false;
     this.logger = options.logger;
-    this.http = axios.create({
-      baseURL: this.baseUrl,
-      timeout: this.timeoutMs,
-      headers: { "Content-Type": "application/json" },
-    });
   }
 
   /** Embed one or more texts. Returns one vector per input, in input order. */
@@ -76,11 +70,16 @@ export class EmbeddingsClient {
   private enqueueEmbed(texts: string[]): Promise<number[][]> {
     const run = async (): Promise<number[][]> => {
       try {
-        const { data } = await this.http.post<EmbeddingResponse>("/v1/embeddings", {
-          model: this.model,
-          input: texts,
-          // ollama extension (ignored elsewhere): keep the embed model resident.
-          keep_alive: "6h",
+        const data = await fetchJson<EmbeddingResponse>(`${this.baseUrl}/v1/embeddings`, {
+          method: "POST",
+          timeoutMs: this.timeoutMs,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: this.model,
+            input: texts,
+            // ollama extension (ignored elsewhere): keep the embed model resident.
+            keep_alive: "6h",
+          }),
         });
         let out = (data.data ?? [])
           .slice()

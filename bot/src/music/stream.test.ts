@@ -1,5 +1,4 @@
-import axios from "axios";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanExternalTrackTitle,
   isBandcampUrl,
@@ -9,8 +8,6 @@ import {
   isXTwitterUrl,
   StreamProvider,
 } from "./stream.js";
-
-vi.mock("axios");
 
 describe("isBandcampUrl / isTidalUrl", () => {
   it("matches Bandcamp + Tidal hosts", () => {
@@ -119,18 +116,31 @@ describe("StreamProvider — direct URLs", () => {
 });
 
 describe("StreamProvider — Spotify bridge", () => {
-  const mockedGet = vi.mocked(axios.get);
-
-  beforeEach(() => {
-    mockedGet.mockReset();
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
+  function stubJsonGet(handler: (url: string) => unknown) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const data = handler(String(url));
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+  }
+
   it("resolves a Spotify ref via the bridge for metadata and playback", async () => {
-    // streamUrl must pass assertPublicPlaybackUrl (public DNS + no private/literal).
     const publicStream = "https://example.com/stream/abc.ogg";
-    mockedGet.mockResolvedValue({
-      data: { streamUrl: publicStream, title: "Song X", artist: "Artist Y", durationSec: 200 },
-    } as any);
+    stubJsonGet(() => ({
+      streamUrl: publicStream,
+      title: "Song X",
+      artist: "Artist Y",
+      durationSec: 200,
+    }));
 
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local/" });
     expect(provider.canHandle("spotify:track:abc")).toBe(true);
@@ -142,28 +152,34 @@ describe("StreamProvider — Spotify bridge", () => {
       duration: 200,
       platform: "stream",
     });
-    // id stays the spotify ref, re-resolved at play time
     expect(res.songs[0].id).toBe("spotify:track:abc");
 
     const url = await provider.getSongUrl("spotify:track:abc");
     expect(url).toBe(publicStream);
-    expect(mockedGet).toHaveBeenLastCalledWith(
-      "http://bridge.local/resolve",
-      expect.objectContaining({ params: { uri: "spotify:track:abc" } }),
-    );
+    expect(String(vi.mocked(fetch).mock.calls.at(-1)![0])).toContain("http://bridge.local/resolve");
+    expect(String(vi.mocked(fetch).mock.calls.at(-1)![0])).toContain("uri=spotify%3Atrack%3Aabc");
   });
 
   it("returns empty when bridge cannot resolve (no ghost unplayable songs)", async () => {
-    mockedGet.mockRejectedValue(new Error("503"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("503");
+      }),
+    );
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
     expect((await provider.search("https://tidal.com/browse/track/1")).songs).toHaveLength(0);
   });
 
   it("routes Tidal and Spotify to different bridge bases", async () => {
     const publicStream = "https://example.com/stream/t.ogg";
-    mockedGet.mockResolvedValue({
-      data: { streamUrl: publicStream, title: "T", artist: "A", durationSec: 100 },
-    } as any);
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({ streamUrl: publicStream, title: "T", artist: "A", durationSec: 100 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const provider = new StreamProvider({
       tidalBridgeUrl: "http://tidal-bridge:8081",
       spotifyBridgeUrl: "http://spotify-bridge:8082",
@@ -171,31 +187,33 @@ describe("StreamProvider — Spotify bridge", () => {
     expect(provider.canHandle("https://tidal.com/browse/track/1")).toBe(true);
     expect(provider.canHandle("spotify:track:abc")).toBe(true);
     await provider.search("https://tidal.com/browse/track/99");
-    expect(mockedGet).toHaveBeenCalledWith(
-      "http://tidal-bridge:8081/resolve",
-      expect.objectContaining({ params: { uri: "https://tidal.com/browse/track/99" } }),
-    );
-    mockedGet.mockClear();
+    const tidalUrl = String((fetchMock.mock.calls as unknown as Array<[string]>)[0]?.[0] ?? "");
+    expect(tidalUrl).toContain("http://tidal-bridge:8081/resolve");
+    fetchMock.mockClear();
     await provider.search("spotify:track:abc");
-    expect(mockedGet).toHaveBeenCalledWith(
-      "http://spotify-bridge:8082/resolve",
-      expect.objectContaining({ params: { uri: "spotify:track:abc" } }),
-    );
+    const spotifyUrl = String((fetchMock.mock.calls as unknown as Array<[string]>)[0]?.[0] ?? "");
+    expect(spotifyUrl).toContain("http://spotify-bridge:8082/resolve");
   });
 
   it("drops bridge streamUrl that points at private/reserved targets", async () => {
-    mockedGet.mockResolvedValue({
-      data: { streamUrl: "http://127.0.0.1:6333/collections", title: "x", artist: "y" },
-    } as any);
+    stubJsonGet(() => ({
+      streamUrl: "http://127.0.0.1:6333/collections",
+      title: "x",
+      artist: "y",
+    }));
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local/" });
     expect(await provider.getSongUrl("spotify:track:evil")).toBeNull();
   });
 
   it("degrades gracefully when the bridge fails", async () => {
-    mockedGet.mockRejectedValue(new Error("bridge down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("bridge down");
+      }),
+    );
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
     expect(await provider.getSongUrl("spotify:track:abc")).toBeNull();
-    // Empty search → PlaybackEngine can fail open to local/YouTube metadata search
     const res = await provider.search("spotify:track:abc");
     expect(res.songs).toHaveLength(0);
   });
@@ -208,19 +226,17 @@ describe("StreamProvider — Spotify bridge", () => {
   });
 
   it("expands a Spotify playlist via GET /playlist on the real provider", async () => {
-    mockedGet.mockResolvedValue({
-      data: {
-        tracks: [
-          {
-            uri: "spotify:track:aaa",
-            title: "Track A",
-            artist: "Artist A",
-            durationSec: 180,
-          },
-          { uri: "spotify:track:bbb", title: "Track B", artist: "Artist B" },
-        ],
-      },
-    } as any);
+    stubJsonGet(() => ({
+      tracks: [
+        {
+          uri: "spotify:track:aaa",
+          title: "Track A",
+          artist: "Artist A",
+          durationSec: 180,
+        },
+        { uri: "spotify:track:bbb", title: "Track B", artist: "Artist B" },
+      ],
+    }));
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
     const songs = await provider.getPlaylistSongs(
       "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M",
@@ -233,16 +249,16 @@ describe("StreamProvider — Spotify bridge", () => {
       platform: "stream",
       duration: 180,
     });
-    expect(mockedGet).toHaveBeenCalledWith(
-      "http://bridge.local/playlist",
-      expect.objectContaining({
-        params: { uri: "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M" },
-      }),
-    );
+    expect(String(vi.mocked(fetch).mock.calls[0]![0])).toContain("http://bridge.local/playlist");
   });
 
   it("returns [] when playlist bridge is unavailable", async () => {
-    mockedGet.mockRejectedValue(new Error("bridge down"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("bridge down");
+      }),
+    );
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
     expect(await provider.getPlaylistSongs("spotify:playlist:x")).toEqual([]);
   });
@@ -253,18 +269,23 @@ describe("StreamProvider — Spotify bridge", () => {
   });
 
   it("expands a Tidal playlist when the bridge returns tracks", async () => {
-    vi.mocked(axios.get).mockResolvedValue({
-      data: {
-        tracks: [
-          {
-            uri: "https://tidal.com/browse/track/99",
-            title: "Tidal Tune",
-            artist: "Artist",
-            durationSec: 120,
-          },
-        ],
-      },
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(String(url)).toContain("/playlist");
+      return new Response(
+        JSON.stringify({
+          tracks: [
+            {
+              uri: "https://tidal.com/browse/track/99",
+              title: "Tidal Tune",
+              artist: "Artist",
+              durationSec: 120,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     });
+    vi.stubGlobal("fetch", fetchMock);
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
     const songs = await provider.getPlaylistSongs(
       "https://tidal.com/browse/playlist/abc-def-12345678",
@@ -272,13 +293,10 @@ describe("StreamProvider — Spotify bridge", () => {
     expect(songs).toHaveLength(1);
     expect(songs[0]!.name).toBe("Tidal Tune");
     expect(songs[0]!.platform).toBe("stream");
-    expect(vi.mocked(axios.get).mock.calls[0]![0]).toContain("/playlist");
   });
 
   it("fails open empty when Tidal bridge returns 503 body", async () => {
-    vi.mocked(axios.get).mockResolvedValue({
-      data: { error: "not logged in", tracks: [] },
-    });
+    stubJsonGet(() => ({ error: "not logged in", tracks: [] }));
     const provider = new StreamProvider({ bridgeUrl: "http://bridge.local" });
     expect(await provider.getPlaylistSongs("https://tidal.com/browse/playlist/x")).toEqual([]);
   });

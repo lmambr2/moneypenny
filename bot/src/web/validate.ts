@@ -9,6 +9,12 @@ import { type ZodType, z } from "zod";
 export const zNonEmptyString = z.string().trim().min(1);
 export const zOptionalString = z.string().trim().optional();
 
+/** Login/setup username (3–32: alnum, _ - .). */
+export const zUsername = z.string().regex(/^[A-Za-z0-9_\-.]{3,32}$/, "invalid username");
+
+/** Password length bounds used by session API. */
+export const zPassword = z.string().min(8).max(200);
+
 /** Volume 0–100 (player API; handler may Math.round). */
 export const zVolume = z.coerce.number().finite().min(0).max(100);
 
@@ -47,7 +53,7 @@ export function validateBody<T>(schema: ZodType<T>) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const parsed = parseWithSchema(schema, req.body ?? {});
     if (!parsed.ok) {
-      res.status(400).json({ error: parsed.error });
+      res.status(400).json({ error: parsed.error, code: "VALIDATION_ERROR" });
       return;
     }
     req.body = parsed.data;
@@ -61,7 +67,7 @@ export function validateBody<T>(schema: ZodType<T>) {
 export function requireBody<T>(res: Response, schema: ZodType<T>, body: unknown): T | null {
   const parsed = parseWithSchema(schema, body ?? {});
   if (!parsed.ok) {
-    res.status(400).json({ error: parsed.error });
+    res.status(400).json({ error: parsed.error, code: "VALIDATION_ERROR" });
     return null;
   }
   return parsed.data;

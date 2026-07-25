@@ -8,8 +8,9 @@
  *  - Attribution required in user-facing replies.
  *  - Fan tool (Norkaan / HTTPS org); not CIG.
  */
-import axios from "axios";
+
 import type { Logger } from "../logger.js";
+import { fetchJson, withQuery } from "../util/http.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 import { fuzzyScore } from "./fuzzy.js";
 import type { CraftBomLine, CraftOrder } from "./orders.js";
@@ -289,11 +290,17 @@ export class ScCraftClient {
         attribution: SC_CRAFT_ATTRIBUTION,
       };
     }
-    const url = `${this.baseUrl}/api/blueprints`;
-    const { data } = await axios.get(url, {
-      timeout: this.timeoutMs,
+    const url = withQuery(`${this.baseUrl}/api/blueprints`, {
+      search: query,
+      limit,
+      page: 1,
+    });
+    const data = await fetchJson<{
+      items?: ScCraftBlueprint[];
+      pagination?: { total?: number };
+    }>(url, {
+      timeoutMs: this.timeoutMs,
       headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-      params: { search: query, limit, page: 1 },
     });
     const items = Array.isArray(data?.items) ? (data.items as ScCraftBlueprint[]) : [];
     const total = Number(data?.pagination?.total ?? items.length) || items.length;
@@ -329,11 +336,10 @@ export class ScCraftClient {
         data = await this.fetchDetail(id);
       } else {
         const url = `${this.baseUrl}/api/blueprints/${encodeURIComponent(key)}`;
-        const res = await axios.get(url, {
-          timeout: this.timeoutMs,
+        data = await fetchJson<ScCraftBlueprint>(url, {
+          timeoutMs: this.timeoutMs,
           headers: { Accept: "application/json", "User-Agent": USER_AGENT },
         });
-        data = res.data as ScCraftBlueprint;
       }
       if (!data || typeof data !== "object" || !data.name) {
         return diskHit?.data ?? hit?.data ?? null;

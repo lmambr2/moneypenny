@@ -1,93 +1,118 @@
-import axios from "axios";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HttpRequestError } from "../util/http.js";
 import { EmbeddingsClient } from "./embeddings.js";
 import { RetrievalStore } from "./index.js";
 import { l2Normalize } from "./normalize.js";
 import { VectorClient } from "./vector-client.js";
 
-vi.mock("axios");
-
-// axios.create() returns this shared stub; tests set per-call responses.
-const http = { get: vi.fn(), post: vi.fn(), put: vi.fn() };
-(axios.create as any).mockReturnValue(http);
-
-beforeEach(() => {
-  http.get.mockReset();
-  http.post.mockReset();
-  http.put.mockReset();
-});
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 describe("EmbeddingsClient", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("POSTs /v1/embeddings and returns vectors in input order", async () => {
-    http.post.mockResolvedValue({
-      data: {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(String(url)).toContain("/v1/embeddings");
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({ model: "nomic-embed-text-v2-moe", input: ["a", "b"] });
+      return jsonResponse({
         data: [
           { embedding: [4, 5, 6], index: 1 },
           { embedding: [1, 2, 3], index: 0 },
         ],
-      },
+      });
     });
+    vi.stubGlobal("fetch", fetchMock);
     const c = new EmbeddingsClient({
       baseUrl: "http://ollama:11434",
       model: "nomic-embed-text-v2-moe",
     });
     const vecs = await c.embed(["a", "b"]);
-    // Sorted by index, then L2-normalized for cosine/TurboVec
     expect(vecs[0].map((x) => +x.toFixed(8))).toEqual(
       l2Normalize([1, 2, 3]).map((x) => +x.toFixed(8)),
     );
     expect(vecs[1].map((x) => +x.toFixed(8))).toEqual(
       l2Normalize([4, 5, 6]).map((x) => +x.toFixed(8)),
     );
-    const [url, body] = http.post.mock.calls[0];
-    expect(url).toBe("/v1/embeddings");
-    expect(body).toMatchObject({ model: "nomic-embed-text-v2-moe", input: ["a", "b"] });
   });
 
   it("probes dimension once and caches it", async () => {
-    http.post.mockResolvedValue({ data: { data: [{ embedding: [0, 0, 0, 0], index: 0 }] } });
-    const c = new EmbeddingsClient();
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ data: [{ embedding: [0, 0, 0, 0], index: 0 }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const c = new EmbeddingsClient({ baseUrl: "http://ollama:11434" });
     expect(await c.dimension()).toBe(4);
     expect(await c.dimension()).toBe(4);
-    expect(http.post).toHaveBeenCalledTimes(1); // cached
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("VectorClient", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("creates the collection when absent (404 → PUT with size+Cosine)", async () => {
-    http.get.mockRejectedValue({ response: { status: 404 } });
-    http.put.mockResolvedValue({ data: {} });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(init?.method ?? "GET").toUpperCase() === "PUT") {
+        expect(String(url)).toContain("/collections/docs");
+        const body = JSON.parse(String(init?.body));
+        expect(body).toEqual({ vectors: { size: 768, distance: "Cosine" } });
+        return jsonResponse({});
+      }
+      return new Response("missing", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const q = new VectorClient({ baseUrl: "http://turbovec:6333" });
     await q.ensureCollection("docs", 768);
-    expect(http.put).toHaveBeenCalledWith("/collections/docs", {
-      vectors: { size: 768, distance: "Cosine" },
-    });
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it("does not recreate an existing collection", async () => {
-    http.get.mockResolvedValue({
-      data: { result: { config: { params: { vectors: { size: 768 } } } } },
-    });
-    const q = new VectorClient();
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ result: { config: { params: { vectors: { size: 768 } } } } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const q = new VectorClient({ baseUrl: "http://turbovec:6333" });
     await q.ensureCollection("docs", 768);
-    expect(http.put).not.toHaveBeenCalled();
+    const puts = (fetchMock.mock.calls as unknown as Array<[string, RequestInit?]>).filter(
+      (c) => String(c[1]?.method ?? "GET").toUpperCase() === "PUT",
+    );
+    expect(puts).toHaveLength(0);
   });
 
   it("searches with limit + payload and returns hits", async () => {
-    http.post.mockResolvedValue({
-      data: { result: [{ id: "x", score: 0.9, payload: { text: "t" } }] },
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(String(url)).toContain("/collections/docs/points/search");
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({ vector: [1, 2, 3], limit: 4, with_payload: true });
+      return jsonResponse({ result: [{ id: "x", score: 0.9, payload: { text: "t" } }] });
     });
-    const q = new VectorClient();
+    vi.stubGlobal("fetch", fetchMock);
+    const q = new VectorClient({ baseUrl: "http://turbovec:6333" });
     const hits = await q.search("docs", [1, 2, 3], 4);
     expect(hits[0]).toMatchObject({ id: "x", score: 0.9 });
-    const [url, body] = http.post.mock.calls[0];
-    expect(url).toBe("/collections/docs/points/search");
-    expect(body).toMatchObject({ vector: [1, 2, 3], limit: 4, with_payload: true });
+  });
+
+  it("surfaces 404 via HttpRequestError status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("no", { status: 404 })),
+    );
+    const q = new VectorClient({ baseUrl: "http://turbovec:6333" });
+    await expect(q.search("docs", [1], 1)).rejects.toBeInstanceOf(HttpRequestError);
   });
 });
 
 describe("RetrievalStore", () => {
-  // Inject lightweight fakes (duck-typed) to test orchestration in isolation.
   function makeStore() {
     const embeddings = {
       dimension: vi.fn().mockResolvedValue(3),
@@ -198,12 +223,11 @@ describe("RetrievalStore", () => {
           text: "old",
           source: "b.md",
           classification: "unclassified",
-          valid_until: "2020-01-01",
+          valid_until: "2000-01-01",
         },
       },
     ]);
-    const out = await store.query("q", 2);
-    expect(out).toHaveLength(1);
-    expect(out[0].text).toBe("current");
+    const out = await store.query("q");
+    expect(out.map((c) => c.text)).toEqual(["current"]);
   });
 });

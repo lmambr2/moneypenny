@@ -36,7 +36,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@moneypenny/audio-native": "*",
     "@moneypenny/ts6-client": "*",
-    "axios": "^1.17.1",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.8.0",
     "cookie-parser": "^1.4.7",

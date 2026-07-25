@@ -1,5 +1,4 @@
 import { dirname } from "node:path";
-import axios from "axios";
 import { Router } from "express";
 import type { BotManager } from "../../bot/manager.js";
 import { parseBotScope } from "../../bot/scope.js";
@@ -20,6 +19,7 @@ import type { Logger } from "../../logger.js";
 import { defaultRadioConfig, parseAudioColorPreset, type RadioConfig } from "../../radio/index.js";
 import { isRightsConfig } from "../../rights/index.js";
 import { errorMessage } from "../../util/error.js";
+import { fetchJson } from "../../util/http.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../../voice/types.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 
@@ -997,7 +997,9 @@ export function createBotRouter(
       return;
     }
     try {
-      const { data } = await axios.get(`${url}/health`, { timeout: 5000 });
+      const data = await fetchJson<{ ok?: boolean; loggedIn?: boolean }>(`${url}/health`, {
+        timeoutMs: 5000,
+      });
       res.json({
         configured: true,
         available: !!data?.ok,

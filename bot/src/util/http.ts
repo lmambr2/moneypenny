@@ -146,3 +146,47 @@ export async function fetchVoid(url: string, opts: FetchJsonOptions = {}): Promi
     throw new HttpRequestError(errorMessage(err, "fetch failed"), { cause: err });
   }
 }
+
+/** Low-level fetch with timeout — does not throw on non-2xx (caller inspects status). */
+export async function fetchWithTimeout(
+  url: string,
+  opts: FetchJsonOptions = {},
+): Promise<Response> {
+  const timeoutMs = opts.timeoutMs ?? 15_000;
+  try {
+    return await fetch(url, {
+      method: opts.method ?? (opts.body != null ? "POST" : "GET"),
+      headers: opts.headers,
+      body: opts.body,
+      signal: timeoutSignal(timeoutMs, opts.signal),
+    });
+  } catch (err) {
+    throw new HttpRequestError(errorMessage(err, "fetch failed"), { cause: err });
+  }
+}
+
+/** GET/POST response as text; throws on non-2xx. */
+export async function fetchText(url: string, opts: FetchJsonOptions = {}): Promise<string> {
+  const res = await fetchWithTimeout(url, opts);
+  if (!res.ok) {
+    const body = await readErrorBody(res);
+    throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
+      status: res.status,
+      body,
+    });
+  }
+  return res.text();
+}
+
+/** Append query params to a URL string. */
+export function withQuery(
+  url: string,
+  params: Record<string, string | number | boolean | undefined | null>,
+): string {
+  const u = new URL(url);
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null) continue;
+    u.searchParams.set(k, String(v));
+  }
+  return u.toString();
+}
