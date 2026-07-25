@@ -69,6 +69,11 @@ jobs:
           node -e "const D=require('better-sqlite3');const db=new D(':memory:');db.exec('create table t(x)');db.close();console.log('better-sqlite3 ok')"
           node -e "const {OpusEncoder}=require('@discordjs/opus');new OpusEncoder(48000,2).encode(Buffer.alloc(3840));console.log('@discordjs/opus ok')"
 
+      # NOTE: the glibc-floor check deliberately does NOT run here. node-pre-gyp
+      # downloads a prebuild matched to the CURRENT machine, so on a runner it
+      # inspects a binary that never ships. It runs inside the image build
+      # instead (bot/Dockerfile), where everything present is what ships.
+
       # Guards the same trap from the other side: a native dependency whose
       # installed version no longer matches its allowScripts key.
       - name: Verify allowScripts keys match installed versions

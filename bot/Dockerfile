@@ -53,6 +53,17 @@ RUN echo "building bot image arch=${TARGETARCH:-unknown}" \
 ARG TARGETARCH
 RUN node -e "import('./dist/audio/encoder.js').then(m=>{const i=m.opusBackendAvailable();console.log('[build] opus backend: '+JSON.stringify(i));if(!i.native)console.warn('[build] WARNING: audio-native addon did not build for arch='+(process.env.TARGETARCH||process.arch)+' — image will use the @discordjs/opus fallback');}).catch(e=>console.warn('[build] opus backend probe skipped: '+e.message))"
 
+# Fail the build when a native addon needs a newer glibc than this image has.
+# This must run HERE, not in CI: node-pre-gyp downloads a prebuild matched to
+# the current machine, so a CI runner inspects a binary that never ships.
+# better-sqlite3 13 shipped a linux-arm64 prebuild needing GLIBC_2.38 against
+# bookworm's 2.36 — every CI check was green and the container crash-looped
+# with ERR_DLOPEN_FAILED on first database open.
+COPY scripts/check-glibc-floor.mjs /tmp/check-glibc-floor.mjs
+RUN GLIBC_FLOOR="$(ldd --version | head -1 | grep -oE '[0-9]+\.[0-9]+$')" \
+    && echo "[build] runtime glibc floor: ${GLIBC_FLOOR}" \
+    && node /tmp/check-glibc-floor.mjs --floor "${GLIBC_FLOOR}" --all /app/node_modules
+
 # Drop dev dependencies so only production deps (with compiled native addons)
 # are carried into the runtime image.
 RUN npm prune --omit=dev

@@ -19,12 +19,6 @@ const silentLogger = {
   debug: () => {},
 } as unknown as Logger;
 
-function getHeadersArg(args: string[]): string {
-  const idx = args.indexOf("-headers");
-  if (idx === -1) return "";
-  return args[idx + 1] ?? "";
-}
-
 describe("buildFfmpegArgs", () => {
   it("does not set custom headers for unknown URLs", () => {
     const url = "https://example.com/song.mp3";

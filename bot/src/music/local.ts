@@ -320,7 +320,11 @@ export class LocalProvider implements MusicProvider {
       if (real === realBase || real.startsWith(realBase + path.sep)) {
         return real;
       }
-      console.warn(`[LocalProvider] Path traversal attempt blocked: ${requested}`);
+      // Strip control characters and cap the length: `requested` is exactly the
+      // hostile input this branch exists to reject, so echoing it raw lets an
+      // attacker forge log lines with embedded newlines (CodeQL js/log-injection).
+      const safeRequested = requested.replace(/[\p{Cc}\p{Cf}]/gu, "?").slice(0, 200);
+      console.warn(`[LocalProvider] Path traversal attempt blocked: ${safeRequested}`);
       return null;
     } catch {
       return null;

@@ -52,7 +52,8 @@ def login_thread() -> None:
     # 1) try to restore a cached session
     if os.path.exists(SESSION_FILE):
         try:
-            d = json.load(open(SESSION_FILE))
+            with open(SESSION_FILE) as fh:
+                d = json.load(fh)
             exp = datetime.fromisoformat(d["expiry_time"]) if d.get("expiry_time") else None
             if session.load_oauth_session(d["token_type"], d["access_token"], d["refresh_token"], exp):
                 print("[tidal-bridge] restored cached Tidal session", flush=True)
