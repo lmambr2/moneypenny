@@ -42,6 +42,13 @@ COPY . .
 RUN echo "building bot image arch=${TARGETARCH:-unknown}" \
     && npm run build
 
+# `npm run build` tolerates a failed Rust/napi build (encoder falls back to
+# @discordjs/opus), which means an arm64 image can silently ship without the
+# native addon. Report which backend the built image actually has (audit C3).
+# Informational only — the fallback is supported, so this must not fail the build.
+ARG TARGETARCH
+RUN node -e "import('./dist/audio/encoder.js').then(m=>{const i=m.opusBackendAvailable();console.log('[build] opus backend: '+JSON.stringify(i));if(!i.native)console.warn('[build] WARNING: audio-native addon did not build for arch='+(process.env.TARGETARCH||process.arch)+' — image will use the @discordjs/opus fallback');}).catch(e=>console.warn('[build] opus backend probe skipped: '+e.message))"
+
 # Drop dev dependencies so only production deps (with compiled native addons)
 # are carried into the runtime image.
 RUN npm prune --omit=dev

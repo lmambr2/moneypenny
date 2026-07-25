@@ -1,6 +1,7 @@
 import { existsSync, renameSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { opusBackendAvailable } from "./audio/encoder.js";
 import { BotManager } from "./bot/manager.js";
 import { createAvatarStore } from "./data/avatars.js";
 import { loadConfig, saveConfig } from "./data/config.js";
@@ -299,6 +300,22 @@ async function main() {
     },
   });
   watchdog.start();
+
+  // Which Opus backend actually loaded (audit C3). The Rust addon is built per
+  // container platform and the image tolerates a failed build, so without this
+  // an arm64 image silently running the @discordjs/opus fallback looks identical
+  // to one running native. Operator confirmation here is the gate for dropping
+  // the fallback dependency.
+  {
+    const opus = opusBackendAvailable();
+    logger.info(opus, "Opus backend");
+    if (!opus.native) {
+      logger.warn(
+        "Rust audio-native addon not loaded — using @discordjs/opus fallback. " +
+          "Expected on unbuilt platforms; see packages/audio-native/README.md.",
+      );
+    }
+  }
 
   logger.info({ webPort: config.webPort }, "Moneypenny started");
   const publicUrl = (config.publicUrl ?? "").trim().replace(/\/+$/, "");
