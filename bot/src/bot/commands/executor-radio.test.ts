@@ -355,6 +355,6 @@ describe("!skip routes through the radio director (skip = boundary)", () => {
   it("a song slot advances normally with the usual reply", async () => {
     const { ex } = skipHarness("advanced");
     const out = await ex.execute({ name: "skip", args: "", rawArgs: [], flags: new Set() });
-    expect(out).toContain("Now playing: Next Song");
+    expect(out).toMatch(/Skipped — now playing: Next Song/);
   });
 });

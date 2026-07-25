@@ -28,7 +28,17 @@ export interface WatchwordOptions {
 /** Optional leading articles only — not STT “mishear” maps. */
 const LEADING_FILLER = /^(?:a|an|the|uh+|um+)\s+/i;
 
-const PLAYBACK_VERBS = new Set(["pause", "resume", "skip", "stop", "play", "next", "prev"]);
+const PLAYBACK_VERBS = new Set([
+  "pause",
+  "resume",
+  "skip",
+  "stop",
+  "play",
+  "next",
+  "jump",
+  "go",
+  "prev",
+]);
 
 /**
  * True when a partial transcript mentions the candidate command by its real name
@@ -68,6 +78,7 @@ const ZERO_ARG_VOICE_COMMANDS = new Set([
   "follow",
   "chevron7",
 ]);
+// jump/go require a query — not zero-arg
 
 /** Whether parsed name+args look like a deliberate voice command (not banter). */
 export function voiceCommandShapeOk(name: string, args: string): boolean {

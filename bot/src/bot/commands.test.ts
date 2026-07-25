@@ -29,7 +29,7 @@ describe("Command Parser", () => {
   });
 
   it("resolves aliases", () => {
-    const aliases = { p: "play", s: "skip", n: "next" };
+    const aliases = { p: "play", s: "skip", n: "skip" };
     const result = parseCommand("!p Stairway to Heaven", "!", aliases);
     expect(result!.name).toBe("play");
     expect(result!.args).toBe("Stairway to Heaven");

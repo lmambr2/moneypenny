@@ -72,6 +72,10 @@ export function registerBotCommands(registry: CommandRegistry, host: CommandHand
               decision.resolvedMusic.providerPlatform,
             );
           }
+          // playnext/pn must not clear the queue via playResolvedItem.
+          if (name === "playnext" || name === "pn") {
+            return runCommand(cmd, ctx.message);
+          }
           return host.playback.playResolvedItem(
             decision.resolvedMusic,
             decision.resolvedMusic.providerPlatform,

@@ -267,11 +267,19 @@ export class RadioCommands {
         const r = await this.deps.radio.cueSay(text);
         return r === "played" || r === "cued" ? `📻 ${text}` : `📻 ${text} (TTS unavailable)`;
       }
+      case "skipbumper":
+      case "skip-bumper":
       case "skip": {
+        // skipbumper is the clear name; bare "skip" kept for backcompat.
         if (!this.deps.radio) return "Radio controls are not available.";
-        return this.deps.radio.skipBumper() === "cue"
-          ? "Cued bumper cancelled."
-          : "Next scheduled bumper will be skipped.";
+        const msg =
+          this.deps.radio.skipBumper() === "cue"
+            ? "Cued bumper cancelled."
+            : "Next scheduled bumper will be skipped.";
+        if (sub === "skip") {
+          return `${msg} (Tip: prefer ${p}radio skipbumper — bare ${p}skip is for the track.)`;
+        }
+        return msg;
       }
       case "pin": {
         if (!this.deps.radio) return "Radio controls are not available.";
@@ -330,7 +338,7 @@ export class RadioCommands {
         return `📻 Radio mode ON. ${this.summary(radio)}${this.countdown()}`;
       }
       default:
-        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skip|pin|prewarm [doctrine]|gen <prompt>]`;
+        return `Usage: ${p}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skipbumper|pin|prewarm [doctrine]|gen <prompt>]`;
     }
   }
 

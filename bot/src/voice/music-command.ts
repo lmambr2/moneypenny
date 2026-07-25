@@ -6,6 +6,8 @@ export const MUSIC_SEARCH_COMMANDS = new Set([
   "play",
   "add",
   "playnext",
+  "jump",
+  "go",
   "pn",
   "playlist",
   "album",

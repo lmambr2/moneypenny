@@ -48,7 +48,8 @@ export interface CommandSpec {
  */
 export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   // Music — resolve local first, then fall through to executeCommand.
-  // llmTool aliases match LLM tool-call names (PR-A2 metadata; toolCallToCommand still owns specials).
+  // Model: play=now · add=queue · playnext/pn=up next · skip/next=advance · jump/go=start query/url
+  // llmTool aliases match LLM tool-call names (toolCallToCommand still owns specials).
   { name: "play", kind: "resolved", audio: true, llmTool: "play_music" },
   { name: "add", kind: "resolved", audio: true, llmTool: "queue" },
   { name: "playnext", kind: "resolved", audio: true },
@@ -57,7 +58,11 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "album", kind: "resolved", audio: true },
   // Transport + queue (delegated to the executor switch).
   { name: "skip", kind: "delegated", audio: true, llmTool: "skip" },
+  /** Alias of skip (bare advance only). Prefer !jump for a title/URL. */
   { name: "next", kind: "delegated", audio: true },
+  /** Jump to queue match or search+start now (title/URL). Aliases: go */
+  { name: "jump", kind: "delegated", audio: true },
+  { name: "go", kind: "delegated", audio: true },
   { name: "prev", kind: "delegated", audio: true },
   { name: "pause", kind: "delegated", llmTool: "pause" },
   { name: "resume", kind: "delegated", llmTool: "resume" },
@@ -71,6 +76,7 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "unban", kind: "delegated", admin: true },
   { name: "now", kind: "delegated", llmTool: "now_playing" },
   { name: "queue", kind: "delegated" },
+  /** Alias of queue (same handler). */
   { name: "list", kind: "delegated" },
   { name: "artist", kind: "delegated", audio: true },
   { name: "test", kind: "delegated", audio: true },

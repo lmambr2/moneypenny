@@ -45,13 +45,63 @@ describe("findQueueIndexByQuery", () => {
     q.add(song("2", "Titanium", "David Guetta"));
     q.play(); // on Adele
     expect(findQueueIndexByQuery(q, "david guetta")).toBe(1);
-    // Current song is ignored so a plain re-request of now-playing does not "jump".
     q.playAt(1);
     expect(findQueueIndexByQuery(q, "david guetta")).toBeNull();
   });
 });
 
-describe("!next <query>", () => {
+describe("!skip / !next (bare advance)", () => {
+  it("!next with args does not jump — points at !jump", async () => {
+    const ex = new CommandExecutor({
+      playback: { clearUserPause: vi.fn() },
+      player: {},
+      queue: { current: () => song("a", "A") },
+      config: { commandPrefix: "!" },
+      profileManager: {},
+      tsClient: {},
+      isConnected: () => true,
+      playNext: vi.fn(),
+      getProvider: vi.fn(),
+    } as unknown as CommandExecutorDeps);
+
+    const out = await ex.execute({
+      name: "next",
+      args: "titanium",
+      rawArgs: ["titanium"],
+      flags: new Set(),
+    });
+    expect(out).toMatch(/!jump/);
+    expect(out).toMatch(/playnext/);
+  });
+
+  it("plain !skip uses the radio boundary path", async () => {
+    const onTrackBoundary = vi.fn(async () => "advanced" as const);
+    const ex = new CommandExecutor({
+      playback: { clearUserPause: vi.fn() },
+      player: {},
+      queue: { current: () => song("n", "Next Song", "A") },
+      config: { commandPrefix: "!" },
+      profileManager: {},
+      tsClient: {},
+      isConnected: () => true,
+      playNext: vi.fn(),
+      getProvider: vi.fn(),
+      radio: {
+        onTrackBoundary,
+        cueBumper: vi.fn(),
+        cueSay: vi.fn(),
+        skipBumper: vi.fn(),
+        status: () => ({ songsUntilBumper: null, cuePending: false, skipNextPending: false }),
+      },
+    } as unknown as CommandExecutorDeps);
+
+    const out = await ex.execute({ name: "skip", args: "", rawArgs: [], flags: new Set() });
+    expect(onTrackBoundary).toHaveBeenCalledTimes(1);
+    expect(out).toMatch(/Skipped — now playing: Next Song/i);
+  });
+});
+
+describe("!jump / !go", () => {
   it("jumps to a matching song already in the queue", async () => {
     const queue = new PlayQueue();
     queue.add(song("a", "1985", "Bowling For Soup"));
@@ -77,12 +127,12 @@ describe("!next <query>", () => {
     } as unknown as CommandExecutorDeps);
 
     const out = await ex.execute({
-      name: "next",
+      name: "jump",
       args: "titanium",
       rawArgs: ["titanium"],
       flags: new Set(),
     });
-    expect(out).toMatch(/Skipped to: Titanium/i);
+    expect(out).toMatch(/Jumped to: Titanium/i);
     expect(queue.current()?.id).toBe("b");
     expect(resolveAndPlay).toHaveBeenCalledTimes(1);
   });
@@ -116,7 +166,7 @@ describe("!next <query>", () => {
     } as unknown as CommandExecutorDeps);
 
     const out = await ex.execute({
-      name: "next",
+      name: "go",
       args: "titanium",
       rawArgs: ["titanium"],
       flags: new Set(),
@@ -127,29 +177,19 @@ describe("!next <query>", () => {
     expect(resolveAndPlay).toHaveBeenCalledTimes(1);
   });
 
-  it("plain !next still uses the radio boundary path", async () => {
-    const onTrackBoundary = vi.fn(async () => "advanced" as const);
+  it("requires a query", async () => {
     const ex = new CommandExecutor({
       playback: { clearUserPause: vi.fn() },
       player: {},
-      queue: { current: () => song("n", "Next Song", "A") },
+      queue: new PlayQueue(),
       config: { commandPrefix: "!" },
       profileManager: {},
       tsClient: {},
       isConnected: () => true,
       playNext: vi.fn(),
       getProvider: vi.fn(),
-      radio: {
-        onTrackBoundary,
-        cueBumper: vi.fn(),
-        cueSay: vi.fn(),
-        skipBumper: vi.fn(),
-        status: () => ({ songsUntilBumper: null, cuePending: false, skipNextPending: false }),
-      },
     } as unknown as CommandExecutorDeps);
-
-    const out = await ex.execute({ name: "next", args: "", rawArgs: [], flags: new Set() });
-    expect(onTrackBoundary).toHaveBeenCalledTimes(1);
-    expect(out).toContain("Now playing: Next Song");
+    const out = await ex.execute({ name: "jump", args: "", rawArgs: [], flags: new Set() });
+    expect(out).toMatch(/Usage: !jump/);
   });
 });

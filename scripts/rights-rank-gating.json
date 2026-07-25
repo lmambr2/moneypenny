@@ -1,7 +1,7 @@
 {
   "defaultAllow": [
     "play", "add", "queue", "list", "now", "lyrics", "vote", "help",
-    "playlist", "album", "prev", "next", "skip", "pause", "resume",
+    "playlist", "album", "prev", "next", "skip", "jump", "go", "pause", "resume",
     "artist", "ask", "test", "roast", "roastout", "roastin", "remember", "recall", "forget", "kg", "diary",
     "ships", "hangar",
     "rate", "unrate", "selecttracks", "radio", "playnext", "pn", "chevron7",

@@ -137,7 +137,10 @@ export class CommandExecutor {
         return this.cmdStop();
       case "next":
       case "skip":
-        return this.cmdNext(cmd);
+        return this.cmdSkip(cmd);
+      case "jump":
+      case "go":
+        return this.cmdJump(cmd);
       case "prev":
         return this.cmdPrev();
       case "vol":
@@ -332,18 +335,22 @@ export class CommandExecutor {
   }
 
   /**
-   * `!next` / `!skip` — advance one track (radio boundary / bumper aware).
-   * `!next <query>` — jump to a matching queue entry, or search and start it now
-   * (args used to be ignored, so `!next titanium` only skipped once).
+   * `!skip` / `!next` — advance one track only (radio boundary / bumper aware).
+   * Title/URL jumps use `!jump` / `!go` so bare next is never overloaded.
    */
-  private async cmdNext(cmd: ParsedCommand): Promise<string> {
+  private async cmdSkip(cmd: ParsedCommand): Promise<string> {
     this.deps.playback.clearUserPause?.();
     const query = cmd.args.trim();
-    if (query) return this.cmdNextNamed(query, cmd);
+    if (query) {
+      const p = this.deps.config.commandPrefix;
+      return (
+        `${p}skip / ${p}next only advance the queue. ` +
+        `To start a title or URL now: ${p}jump <query|url> (or ${p}go). ` +
+        `To put it up next without cutting: ${p}playnext <query|url>.`
+      );
+    }
 
-    // A manual skip is a track boundary: with radio on, the wheel advances and
-    // a due (or cued) bumper plays instead of jumping straight to the next
-    // song. Radio off → onTrackBoundary is a plain playNext, identical to before.
+    // Manual skip = track boundary: radio may play a due bumper first.
     if (this.deps.radio) {
       if ((await this.deps.radio.onTrackBoundary()) === "bumper") {
         return "📻 Station break — music resumes after.";
@@ -352,12 +359,19 @@ export class CommandExecutor {
       await this.deps.playNext();
     }
     const current = this.deps.queue.current();
-    if (current) return `Now playing: ${current.name} - ${current.artist}`;
+    if (current) return `Skipped — now playing: ${current.name} - ${current.artist}`;
     return "Queue is empty";
   }
 
-  /** Jump to queue match or search+play immediately for `!next <query>`. */
-  private async cmdNextNamed(query: string, cmd: ParsedCommand): Promise<string> {
+  /** `!jump` / `!go` — jump to queue match or search+start immediately. */
+  private async cmdJump(cmd: ParsedCommand): Promise<string> {
+    this.deps.playback.clearUserPause?.();
+    const query = cmd.args.trim();
+    const p = this.deps.config.commandPrefix;
+    if (!query) {
+      return `Usage: ${p}jump <query|url> — start that track now (or ${p}go). Bare advance: ${p}skip.`;
+    }
+
     const matchIdx = findQueueIndexByQuery(this.deps.queue, query);
     if (matchIdx != null) {
       const song = this.deps.queue.playAt(matchIdx);
@@ -365,7 +379,7 @@ export class CommandExecutor {
       this.deps.player.resetFailures();
       const ok = await this.deps.playback.resolveAndPlay(song);
       if (!ok) return `Cannot play: ${song.name}`;
-      return `Skipped to: ${song.name} - ${song.artist}`;
+      return `Jumped to: ${song.name} - ${song.artist}`;
     }
 
     const hit = await this.deps.playback.searchFirst(cmd, 1);
@@ -492,8 +506,8 @@ export class CommandExecutor {
       }
     }
 
-    const nextMsg = await this.cmdNext({
-      name: "next",
+    const nextMsg = await this.cmdSkip({
+      name: "skip",
       args: "",
       rawArgs: [],
       flags: new Set(),
@@ -766,13 +780,15 @@ export class CommandExecutor {
       "Moneypenny Commands:",
       "",
       "Music",
-      `${p}play <query|url> — Local first, else YouTube (-y forces YT, -l Local). URLs: YT/X/Twitter/Bandcamp/Spotify/Tidal/stream`,
-      `${p}add <song> · ${p}playnext <song> (${p}pn) — Queue · play next`,
-      `${p}skip/next [query] · ${p}prev · ${p}pause · ${p}resume · ${p}stop — Skip, or jump to / start <query>`,
-      `${p}queue · ${p}now · ${p}clear · ${p}remove <n> · ${p}vol <0-100> · ${p}mode <seq|loop|random|rloop>`,
+      `${p}play <query|url> — Start now (local first, else YT; -y YT, -l local). URLs: YT/X/Bandcamp/Spotify/Tidal/stream`,
+      `${p}add <query|url> — Append to human queue (starts if idle)`,
+      `${p}playnext <query|url> (${p}pn) — Insert after current (does not cut now-playing)`,
+      `${p}skip (${p}s / ${p}n) — Advance one track · ${p}prev · ${p}pause · ${p}resume · ${p}stop`,
+      `${p}jump <query|url> (${p}go) — Jump to queue match or search+start now`,
+      `${p}queue (${p}list) · ${p}now · ${p}clear · ${p}remove <n> · ${p}vol <0-100> · ${p}mode <seq|loop|random|rloop>`,
       `${p}playlist <name|id> · ${p}album <id> · ${p}artist <name> · ${p}lyrics · ${p}vote`,
       `${p}test — Demo track (local copy if saved, else ${DEFAULT_DEMO_VIDEO_URL})`,
-      `${p}radio [on|off|status|ops <profile>|bumper|say|skip] — Autonomous DJ (on/off admin; ops/bumper/say/skip @dj)`,
+      `${p}radio [on|off|status|ops|bumper|say|skipbumper|pin|prewarm|gen] — Auto-DJ`,
       `${p}rate <1-5> [song] · ${p}unrate — Rate the current (or a searched) track`,
       "",
       "AI & knowledge (needs LLM / RAG enabled in Settings)",

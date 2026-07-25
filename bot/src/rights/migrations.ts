@@ -144,6 +144,11 @@ const DELTAS: readonly RightsDelta[] = [
       "command-staff": ["ships.org"],
     },
   },
+  {
+    // Music command cleanup: !jump / !go (start query/url now). Public like play.
+    version: 13,
+    defaultAllow: ["jump", "go"],
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

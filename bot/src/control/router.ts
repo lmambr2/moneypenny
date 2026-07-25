@@ -133,6 +133,8 @@ const MUSIC_COMMAND_LOG = new Set([
   "artist",
   "skip",
   "next",
+  "jump",
+  "go",
   "prev",
   "stop",
   "clear",

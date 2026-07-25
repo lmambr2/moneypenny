@@ -225,7 +225,8 @@ export function getDefaultConfig(): BotConfig {
     locale: "en",
     theme: "dark",
     commandPrefix: "!",
-    commandAliases: { p: "play", s: "skip", n: "next" },
+    // n→skip (bare advance). Jump/start a title: !jump / !go. pn is a real command.
+    commandAliases: { p: "play", s: "skip", n: "skip" },
     pokeCommandsEnabled: true,
     pokeCommandsPerMinute: 12,
     adminPassword: "",
