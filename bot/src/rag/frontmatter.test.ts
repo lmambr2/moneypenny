@@ -1,6 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { parseFrontmatter } from "./frontmatter.js";
 
+// Regression (CodeQL js/remote-property-injection): frontmatter keys come from
+// uploaded doctrine markdown, so they must never reach Object's prototype.
+describe("parseFrontmatter prototype safety", () => {
+  it("does not pollute Object.prototype via a __proto__ key", () => {
+    const raw = `---\n__proto__: polluted\nclassification: secret\n---\nBody.`;
+    parseFrontmatter(raw);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.prototype).not.toHaveProperty("polluted");
+  });
+
+  it("does not let constructor/prototype keys shadow anything", () => {
+    const raw = `---\nconstructor: evil\nprototype: evil\nclassification: secret\n---\nBody.`;
+    const fm = parseFrontmatter(raw);
+    expect(fm.classification).toBe("secret");
+    expect({}.constructor).toBe(Object);
+  });
+
+  it("still parses normal fields alongside a hostile key", () => {
+    const raw = `---\n__proto__: x\nclassification: restricted\ntags: [a, b]\n---\nBody.`;
+    const fm = parseFrontmatter(raw);
+    expect(fm.classification).toBe("restricted");
+    expect(fm.tags).toEqual(["a", "b"]);
+  });
+});
+
 describe("parseFrontmatter", () => {
   it("parses classification, tags (inline list), valid_until + strips the block", () => {
     const raw = `---\nclassification: Restricted\ntags: [intel, fleet-ops]\nvalid_until: 2026-12-31\n---\n# INTSUM\nBody line.`;

@@ -15,11 +15,24 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /** Extract Bearer token from Authorization header. */
+const BEARER_SCHEME = "bearer";
+
 export function extractBearerToken(req: Request): string | null {
   const h = req.headers.authorization;
   if (!h || typeof h !== "string") return null;
-  const m = /^Bearer\s+(.+)$/i.exec(h.trim());
-  return m ? m[1].trim() : null;
+  const trimmed = h.trim();
+  // Parsed without a regex on purpose. `/^Bearer\s+(.+)$/` is ambiguous — both
+  // `\s+` and `.` match a space — so a header like "Bearer" + many spaces + a
+  // newline backtracks over every split before failing (CodeQL
+  // js/polynomial-redos). This runs before authentication, so an unauthenticated
+  // caller could trigger it. Scanning is linear and allocation-free.
+  if (trimmed.length <= BEARER_SCHEME.length) return null;
+  if (trimmed.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME) return null;
+  const rest = trimmed.slice(BEARER_SCHEME.length);
+  // A separator is required: "BearerXYZ" is not a bearer credential.
+  if (rest.length === 0 || !/^\s/.test(rest[0])) return null;
+  const token = rest.trim();
+  return token.length > 0 ? token : null;
 }
 
 /**

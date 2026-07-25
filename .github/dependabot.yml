@@ -1,0 +1,70 @@
+# Dependabot version updates.
+#
+# NOTE: pick ONE dependency bot. Dependabot is currently the active one — it
+# has been opening security-update PRs without this file (security updates need
+# no config). Renovate has never onboarded here: there is no renovate.json and
+# no onboarding PR. If Renovate is later configured, DELETE this file or both
+# bots will open duplicate PRs for every dependency.
+#
+# Two known blind spots this file cannot cover — keep the CI checks that do:
+#   * npm `overrides` are not managed by Dependabot. Every remaining advisory in
+#     this repo is resolved through an override, and the old `tar` override
+#     pinned BACKWARD onto a vulnerable version while looking like a
+#     mitigation. `npm audit` runs as its own CI job for this reason.
+#   * `allowScripts` keys are version-pinned, so a native-dep bump silently
+#     stops the addon from building. scripts/check-allow-scripts.mjs guards it.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /bot
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR per class keeps the queue readable on a solo repo.
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+      production-minor-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+    ignore:
+      # Protocol + credential layer. DESIGN §6.2 requires an exact pin and a
+      # source review before any bump — not an automated one.
+      - dependency-name: "@honeybbq/teamspeak-client"
+      # Requires Node >= 22 from v13; the bot image is node:20. Revisit
+      # together with the base image, not on its own.
+      - dependency-name: better-sqlite3
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: npm
+    directory: /bot/web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+      production-minor-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+    ignore:
+      # vue-tsc 3.x cannot load TypeScript 7 (resolves typescript/lib/tsc.js,
+      # which TS 7 no longer exports). Web stays on 6.x until that is fixed.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: cargo
+    directory: /bot/packages/audio-native
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+
+  # Workflows pin actions to commit SHAs; this keeps those pins fresh.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3

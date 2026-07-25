@@ -81,7 +81,11 @@ function parseLooseLeadingMetadata(text: string): DocFrontmatter | null {
 }
 
 function parseBlock(block: string): Record<string, string> {
-  const out: Record<string, string> = {};
+  // Null-prototype: keys come from uploaded doctrine markdown, so `__proto__`
+  // / `constructor` / `prototype` would otherwise write through to Object's
+  // prototype chain instead of becoming plain fields
+  // (CodeQL js/remote-property-injection).
+  const out: Record<string, string> = Object.create(null);
   for (const line of block.split(/\r?\n/)) {
     const t = line.trim();
     if (!t || t.startsWith("#")) continue;
