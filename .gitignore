@@ -8,6 +8,9 @@ build/
 # Rust / N-API workspace crates
 **/target/
 bot/packages/audio-native/*.node
+# NAPI-RS regenerates the ESM shim on build; package `files` ships index.cjs only.
+bot/packages/audio-native/index.js
+bot/packages/audio-native/target/
 
 # Environment & secrets
 .env
