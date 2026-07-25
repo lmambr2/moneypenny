@@ -41,24 +41,59 @@ export type VadBackend = "energy" | "silero";
 
 export interface CreateVadOptions extends SegmenterOptions {
   /**
-   * `energy` — RMS SilenceSegmenter (default, unit-tested).
-   * `silero` — reserved; falls back to energy until a model path is wired.
+   * `energy` — RMS SilenceSegmenter (default, unit-tested, no dependencies).
+   * `silero` — model VAD; needs `onnxruntime-node` + an ONNX model on disk.
    */
   backend?: VadBackend;
+  /** Path to silero_vad.onnx. Required for backend=`silero`. */
+  modelPath?: string;
+  /** Speech probability threshold for the model backend (0..1). */
+  speechThreshold?: number;
   /** Optional logger sink for fallback notices. */
   onFallback?: (msg: string) => void;
 }
 
 /**
- * Factory for voice end-pointers (audit C5).
- * Silero is interface-ready; until ONNX weights land, backend=`silero` falls back
- * to energy with an optional notice.
+ * Synchronous factory (audit C5). Always returns an end-pointer immediately;
+ * `silero` needs an async model load, so use {@link createVadSegmenterAsync}
+ * when you want the model backend to actually engage.
  */
 export function createVadSegmenter(opts: CreateVadOptions): VadSegmenter {
-  const backend = opts.backend ?? "energy";
-  if (backend === "silero") {
+  if ((opts.backend ?? "energy") === "silero") {
     opts.onFallback?.(
-      "Silero VAD not bundled yet — using energy SilenceSegmenter (createVadSegmenter)",
+      "Silero VAD needs async init — use createVadSegmenterAsync(); using energy segmenter",
+    );
+  }
+  return new SilenceSegmenter(opts);
+}
+
+/**
+ * Resolve the configured backend, loading the model when one is requested.
+ *
+ * Falls back to the energy segmenter — never throws — when the runtime or the
+ * model is missing, because losing voice entirely is worse than losing
+ * end-pointing quality. The energy path stays the default until a Silero A/B
+ * is run on real hardware.
+ */
+export async function createVadSegmenterAsync(opts: CreateVadOptions): Promise<VadSegmenter> {
+  const backend = opts.backend ?? "energy";
+  if (backend !== "silero") return new SilenceSegmenter(opts);
+
+  if (!opts.modelPath) {
+    opts.onFallback?.("Silero VAD selected but no modelPath configured — using energy segmenter");
+    return new SilenceSegmenter(opts);
+  }
+
+  try {
+    const { SileroSegmenter } = await import("./silero.js");
+    const seg = new SileroSegmenter({ ...opts, modelPath: opts.modelPath });
+    if (await seg.init()) return seg;
+    opts.onFallback?.(
+      `Silero VAD unavailable (onnxruntime-node or ${opts.modelPath} missing) — using energy segmenter`,
+    );
+  } catch (err) {
+    opts.onFallback?.(
+      `Silero VAD failed to load (${err instanceof Error ? err.message : "unknown"}) — using energy segmenter`,
     );
   }
   return new SilenceSegmenter(opts);
