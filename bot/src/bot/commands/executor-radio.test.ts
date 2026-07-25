@@ -82,11 +82,33 @@ describe("cmdRadio ops (§8/§12)", () => {
     tagStore.upsert("t1", { genre: "ambient" }, "analyzer");
 
     const queued: { id: string }[] = [];
+    let currentIndex = -1;
     const queue = {
-      clear: vi.fn(() => queued.splice(0)),
-      add: vi.fn((s: { id: string }) => queued.push(s)),
-      play: vi.fn(() => queued[0] ?? null),
-      current: vi.fn(() => queued[0] ?? null),
+      clear: vi.fn(() => {
+        queued.splice(0);
+        currentIndex = -1;
+      }),
+      add: vi.fn((s: { id: string }) => {
+        queued.push(s);
+        return queued.length - 1;
+      }),
+      play: vi.fn(() => {
+        currentIndex = queued.length ? 0 : -1;
+        return queued[0] ?? null;
+      }),
+      playAt: vi.fn((i: number) => {
+        currentIndex = i;
+        return queued[i] ?? null;
+      }),
+      next: vi.fn(() => {
+        if (currentIndex + 1 >= queued.length) return null;
+        currentIndex++;
+        return queued[currentIndex] ?? null;
+      }),
+      current: vi.fn(() => (currentIndex >= 0 ? (queued[currentIndex] ?? null) : null)),
+      list: vi.fn(() => [...queued]),
+      getCurrentIndex: vi.fn(() => currentIndex),
+      size: vi.fn(() => queued.length),
     };
     const localProvider = {
       platform: "local",
@@ -230,7 +252,12 @@ describe("cmdRadio ops (§8/§12)", () => {
       clear: vi.fn(),
       add: vi.fn(),
       play: vi.fn(() => ({ id: "x", platform: "stream" })),
-      current: vi.fn(),
+      playAt: vi.fn(),
+      next: vi.fn(() => null),
+      current: vi.fn(() => null),
+      list: vi.fn(() => []),
+      getCurrentIndex: vi.fn(() => -1),
+      size: vi.fn(() => 0),
     };
     const ex = new CommandExecutor({
       playback: {

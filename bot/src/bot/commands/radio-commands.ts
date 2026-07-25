@@ -497,40 +497,49 @@ export class RadioCommands {
     const current = this.deps.queue.current();
     const playerState = this.deps.player.getState();
     const keepStream = playerState === "playing" || playerState === "paused";
+    const bl = this.deps.playbackBlacklist;
+    // Idle + banned current is the dead-air death spiral: restock keeps pinning
+    // the ban-list track at head, resolveAndPlay fails, idle forever.
+    const currentBlocked = !!(current && bl?.isBlacklisted(current));
+    const preserveCurrent = !!(current && keepStream);
+    const requeueCurrent = !!(current && (preserveCurrent || !currentBlocked));
 
-    const userPending: QueuedSong[] = [];
+    const userPendingPlayable: QueuedSong[] = [];
     for (let i = 0; i < prevList.length; i++) {
       if (i === curIdx) continue;
       const s = prevList[i]!;
-      if (!isRadioFill(s)) userPending.push(s);
+      if (isRadioFill(s)) continue;
+      if (bl?.isBlacklisted(s)) continue;
+      userPendingPlayable.push(s);
     }
 
     this.deps.queue.clear();
 
-    // Head: keep whatever is currently playing (user or radio) so we don't
-    // SIGKILL mid-track when restocking.
-    if (current) {
+    // Head: keep whatever is currently *playing* so we don't SIGKILL mid-track.
+    // When idle, skip a blacklisted current so the seed pool can actually start.
+    if (requeueCurrent && current) {
       this.deps.queue.add({ ...current });
     }
-    for (const s of userPending) {
+    for (const s of userPendingPlayable) {
       this.deps.queue.add({ ...s, source: s.source ?? "user" });
     }
     const keptIds = new Set<string>();
-    if (current?.id) keptIds.add(current.id);
-    for (const s of userPending) {
+    if (requeueCurrent && current?.id) keptIds.add(current.id);
+    for (const s of userPendingPlayable) {
       if (s.id) keptIds.add(s.id);
     }
     for (const song of pool) {
       if (song.id && keptIds.has(song.id)) continue;
+      if (bl?.isBlacklisted(song)) continue;
       this.deps.queue.add({ ...song, source: "radio" });
     }
 
-    if (keepStream && current) {
+    if (preserveCurrent && current) {
       // Current song is index 0 after rebuild — do not restart ffmpeg.
       this.deps.queue.playAt(0);
       this.deps.logger?.info?.(
         {
-          keptUser: userPending.length,
+          keptUser: userPendingPlayable.length,
           radioPool: pool.length,
           queueSize: this.deps.queue.size(),
         },
@@ -539,12 +548,35 @@ export class RadioCommands {
     } else {
       const first = this.deps.queue.play();
       this.deps.player.resetFailures();
-      if (first) await this.deps.playback.resolveAndPlay(first);
+      let startedName: string | undefined;
+      if (first) {
+        let ok = await this.deps.playback.resolveAndPlay(first);
+        startedName = ok ? first.name : undefined;
+        // Walk the rebuilt queue if head is unplayable (stale ban, missing file, …).
+        if (!ok) {
+          for (let i = 0; i < 8; i++) {
+            const next = this.deps.queue.next();
+            if (!next) break;
+            if (await this.deps.playback.resolveAndPlay(next)) {
+              ok = true;
+              startedName = next.name;
+              break;
+            }
+          }
+        }
+        if (!ok) {
+          this.deps.logger?.warn?.(
+            { head: first.name, queueSize: this.deps.queue.size() },
+            "radio: restock could not start any track",
+          );
+        }
+      }
       this.deps.logger?.info?.(
         {
-          keptUser: userPending.length,
+          keptUser: userPendingPlayable.length,
           radioPool: pool.length,
-          started: first?.name,
+          started: startedName,
+          droppedBlockedCurrent: currentBlocked && !preserveCurrent,
         },
         "radio: restock started (idle or empty stream)",
       );
