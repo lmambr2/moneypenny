@@ -58,7 +58,7 @@
     "check": "tsc -p tsconfig.json --noEmit && vitest run"
   },
   "dependencies": {
-    "@honeybbq/teamspeak-client": "^0.2.1"
+    "@honeybbq/teamspeak-client": "0.2.2"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

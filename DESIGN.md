@@ -272,7 +272,7 @@ Replace the base's flat `PUBLIC_COMMANDS` / `ADMIN_COMMANDS` sets with a **decla
 ## 10. Voice Pipeline (Phase 2)
 
 - **STT + VAD:** sherpa-onnx on CPU. Circular-buffer + VAD end-pointing (KokoDOS pattern) on the bot's inbound channel audio. Transcript → the same control router (§4) — simple commands matched deterministically, fuzzy ones to the LLM.
-- **TTS:** Kokoro-FastAPI on CPU (quality) or RKLLama's Piper on NPU (one fewer service). Output → queue → played through the client.
+- **TTS:** **Piper** (`piper-tts` sidecar) is production TTS. (Kokoro-FastAPI is historical; do not reintroduce as the default path — see AGENTS.md.)
 - **Inbound capture:** `@honeybbq/teamspeak-client` emits per-speaker `voiceData` (wired via `TS3Client`); Opus→PCM decode runs in `bot/src/bot/voice/session.ts` with hardened packet splitting (`bot/src/audio/opus-voice.ts`). Round-trip latency and live TS6 codec edge cases still need operator validation on hardware.
 
 ---
@@ -372,7 +372,7 @@ moneypenny/
 **Phase 2 — Voice.** VAD/STT capture → router; TTS replies. *Accept:* spoken question → spoken answer; spoken "skip" skips; round-trip latency documented.
 - [x] **Pipeline scaffolded + wired (text-validated)** — `bot/src/voice/`:
   - `vad.ts` `SilenceSegmenter` — dependency-free RMS-energy end-pointer (onset drop, hangover, min-speech, max-utterance force-flush); model-free so fully unit-tested; swappable for Silero behind the same `push()/flush()`.
-  - `stt.ts` `SherpaSttClient` + `tts.ts` `KokoroTtsClient` — HTTP clients (sherpa-onnx sidecar / Kokoro-FastAPI OpenAI-compatible) behind `SttProvider`/`TtsProvider` interfaces.
+  - `stt.ts` / `tts.ts` — HTTP clients for **stt-whisper** and **piper-tts** (class names still say Sherpa/Kokoro for history; rename tracked). Behind `SttProvider`/`TtsProvider`.
   - `pipeline.ts` `VoicePipeline` — STT → **`ControlRouter.routeVoice`** → execute → optional TTS reply. Reuses the chat router so voice inherits deterministic-first dispatch, LLM fuzzy-intent/Q&A, **and rank gating** (no separate voice command path). Degrades gracefully on STT/TTS failure.
   - `ControlRouter.routeVoice()` — prefix-less: first word a known command → deterministic (spoken "skip"/"pause" never touch the model); else → LLM intent (covers fuzzy music control *and* spoken Q&A).
   - Inbound capture wired: `@honeybbq/teamspeak-client` **does** emit per-speaker `voiceData` (re-emitted by `TS3Client`); `BotInstance` decodes Opus→PCM (48 kHz stereo), end-points per speaker, resolves the speaker's server-groups (channel client list + TS6 HTTP Query fallback) for rank gating, and plays TTS replies through the `AudioPlayer`. Gated by `config.voice.enabled` (default off).
@@ -390,7 +390,7 @@ moneypenny/
 
 ## Current Implementation Status (updated 2026-07 — dual editions)
 
-**Shipped and tested (797 backend unit tests, 11 frontend unit tests, 110 test files, `tsc` clean):**
+**Shipped and tested (~1417 backend unit tests, 13 frontend unit tests, ~196 test files, `tsc` clean — counts drift; re-run `vitest` for live numbers):**
 - Full de-sinicization (§6.1) — CN providers, auth UI, and dead API stubs removed.
 - **Phase 1a** — `LocalProvider` with path guard, M3U, `resolve()`; local-first web UI and command path.
 - **Phase 1b** — `bot/src/llm/` wired through `ControlRouter` (`!ask`, fuzzy intent, tool-calling).
@@ -513,4 +513,4 @@ Consolidated view of the trust boundaries and the guarantees that defend them.
 ## 15. Appendix — References
 ZHANGTIANYAO1/teamspeak-music-bot (base, MIT) · TS3AudioBot (OSL-3.0, patterns only) · Bettehem/ts3-musicbot (GPL-3.0, concept only) · RKLLama / airockchip rknn-llm · Qwen3 · sherpa-onnx · Kokoro-82M / Kokoro-FastAPI · librespot/ncspot · KokoDOS / dnhkng GLaDOS · yt-dlp · music-metadata (npm).
 
-*Pins (fill `.env`): RKNPU 0.9.8 · RKLLM 1.2.3 · TS6 beta 6.0.0-beta3.x · Qwen3-1.7B W8A8 · Node 20+.*
+*Pins (fill `.env`): RKNPU 0.9.8 · RKLLM 1.2.3 · TS6 **6.0.0-beta11** (not beta3) · chat: **Gemma 4 E2B/12B over Ollama** (not NPU-primary) · Node 20+ · `@honeybbq/teamspeak-client` exact pin (see package.json).*

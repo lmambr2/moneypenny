@@ -205,6 +205,14 @@ export class VoiceSession {
 
   /** Drop per-client maps for speakers no longer in channel (multi-day uptime leak). */
   private pruneClientMaps(live: Set<number>): void {
+    // Speakers who left while armed: full disarm + release duck (not bare Map.delete).
+    for (const id of [...this.armedUntil.keys()]) {
+      if (!live.has(id)) {
+        this.disarmSpeaker(id);
+        this.releaseCaptureDuck(id);
+        void this.sttClient?.resetStream(id);
+      }
+    }
     const drop = (m: Map<number, unknown>) => {
       for (const id of m.keys()) {
         if (!live.has(id)) m.delete(id);
@@ -216,9 +224,16 @@ export class VoiceSession {
     drop(this.lastArmedInboundLog as Map<number, unknown>);
     drop(this.voiceTurnGen as Map<number, unknown>);
     drop(this.playInFlightUntil as Map<number, unknown>);
-    drop(this.armedUntil as Map<number, unknown>);
     drop(this.commandCaptureReadyAt as Map<number, unknown>);
     drop(this.passiveSpeakerScore as Map<number, unknown>);
+    // Timer / settle maps (disarmSpeaker clears armed timers; leftovers for gone clients)
+    drop(this.armTimers as Map<number, unknown>);
+    drop(this.armedKeepaliveTimers as Map<number, unknown>);
+    drop(this.postDuckResetTimers as Map<number, unknown>);
+    drop(this.partialRoutedCommand as Map<number, unknown>);
+    for (const id of this.postDuckSettling) {
+      if (!live.has(id)) this.postDuckSettling.delete(id);
+    }
     for (const id of this.seenInboundClients) {
       if (!live.has(id)) this.seenInboundClients.delete(id);
     }

@@ -156,7 +156,15 @@ export class AudioPlayer extends EventEmitter {
   private currentTempDir: string | null = null;
   private emptyFrameAttempts = 0;
   private static readonly MAX_EMPTY_ATTEMPTS = 250; // ~5s of the 20ms frame loop (extra fault tolerance)
+  /**
+   * Absolute mid-track stall: empty buffer for this many frame ticks while FFmpeg
+   * is still "alive" ends the track even when isNearEnd is false (hung CDN /
+   * Icecast). ~10s at 20ms ticks. Prevents permanent dead air (audit A1).
+   */
+  private static readonly MAX_MIDTRACK_STALL_ATTEMPTS = 500;
   private currentSongDuration = 0; // total duration of the current song (seconds)
+  /** Speech floor to re-apply across seek() so bumpers stay audible (audit A3). */
+  private lastPlayVolumeFloor: number | null = null;
   /**
    * Optional music-only ffmpeg -af graph (radio AM/FM color, etc.).
    * Spoken bumpers (volumePctFloor set) skip this so announcements stay clear.
@@ -189,6 +197,7 @@ export class AudioPlayer extends EventEmitter {
     // music fader into inaudibility — effective volume is max(slider, floor)
     // for THIS playback only; cleared by stop()/the next play().
     this.playVolumeFloor = opts?.volumePctFloor ?? null;
+    this.lastPlayVolumeFloor = this.playVolumeFloor;
 
     const currentSessionId = this.sessionId;
     this.currentUrl = url;
@@ -366,8 +375,12 @@ export class AudioPlayer extends EventEmitter {
       if (this.ffmpeg !== null && this.pcmBuffered < PCM_FRAME_BYTES) {
         this.emptyFrameAttempts++;
 
-        // Only treat playback as finished when BOTH hold: empty-frame threshold reached AND near the end.
-        if (this.emptyFrameAttempts >= AudioPlayer.MAX_EMPTY_ATTEMPTS && isNearEnd) {
+        const nearEndStall = this.emptyFrameAttempts >= AudioPlayer.MAX_EMPTY_ATTEMPTS && isNearEnd;
+        // Mid-track: hung upstream (Icecast/bridge/CDN) never reaches isNearEnd.
+        const midTrackStall =
+          this.emptyFrameAttempts >= AudioPlayer.MAX_MIDTRACK_STALL_ATTEMPTS && elapsed >= 2;
+
+        if (nearEndStall || midTrackStall) {
           this.logger.info(
             {
               sessionId: this.sessionId,
@@ -376,8 +389,11 @@ export class AudioPlayer extends EventEmitter {
               elapsed: Math.round(elapsed),
               duration: this.currentSongDuration,
               remaining: Math.round(this.currentSongDuration - elapsed),
+              reason: midTrackStall && !nearEndStall ? "mid_track_stall" : "near_end_stall",
             },
-            "FFmpeg stopped outputting data near end, ending track",
+            midTrackStall && !nearEndStall
+              ? "FFmpeg stalled mid-track (no PCM) — ending track"
+              : "FFmpeg stopped outputting data near end, ending track",
           );
           this.frameLoopRunning = false;
           if (this.state !== "idle") {
@@ -498,7 +514,14 @@ export class AudioPlayer extends EventEmitter {
   }
   seek(seconds: number): void {
     if (this.currentUrl && Number.isFinite(seconds) && seconds >= 0) {
-      this.play(this.currentUrl, seconds, this.currentSongDuration);
+      // Preserve speech floor across seek (stop→play would null it otherwise).
+      const floor = this.playVolumeFloor ?? this.lastPlayVolumeFloor;
+      this.play(
+        this.currentUrl,
+        seconds,
+        this.currentSongDuration,
+        floor != null ? { volumePctFloor: floor } : undefined,
+      );
     }
   }
   pause(): void {

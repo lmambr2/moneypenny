@@ -545,11 +545,13 @@ export class PlaybackEngine {
     this.emitState();
   }
 
+  /**
+   * Advance one track with retries (same as transport skip). Prefer
+   * CommandExecutor `!skip` for radio boundary; this is the programmatic path.
+   */
   async skipNext(): Promise<void> {
     this.userPause = null;
-    const next = this.opts.queue.next();
-    if (next) await this.resolveAndPlay(next);
-    else this.opts.player.stop();
+    await this.playNext();
     this.emitState();
   }
 

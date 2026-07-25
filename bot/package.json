@@ -32,17 +32,16 @@
   "license": "MIT",
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
-    "@honeybbq/teamspeak-client": "^0.2.1",
+    "@honeybbq/teamspeak-client": "0.2.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@moneypenny/audio-native": "*",
     "@moneypenny/ts6-client": "*",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-express": "^11.1.28",
-    "axios": "^1.15.3",
+    "axios": "^1.17.1",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.8.0",
-    "chalk": "^5.6.2",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "ffmpeg-static": "^5.3.0",
@@ -52,13 +51,12 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "swagger-ui-dist": "^5.32.8",
-    "ts3-nodejs-library": "^3.5.1",
     "tweetnacl": "^1.0.3",
     "ws": "^8.20.0",
     "zod": "^4.4.3"
   },
   "overrides": {
-    "tar": "^7.5.16"
+    "tar": "^7.5.21"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",

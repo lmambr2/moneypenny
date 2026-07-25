@@ -129,9 +129,8 @@ export class PlayQueue {
     if (index < 0 || index >= this.songs.length) return null;
     const [removed] = this.songs.splice(index, 1);
 
-    if (index < this.currentIndex) {
-      this.currentIndex--;
-    } else if (index === this.currentIndex) {
+    // Removing current or anything before it shifts the cursor left.
+    if (index <= this.currentIndex) {
       this.currentIndex--;
     }
 
@@ -272,7 +271,9 @@ export class PlayQueue {
       const idx = this.history.pop()!;
       if (idx >= 0 && idx < this.songs.length) {
         this.currentIndex = idx;
-        this.playedIndices = new Set([...this.history, this.currentIndex]);
+        // Do not rebuild playedIndices from history: HISTORY_LIMIT can drop early
+        // cycle picks and would re-open songs for random next() (audit A4).
+        this.playedIndices.add(this.currentIndex);
         return this.songs[idx];
       }
       // Stale entry (song removed) — keep popping.
