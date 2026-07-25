@@ -108,6 +108,51 @@ export function buildFfmpegArgs(
   return args;
 }
 
+export type StallVerdict = "continue" | "near_end_stall" | "mid_track_stall";
+
+export interface StallCheckInput {
+  /** Consecutive frame ticks that found less than one frame buffered. */
+  emptyFrameAttempts: number;
+  /** Threshold for the end-of-track case (decoded position says we're at the tail). */
+  nearEndAttempts: number;
+  /** Threshold for the absolute mid-track case. */
+  midTrackAttempts: number;
+  /** Decoded position is within the tail of a known-duration track. */
+  isNearEnd: boolean;
+  /**
+   * Seconds of WALL CLOCK since play() started. Must not be decoded elapsed:
+   * a stream that connects then hangs before emitting any PCM never advances
+   * decoded time, so a decoded-time guard can never fire and the frame loop
+   * spins forever on dead air (audit A1).
+   */
+  wallElapsedSec: number;
+}
+
+/** Grace period before the absolute stall guard can fire, in wall-clock seconds. */
+export const MIN_STALL_GRACE_SEC = 2;
+
+/**
+ * Decide whether a track with a starved PCM buffer should be ended.
+ *
+ * Two independent cases:
+ * - `near_end_stall` — normal end of a track whose decoder stopped at the tail.
+ * - `mid_track_stall` — upstream (Icecast / stream bridge / CDN) accepted the
+ *   connection and then went quiet. ffmpeg stays alive because of `-reconnect`,
+ *   so nothing else ends the track.
+ */
+export function classifyStall(input: StallCheckInput): StallVerdict {
+  if (input.emptyFrameAttempts >= input.nearEndAttempts && input.isNearEnd) {
+    return "near_end_stall";
+  }
+  if (
+    input.emptyFrameAttempts >= input.midTrackAttempts &&
+    input.wallElapsedSec >= MIN_STALL_GRACE_SEC
+  ) {
+    return "mid_track_stall";
+  }
+  return "continue";
+}
+
 export interface PlayerEvents {
   /** Opus frame for TeamSpeak voice injection. */
   frame: (opusFrame: Buffer) => void;
@@ -162,6 +207,8 @@ export class AudioPlayer extends EventEmitter {
    * Icecast). ~10s at 20ms ticks. Prevents permanent dead air (audit A1).
    */
   private static readonly MAX_MIDTRACK_STALL_ATTEMPTS = 500;
+  /** Wall clock at play() start — stall detection cannot use decoded time (audit A1). */
+  private playStartedAtMs = 0;
   private currentSongDuration = 0; // total duration of the current song (seconds)
   /** Speech floor to re-apply across seek() so bumpers stay audible (audit A3). */
   private lastPlayVolumeFloor: number | null = null;
@@ -198,6 +245,7 @@ export class AudioPlayer extends EventEmitter {
     // for THIS playback only; cleared by stop()/the next play().
     this.playVolumeFloor = opts?.volumePctFloor ?? null;
     this.lastPlayVolumeFloor = this.playVolumeFloor;
+    this.playStartedAtMs = Date.now();
 
     const currentSessionId = this.sessionId;
     this.currentUrl = url;
@@ -307,6 +355,7 @@ export class AudioPlayer extends EventEmitter {
     this.ffmpegPaused = false;
     this.spawnFailed = false;
     this.state = "idle";
+    this.playStartedAtMs = 0;
     this.currentUrl = "";
     this.seekOffset = 0;
     this.framesPlayed = 0;
@@ -375,12 +424,18 @@ export class AudioPlayer extends EventEmitter {
       if (this.ffmpeg !== null && this.pcmBuffered < PCM_FRAME_BYTES) {
         this.emptyFrameAttempts++;
 
-        const nearEndStall = this.emptyFrameAttempts >= AudioPlayer.MAX_EMPTY_ATTEMPTS && isNearEnd;
         // Mid-track: hung upstream (Icecast/bridge/CDN) never reaches isNearEnd.
-        const midTrackStall =
-          this.emptyFrameAttempts >= AudioPlayer.MAX_MIDTRACK_STALL_ATTEMPTS && elapsed >= 2;
+        // Wall clock, not `elapsed`: a stream that hangs before emitting any PCM
+        // leaves decoded time pinned at 0 forever (audit A1).
+        const verdict = classifyStall({
+          emptyFrameAttempts: this.emptyFrameAttempts,
+          nearEndAttempts: AudioPlayer.MAX_EMPTY_ATTEMPTS,
+          midTrackAttempts: AudioPlayer.MAX_MIDTRACK_STALL_ATTEMPTS,
+          isNearEnd,
+          wallElapsedSec: this.playStartedAtMs > 0 ? (Date.now() - this.playStartedAtMs) / 1000 : 0,
+        });
 
-        if (nearEndStall || midTrackStall) {
+        if (verdict !== "continue") {
           this.logger.info(
             {
               sessionId: this.sessionId,
@@ -389,9 +444,9 @@ export class AudioPlayer extends EventEmitter {
               elapsed: Math.round(elapsed),
               duration: this.currentSongDuration,
               remaining: Math.round(this.currentSongDuration - elapsed),
-              reason: midTrackStall && !nearEndStall ? "mid_track_stall" : "near_end_stall",
+              reason: verdict,
             },
-            midTrackStall && !nearEndStall
+            verdict === "mid_track_stall"
               ? "FFmpeg stalled mid-track (no PCM) — ending track"
               : "FFmpeg stopped outputting data near end, ending track",
           );

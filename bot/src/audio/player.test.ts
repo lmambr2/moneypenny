@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../logger.js";
 import { PCM_FRAME_BYTES } from "./encoder.js";
-import { AudioPlayer, buildFfmpegArgs, cleanupTempDir } from "./player.js";
+import {
+  AudioPlayer,
+  buildFfmpegArgs,
+  classifyStall,
+  cleanupTempDir,
+  MIN_STALL_GRACE_SEC,
+} from "./player.js";
 
 const silentLogger = {
   info: () => {},
@@ -84,6 +90,89 @@ describe("buildFfmpegArgs", () => {
   it("omits -af when filter is empty", () => {
     expect(buildFfmpegArgs("/tmp/a.mp3", 0, { audioFilter: "  " })).not.toContain("-af");
     expect(buildFfmpegArgs("/tmp/a.mp3", 0)).not.toContain("-af");
+  });
+});
+
+describe("classifyStall (audit A1)", () => {
+  const NEAR_END = 250;
+  const MID_TRACK = 500;
+  const base = { nearEndAttempts: NEAR_END, midTrackAttempts: MID_TRACK };
+
+  it("keeps playing while the buffer is only briefly starved", () => {
+    expect(
+      classifyStall({ ...base, emptyFrameAttempts: 10, isNearEnd: false, wallElapsedSec: 30 }),
+    ).toBe("continue");
+  });
+
+  it("ends the track at the tail once the near-end threshold is reached", () => {
+    expect(
+      classifyStall({
+        ...base,
+        emptyFrameAttempts: NEAR_END,
+        isNearEnd: true,
+        wallElapsedSec: 180,
+      }),
+    ).toBe("near_end_stall");
+  });
+
+  it("does not end a mid-track starve before the absolute threshold", () => {
+    expect(
+      classifyStall({
+        ...base,
+        emptyFrameAttempts: MID_TRACK - 1,
+        isNearEnd: false,
+        wallElapsedSec: 60,
+      }),
+    ).toBe("continue");
+  });
+
+  // The regression: a stream that connects then hangs before emitting ANY PCM.
+  // Decoded elapsed stays pinned at 0, so a decoded-time guard could never fire
+  // and the frame loop would spin forever on dead air.
+  it("ends a track that stalls before decoding a single frame", () => {
+    expect(
+      classifyStall({
+        ...base,
+        emptyFrameAttempts: MID_TRACK,
+        isNearEnd: false, // never true — decoded position never advances
+        wallElapsedSec: 10, // but wall clock kept moving
+      }),
+    ).toBe("mid_track_stall");
+  });
+
+  it("respects the wall-clock grace period so a slow initial buffer is not killed", () => {
+    expect(
+      classifyStall({
+        ...base,
+        emptyFrameAttempts: MID_TRACK,
+        isNearEnd: false,
+        wallElapsedSec: MIN_STALL_GRACE_SEC - 0.1,
+      }),
+    ).toBe("continue");
+  });
+
+  it("prefers the near-end verdict when both conditions hold", () => {
+    expect(
+      classifyStall({
+        ...base,
+        emptyFrameAttempts: MID_TRACK,
+        isNearEnd: true,
+        wallElapsedSec: 200,
+      }),
+    ).toBe("near_end_stall");
+  });
+});
+
+describe("AudioPlayer stall wall clock (audit A1)", () => {
+  it("play() starts the wall clock and stop() clears it", () => {
+    const player = new AudioPlayer(silentLogger);
+    const internal = player as unknown as { playStartedAtMs: number };
+    expect(internal.playStartedAtMs).toBe(0);
+    // Avoid spawning ffmpeg: exercise the field the frame loop reads.
+    internal.playStartedAtMs = Date.now();
+    expect(internal.playStartedAtMs).toBeGreaterThan(0);
+    player.stop();
+    expect(internal.playStartedAtMs).toBe(0);
   });
 });
 

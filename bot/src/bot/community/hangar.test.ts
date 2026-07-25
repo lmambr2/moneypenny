@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { UserShipsStore } from "../../data/user-ships.js";
 import { HangarService, parseShipSpecs } from "./hangar.js";
 

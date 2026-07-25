@@ -7,11 +7,12 @@ describe("HttpSttClient", () => {
   });
 
   it("feedStream parses partial/final/speaking from /asr/stream", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ partial: "money", final: null, speaking: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ partial: "money", final: null, speaking: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const client = new HttpSttClient({ url: "http://stt:9000" });

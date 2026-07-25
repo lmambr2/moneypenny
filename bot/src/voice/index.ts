@@ -40,11 +40,11 @@ export type {
 } from "./types.js";
 export { defaultVoiceConfig } from "./types.js";
 export {
+  type CreateVadOptions,
   createVadSegmenter,
   rms16,
-  SilenceSegmenter,
-  type CreateVadOptions,
   type SegmenterOptions,
+  SilenceSegmenter,
   type VadBackend,
   type VadSegmenter,
 } from "./vad.js";

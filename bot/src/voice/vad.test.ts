@@ -103,4 +103,3 @@ describe("createVadSegmenter", () => {
     expect(onFallback).toHaveBeenCalledOnce();
   });
 });
-

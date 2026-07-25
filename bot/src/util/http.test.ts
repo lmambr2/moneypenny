@@ -9,11 +9,12 @@ describe("util/http", () => {
   it("fetchJson returns parsed JSON", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
       ),
     );
     const data = await fetchJson<{ ok: boolean }>("http://x/health");
