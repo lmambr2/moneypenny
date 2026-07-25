@@ -165,7 +165,8 @@ errors with **`!ingeststatus`**. Implementation: `bot/src/ingest/file-drop.ts`.
 
 **Co-located TS6 + bot (e.g. DietPi):** TS6 6.0.0-beta11 does not expose
 `ftgetfilelist` over WebQuery and the honeybbq client drops the full-client
-notification. Bind-mount the server's `files/` tree instead:
+notification (**not re-tested on the beta12 pin** — see AGENTS.md §4).
+Bind-mount the server's `files/` tree instead:
 
 ```bash
 # In .env on the Pi (paths are examples — adjust to your TS data dir):

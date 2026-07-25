@@ -11,6 +11,11 @@
 
 TeamSpeak file-drop needs to **list** files in a channel's file repository (`ftgetfilelist`). Two protocol paths exist; both are blocked today:
 
+Measured on TS6 **6.0.0-beta11**. The compose pin is now **beta12**; the server
+side of this table has not been re-tested against it (AGENTS.md §4). The client
+side is confirmed unchanged — `@honeybbq/teamspeak-client` **0.2.3** (2026-07-16)
+still registers the same 8 notification handlers and ships no `ftgetfilelist`.
+
 | Path | What happens on TS6 6.0.0-beta11 |
 |------|----------------------------------|
 | Full client `ftgetfilelist` | Server replies with `notifychannelfilelist` notifications. `@honeybbq/teamspeak-client` only registers 8 notification handlers — **`notifychannelfilelist` is not one** — so `execCommandWithResponse` always sees an empty list. |

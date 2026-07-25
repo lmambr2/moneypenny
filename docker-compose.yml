@@ -41,14 +41,21 @@ services:
     environment:
       - TSSERVER_LICENSE_ACCEPTED=accept
       - TSSERVER_QUERY_HTTP_ENABLED=true
-      - TSSERVER_QUERY_PROTOCOLS=http
+      # Must list every protocol enabled below — `http` alone silently disables
+      # SSH query even with TSSERVER_QUERY_SSH_ENABLED=true and 10022 published.
+      - TSSERVER_QUERY_PROTOCOLS=http,ssh
       - TSSERVER_QUERY_HTTP_IP=0.0.0.0
       - TSSERVER_QUERY_HTTP_PORT=10080
       - TSSERVER_QUERY_SSH_ENABLED=true
       - TSSERVER_QUERY_SSH_PORT=10022
       - TSSERVER_QUERY_SSH_IP=0.0.0.0
     volumes:
-      # TS6 data path (not the old /var/ts3server)
+      # TS6 data path (not the old /var/ts3server).
+      # MIGRATION: the pre-beta12 service mounted this same `ts-data` volume at
+      # /var/ts3server. Existing volumes still hold that directory, so TS6 starts
+      # against an empty data dir — fresh server, new admin token, old channels
+      # and identities orphaned inside the volume. For an existing install either
+      # move the data inside the volume or start from a new one.
       - ts-data:/var/tsserver
     networks:
       - moneypenny

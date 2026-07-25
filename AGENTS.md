@@ -2,7 +2,7 @@
 
 This file guides AI coding assistants working in this repo. Follow it unless the user overrides it for a specific task.
 
-**Default branch:** `dev` (push here; keep `main` aligned when releasing).
+**Default branch:** `dev` (push here; keep `master` aligned when releasing). `master` is the GitHub default branch — there is no `main`.
 
 **Language policy:** English-only source (`bot/src`, `bot/web/src`). No Chinese platforms, APIs, or user-facing strings. Runtime data (song titles, etc.) may be any language.
 
@@ -130,7 +130,7 @@ When you hit a failure mode — especially one an LLM “fixed” wrong — add 
 
 <!-- Format: `- [YYYY-MM-DD] <pattern> → <correct owner/fix>` -->
 
-- [2026-06-20] Listing a channel's files via full-client `ftgetfilelist` + `execCommandWithResponse` silently returns empty — `@honeybbq/teamspeak-client` surfaces only 8 notification types and `notifychannelfilelist` isn't one. → On **TS6 6.0.0-beta11+** (incl. beta12) WebQuery also returns `5120 out-of-scope` for `ftgetfilelist` (no file-transfer scope exists). **Co-located deploy:** bind-mount the TS `files/` tree (`TS6_FILES_DIR`, `ingest/file-drop-disk.ts`) and scan `virtualserver_<sid>/channel_<cid>/` on disk. **Remote / protocol-correct:** patch `@honeybbq/teamspeak-client` to surface `notifychannelfilelist` (see `docs/honeybbq-ts6-file-list-patch-plan.md`). Tests mocking `listChannelFiles` hid both boundaries.
+- [2026-06-20] Listing a channel's files via full-client `ftgetfilelist` + `execCommandWithResponse` silently returns empty — `@honeybbq/teamspeak-client` surfaces only 8 notification types and `notifychannelfilelist` isn't one. → On **TS6 6.0.0-beta11** WebQuery also returns `5120 out-of-scope` for `ftgetfilelist` (no file-transfer scope exists). **Unverified on beta12** — the compose pin moved to beta12 without re-testing this call; the client side is unchanged (`@honeybbq/teamspeak-client` 0.2.3 still surfaces the same 8 notification types, no `ftgetfilelist`), but if beta12 added a file-transfer scope the disk-mount workaround below is no longer needed. Re-test before relying on either path. **Co-located deploy:** bind-mount the TS `files/` tree (`TS6_FILES_DIR`, `ingest/file-drop-disk.ts`) and scan `virtualserver_<sid>/channel_<cid>/` on disk. **Remote / protocol-correct:** patch `@honeybbq/teamspeak-client` to surface `notifychannelfilelist` (see `docs/honeybbq-ts6-file-list-patch-plan.md`). Tests mocking `listChannelFiles` hid both boundaries.
 - [2026-06-20] Web Player API calling `bot.executeCommand()` bypasses `ControlRouter` rank gating that TS chat and voice use. → Route HTTP commands through `BotInstance.executeRoutedCommand()` + `ControlRouter.executeParsedCommand()`; direct song/queue endpoints call `canWebUserRunCommand()`.
 - [2026-06-20] `\uXXXX` CJK in source passes `no-non-english.test.ts` but renders Chinese at runtime (e.g. profile away/now-playing). → English literals in `bot/profile.ts`; guard must decode escapes before matching.
 - [2026-06-20] `web/api/music.ts` `getProvider()` ignored `stream` — `platform=stream` silently hit YouTube. → Pass `streamProvider` into `createMusicRouter` and route all three platforms at the HTTP boundary.
