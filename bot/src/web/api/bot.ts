@@ -232,9 +232,11 @@ export function createBotRouter(
 
     if ("musicBlockedGenres" in body) {
       const v = body.musicBlockedGenres;
-      if (!Array.isArray(v) || !v.every((s: unknown) => typeof s === "string")) {
+      // Bounded: this list is persisted to config.json and evaluated against
+      // every track, so an unbounded array is a durable self-inflicted DoS.
+      if (!Array.isArray(v) || v.length > 200 || !v.every((s: unknown) => typeof s === "string")) {
         res.status(400).json({
-          error: "musicBlockedGenres must be an array of strings",
+          error: "musicBlockedGenres must be an array of at most 200 strings",
           code: "VALIDATION_ERROR",
         });
         return;

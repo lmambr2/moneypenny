@@ -1,18 +1,22 @@
 import { Router } from "express";
+import { z } from "zod";
 import type { AuditStore } from "../../data/audit.js";
 import type { SessionStore } from "../../data/sessions.js";
 import type { UserStore } from "../../data/users.js";
 import { UsernameTakenError } from "../../data/users.js";
 import type { Logger } from "../../logger.js";
 import { extractSessionToken } from "../auth/validateSession.js";
+import { parseWithSchema, zPassword, zUsername } from "../validate.js";
 
-function isValidUsername(v: unknown): v is string {
-  return typeof v === "string" && /^[A-Za-z0-9_\-.]{3,32}$/.test(v);
-}
+const createUserSchema = z.object({
+  username: zUsername,
+  password: zPassword,
+  role: z.unknown().optional(),
+});
 
-function isValidPassword(v: unknown): v is string {
-  return typeof v === "string" && v.length >= 8 && v.length <= 200;
-}
+const resetPasswordSchema = z.object({ newPassword: zPassword });
+
+const setRoleSchema = z.object({ role: z.enum(["admin", "member"]) });
 
 export function createUsersRouter(
   users: UserStore,
@@ -27,11 +31,12 @@ export function createUsersRouter(
   });
 
   router.post("/", async (req, res) => {
-    const { username, password, role: roleInput } = req.body ?? {};
-    if (!isValidUsername(username) || !isValidPassword(password)) {
+    const parsed = parseWithSchema(createUserSchema, req.body ?? {});
+    if (!parsed.ok) {
       res.status(400).json({ error: "invalid username or password" });
       return;
     }
+    const { username, password, role: roleInput } = parsed.data;
     const role: "admin" | "member" = roleInput === "admin" ? "admin" : "member";
     try {
       const u = await users.createUser(username, password, role);
@@ -97,11 +102,12 @@ export function createUsersRouter(
   });
 
   router.post("/:id/reset-password", async (req, res) => {
-    const { newPassword } = req.body ?? {};
-    if (!isValidPassword(newPassword)) {
+    const parsed = parseWithSchema(resetPasswordSchema, req.body ?? {});
+    if (!parsed.ok) {
       res.status(400).json({ error: "invalid password" });
       return;
     }
+    const { newPassword } = parsed.data;
     const targetId = req.params.id;
     const target = users.findById(targetId);
     if (!target) {
@@ -132,11 +138,12 @@ export function createUsersRouter(
 
   router.patch("/:id/role", (req, res) => {
     const targetId = req.params.id;
-    const { role: newRole } = req.body ?? {};
-    if (newRole !== "admin" && newRole !== "member") {
+    const parsed = parseWithSchema(setRoleSchema, req.body ?? {});
+    if (!parsed.ok) {
       res.status(400).json({ error: "invalid role" });
       return;
     }
+    const { role: newRole } = parsed.data;
     // Snapshot the target's old role and username for audit (BEFORE the atomic update,
     // so we record what actually changed; if the user is gone we'll skip audit).
     const targetBefore = users.findById(targetId);

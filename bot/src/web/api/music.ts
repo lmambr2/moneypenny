@@ -1,6 +1,7 @@
 import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
+import { z } from "zod";
 import type { Logger } from "../../logger.js";
 import type { LocalProvider } from "../../music/local.js";
 import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
@@ -11,7 +12,13 @@ import type { RadioConfig } from "../../radio/types.js";
 import { errorCode, errorMessage } from "../../util/error.js";
 import { createRateLimit } from "../middleware/rateLimit.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
+import { parseWithSchema } from "../validate.js";
 import { multerArray, uploadedFiles } from "./upload.js";
+
+/** Phase 0 no-op; still validated so the endpoint cannot reflect arbitrary input. */
+const qualitySchema = z.object({
+  quality: z.enum(["low", "medium", "high", "lossless"]).optional(),
+});
 
 function asLocalProvider(provider: MusicProvider): LocalProvider | null {
   return "listForAnalysis" in provider &&
@@ -382,7 +389,14 @@ export function createMusicRouter(
   });
 
   router.post("/quality", (req, res) => {
-    const { quality } = req.body;
+    // `req.body` is undefined when no JSON body is sent, so destructuring it
+    // directly threw a 500. Validate rather than echo arbitrary input back.
+    const parsed = parseWithSchema(qualitySchema, req.body ?? {});
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error, code: "VALIDATION_ERROR" });
+      return;
+    }
+    const { quality } = parsed.data;
     logger.info({ quality }, "Quality change requested (no-op in Phase 0)");
     res.json({ success: true, quality });
   });

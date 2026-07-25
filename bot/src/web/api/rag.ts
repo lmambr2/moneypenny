@@ -1,6 +1,7 @@
 import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
+import { z } from "zod";
 import type { DoctrineStore } from "../../data/doctrine.js";
 import {
   ExportError,
@@ -24,7 +25,15 @@ import {
   shouldSkipDoctrineReformat,
 } from "../../rag/reformat-doctrine.js";
 import { errorMessage } from "../../util/error.js";
+import { parseWithSchema } from "../validate.js";
 import { multerArray, uploadedFiles } from "./upload.js";
+
+/** Doctrine clearance levels a query may filter to — bounded, non-empty strings. */
+const allowedClassificationsSchema = z
+  .array(z.string().trim().min(1).max(64))
+  .max(32)
+  .nullish()
+  .transform((v) => v ?? undefined);
 
 /**
  * Admin RAG API (ROADMAP Phase 5 substrate + Phase 6 doctrine). `/ingest` +
@@ -63,14 +72,26 @@ export function createRagRouter(
       return;
     }
     const topK = Number.isInteger(req.body?.topK) ? req.body.topK : undefined;
+    // SECURITY: this trusts the CALLER to state its own clearance, unlike the
+    // chat/voice paths which derive it server-side via allowedClassificationsFor().
+    // That is only acceptable because /api/rag is mounted behind requireAdmin and
+    // DESIGN §14.1 puts a malicious admin out of scope. If this router is ever
+    // exposed to non-admins it becomes a doctrine-classification bypass — derive
+    // the levels from the session subject instead. Shape is still bounded so a
+    // malformed body cannot reach the vector filter.
+    const parsedClassifications = parseWithSchema(
+      allowedClassificationsSchema,
+      req.body?.allowedClassifications,
+    );
+    if (!parsedClassifications.ok) {
+      res.status(400).json({
+        error: "allowedClassifications must be an array of up to 32 non-empty strings",
+        code: "VALIDATION_ERROR",
+      });
+      return;
+    }
     try {
-      const chunks = await retrieval.query(
-        q,
-        topK,
-        Array.isArray(req.body?.allowedClassifications)
-          ? req.body.allowedClassifications
-          : undefined,
-      );
+      const chunks = await retrieval.query(q, topK, parsedClassifications.data);
       res.json({ q, chunks });
     } catch (err: unknown) {
       logger.error({ err }, "RAG query failed");
