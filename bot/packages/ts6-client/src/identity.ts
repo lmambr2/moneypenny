@@ -17,6 +17,15 @@ export function generateIdentity(): TS3Identity {
   };
 }
 
+/**
+ * TeamSpeak client UID = base64(SHA-1(publicKey)).
+ *
+ * SHA-1 here is WIRE FORMAT, not a security choice — the server and every
+ * other client compute the same value, and rank gating matches on the result.
+ * Changing the hash produces a UID no TeamSpeak server recognises. CodeQL
+ * flags this as js/weak-cryptographic-algorithm; it is a false positive and
+ * must not be "fixed".
+ */
 export function computeUid(publicKey: Uint8Array): string {
   return crypto.createHash("sha1").update(publicKey).digest("base64");
 }

@@ -7,6 +7,16 @@ export interface HttpQueryOptions {
   useTls?: boolean;
   apiKey?: string;
   timeoutMs?: number;
+  /**
+   * Verify the server's TLS certificate. Defaults to `false` because TS6 ships
+   * a self-signed cert and this is normally a LAN hop to your own server.
+   *
+   * It is still a real weakening — the API key travels over a connection that
+   * is not authenticated — so operators who terminate TLS properly should set
+   * this to `true`. Previously hardcoded off with no way to opt in
+   * (CodeQL js/disabling-certificate-validation).
+   */
+  verifyTls?: boolean;
 }
 
 export interface HttpQueryResult {
@@ -70,6 +80,7 @@ export class TS6HttpQuery {
       useTls: options.useTls ?? options.port === 10443,
       apiKey: options.apiKey ?? "",
       timeoutMs: options.timeoutMs ?? 5000,
+      verifyTls: options.verifyTls ?? false,
     };
   }
 
@@ -111,7 +122,7 @@ export class TS6HttpQuery {
           method,
           timeout: timeoutMs,
           headers,
-          rejectUnauthorized: false, // self-signed certs common on self-hosted
+          rejectUnauthorized: this.options.verifyTls,
           // No keep-alive: Node's global agent reuses sockets the TS6 server
           // has already idle-closed, and the next request on a stale socket
           // dies with ECONNRESET ("socket hang up") — seen live as failing
