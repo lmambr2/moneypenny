@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+  workflow_dispatch:
+
+# Least privilege: nothing here writes to the repo. Escalate per-job if that
+# ever changes — never at the workflow level.
+permissions:
+  contents: read
+
+# A new push to the same ref supersedes the run in flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: gate (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 = production parity (bot/Dockerfile builds on node:20-bookworm-slim).
+        # 24 = forward warning. npm >= 12 blocks dependency install scripts, which
+        # silently ships a build with no better-sqlite3 binding and no Opus addon
+        # (see `allowScripts` in bot/package.json). Testing both means the base
+        # image can be bumped deliberately instead of discovering it in prod.
+        node: ["20", "24"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            bot/package-lock.json
+            bot/web/package-lock.json
+
+      - name: Install (bot + workspaces)
+        working-directory: bot
+        run: npm ci
+
+      - name: Install (web)
+        working-directory: bot/web
+        run: npm ci
+
+      # The failure mode this repo actually hit: npm >= 12 skips dependency
+      # install scripts unless allowScripts covers them, and allowScripts keys
+      # are VERSION-PINNED — so bumping a native dep re-blocks its build with no
+      # error. `npm ci` still exits 0; only requiring the module catches it.
+      - name: Verify native modules built
+        working-directory: bot
+        run: |
+          node -e "require('better-sqlite3'); console.log('better-sqlite3 ok')"
+          node -e "require('@discordjs/opus'); console.log('@discordjs/opus ok')"
+
+      # Guards the same trap from the other side: a native dependency whose
+      # installed version no longer matches its allowScripts key.
+      - name: Verify allowScripts keys match installed versions
+        working-directory: bot
+        run: node ../scripts/check-allow-scripts.mjs
+
+      # lint -> build ts6-client -> tsc --noEmit -> test:all (bot + ts6-client + web)
+      - name: Check
+        working-directory: bot
+        run: npm run check
+
+      - name: Build web
+        working-directory: bot/web
+        run: npm run build
+
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "20"
+
+      # Kept separate from Renovate on purpose: Renovate does not manage npm
+      # `overrides`, and this repo's remaining advisories are all resolved
+      # through overrides on transitive packages. A dependency bot alone would
+      # not have caught the tar override that pinned BACKWARD onto a vulnerable
+      # version while looking like a mitigation.
+      - name: Audit bot
+        working-directory: bot
+        run: npm audit --audit-level=moderate
+
+      - name: Audit web
+        working-directory: bot/web
+        run: npm audit --audit-level=moderate
