@@ -11,11 +11,13 @@ const silentLogger = {
 } as unknown as Logger;
 
 /** AudioPlayer stand-in tracking only the duck state the session drives. */
-function fakePlayer() {
+type PlayerState = "idle" | "playing" | "paused";
+
+function fakePlayer(state: PlayerState = "playing") {
   let ducked = false;
   return {
     ducked: () => ducked,
-    getState: vi.fn(() => "playing" as const),
+    getState: vi.fn((): PlayerState => state),
     duckForStt: vi.fn((_level: number) => {
       ducked = true;
       return true;
@@ -214,8 +216,7 @@ describe("VoiceSession duck release on speaker departure (audit A2)", () => {
   });
 
   it("does not duck when no music is playing", () => {
-    const player = fakePlayer();
-    player.getState = vi.fn(() => "idle" as const);
+    const player = fakePlayer("idle");
     const { session, internal } = makeSession({ player } as unknown as Partial<VoiceSessionDeps>);
     session.enable();
     internal.speakerArm.arm(1);

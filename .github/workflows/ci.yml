@@ -25,12 +25,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 20 = production parity (bot/Dockerfile builds on node:20-bookworm-slim).
-        # 24 = forward warning. npm >= 12 blocks dependency install scripts, which
-        # silently ships a build with no better-sqlite3 binding and no Opus addon
-        # (see `allowScripts` in bot/package.json). Testing both means the base
-        # image can be bumped deliberately instead of discovering it in prod.
-        node: ["20", "24"]
+        # 24 = production parity (bot/Dockerfile builds on node:24-bookworm-slim).
+        # 22 = the lower bound of `engines`, so a dependency that quietly raises
+        # its floor fails here instead of on someone's machine. Node 20 was
+        # dropped when it went EOL in April 2026.
+        #
+        # Keep both legs: npm >= 12 blocks dependency install scripts, which
+        # silently ships a build with no better-sqlite3 binding and no Opus
+        # addon (see `allowScripts` in bot/package.json).
+        node: ["22", "24"]
 
     steps:
       - name: Checkout

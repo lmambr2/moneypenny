@@ -10,7 +10,11 @@
 #   See bot/packages/audio-native/README.md
 
 # ── Stage 1: build ──────────────────────────────────────────────────────────
-FROM node:20-bookworm-slim AS build
+# Node 24 (active LTS). Node 20 went end-of-life in April 2026 — no further
+# security patches — and its ceiling is what pinned better-sqlite3 to 12.x
+# (13 requires >= 22). Keep build and runtime on the SAME major so the native
+# addons compiled in this stage match the runtime ABI.
+FROM node:24-bookworm-slim AS build
 
 # BuildKit injects TARGETARCH (amd64 | arm64). Used for operator logs only;
 # Node/Rust compile for the container platform automatically when not cross-linking.
@@ -77,7 +81,8 @@ RUN git clone --depth 1 --branch "${KEYFINDER_CLI_REF}" \
     && rm -rf /src/keyfinder-cli
 
 # ── Stage 2: runtime ────────────────────────────────────────────────────────
-FROM node:20-bookworm-slim AS runtime
+# Must track the build stage major — native addons are copied across.
+FROM node:24-bookworm-slim AS runtime
 
 # Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
 # aubio-tools: BPM detection for the radio analyzer sidecar (docs/radio.md §9.5).
