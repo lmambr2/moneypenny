@@ -324,28 +324,29 @@ export class PlaybackEngine {
         );
         return false;
       }
-      if (isBlockedGenreSong(song, this.opts.config.musicBlockedGenres)) {
+      // Human !play / !add / explicit URL: honor intent — skip genre + YT content gates.
+      // Radio fill still runs station policy so auto-DJ cannot sneak blocked material.
+      const humanRequest = song.source !== "radio";
+      if (!humanRequest && isBlockedGenreSong(song, this.opts.config.musicBlockedGenres)) {
         this.opts.logger.info(
           { songId: song.id, name: song.name, artist: song.artist },
           "Genre policy blocked track — skipping",
         );
         return false;
       }
-      // Already queued (explicit URL or seed). Only technical gates remain —
-      // category "Gaming" must not kill a user-pasted song at play time.
       if (
+        !humanRequest &&
         song.platform === "youtube" &&
         shouldBlockYoutubeSong({
           title: song.name,
           artist: song.artist,
           album: song.album,
           duration: song.duration,
-          policy: "explicit",
         })
       ) {
         this.opts.logger.info(
           { songId: song.id, name: song.name, duration: song.duration },
-          "YouTube full-album / livestream / over-long track blocked — skipping",
+          "YouTube non-music / full-album / over-long track blocked — skipping",
         );
         return false;
       }

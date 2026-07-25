@@ -171,8 +171,8 @@ export function isYoutubeTooLong(durationSec: number | null | undefined): boolea
  * YouTube content policy.
  * - `search` (default): full gates — categories (Gaming/News/…), non-music titles,
  *   full albums, livestream radios, >15m. Used for ytsearch / auto-DJ seeds.
- * - `explicit`: user pasted a concrete media URL. Honor intent for unique works
- *   mis-tagged as Gaming/etc.; still refuse full albums, live radios, and >15m.
+ * - `explicit`: user pasted a concrete media URL — **always passes** content gates
+ *   (unique works, long mixes, odd categories). SSRF / ban-list still apply elsewhere.
  */
 export type YoutubeBlockPolicy = "search" | "explicit";
 
@@ -187,12 +187,13 @@ export function shouldBlockYoutubeSong(opts: {
   /** @default "search" */
   policy?: YoutubeBlockPolicy;
 }): boolean {
+  // Pasted URL / already-queued intentional play: never soft-reject on content policy.
+  if ((opts.policy ?? "search") === "explicit") return false;
+
   if (isYoutubeFullAlbumTitle(opts.title ?? "")) return true;
   if (isYoutubeLivestreamRadioTitle(opts.title ?? "")) return true;
   if (isYtDlpLiveStream(opts.ytMeta)) return true;
   if (isYoutubeTooLong(opts.duration)) return true;
-  // Explicit URL: stop after technical gates — Gaming-category art still plays.
-  if ((opts.policy ?? "search") === "explicit") return false;
   if (
     shouldBlockAsNonMusic(
       {
@@ -373,7 +374,7 @@ export class YouTubeProvider implements MusicProvider {
       if (isYouTubeUrl(query) || isXTwitterUrl(query) || isBandcampUrl(query)) {
         // Direct media URL (YouTube / X-Twitter / Bandcamp) — fetch details directly instead of ytsearch.
         // Support age-restricted videos via oEmbed fallback (no cookies required for metadata).
-        // policy "explicit": user named this URL — allow Gaming-category songs etc.
+        // policy "explicit": user named this URL — content gates off.
         const safe = await safeYtDlpMediaUrl(query);
         if (!safe) return { songs: [], playlists: [], albums: [] };
         const videoId = extractVideoId(query) ?? "";

@@ -78,46 +78,30 @@ export async function searchFirstWithFallback(
   const pick = (
     provider: MusicProvider,
     songs: Song[],
-    /** Pasted media URL — do not re-apply category/title non-music gates. */
+    /** Pasted media URL — content/genre gates off; ban list still applies. */
     explicitUrl: boolean,
   ): { provider: MusicProvider; song: Song } | null => {
-    const allowed = filterNotBlacklisted(
-      filterUnblockedSongs(songs, blockedGenres),
-      blacklist,
-    ).filter((s) => {
-      if (explicitUrl) {
-        // Provider already applied "explicit" policy for URL resolve.
-        if (
-          s.platform === "youtube" &&
-          shouldBlockYoutubeSong({
-            title: s.name,
-            artist: s.artist,
-            album: s.album,
-            duration: s.duration,
-            policy: "explicit",
-          })
-        ) {
-          return false;
-        }
-        return true;
-      }
-      if (isNonMusicContent(s)) return false;
-      if (
-        s.platform === "youtube" &&
-        shouldBlockYoutubeSong({
-          title: s.name,
-          artist: s.artist,
-          album: s.album,
-          duration: s.duration,
-        })
-      ) {
-        return false;
-      }
-      return true;
-    });
-    if (allowed.length === 0) return null;
-    allowed.sort((a, b) => playCandidateRank(a) - playCandidateRank(b));
-    return { provider, song: allowed[0]! };
+    // Explicit paste: user named this URL — play it (only admin blacklist can stop it).
+    const candidates = explicitUrl
+      ? filterNotBlacklisted(songs, blacklist)
+      : filterNotBlacklisted(filterUnblockedSongs(songs, blockedGenres), blacklist).filter((s) => {
+          if (isNonMusicContent(s)) return false;
+          if (
+            s.platform === "youtube" &&
+            shouldBlockYoutubeSong({
+              title: s.name,
+              artist: s.artist,
+              album: s.album,
+              duration: s.duration,
+            })
+          ) {
+            return false;
+          }
+          return true;
+        });
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => playCandidateRank(a) - playCandidateRank(b));
+    return { provider, song: candidates[0]! };
   };
 
   const tryQuery = async (q: string): Promise<{ provider: MusicProvider; song: Song } | null> => {

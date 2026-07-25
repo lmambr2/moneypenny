@@ -123,7 +123,7 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
     expect(streamGetUrl).toHaveBeenCalled();
   });
 
-  it("resolveAndPlay skips YouTube full-album titles", async () => {
+  it("resolveAndPlay skips YouTube full-album titles for radio fill (not human !play)", async () => {
     const getSongUrl = vi.fn().mockResolvedValue("https://example.com/audio.ogg");
     (engine as any).opts.youtubeProvider.getSongUrl = getSongUrl;
     const queue = (engine as any).opts.queue as PlayQueue;
@@ -136,6 +136,7 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
       duration: 7200,
       coverUrl: "",
       platform: "youtube",
+      source: "radio",
     });
     queue.play();
     const ok = await engine.resolveAndPlay(queue.current()!);
@@ -144,7 +145,7 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
     expect(getSongUrl).not.toHaveBeenCalled();
   });
 
-  it("resolveAndPlay skips YouTube tracks longer than 15 minutes", async () => {
+  it("resolveAndPlay skips long YouTube dumps for radio fill", async () => {
     const getSongUrl = vi.fn().mockResolvedValue("https://example.com/audio.ogg");
     (engine as any).opts.youtubeProvider.getSongUrl = getSongUrl;
     const queue = (engine as any).opts.queue as PlayQueue;
@@ -157,12 +158,36 @@ describe("PlaybackEngine demo / YouTube local preference", () => {
       duration: 901,
       coverUrl: "",
       platform: "youtube",
+      source: "radio",
     });
     queue.play();
     const ok = await engine.resolveAndPlay(queue.current()!);
     expect(ok).toBe(false);
     expect(play).not.toHaveBeenCalled();
     expect(getSongUrl).not.toHaveBeenCalled();
+  });
+
+  it("resolveAndPlay allows human-queued long/full-album YouTube (explicit intent)", async () => {
+    // Public host matching the harness default so assertSafePlaybackTarget can pass.
+    const getSongUrl = vi.fn().mockResolvedValue("https://example.com/audio.ogg");
+    (engine as any).opts.youtubeProvider.getSongUrl = getSongUrl;
+    const queue = (engine as any).opts.queue as PlayQueue;
+    queue.clear();
+    queue.add({
+      id: "abcdefghijk", // 11-char id, no local library hit
+      name: "Artist - Greatest Hits (Full Album)",
+      artist: "Artist",
+      album: "YouTube",
+      duration: 7200,
+      coverUrl: "",
+      platform: "youtube",
+      source: "user",
+    });
+    queue.play();
+    const ok = await engine.resolveAndPlay(queue.current()!);
+    expect(ok).toBe(true);
+    expect(play).toHaveBeenCalled();
+    expect(getSongUrl).toHaveBeenCalled();
   });
 });
 

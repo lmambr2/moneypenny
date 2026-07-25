@@ -136,7 +136,7 @@ describe("shouldBlockYoutubeSong with ytMeta", () => {
     ).toBe(false);
   });
 
-  it("explicit URL policy allows Gaming-category songs (user intent)", () => {
+  it("explicit URL policy passes all content gates (user intent)", () => {
     const gamingArt = {
       title: "Jackknife Klorfson",
       artist: "solereavr",
@@ -145,13 +145,13 @@ describe("shouldBlockYoutubeSong with ytMeta", () => {
     };
     expect(shouldBlockYoutubeSong(gamingArt)).toBe(true);
     expect(shouldBlockYoutubeSong({ ...gamingArt, policy: "explicit" })).toBe(false);
-    // Still refuse multi-hour dumps even for explicit URLs.
+    // Full album / long dumps still play when the user pasted the URL.
     expect(
       shouldBlockYoutubeSong({
-        title: "Full Album",
+        title: "Full Album Dump",
         duration: 4000,
         policy: "explicit",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
