@@ -11,10 +11,11 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "noEmit": true,
+    // baseUrl is deprecated in TS 6 and removed in 7; `paths` values are
+    // resolved relative to this file, so no baseUrl is needed.
     "paths": {
       "@/*": ["./src/*"]
-    },
-    "baseUrl": "."
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.vue"],
   "references": [{ "path": "./tsconfig.node.json" }]
