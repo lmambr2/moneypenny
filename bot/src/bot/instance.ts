@@ -1170,10 +1170,6 @@ export class BotInstance extends EventEmitter {
   }
 
   /** Seed org KG fact (R4) — SQLite + MemPalace when enabled. Never uses !remember rooms. */
-  seedOrgKgFact(fact: string, invokerUid?: string): string {
-    return this.kg.handleKg(`remember ${fact}`, invokerUid, () => true);
-  }
-
   seedOrgKgFactAsync(fact: string, invokerUid?: string) {
     return this.kg.seedOrgFact(fact, invokerUid);
   }
@@ -1183,17 +1179,9 @@ export class BotInstance extends EventEmitter {
   }
 
   /** Org memory search for bumpers: MemPalace kgSearch, else SQLite KG. Never private rooms. */
-  async searchOrgMemory(query: string, limit = 5): Promise<Array<{ fact: string }>> {
-    return this.kg.searchOrg(query, limit);
-  }
-
   handleOps(args: string, canRun?: (c: string) => boolean) {
     this.refreshScOrgPlugin();
     return this.ops.handle(args, canRun ?? (() => true));
-  }
-
-  getStatusRegistry() {
-    return this.statusRegistry;
   }
 
   /** Rebind SC org plugin from live config / env (G2). */
@@ -1283,7 +1271,8 @@ export class BotInstance extends EventEmitter {
   }
 
   /** Prerecorded bumper asset directory (§6.5 pin-to-pool). */
-  resolveBumperDir(dataDir = dirname(this.database.db.name)): string {
+  /** Bumper asset root — internal only; nothing outside BotInstance resolves it. */
+  private resolveBumperDir(dataDir = dirname(this.database.db.name)): string {
     const custom = this.config.radio.bumperDir;
     if (custom) return isAbsolute(custom) ? custom : join(dataDir, custom);
     return join(dataDir, "bumpers");
@@ -1344,7 +1333,8 @@ export class BotInstance extends EventEmitter {
   }
 
   /** Tee PCM to Icecast when running (fail-open). */
-  teeIcecastPcm(pcm: Buffer): void {
+  /** Icecast PCM fan-out — internal only; wired from the player event binding. */
+  private teeIcecastPcm(pcm: Buffer): void {
     this.icecastTee.writePcm(pcm);
   }
 
@@ -1393,10 +1383,6 @@ export class BotInstance extends EventEmitter {
     return this.connected;
   }
 
-  getCurrentQueue(): QueuedSong[] {
-    return this.queue.list ? this.queue.list() : [];
-  }
-
   async playResolvedItem(
     resolved: { type: "song" | "playlist"; item: unknown },
     platform: "local" | "youtube" | "stream" = "local",
@@ -1409,10 +1395,6 @@ export class BotInstance extends EventEmitter {
     platform: "local" | "youtube" | "stream" = "local",
   ): Promise<string> {
     return this.playback.addResolvedItem(resolved, platform);
-  }
-
-  clearQueueAndStop(): void {
-    this.playback.clearQueueAndStop();
   }
 
   async skipNext(): Promise<void> {
