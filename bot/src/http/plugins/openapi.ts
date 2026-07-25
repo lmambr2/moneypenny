@@ -29,7 +29,7 @@ function sendDocsMissing(_req: express.Request, res: express.Response): void {
     );
 }
 
-/** Swagger UI static assets only (Nest controllers own HTML/JSON routes). */
+/** Swagger UI static assets under /api/docs/static. */
 export const registerOpenApiStatic: HttpPlugin = (ctx: HttpAppContext) => {
   const { app, logger } = ctx;
   const assetDir = swaggerUiAssetDir();
@@ -40,10 +40,7 @@ export const registerOpenApiStatic: HttpPlugin = (ctx: HttpAppContext) => {
   }
 };
 
-/**
- * Public OpenAPI discovery (PR-C2) + interactive docs UI (plugin path).
- * Nest path uses SystemController for JSON/HTML + registerOpenApiStatic for assets.
- */
+/** Public OpenAPI JSON + interactive docs UI. */
 export const registerOpenApi: HttpPlugin = (ctx: HttpAppContext) => {
   const { app, options, logger } = ctx;
 

@@ -50,7 +50,7 @@ import {
   createStarCitizenOrgStatusPlugin,
   ExternalStatusRegistry,
 } from "../tools/external-status.js";
-import { KokoroTtsClient, type TtsProvider } from "../voice/index.js";
+import { HttpTtsClient, type TtsProvider } from "../voice/index.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
 import {
   defaultUnderMusicConfig,
@@ -475,7 +475,7 @@ export class BotInstance extends EventEmitter {
     const radioBumperDir = this.resolveBumperDir(dataDir);
     const radioTtsVoice = this.config.radio.ttsVoice ?? this.config.voice.ttsVoice;
     const radioTts: TtsProvider = this.config.voice.ttsUrl
-      ? new KokoroTtsClient({
+      ? new HttpTtsClient({
           url: this.config.voice.ttsUrl,
           voice: radioTtsVoice,
           logger: this.logger,
@@ -1081,94 +1081,15 @@ export class BotInstance extends EventEmitter {
   }
 
   /** G3 — member-safe live snapshot + operator feedback lines. */
-  async getLiveStatus(): Promise<{
-    connected: boolean;
-    nowPlaying: { name: string; artist?: string } | null;
-    queue: Array<{ name: string; artist?: string }>;
-    radio: {
-      enabled: boolean;
-      activeProfile: string;
-      songsUntilBumper: number | null;
-      cuePending: boolean;
-      nextBumperHint: string;
-    } | null;
-    voice: { enabled: boolean; duckOnSpeech: boolean };
-    rag: { enabled: boolean };
-    /** Human-readable station feedback (radio/voice/rag/queue). */
-    feedback: string[];
-    scope: ReturnType<typeof import("./scope.js").resolveScope>;
-  }> {
-    const { resolveScope, parseBotScope, defaultBotScope } = await import("./scope.js");
-    const scope = resolveScope(parseBotScope(this.config.scope ?? defaultBotScope()), {
-      botName: this.name,
-    });
-    const cur = this.queue.current();
-    const q = this.queue
-      .list()
-      .slice(0, 20)
-      .map((s) => ({ name: s.name, artist: s.artist }));
-    let radio: {
-      enabled: boolean;
-      activeProfile: string;
-      songsUntilBumper: number | null;
-      cuePending: boolean;
-      nextBumperHint: string;
-    } | null = null;
-    if (this.config.radio) {
-      const st = this.radio.status();
-      const hint =
-        st.songsUntilBumper == null
-          ? "Radio off or no every-N clock"
-          : st.songsUntilBumper === 0
-            ? "Bumper due next break"
-            : `Next bumper in ${st.songsUntilBumper} track(s)`;
-      radio = {
-        enabled: !!this.config.radio.enabled,
-        activeProfile: this.config.radio.activeProfile,
-        songsUntilBumper: st.songsUntilBumper,
-        cuePending: st.cuePending,
-        nextBumperHint: hint,
-      };
-    }
-    const voice = {
-      enabled: !!this.config.voice?.enabled,
-      duckOnSpeech: this.config.voice?.duckMusicOnSpeech !== false,
-    };
-    const rag = { enabled: !!this.config.ragEnabled };
-    const feedback: string[] = [];
-    feedback.push(this.connected ? "TeamSpeak connected." : "TeamSpeak offline.");
-    if (radio?.enabled) {
-      feedback.push(radio.cuePending ? "Radio: bumper pending." : `Radio: ${radio.nextBumperHint}`);
-    } else {
-      feedback.push("Radio off.");
-    }
-    if (cur) {
-      feedback.push(`Playing: ${cur.name}${cur.artist ? ` — ${cur.artist}` : ""}`);
-    } else if (q.length === 0) {
-      feedback.push("Queue empty — !play or enable radio.");
-    } else {
-      feedback.push(`Queue: ${q.length} track(s) waiting.`);
-    }
-    if (voice.enabled) {
-      feedback.push(
-        voice.duckOnSpeech
-          ? "Voice on (duck while listening)."
-          : "Voice on (duck off — STT under music may struggle).",
-      );
-    } else {
-      feedback.push("Voice loop off.");
-    }
-    feedback.push(rag.enabled ? "Doctrine RAG on." : "Doctrine RAG off.");
-    return {
+  async getLiveStatus(): Promise<import("./live-status.js").LiveStatusSnapshot> {
+    const { buildLiveStatus } = await import("./live-status.js");
+    return buildLiveStatus({
       connected: this.connected,
-      nowPlaying: cur ? { name: cur.name, artist: cur.artist } : null,
-      queue: q,
-      radio,
-      voice,
-      rag,
-      feedback,
-      scope,
-    };
+      name: this.name,
+      config: this.config,
+      queue: this.queue,
+      radio: this.radio,
+    });
   }
 
   /** V3 — spoken radio/status liner via speech sink. */

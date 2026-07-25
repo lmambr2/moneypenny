@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { rms16, SilenceSegmenter } from "./vad.js";
+import { describe, expect, it, vi } from "vitest";
+import { createVadSegmenter, rms16, SilenceSegmenter } from "./vad.js";
 
 const SR = 16_000;
 // 20ms mono frame at 16kHz = 320 samples = 640 bytes.
@@ -80,3 +80,27 @@ describe("SilenceSegmenter", () => {
     expect(seg.flush()).toBeNull();
   });
 });
+
+describe("createVadSegmenter", () => {
+  const factoryOpts = {
+    sampleRate: SR,
+    channels: 1,
+    energyThreshold: 500,
+    hangoverMs: 40,
+    minSpeechMs: 40,
+    maxUtteranceMs: 200,
+  };
+
+  it("returns energy SilenceSegmenter by default", () => {
+    const seg = createVadSegmenter(factoryOpts);
+    expect(seg).toBeInstanceOf(SilenceSegmenter);
+  });
+
+  it("silero backend falls back to energy with notice", () => {
+    const onFallback = vi.fn();
+    const seg = createVadSegmenter({ ...factoryOpts, backend: "silero", onFallback });
+    expect(seg).toBeInstanceOf(SilenceSegmenter);
+    expect(onFallback).toHaveBeenCalledOnce();
+  });
+});
+

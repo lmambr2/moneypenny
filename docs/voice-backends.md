@@ -2,10 +2,10 @@
 
 Moneypenny does **not** embed STT/TTS. The bot only calls HTTP sidecars.
 
-| Role | Client (class name is historical) | Contract |
-|------|-------------------------------------|----------|
-| STT | `SherpaSttClient` | `GET /health`, `POST /asr`, `POST /asr/stream`, `DELETE /asr/stream` |
-| TTS | `KokoroTtsClient` | `POST /v1/audio/speech` → audio bytes |
+| Role | Client | Contract |
+|------|--------|----------|
+| STT | `HttpSttClient` | `GET /health`, `POST /asr`, `POST /asr/stream`, `DELETE /asr/stream` |
+| TTS | `HttpTtsClient` | `POST /v1/audio/speech` → audio bytes |
 
 **Canonical TTS:** Piper **`en_GB-cori-medium`** (British female, medium quality).  
 Samples: [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/) · models: [huggingface.co/rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) (`en/en_GB/…`).  

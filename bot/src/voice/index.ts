@@ -20,10 +20,16 @@ export {
   voiceReplyClearsSavedMusic,
   voiceSpokenAck,
 } from "./playback-reply.js";
-export { probeHttpHealth, probeKokoroTts, probeSherpaStt } from "./probe.js";
+export {
+  probeHttpHealth,
+  probeHttpStt,
+  probeHttpTts,
+  probeKokoroTts,
+  probeSherpaStt,
+} from "./probe.js";
 export { SpeechQueue } from "./speech-queue.js";
-export { SherpaSttClient } from "./stt.js";
-export { KokoroTtsClient } from "./tts.js";
+export { HttpSttClient, SherpaSttClient } from "./stt.js";
+export { HttpTtsClient, KokoroTtsClient } from "./tts.js";
 export type {
   StreamSttResult,
   SttProvider,
@@ -33,5 +39,13 @@ export type {
   VoiceOutput,
 } from "./types.js";
 export { defaultVoiceConfig } from "./types.js";
-export { rms16, type SegmenterOptions, SilenceSegmenter } from "./vad.js";
+export {
+  createVadSegmenter,
+  rms16,
+  SilenceSegmenter,
+  type CreateVadOptions,
+  type SegmenterOptions,
+  type VadBackend,
+  type VadSegmenter,
+} from "./vad.js";
 export { extractWatchwordCommand, type WatchwordMatch, watchwordAliases } from "./watchword.js";

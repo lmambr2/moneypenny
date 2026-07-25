@@ -28,7 +28,7 @@ memory, radio polish) on the **dual-edition** product.
       ─── VECTOR_DB_URL ──── turbovec:6333 (Qdrant-shaped REST bridge)
 
   ControlRouter ─ deterministic │ !ask / fuzzy → LLM tools
-  HTTP ──────── Nest + Express plugins · OpenAPI /api/docs · POST /v1/turn
+  HTTP ──────── Express plugins · OpenAPI /api/docs · POST /v1/turn
   TS6 ───────── @moneypenny/ts6-client (workspace package)
   Retrieval ─── TurboVec + rank-gated doctrine (Phase 5–6)
   Memory ────── MemPalace + per-user facts (Phase 7)

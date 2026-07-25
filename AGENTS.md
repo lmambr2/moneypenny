@@ -8,6 +8,8 @@ This file guides AI coding assistants working in this repo. Follow it unless the
 
 **Lint/format:** [Biome](https://biomejs.dev/) — `cd bot && npm run lint` / `lint:fix`. Config `bot/biome.json`. Wired into `scripts/deploy-preflight.sh` and full `scripts/ci-validate.sh`. **Does not replace `tsc` or vitest.** See [docs/linting.md](./docs/linting.md).
 
+**TypeScript:** bot + `@moneypenny/ts6-client` use **TypeScript 6** (`^6.0.2`). The Vue SPA (`bot/web`) stays on **TypeScript 5.8** until `vue-tsc` supports TS 6 — do not blindly unify those pins.
+
 ---
 
 ## 0. System map — what this actually is
@@ -33,7 +35,7 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 | **Economy** | `bot/src/economy/` | Seed mine/refine; live craft/trade/UEX/wiki; **disk cache** `data/economy-cache/` + refresh — **no scrapers** (`docs/economy.md`) |
 | **Rights** | `bot/src/rights/` | Declarative rank gating (chat + voice scopes) |
 | **Voice pipeline** | `bot/src/voice/` | VAD, STT/TTS **HTTP clients**, `VoicePipeline` — not the sidecar processes |
-| **HTTP app** | `bot/src/http/` | Nest domain modules (default) + Express plugins; **SystemController** owns public health/OpenAPI/docs; OpenAPI `GET /api/openapi.json` + Swagger UI `GET /api/docs`; `HTTP_FRAMEWORK=plugins` skips Nest |
+| **HTTP app** | `bot/src/http/` | Express plugins only (`createWebServer` + domain bundles); public health/OpenAPI/docs via plugins; OpenAPI `GET /api/openapi.json` + Swagger UI `GET /api/docs` |
 | **Brain** | `bot/src/brain/` | Turn transport (in-process or `BRAIN_URL`); proposes tools — bot disposes; `POST /v1/turn` — Phase D |
 | **Audio native** | `bot/packages/audio-native` | Optional Rust Opus/VAD N-API; fallback `@discordjs/opus` — PR-B4 |
 | **Web API** | `bot/src/web/` | Domain routers (`api/*`), middleware, WS helpers — **all HTTP input validation lives here or in called modules** |

@@ -129,7 +129,7 @@ Prefer **host Ollama** on the Server for AMD; Docker Ollama is a simpler fallbac
 - Rank gating, radio, roast, doctrine RAG ingest paths
 - STT/TTS HTTP contracts
 - Security posture (localhost binds, CSRF, rights in executor)
-- HTTP app (Nest + Express plugins), `@moneypenny/ts6-client`, brain `/v1/turn`
+- HTTP app (Express plugins), `@moneypenny/ts6-client`, brain `/v1/turn`
 
 Only **where models run**, **STT backend**, and **default profiles** change.
 

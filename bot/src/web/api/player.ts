@@ -8,8 +8,10 @@ import { createRateLimit } from "../middleware/rateLimit.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 import { requireBot } from "./bot-request.js";
 import "./bot-request.js";
+import { z } from "zod";
 import type { QueuedSong } from "../../audio/queue.js";
 import type { BotInstance } from "../../bot/instance.js";
+import { requireBody, zPlayerModeToken, zSeekSeconds, zVolume } from "../validate.js";
 
 const VALID_PLATFORMS = new Set(["local", "youtube", "stream"]);
 
@@ -222,15 +224,9 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       if (!(await denyUnless(bot, req, res, "vol"))) return;
-      const { volume } = req.body;
-      // Reject bad input with a proper 4xx instead of letting cmdVol
-      // return a "Usage:" string inside a 200 body — API clients can't
-      // detect that failure mode, and the UI would silently swallow it.
-      if (typeof volume !== "number" || !Number.isFinite(volume) || volume < 0 || volume > 100) {
-        res.status(400).json({ error: "volume must be a number between 0 and 100" });
-        return;
-      }
-      const cmd = parseCommand(`!vol ${Math.round(volume)}`, "!")!;
+      const body = requireBody(res, z.object({ volume: zVolume }), req.body);
+      if (!body) return;
+      const cmd = parseCommand(`!vol ${Math.round(body.volume)}`, "!")!;
       await runRoutedCommand(bot, req, res, cmd);
     } catch (err) {
       logger.error({ err }, "Player API error");
@@ -238,17 +234,12 @@ export function createPlayerRouter(
     }
   });
 
-  const VALID_MODES = new Set(["seq", "loop", "random", "rloop"]);
-
   router.post("/:botId/mode", requireAdmin, async (req, res) => {
     try {
       const bot = requireBot(req);
-      const { mode } = req.body;
-      if (typeof mode !== "string" || !VALID_MODES.has(mode)) {
-        res.status(400).json({ error: "mode must be one of: seq, loop, random, rloop" });
-        return;
-      }
-      const cmd = parseCommand(`!mode ${mode}`, "!")!;
+      const body = requireBody(res, z.object({ mode: zPlayerModeToken }), req.body);
+      if (!body) return;
+      const cmd = parseCommand(`!mode ${body.mode}`, "!")!;
       await runRoutedCommand(bot, req, res, cmd);
     } catch (err) {
       logger.error({ err }, "Player API error");
@@ -266,15 +257,13 @@ export function createPlayerRouter(
   router.post("/:botId/seek", requireAdmin, async (req, res) => {
     try {
       const bot = requireBot(req);
-      const { position } = req.body; // seconds
-      // typeof NaN === "number" and NaN < 0 is false, so a plain range
-      // check lets NaN/Infinity through and later corrupts seekOffset.
-      if (typeof position !== "number" || !Number.isFinite(position) || position < 0) {
-        res.status(400).json({ error: "position must be a finite non-negative number" });
-        return;
-      }
-      bot.getPlayer().seek(position);
-      res.json({ message: `Seeked to ${Math.floor(position)}s`, seekOffset: position });
+      const body = requireBody(res, z.object({ position: zSeekSeconds }), req.body);
+      if (!body) return;
+      bot.getPlayer().seek(body.position);
+      res.json({
+        message: `Seeked to ${Math.floor(body.position)}s`,
+        seekOffset: body.position,
+      });
     } catch (err) {
       logger.error({ err }, "Player API error");
       res.status(500).json({ error: "internal error" });

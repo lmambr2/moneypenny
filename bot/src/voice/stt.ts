@@ -1,15 +1,13 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
+import { fetchJson, fetchVoid, isHttpRequestError } from "../util/http.js";
 import type { StreamSttResult, SttProvider, Utterance } from "./types.js";
 
 function streamErrorDetail(err: unknown): string | undefined {
-  if (!axios.isAxiosError(err)) return undefined;
-  const data = err.response?.data;
-  if (typeof data === "string" && data.trim()) return data.trim();
-  if (data && typeof data === "object" && "error" in data) {
-    const msg = (data as { error?: unknown }).error;
-    if (typeof msg === "string" && msg.trim()) return msg.trim();
+  if (isHttpRequestError(err) && err.body?.trim()) return err.body.trim();
+  if (err && typeof err === "object" && "body" in err) {
+    const body = (err as { body?: unknown }).body;
+    if (typeof body === "string" && body.trim()) return body.trim();
   }
   return undefined;
 }
@@ -17,13 +15,13 @@ function streamErrorDetail(err: unknown): string | undefined {
 /**
  * Speech-to-text HTTP client (DESIGN §10). Backend-agnostic: any sidecar that
  * implements the contract works — stt-rknn / stt-whisper-cpp / stt-whisper
- * (product dual-track) or stt-mock (CI). Class name is historical.
+ * (product dual-track) or stt-mock (CI).
  * See docs/voice-backends.md.
  *
  * Batch: POST /asr — whole utterance (smoke tests, synthetic admin turns).
  * Stream: POST /asr/stream — partial/final (no KWS on Whisper path).
  */
-export class SherpaSttClient implements SttProvider {
+export class HttpSttClient implements SttProvider {
   private url: string;
   private logger?: Logger;
   private timeoutMs: number;
@@ -36,15 +34,15 @@ export class SherpaSttClient implements SttProvider {
 
   async transcribe(u: Utterance): Promise<string> {
     try {
-      const { data } = await axios.post(`${this.url}/asr`, u.pcm, {
-        timeout: this.timeoutMs,
+      const data = await fetchJson<{ text?: string }>(`${this.url}/asr`, {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
         headers: {
           "Content-Type": "application/octet-stream",
           "X-Sample-Rate": String(u.sampleRate),
           "X-Channels": String(u.channels),
         },
-        responseType: "json",
-        maxBodyLength: Infinity,
+        body: new Uint8Array(u.pcm),
       });
       const text = typeof data?.text === "string" ? data.text.trim() : "";
       this.logger?.debug({ chars: text.length }, "STT transcribed utterance");
@@ -63,16 +61,24 @@ export class SherpaSttClient implements SttProvider {
     channels: number,
   ): Promise<StreamSttResult> {
     try {
-      const { data } = await axios.post(`${this.url}/asr/stream`, pcm, {
-        timeout: this.timeoutMs,
+      const data = await fetchJson<{
+        partial?: string;
+        final?: string | null;
+        speaking?: boolean;
+        keyword?: string;
+        listening?: string;
+        commandFinal?: boolean;
+        commandSource?: string;
+      }>(`${this.url}/asr/stream`, {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
         headers: {
           "Content-Type": "application/octet-stream",
           "X-Client-Id": String(clientId),
           "X-Sample-Rate": String(sampleRate),
           "X-Channels": String(channels),
         },
-        responseType: "json",
-        maxBodyLength: Infinity,
+        body: new Uint8Array(pcm),
       });
       const partial = typeof data?.partial === "string" ? data.partial.trim() : "";
       const finalRaw = data?.final;
@@ -108,8 +114,9 @@ export class SherpaSttClient implements SttProvider {
 
   async resetStream(clientId: number): Promise<void> {
     try {
-      await axios.delete(`${this.url}/asr/stream`, {
-        timeout: this.timeoutMs,
+      await fetchVoid(`${this.url}/asr/stream`, {
+        method: "DELETE",
+        timeoutMs: this.timeoutMs,
         headers: { "X-Client-Id": String(clientId) },
       });
     } catch (err: unknown) {
@@ -117,16 +124,18 @@ export class SherpaSttClient implements SttProvider {
     }
   }
 
-  /** Keep sherpa in command mode without clearing the decode buffer. */
+  /** Keep sidecar in command mode without clearing the decode buffer. */
   async extendCommandMode(clientId: number): Promise<void> {
     try {
-      await axios.post(`${this.url}/asr/stream`, Buffer.alloc(0), {
-        timeout: this.timeoutMs,
+      await fetchJson(`${this.url}/asr/stream`, {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
         headers: {
           "Content-Type": "application/octet-stream",
           "X-Client-Id": String(clientId),
           "X-Command-Mode": "extend",
         },
+        body: new Uint8Array(0),
       });
     } catch (err: unknown) {
       this.logger?.debug({ err: errorMessage(err), clientId }, "STT command extend failed");
@@ -136,16 +145,21 @@ export class SherpaSttClient implements SttProvider {
   /** Drop wake-word tail audio from the command buffer; stays in command mode. */
   async clearCommandBuffer(clientId: number): Promise<void> {
     try {
-      await axios.post(`${this.url}/asr/stream`, Buffer.alloc(0), {
-        timeout: this.timeoutMs,
+      await fetchJson(`${this.url}/asr/stream`, {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
         headers: {
           "Content-Type": "application/octet-stream",
           "X-Client-Id": String(clientId),
           "X-Command-Mode": "clear",
         },
+        body: new Uint8Array(0),
       });
     } catch (err: unknown) {
       this.logger?.debug({ err: errorMessage(err), clientId }, "STT command buffer clear failed");
     }
   }
 }
+
+/** @deprecated Use HttpSttClient — historical sherpa class name. */
+export const SherpaSttClient = HttpSttClient;

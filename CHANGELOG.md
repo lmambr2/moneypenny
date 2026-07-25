@@ -6,6 +6,22 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-07-25
+
+### Audit C1–C7 / D2 / partial C2–E
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **C1** Delete Nest dual-path — Express plugins only (`createWebServer`, `domain-bundles.ts`); drop Nest deps + decorator tsconfig flags; docs aligned
+- **C6** Rename `SherpaSttClient`/`KokoroTtsClient` → `HttpSttClient`/`HttpTtsClient` (deprecated aliases kept)
+- **C2** (partial) `bot/src/util/http.ts` fetch helpers; voice STT/TTS/probe + MemPalace on fetch
+- **C4** Zod boundary helpers (`bot/src/web/validate.ts`); player volume/mode/seek use them
+- **C5** `createVadSegmenter` factory + `VadSegmenter` interface (Silero falls back to energy)
+- **C3** Opus encoder backend diagnostics helper (`createOpusEncoderLogged`)
+- **C7** Document TS 6 (bot/packages) vs TS 5.8 (Vue/`vue-tsc`) pin split in AGENTS.md
+- **D1** (partial) `buildLiveStatus` extracted from `BotInstance`
+- **D2** `SpeakerArmTracker` owns post-wake arm FSM; VoiceSession delegates
+- **E** Tests for http util, validate, speaker-arm, VAD factory, live-status
+
 ## 2026-07-18
 
 ### Hangars: personal + org (Colonel/Chairman), Ship_List.md

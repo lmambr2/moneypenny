@@ -328,7 +328,7 @@ moneypenny/
 │  │  ├─ ts6-client/             # @moneypenny/ts6-client (TS3/TS6)
 │  │  └─ audio-native/           # optional Rust Opus/VAD N-API
 │  ├─ src/
-│  │  ├─ http/                   # Nest + Express plugins; OpenAPI /api/docs
+│  │  ├─ http/                   # Express plugins; OpenAPI /api/docs
 │  │  ├─ brain/                  # completeTurn / InProcess|Http brain; dispose tools
 │  │  ├─ web/                    # domain API routers + middleware + Vue SPA
 │  │  ├─ control/                # CommandRegistry, tool-map, thin ControlRouter
@@ -372,7 +372,7 @@ moneypenny/
 **Phase 2 — Voice.** VAD/STT capture → router; TTS replies. *Accept:* spoken question → spoken answer; spoken "skip" skips; round-trip latency documented.
 - [x] **Pipeline scaffolded + wired (text-validated)** — `bot/src/voice/`:
   - `vad.ts` `SilenceSegmenter` — dependency-free RMS-energy end-pointer (onset drop, hangover, min-speech, max-utterance force-flush); model-free so fully unit-tested; swappable for Silero behind the same `push()/flush()`.
-  - `stt.ts` / `tts.ts` — HTTP clients for **stt-whisper** and **piper-tts** (class names still say Sherpa/Kokoro for history; rename tracked). Behind `SttProvider`/`TtsProvider`.
+  - `stt.ts` / `tts.ts` — `HttpSttClient` / `HttpTtsClient` for **stt-whisper** and **piper-tts**. Behind `SttProvider`/`TtsProvider`.
   - `pipeline.ts` `VoicePipeline` — STT → **`ControlRouter.routeVoice`** → execute → optional TTS reply. Reuses the chat router so voice inherits deterministic-first dispatch, LLM fuzzy-intent/Q&A, **and rank gating** (no separate voice command path). Degrades gracefully on STT/TTS failure.
   - `ControlRouter.routeVoice()` — prefix-less: first word a known command → deterministic (spoken "skip"/"pause" never touch the model); else → LLM intent (covers fuzzy music control *and* spoken Q&A).
   - Inbound capture wired: `@honeybbq/teamspeak-client` **does** emit per-speaker `voiceData` (re-emitted by `TS3Client`); `BotInstance` decodes Opus→PCM (48 kHz stereo), end-points per speaker, resolves the speaker's server-groups (channel client list + TS6 HTTP Query fallback) for rank gating, and plays TTS replies through the `AudioPlayer`. Gated by `config.voice.enabled` (default off).

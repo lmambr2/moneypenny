@@ -58,7 +58,7 @@ off-by-default, etc.).
 
 | Layer | Language / service | Keep / move? |
 |-------|-------------------|--------------|
-| TS6, music, radio, rights, web | **TypeScript** | **Keep** — spine (`@moneypenny/ts6-client`, Nest HTTP) |
+| TS6, music, radio, rights, web | **TypeScript** | **Keep** — spine (`@moneypenny/ts6-client`, Express HTTP plugins) |
 | STT / TTS / bridges / ACE adapter | **Python sidecars** | **Keep** — already extracted |
 | Chat + embeddings | **Ollama / OpenAI `/v1`** | **Keep** — nomic (SBC) / bge (Server) embeds |
 | Vectors | **TurboVec** (Qdrant-shaped REST) | **Keep** |

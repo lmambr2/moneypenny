@@ -4,23 +4,27 @@ import express from "express";
 import { createAuditStore } from "../data/audit.js";
 import { createSessionStore } from "../data/sessions.js";
 import { createUserStore } from "../data/users.js";
-import { ALL_DOMAIN_BUNDLES } from "./nest/domain-bundles.js";
+import { ALL_DOMAIN_BUNDLES } from "./domain-bundles.js";
 import type { HttpAppContext, HttpPlugin, WebServer, WebServerOptions } from "./types.js";
 
 const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
- * Flatten domain bundles into ordered plugin list (shared by Express + Nest paths).
+ * Flatten domain bundles into ordered plugin list.
  */
 export function orderedHttpPlugins(): HttpPlugin[] {
   return [...ALL_DOMAIN_BUNDLES].sort((a, b) => a.order - b.order).flatMap((b) => b.plugins);
 }
 
 /**
- * Classic plugin composition without Nest (fallback / tests).
- * Prefer {@link createWebServer} which uses Nest domain modules (PR-C3).
+ * Station HTTP + WebSocket server (Express plugins only).
+ * Nest dual-path removed (audit C1) — single composition surface.
  */
-export function createPluginWebServer(options: WebServerOptions): WebServer {
+export async function createWebServer(options: WebServerOptions): Promise<WebServer> {
+  return createPluginWebServer(options);
+}
+
+function createPluginWebServer(options: WebServerOptions): WebServer {
   const app = express();
   const server = http.createServer(app);
   const logger = options.logger.child({ component: "web" });
@@ -96,17 +100,4 @@ export function createPluginWebServer(options: WebServerOptions): WebServer {
   };
 }
 
-/**
- * Build the station HTTP + WebSocket server.
- *
- * - Default (PR-C3): NestJS domain modules + Express adapter
- * - `HTTP_FRAMEWORK=plugins`: pure Express plugin path (no Nest)
- */
-export async function createWebServer(options: WebServerOptions): Promise<WebServer> {
-  const framework = (process.env.HTTP_FRAMEWORK ?? "nest").toLowerCase();
-  if (framework === "plugins" || framework === "express") {
-    return createPluginWebServer(options);
-  }
-  const { createNestWebServer } = await import("./nest/create-nest-server.js");
-  return createNestWebServer(options);
-}
+export { createPluginWebServer };

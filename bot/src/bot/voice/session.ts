@@ -13,10 +13,10 @@ import type { MusicProvider } from "../../music/provider.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
 import {
   defaultVoiceConfig,
+  HttpSttClient,
+  HttpTtsClient,
   isPlaybackControlReply,
   isPlaybackStartReply,
-  KokoroTtsClient,
-  SherpaSttClient,
   SpeechQueue,
   type StreamSttResult,
   type TtsProvider,
@@ -33,7 +33,7 @@ import {
   peakAmplitude16,
   STT_TARGET_PEAK,
 } from "../../voice/pcm.js";
-import { probeKokoroTts, probeSherpaStt } from "../../voice/probe.js";
+import { probeHttpStt, probeHttpTts } from "../../voice/probe.js";
 import {
   extractCommandSegment,
   extractWatchwordCommand,
@@ -46,6 +46,7 @@ import {
   allowedClassificationsFor,
   resolveSubject as resolveRightsSubject,
 } from "../rights/subject.js";
+import { SpeakerArmTracker } from "./speaker-arm.js";
 
 export interface VoiceSessionDeps {
   config: BotConfig;
@@ -66,7 +67,7 @@ export interface VoiceSessionDeps {
 /** Voice loop: inbound Opus → STT → ControlRouter → TTS (DESIGN §10). */
 export class VoiceSession {
   private pipeline: VoicePipeline | null = null;
-  private sttClient: SherpaSttClient | null = null;
+  private sttClient: HttpSttClient | null = null;
   private voiceDecoder: Encoder | null = null;
   private streamBuffers = new Map<
     number,
@@ -130,9 +131,8 @@ export class VoiceSession {
   private postDuckSettling = new Set<number>();
   private postDuckResetTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private listenWindowMs = 15_000;
-  private armedUntil = new Map<number, number>();
-  private armTimers = new Map<number, ReturnType<typeof setTimeout>>();
-  private armedKeepaliveTimers = new Map<number, ReturnType<typeof setInterval>>();
+  /** Post-wake arm FSM (audit D2) — timers + partial dedupe. */
+  private readonly speakerArm: SpeakerArmTracker;
   private lastArmedInboundLog = new Map<number, number>();
   private droppedNonVoiceCodec = 0;
   private droppedSelfEcho = 0;
@@ -165,13 +165,20 @@ export class VoiceSession {
   private lastStatsAt = 0;
   /** Per-speaker generation — stale STT finals are dropped after faster retries. */
   private voiceTurnGen = new Map<number, number>();
-  /** Avoid double-routing the same armed partial; cleared on fresh wake / disarm. */
-  private partialRoutedCommand = new Map<number, string>();
   /** Per-speaker play-resolve cooldown — blocks STT echo repeats after a slow lookup. */
   private playInFlightUntil = new Map<number, number>();
   private static readonly PLAY_IN_FLIGHT_MS = 12_000;
 
-  constructor(private deps: VoiceSessionDeps) {}
+  constructor(private deps: VoiceSessionDeps) {
+    this.speakerArm = new SpeakerArmTracker({
+      listenWindowMs: this.listenWindowMs,
+      keepaliveIntervalMs: 3000,
+      onExpire: (clientId) => this.onArmWindowExpired(clientId),
+      onKeepalive: (clientId) => {
+        void this.sttClient?.extendCommandMode(clientId);
+      },
+    });
+  }
 
   get isActive(): boolean {
     return this.pipeline != null;
@@ -206,12 +213,12 @@ export class VoiceSession {
   /** Drop per-client maps for speakers no longer in channel (multi-day uptime leak). */
   private pruneClientMaps(live: Set<number>): void {
     // Speakers who left while armed: full disarm + release duck (not bare Map.delete).
-    for (const id of [...this.armedUntil.keys()]) {
-      if (!live.has(id)) {
-        this.disarmSpeaker(id);
-        this.releaseCaptureDuck(id);
-        void this.sttClient?.resetStream(id);
-      }
+    for (const id of this.speakerArm.prune(live)) {
+      this.clearPostDuckResetTimer(id);
+      this.commandCaptureReadyAt.delete(id);
+      this.postDuckSettling.delete(id);
+      this.releaseCaptureDuck(id);
+      void this.sttClient?.resetStream(id);
     }
     const drop = (m: Map<number, unknown>) => {
       for (const id of m.keys()) {
@@ -226,11 +233,7 @@ export class VoiceSession {
     drop(this.playInFlightUntil as Map<number, unknown>);
     drop(this.commandCaptureReadyAt as Map<number, unknown>);
     drop(this.passiveSpeakerScore as Map<number, unknown>);
-    // Timer / settle maps (disarmSpeaker clears armed timers; leftovers for gone clients)
-    drop(this.armTimers as Map<number, unknown>);
-    drop(this.armedKeepaliveTimers as Map<number, unknown>);
     drop(this.postDuckResetTimers as Map<number, unknown>);
-    drop(this.partialRoutedCommand as Map<number, unknown>);
     for (const id of this.postDuckSettling) {
       if (!live.has(id)) this.postDuckSettling.delete(id);
     }
@@ -250,10 +253,10 @@ export class VoiceSession {
       this.deps.logger.warn("Voice enabled but no sttUrl configured — voice loop inactive");
       return;
     }
-    const stt = new SherpaSttClient({ url: vc.sttUrl, logger: this.deps.logger });
+    const stt = new HttpSttClient({ url: vc.sttUrl, logger: this.deps.logger });
     this.sttClient = stt;
     const tts: TtsProvider | undefined = vc.ttsUrl
-      ? new KokoroTtsClient({ url: vc.ttsUrl, voice: vc.ttsVoice, logger: this.deps.logger })
+      ? new HttpTtsClient({ url: vc.ttsUrl, voice: vc.ttsVoice, logger: this.deps.logger })
       : undefined;
     const output: VoiceOutput | undefined = tts ? this.createOutput() : undefined;
 
@@ -271,6 +274,7 @@ export class VoiceSession {
       VoiceSession.MIN_LISTEN_WINDOW_MS,
     );
     this.passiveKwsMaxSpeakers = Math.max(1, Math.min(8, vc.passiveKwsMaxSpeakers ?? 2));
+    this.speakerArm.setListenWindowMs(this.listenWindowMs);
     this.releaseCaptureDuck();
     this.watchword = vc.watchword;
     this.clearAllArmTimers();
@@ -355,8 +359,8 @@ export class VoiceSession {
   }> {
     const vc = { ...defaultVoiceConfig(), ...this.deps.config.voice };
     const [sttAvailable, ttsAvailable] = await Promise.all([
-      vc.sttUrl ? probeSherpaStt(vc.sttUrl) : Promise.resolve(false),
-      vc.ttsUrl ? probeKokoroTts(vc.ttsUrl, vc.ttsVoice) : Promise.resolve(false),
+      vc.sttUrl ? probeHttpStt(vc.sttUrl) : Promise.resolve(false),
+      vc.ttsUrl ? probeHttpTts(vc.ttsUrl, vc.ttsVoice) : Promise.resolve(false),
     ]);
     return {
       enabled: !!vc.enabled,
@@ -852,7 +856,7 @@ export class VoiceSession {
     buf.streamSpeaking = out.speaking;
 
     if (out.keyword) {
-      this.partialRoutedCommand.delete(clientId);
+      this.speakerArm.clearPartialRouted(clientId);
       this.deps.logger.info(
         { clientId, keyword: out.keyword },
         "Voice: KWS wake-word hit — command window open",
@@ -1043,10 +1047,7 @@ export class VoiceSession {
   }
 
   private anySpeakerArmed(): boolean {
-    for (const clientId of this.armedUntil.keys()) {
-      if (this.isArmed(clientId)) return true;
-    }
-    return false;
+    return this.speakerArm.anyArmed();
   }
 
   private abandonCaptureDuck(clientId: number): void {
@@ -1055,18 +1056,11 @@ export class VoiceSession {
   }
 
   private isArmed(clientId: number): boolean {
-    const until = this.armedUntil.get(clientId);
-    if (!until) return false;
-    if (Date.now() >= until) {
-      this.armedUntil.delete(clientId);
-      return false;
-    }
-    return true;
+    return this.speakerArm.isArmed(clientId);
   }
 
   private armSpeaker(clientId: number): void {
-    this.partialRoutedCommand.delete(clientId);
-    this.touchArmedWindow(clientId);
+    this.speakerArm.arm(clientId);
   }
 
   /**
@@ -1082,10 +1076,10 @@ export class VoiceSession {
     const candidate =
       ww.matched && ww.command ? ww.command : extractCommandSegment(partial, this.watchword);
     if (!isPartialSafeVoiceCommand(candidate, this.deps.config.commandAliases)) return false;
-    if (this.partialRoutedCommand.get(clientId) === candidate) return false;
+    if (this.speakerArm.lastPartialRouted(clientId) === candidate) return false;
     if (!partialMentionsCommand(partial, candidate)) return false;
 
-    this.partialRoutedCommand.set(clientId, candidate);
+    this.speakerArm.markPartialRouted(clientId, candidate);
     this.clearDuckWatchdog();
     this.segmentedUtterances++;
     const buf = this.streamBuffers.get(clientId);
@@ -1117,21 +1111,15 @@ export class VoiceSession {
 
   /** Extend the post-wake window on speech activity so beat-then-pause doesn't time out. */
   private touchArmedWindow(clientId: number): void {
-    this.clearArmTimer(clientId);
-    this.armedUntil.set(clientId, Date.now() + this.listenWindowMs);
-    const timer = setTimeout(() => {
-      this.armTimers.delete(clientId);
-      this.armedUntil.delete(clientId);
-      this.clearArmedKeepalive(clientId);
-      this.clearPostDuckResetTimer(clientId);
-      this.commandCaptureReadyAt.delete(clientId);
-      this.partialRoutedCommand.delete(clientId);
-      this.deps.logger.info({ clientId }, "Voice: armed window expired — restoring music volume");
-      void this.sttClient?.resetStream(clientId);
-      this.releaseCaptureDuck(clientId);
-    }, this.listenWindowMs);
-    this.armTimers.set(clientId, timer);
-    this.scheduleArmedKeepalive(clientId);
+    this.speakerArm.touch(clientId);
+  }
+
+  private onArmWindowExpired(clientId: number): void {
+    this.clearPostDuckResetTimer(clientId);
+    this.commandCaptureReadyAt.delete(clientId);
+    this.deps.logger.info({ clientId }, "Voice: armed window expired — restoring music volume");
+    void this.sttClient?.resetStream(clientId);
+    this.releaseCaptureDuck(clientId);
   }
 
   private schedulePostDuckCaptureReset(clientId: number): void {
@@ -1167,31 +1155,10 @@ export class VoiceSession {
     this.postDuckResetTimers.delete(clientId);
   }
 
-  private scheduleArmedKeepalive(clientId: number): void {
-    if (this.armedKeepaliveTimers.has(clientId)) return;
-    const timer = setInterval(() => {
-      if (!this.isArmed(clientId)) {
-        this.clearArmedKeepalive(clientId);
-        return;
-      }
-      void this.sttClient?.extendCommandMode(clientId);
-    }, 3000);
-    this.armedKeepaliveTimers.set(clientId, timer);
-  }
-
-  private clearArmedKeepalive(clientId: number): void {
-    const timer = this.armedKeepaliveTimers.get(clientId);
-    if (timer) clearInterval(timer);
-    this.armedKeepaliveTimers.delete(clientId);
-  }
-
   private disarmSpeaker(clientId: number): void {
-    this.clearArmTimer(clientId);
-    this.clearArmedKeepalive(clientId);
+    this.speakerArm.disarm(clientId);
     this.clearPostDuckResetTimer(clientId);
     this.commandCaptureReadyAt.delete(clientId);
-    this.partialRoutedCommand.delete(clientId);
-    this.armedUntil.delete(clientId);
   }
 
   private isPlayInFlight(clientId: number): boolean {
@@ -1213,20 +1180,12 @@ export class VoiceSession {
     this.playInFlightUntil.delete(clientId);
   }
 
-  private clearArmTimer(clientId: number): void {
-    const timer = this.armTimers.get(clientId);
-    if (timer) clearTimeout(timer);
-    this.armTimers.delete(clientId);
-  }
-
   private clearAllArmTimers(): void {
-    for (const timer of this.armTimers.values()) clearTimeout(timer);
-    this.armTimers.clear();
-    for (const clientId of this.armedKeepaliveTimers.keys()) this.clearArmedKeepalive(clientId);
-    for (const clientId of this.postDuckResetTimers.keys()) this.clearPostDuckResetTimer(clientId);
+    this.speakerArm.dispose();
+    for (const clientId of [...this.postDuckResetTimers.keys()])
+      this.clearPostDuckResetTimer(clientId);
     this.commandCaptureReadyAt.clear();
     this.postDuckSettling.clear();
-    this.armedUntil.clear();
   }
 
   /**

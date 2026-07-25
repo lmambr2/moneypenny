@@ -82,3 +82,25 @@ export function opusBackendAvailable(): { native: boolean; active: "native" | "d
   const native = tryLoadNative() !== null;
   return { native, active: native ? "native" : "discordjs" };
 }
+
+let loggedBackendOnce = false;
+
+/**
+ * Create encoder and optionally log the active backend once (audit C3 hygiene).
+ * Prefer calling from bot startup so ops know whether arm64 native loaded.
+ */
+export function createOpusEncoderLogged(
+  channels: number = CHANNELS,
+  log?: (msg: string, meta?: Record<string, unknown>) => void,
+): Encoder {
+  const enc = createOpusEncoder(channels);
+  if (!loggedBackendOnce && log) {
+    loggedBackendOnce = true;
+    const info = opusBackendAvailable();
+    log("Opus encoder backend", {
+      backend: enc.backend ?? info.active,
+      nativeAvailable: info.native,
+    });
+  }
+  return enc;
+}

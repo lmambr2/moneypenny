@@ -1,11 +1,11 @@
-import axios from "axios";
 import type { Logger } from "../logger.js";
+import { fetchBuffer } from "../util/http.js";
 import { normalizeLoudness } from "./loudness.js";
 import type { TtsProvider } from "./types.js";
 
 /**
  * Text-to-speech client for OpenAI-compatible `/v1/audio/speech` (DESIGN §10).
- * Works with Kokoro-FastAPI, piper-tts (services/piper-tts), or any drop-in.
+ * Works with piper-tts (services/piper-tts) or any drop-in OpenAI speech API.
  * Returns encoded audio; VoiceOutput + ffmpeg play it (wav/mp3).
  * See docs/voice-backends.md for edge vs server profiles.
  */
@@ -14,8 +14,8 @@ export function ttsTimeoutForText(text: string, baseMs = 20_000, maxMs = 120_000
   return Math.min(maxMs, Math.max(baseMs, text.length * 40));
 }
 
-/** OpenAI-compatible speech client (Piper product TTS; class name historical). */
-export class KokoroTtsClient implements TtsProvider {
+/** OpenAI-compatible speech client (Piper product TTS). */
+export class HttpTtsClient implements TtsProvider {
   private url: string;
   private voice: string;
   private model: string;
@@ -46,15 +46,23 @@ export class KokoroTtsClient implements TtsProvider {
 
   async synthesize(text: string): Promise<{ audio: Buffer; format: string }> {
     const timeout = ttsTimeoutForText(text, this.timeoutMs);
-    const { data } = await axios.post(
-      `${this.url}/v1/audio/speech`,
-      { model: this.model, input: text, voice: this.voice, response_format: this.format },
-      { timeout, responseType: "arraybuffer" },
-    );
-    let audio = Buffer.from(data);
+    let audio = await fetchBuffer(`${this.url}/v1/audio/speech`, {
+      method: "POST",
+      timeoutMs: timeout,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.model,
+        input: text,
+        voice: this.voice,
+        response_format: this.format,
+      }),
+    });
     // Bring speech up to music loudness (fail-open — raw audio on any error).
     audio = await this.normalize(audio, this.format, this.logger);
     this.logger?.debug({ bytes: audio.length, format: this.format }, "TTS synthesized reply");
     return { audio, format: this.format };
   }
 }
+
+/** @deprecated Use HttpTtsClient — historical Kokoro class name. */
+export const KokoroTtsClient = HttpTtsClient;

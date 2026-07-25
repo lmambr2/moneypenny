@@ -31,10 +31,10 @@ open http://127.0.0.1:3000/api/docs
 | `GET /api/health` | public | Liveness |
 | `GET /api/bot/live` | session | Member live snapshot + station `feedback[]` |
 
-Default HTTP stack is **Nest** (`HTTP_FRAMEWORK=nest`): public system routes are
-`SystemController` (`bot/src/http/nest/controllers/system.controller.ts`); domain
-routers stay Express under `web/api/*`. Plugin-only mode:
-`HTTP_FRAMEWORK=plugins`.
+HTTP stack is **Express plugins only** (`createWebServer` in
+`bot/src/http/app.ts`): public system routes (health, OpenAPI, docs) via
+`registerPublicRoutes` / `registerOpenApi`; domain routers under `web/api/*`.
+Nest dual-path was removed (audit C1).
 
 Document built from `bot/src/http/openapi/operations.ts` (catalog).  
 Drift guard: `src/http/openapi/route-catalog-drift.test.ts` fails CI if Express
@@ -75,4 +75,4 @@ or call from the SPA origin.
 |------|--------|
 | **C1** Plugin `createWebServer` | Done |
 | **C2** REST + OpenAPI + `/api/docs` UI | Done (this doc) |
-| **C3** Nest domain modules + Express adapter | Done (`HTTP_FRAMEWORK=nest` default; `plugins` escape hatch) |
+| **C3** Nest domain modules + Express adapter | **Removed** — Express plugins only (audit C1, 2026-07) |

@@ -18,12 +18,23 @@ export function errorCode(err: unknown): string | undefined {
   return undefined;
 }
 
-/** HTTP status from axios-style errors (`err.response.status`). */
+/**
+ * HTTP status from outbound client errors:
+ * - util/http `HttpRequestError.status`
+ * - axios-style `err.response.status`
+ */
 export function httpStatus(err: unknown): number | undefined {
-  if (err && typeof err === "object" && "response" in err) {
-    const response = (err as { response?: { status?: unknown } }).response;
-    const status = response?.status;
-    return typeof status === "number" ? status : undefined;
+  if (err && typeof err === "object") {
+    if ("status" in err && typeof (err as { status: unknown }).status === "number") {
+      const s = (err as { status: number }).status;
+      // Prefer explicit status field when not an HTTP Response object
+      if (s >= 100 && s < 600) return s;
+    }
+    if ("response" in err) {
+      const response = (err as { response?: { status?: unknown } }).response;
+      const status = response?.status;
+      return typeof status === "number" ? status : undefined;
+    }
   }
   return undefined;
 }

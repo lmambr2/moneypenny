@@ -2,11 +2,9 @@
  * Energy-based voice end-pointing (DESIGN §10's "circular-buffer + VAD
  * end-pointing" pattern).
  *
- * This is a simple, dependency-free RMS-energy segmenter: it accumulates audio
- * while speech is present and emits a completed utterance once trailing silence
- * exceeds the hangover window. It is intentionally model-free so it is fully
- * unit-testable; for production it can be swapped for Silero VAD (bundled with
- * sherpa-onnx) behind the same push()/flush() shape.
+ * Default implementation is a dependency-free RMS-energy segmenter. Production
+ * can swap Silero (or another model VAD) via `createVadSegmenter({ backend })`
+ * behind the same `VadSegmenter` interface (`push` / `flush`).
  *
  * Operates on 16-bit little-endian PCM. Multi-channel input is treated as
  * interleaved; energy is computed across all samples.
@@ -29,6 +27,41 @@ export interface SegmenterOptions {
   minSpeechMs?: number;
   /** Force-emit if a single utterance grows past this. */
   maxUtteranceMs?: number;
+}
+
+/** Swappable VAD end-pointer (energy today; Silero factory-ready). */
+export interface VadSegmenter {
+  /** Feed PCM; returns completed utterance bytes when end-pointed, else null. */
+  push(pcm: Buffer): Buffer | null;
+  /** Force-emit buffered speech (e.g. speaker left). */
+  flush(): Buffer | null;
+}
+
+export type VadBackend = "energy" | "silero";
+
+export interface CreateVadOptions extends SegmenterOptions {
+  /**
+   * `energy` — RMS SilenceSegmenter (default, unit-tested).
+   * `silero` — reserved; falls back to energy until a model path is wired.
+   */
+  backend?: VadBackend;
+  /** Optional logger sink for fallback notices. */
+  onFallback?: (msg: string) => void;
+}
+
+/**
+ * Factory for voice end-pointers (audit C5).
+ * Silero is interface-ready; until ONNX weights land, backend=`silero` falls back
+ * to energy with an optional notice.
+ */
+export function createVadSegmenter(opts: CreateVadOptions): VadSegmenter {
+  const backend = opts.backend ?? "energy";
+  if (backend === "silero") {
+    opts.onFallback?.(
+      "Silero VAD not bundled yet — using energy SilenceSegmenter (createVadSegmenter)",
+    );
+  }
+  return new SilenceSegmenter(opts);
 }
 
 let nativeRms: ((pcm: Buffer) => number) | null | undefined;
@@ -65,7 +98,7 @@ export function rms16(pcm: Buffer): number {
   return Math.sqrt(sumSq / n);
 }
 
-export class SilenceSegmenter {
+export class SilenceSegmenter implements VadSegmenter {
   private readonly sampleRate: number;
   private readonly channels: number;
   private readonly energyThreshold: number;
