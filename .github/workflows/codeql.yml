@@ -1,0 +1,63 @@
+name: CodeQL
+
+# Scans `dev` as well as `master`. Default setup only ever looked at the
+# default branch, so it was reporting on code 60+ commits stale — alerts cited
+# files that no longer exist (bot/src/ts-protocol/*, bot/src/web/server.ts).
+# All real work lands on dev, so dev is what has to be scanned.
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+  schedule:
+    # Weekly, so advisories in unchanged code still surface.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      # Only this job may write results.
+      security-events: write
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # bot/src + bot/web
+          - language: javascript-typescript
+            build-mode: none
+          # services/* sidecars (piper-tts, stt-*, bridges)
+          - language: python
+            build-mode: none
+          # Scans the workflow YAML itself for injection / privilege issues.
+          - language: actions
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+        with:
+          category: /language:${{ matrix.language }}

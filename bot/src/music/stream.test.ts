@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanExternalTrackTitle,
+  decodeHtmlEntities,
   isBandcampUrl,
   isSpotifyRef,
   isStreamableUrl,
@@ -8,6 +9,30 @@ import {
   isXTwitterUrl,
   StreamProvider,
 } from "./stream.js";
+
+describe("decodeHtmlEntities", () => {
+  it("decodes the entities that appear in scraped titles", () => {
+    expect(decodeHtmlEntities("Rock &amp; Roll")).toBe("Rock & Roll");
+    expect(decodeHtmlEntities("&lt;tag&gt;")).toBe("<tag>");
+    expect(decodeHtmlEntities("&quot;quoted&quot;")).toBe('"quoted"');
+    expect(decodeHtmlEntities("it&#39;s")).toBe("it's");
+    expect(decodeHtmlEntities("it&#x27;s")).toBe("it's");
+    expect(decodeHtmlEntities("it&apos;s")).toBe("it's");
+  });
+
+  // Regression (CodeQL js/double-escaping): decoding &amp; first turned
+  // `&amp;lt;` into `&lt;` and then into `<`, decoding text a second time.
+  it("does not double-decode an escaped entity", () => {
+    expect(decodeHtmlEntities("&amp;lt;")).toBe("&lt;");
+    expect(decodeHtmlEntities("&amp;amp;")).toBe("&amp;");
+    expect(decodeHtmlEntities("&amp;quot;")).toBe("&quot;");
+  });
+
+  it("leaves unrelated text untouched", () => {
+    expect(decodeHtmlEntities("plain title")).toBe("plain title");
+    expect(decodeHtmlEntities("")).toBe("");
+  });
+});
 
 describe("isBandcampUrl / isTidalUrl", () => {
   it("matches Bandcamp + Tidal hosts", () => {

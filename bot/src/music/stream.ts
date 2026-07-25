@@ -146,14 +146,22 @@ export async function resolveExternalTrackQuery(
   }
 }
 
-function decodeHtmlEntities(s: string): string {
+/**
+ * Decode the entity subset that appears in scraped page titles.
+ *
+ * Order matters: `&amp;` must be decoded LAST. Decoding it first turns
+ * `&amp;lt;` into `&lt;`, which the next pass then turns into `<` — a second
+ * decode of text that was already correctly escaped (CodeQL js/double-escaping).
+ * Decoding it last leaves `&amp;lt;` as the literal `&lt;` it should be.
+ */
+export function decodeHtmlEntities(s: string): string {
   return s
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;|&apos;/g, "'")
-    .replace(/&#x27;/gi, "'");
+    .replace(/&#x27;/gi, "'")
+    .replace(/&amp;/g, "&");
 }
 
 export function isYouTubeUrl(input: string): boolean {

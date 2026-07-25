@@ -57,11 +57,14 @@ jobs:
       # install scripts unless allowScripts covers them, and allowScripts keys
       # are VERSION-PINNED — so bumping a native dep re-blocks its build with no
       # error. `npm ci` still exits 0; only requiring the module catches it.
+      # Must EXERCISE each addon, not just require it: better-sqlite3's entry
+      # module imports fine and only fails when the binding is first used, so a
+      # bare require() reports success on a build that cannot open a database.
       - name: Verify native modules built
         working-directory: bot
         run: |
-          node -e "require('better-sqlite3'); console.log('better-sqlite3 ok')"
-          node -e "require('@discordjs/opus'); console.log('@discordjs/opus ok')"
+          node -e "const D=require('better-sqlite3');const db=new D(':memory:');db.exec('create table t(x)');db.close();console.log('better-sqlite3 ok')"
+          node -e "const {OpusEncoder}=require('@discordjs/opus');new OpusEncoder(48000,2).encode(Buffer.alloc(3840));console.log('@discordjs/opus ok')"
 
       # Guards the same trap from the other side: a native dependency whose
       # installed version no longer matches its allowScripts key.
