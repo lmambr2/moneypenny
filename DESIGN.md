@@ -513,4 +513,4 @@ Consolidated view of the trust boundaries and the guarantees that defend them.
 ## 15. Appendix — References
 ZHANGTIANYAO1/teamspeak-music-bot (base, MIT) · TS3AudioBot (OSL-3.0, patterns only) · Bettehem/ts3-musicbot (GPL-3.0, concept only) · RKLLama / airockchip rknn-llm · Qwen3 · sherpa-onnx · Kokoro-82M / Kokoro-FastAPI · librespot/ncspot · KokoDOS / dnhkng GLaDOS · yt-dlp · music-metadata (npm).
 
-*Pins (fill `.env`): RKNPU 0.9.8 · RKLLM 1.2.3 · TS6 **6.0.0-beta11** (not beta3) · chat: **Gemma 4 E2B/12B over Ollama** (not NPU-primary) · Node 20+ · `@honeybbq/teamspeak-client` exact pin (see package.json).*
+*Pins (fill `.env`): RKNPU 0.9.8 · RKLLM 1.2.3 · TS6 **6.0.0-beta12** (`teamspeaksystems/teamspeak6-server:6.0.0-beta12`) · chat: **Gemma 4 E2B/12B over Ollama** (not NPU-primary) · Node 20+ · `@honeybbq/teamspeak-client` exact pin (see package.json).*
