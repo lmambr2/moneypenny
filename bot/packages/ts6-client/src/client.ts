@@ -499,9 +499,22 @@ export class TS3Client extends EventEmitter {
         return;
       }
 
+      // Same two guards joinChannelById already has (AGENTS.md §4, TS error
+      // 770). Without them the auto-connect path logs error-level "Failed to
+      // join channel" every startup for a bot that IS in the channel — noise
+      // that hides real join failures.
+      if (this.client.channelID() === channel.id) {
+        this.logger.debug({ channelName }, "Already in target channel");
+        return;
+      }
+
       await clientMove(this.client, this.clientId, channel.id, password);
       this.logger.info({ channelName, cid: channel.id.toString() }, "Joined channel");
     } catch (err) {
+      if (isAlreadyInChannelError(err)) {
+        this.logger.debug({ channelName }, "Already in target channel");
+        return;
+      }
       this.logger.error({ err, channelName }, "Failed to join channel");
     }
   }
