@@ -98,17 +98,20 @@ Chat commands (default prefix `!`):
 
 | Command | What it does |
 |---|---|
-| `!play <query \| url>` | Play — Local first, else YouTube. Accepts YouTube / X / Twitter / Bandcamp / Spotify / Tidal / direct-stream URLs. `-y` forces YouTube, `-l` Local. |
-| `!add` · `!playnext` (`!pn`) | Add to queue (ahead of auto-DJ fill) · play next |
-| `!skip` `!next` `!prev` `!pause` `!resume` `!stop` | Transport |
-| `!queue` `!now` `!clear` `!remove <n>` `!vol <0-100>` `!mode <seq\|loop\|random\|rloop>` | Queue / playback control |
+| `!play <query \| url>` | **Start now** — local first, else YouTube. YT / X / Bandcamp / Spotify / Tidal / stream URLs. `-y` YouTube, `-l` local. |
+| `!add <query \| url>` | **Queue** (ahead of auto-DJ fill; starts if idle) |
+| `!playnext` / `!pn` | **Up next** (does not cut now-playing) |
+| `!skip` / `!s` / `!n` · `!next` | **Advance one** track only |
+| `!jump` / `!go <query \| url>` | **Start this now** (queue match or search/URL) |
+| `!prev` `!pause` `!resume` `!stop` | Transport |
+| `!queue` / `!list` · `!now` · `!clear` · `!remove <n>` · `!vol` · `!mode` | Queue / playback control |
 | `!playlist` `!album` `!artist` `!lyrics` `!vote` | Library / misc |
 | `!ask <question>` | Ask the fast AI (grounded in doctrine + your memory, if enabled) |
 | `!analyst <task>` · `!agent <task>` | Heavy analysis (async ack + posted result; admin/`@analyst` by default) |
 | `!remember <fact>` · `!recall` | Per-user memory |
 | `!roast` · `!roastout` | Show the roast reel · opt out + purge |
 | `!radio [on\|off\|status]` | Autonomous DJ — bumpers between tracks ([docs](docs/radio.md)); `on/off` admin |
-| `!radio ops <profile>` · `!radio bumper [topic]` · `!radio say <text>` · `!radio prewarm [doctrine]` · `!radio skip` · `!radio pin` · `!radio gen <prompt>` | Station programming (`@dj` + admin); `prewarm` fills TTS cache; `pin` → prerecorded pool |
+| `!radio ops` · `bumper` · `say` · `prewarm` · `skipbumper` · `pin` · `gen` | Station programming (`@dj` + admin). `skipbumper` skips the **bumper** (not the track); bare `!skip` advances music |
 | `!selecttracks <json>` | Tag-driven local track selection (normally via the `select_tracks` LLM tool) |
 | `!intsum [-s] [class:<level>] <points>` · `!aar [-s] …` | Templated INTSUM / AAR generation (analyst delegate; `-s` saves to doctrine) |
 | `!mine` · `!refine` · `!craft` · `!workorder` · `!work-items` · `!trade` · `!econ` | Economy shopping lists + craft/trade/UEX — [docs/economy.md](docs/economy.md) |

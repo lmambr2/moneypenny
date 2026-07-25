@@ -161,8 +161,9 @@ Logs: `radio: stopped — alone in channel…` / `radio: resumed — human joine
 !radio bumper               # forced break (works even if every-N not due)
 !radio say This is Moneypenny Radio
 !radio ops lobby
-!skip                       # × (N+1) times with everyNSongs=N to hit a scheduled bumper
-!radio skip                 # drop the *next* scheduled bumper only
+!skip                       # advance one track (× (N+1) with everyNSongs=N to hit a bumper)
+!radio skipbumper           # drop the *next* scheduled bumper only (not the track)
+!radio skip                 # same as skipbumper (legacy; reply tips you to skipbumper)
 ```
 **Note:** commands go through `COMMAND_MANIFEST` (`bot/src/bot/commands.ts`).
 

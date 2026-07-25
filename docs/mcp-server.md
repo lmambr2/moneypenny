@@ -313,8 +313,9 @@ Read + safe music + grounded ask. Enough for “Grok as second cockpit.”
 | `status_rag` | `GET /api/bot/rag/status` | any | — | turbovec health, collection |
 | `music_play` | `POST /api/player/:id/play` | `play` | `query`, `platform?` (`local`\|`youtube`\|`stream`) | message + started |
 | `music_add` | `POST …/add` | `add` | same | message |
-| `music_play_next` | `!playnext` path | `playnext` | `query`, `platform?` | message |
-| `music_skip` | `!next` / `!skip` | `skip`/`next` | — | message |
+| `music_play_next` | `!playnext` / `!pn` (up next, no cut) | `playnext` | `query`, `platform?` | message |
+| `music_skip` | `!skip` / `!next` (advance one) | `skip`/`next` | — | message |
+| *(chat only)* | `!jump` / `!go <query\|url>` start now | `jump`/`go` | query/url | message |
 | `music_pause` / `music_resume` | pause/resume | same | — | message |
 | `music_ban` | `!ban` | `ban` | `query?` (empty = current) | message |
 | `music_unban` | `!unban` | `unban` | `query` | message |
