@@ -167,6 +167,15 @@ export function isYoutubeTooLong(durationSec: number | null | undefined): boolea
   return d > YOUTUBE_MAX_DURATION_SEC;
 }
 
+/**
+ * YouTube content policy.
+ * - `search` (default): full gates — categories (Gaming/News/…), non-music titles,
+ *   full albums, livestream radios, >15m. Used for ytsearch / auto-DJ seeds.
+ * - `explicit`: user pasted a concrete media URL. Honor intent for unique works
+ *   mis-tagged as Gaming/etc.; still refuse full albums, live radios, and >15m.
+ */
+export type YoutubeBlockPolicy = "search" | "explicit";
+
 /** Combined gate for YouTube queue pollution (title dump, non-music, or over-long). */
 export function shouldBlockYoutubeSong(opts: {
   title?: string | null;
@@ -175,11 +184,15 @@ export function shouldBlockYoutubeSong(opts: {
   duration?: number | null;
   /** yt-dlp info-json subset when available (preferred over title-only). */
   ytMeta?: YtDlpMusicMeta | null;
+  /** @default "search" */
+  policy?: YoutubeBlockPolicy;
 }): boolean {
   if (isYoutubeFullAlbumTitle(opts.title ?? "")) return true;
   if (isYoutubeLivestreamRadioTitle(opts.title ?? "")) return true;
   if (isYtDlpLiveStream(opts.ytMeta)) return true;
   if (isYoutubeTooLong(opts.duration)) return true;
+  // Explicit URL: stop after technical gates — Gaming-category art still plays.
+  if ((opts.policy ?? "search") === "explicit") return false;
   if (
     shouldBlockAsNonMusic(
       {
@@ -313,7 +326,7 @@ function entryMusicMeta(entry: YtDlpEntry): YtDlpMusicMeta {
   };
 }
 
-function entryToSong(entry: YtDlpEntry): Song | null {
+function entryToSong(entry: YtDlpEntry, policy: YoutubeBlockPolicy = "search"): Song | null {
   const title = entry.title ?? "Unknown";
   const duration = Math.round(entry.duration ?? 0);
   // Full-album / non-music / over-long gates only for YouTube (not X/Bandcamp posts).
@@ -328,7 +341,7 @@ function entryToSong(entry: YtDlpEntry): Song | null {
     entry.channel ||
     "";
   const ytMeta = entryMusicMeta(entry);
-  if (isYt && shouldBlockYoutubeSong({ title, artist, duration, ytMeta })) return null;
+  if (isYt && shouldBlockYoutubeSong({ title, artist, duration, ytMeta, policy })) return null;
   const label = isYt ? "YouTube" : sourceLabelFor(webUrl, entry.extractor);
   // Prefer real album from music metadata over the "YouTube" platform label.
   const album =
@@ -360,13 +373,14 @@ export class YouTubeProvider implements MusicProvider {
       if (isYouTubeUrl(query) || isXTwitterUrl(query) || isBandcampUrl(query)) {
         // Direct media URL (YouTube / X-Twitter / Bandcamp) — fetch details directly instead of ytsearch.
         // Support age-restricted videos via oEmbed fallback (no cookies required for metadata).
+        // policy "explicit": user named this URL — allow Gaming-category songs etc.
         const safe = await safeYtDlpMediaUrl(query);
         if (!safe) return { songs: [], playlists: [], albums: [] };
         const videoId = extractVideoId(query) ?? "";
         try {
           raw = await runYtDlp([safe, "--dump-json", "--no-warnings", "--quiet"]);
           const entry = JSON.parse(raw.trim()) as YtDlpEntry;
-          const song = entryToSong(entry);
+          const song = entryToSong(entry, "explicit");
           return { songs: song ? [song] : [], playlists: [], albums: [] };
         } catch (err: unknown) {
           const msg = errorMessage(err, "");
@@ -376,7 +390,7 @@ export class YouTubeProvider implements MusicProvider {
           ) {
             const oembed = await getOEmbedEntry(videoId);
             if (oembed) {
-              const song = entryToSong(oembed);
+              const song = entryToSong(oembed, "explicit");
               return { songs: song ? [song] : [], playlists: [], albums: [] };
             }
           }

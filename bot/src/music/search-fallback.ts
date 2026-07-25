@@ -5,6 +5,10 @@ import { filterNotBlacklisted } from "./playback-blacklist.js";
 import type { MusicProvider, Song } from "./provider.js";
 import { shouldBlockYoutubeSong, YOUTUBE_MAX_DURATION_SEC } from "./youtube.js";
 
+function isExplicitMediaUrl(query: string): boolean {
+  return /^https?:\/\//i.test(query.trim());
+}
+
 // YT songs are already filtered in YouTubeProvider.entryToSong (yt-dlp meta).
 // Title fallback here catches anything still in the candidate list.
 
@@ -74,11 +78,29 @@ export async function searchFirstWithFallback(
   const pick = (
     provider: MusicProvider,
     songs: Song[],
+    /** Pasted media URL — do not re-apply category/title non-music gates. */
+    explicitUrl: boolean,
   ): { provider: MusicProvider; song: Song } | null => {
     const allowed = filterNotBlacklisted(
       filterUnblockedSongs(songs, blockedGenres),
       blacklist,
     ).filter((s) => {
+      if (explicitUrl) {
+        // Provider already applied "explicit" policy for URL resolve.
+        if (
+          s.platform === "youtube" &&
+          shouldBlockYoutubeSong({
+            title: s.name,
+            artist: s.artist,
+            album: s.album,
+            duration: s.duration,
+            policy: "explicit",
+          })
+        ) {
+          return false;
+        }
+        return true;
+      }
       if (isNonMusicContent(s)) return false;
       if (
         s.platform === "youtube" &&
@@ -99,13 +121,14 @@ export async function searchFirstWithFallback(
   };
 
   const tryQuery = async (q: string): Promise<{ provider: MusicProvider; song: Song } | null> => {
+    const explicit = isExplicitMediaUrl(q);
     const result = await primary.search(q, fetchLimit);
-    let hit = pick(primary, result.songs ?? []);
+    let hit = pick(primary, result.songs ?? [], explicit);
     if (hit) return hit;
 
     if (fallback) {
       const fb = await fallback.search(q, fetchLimit);
-      hit = pick(fallback, fb.songs ?? []);
+      hit = pick(fallback, fb.songs ?? [], explicit);
       if (hit) return hit;
     }
     return null;

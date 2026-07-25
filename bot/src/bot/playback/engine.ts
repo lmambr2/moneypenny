@@ -331,7 +331,8 @@ export class PlaybackEngine {
         );
         return false;
       }
-      // Belt-and-suspenders: refuse full-album / >15m dumps even if already queued.
+      // Already queued (explicit URL or seed). Only technical gates remain —
+      // category "Gaming" must not kill a user-pasted song at play time.
       if (
         song.platform === "youtube" &&
         shouldBlockYoutubeSong({
@@ -339,11 +340,12 @@ export class PlaybackEngine {
           artist: song.artist,
           album: song.album,
           duration: song.duration,
+          policy: "explicit",
         })
       ) {
         this.opts.logger.info(
           { songId: song.id, name: song.name, duration: song.duration },
-          "YouTube non-music / full-album / over-long track blocked — skipping",
+          "YouTube full-album / livestream / over-long track blocked — skipping",
         );
         return false;
       }

@@ -135,4 +135,23 @@ describe("shouldBlockYoutubeSong with ytMeta", () => {
       }),
     ).toBe(false);
   });
+
+  it("explicit URL policy allows Gaming-category songs (user intent)", () => {
+    const gamingArt = {
+      title: "Jackknife Klorfson",
+      artist: "solereavr",
+      duration: 220,
+      ytMeta: { categories: ["Gaming"] as string[] },
+    };
+    expect(shouldBlockYoutubeSong(gamingArt)).toBe(true);
+    expect(shouldBlockYoutubeSong({ ...gamingArt, policy: "explicit" })).toBe(false);
+    // Still refuse multi-hour dumps even for explicit URLs.
+    expect(
+      shouldBlockYoutubeSong({
+        title: "Full Album",
+        duration: 4000,
+        policy: "explicit",
+      }),
+    ).toBe(true);
+  });
 });
