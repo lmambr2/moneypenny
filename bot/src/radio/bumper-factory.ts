@@ -224,14 +224,32 @@ export function isGroundedInMaterial(
 /** Clip source material into a speakable line (sentence-aware). */
 export function clipMaterialForSpeech(material: string, cap: number): string | null {
   if (!isBumperEligibleMaterial(material)) return null;
-  let clip = material.trim();
-  const sentence = clip.match(/^[A-Z0-9][^.!?\n]{15,}[.!?]/);
-  if (sentence) clip = sentence[0]!;
-  else {
-    const mid = clip.match(/[.!?]\s+([A-Z][^.!?]{15,}[.!?])/);
-    if (mid?.[1]) clip = mid[1];
+  const limit = Math.min(cap, 45);
+
+  // Whole sentences only. RAG chunks routinely END mid-sentence (the chunker
+  // splits on size, not grammar), and the previous implementation word-sliced
+  // unconditionally — even after successfully extracting a sentence — so air
+  // got things like "...across all divisions to". Airing nothing beats airing
+  // a fragment, so this returns null rather than emit a partial clause.
+  const sentences = material.trim().match(/[^.!?\n]+[.!?]/g);
+  if (!sentences) return null;
+
+  const out: string[] = [];
+  let words = 0;
+  for (const raw of sentences) {
+    const sentence = raw.trim();
+    // Skip fragments the chunker produced (no leading capital / too short).
+    if (!/^[A-Z0-9]/.test(sentence) || sentence.length < 16) continue;
+    const n = sentence.split(/\s+/).length;
+    // Never truncate a sentence to fit — stop instead.
+    if (words + n > limit) break;
+    out.push(sentence);
+    words += n;
+    // One sentence is the house style for a bumper; two only if both are short.
+    if (out.length >= 2) break;
   }
-  clip = clip.split(/\s+/).slice(0, Math.min(cap, 45)).join(" ").trim();
+
+  const clip = out.join(" ").trim();
   if (!clip || isMetaBumperScript(clip)) return null;
   return clip;
 }
