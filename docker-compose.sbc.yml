@@ -10,8 +10,21 @@
 # ollama for embeddings + E2B fallback. Point llmUrl at a LAN server for
 # fast chat (docs/remote-llm.md, docs/editions.md).
 
+# RK3588 is big.LITTLE: cores 0-3 are Cortex-A55 @1.8GHz (part 0xd05), cores 4-7
+# are Cortex-A76 @2.3GHz (part 0xd0b). The vendor kernel's energy-aware scheduler
+# prefers little cores for modest loads, which is wrong for a 20ms Opus frame
+# deadline — an audio thread parked on an A55 is a jitter source even on an idle
+# box. Latency-sensitive services get the A76 cluster; throughput services get the
+# A55s and stay out of the way.
+#
+# Override per host if your board differs; empty string disables pinning.
+x-cpuset-latency: &cpuset-latency ${CPUSET_LATENCY:-4-7}
+x-cpuset-bulk: &cpuset-bulk ${CPUSET_BULK:-0-3}
+
 services:
   bot:
+    # Opus encode/decode on a 20ms cadence + voice routing.
+    cpuset: *cpuset-latency
     environment:
       # On-device fallback + install defaults. Split-brain chat URL lives in
       # config.json (llmUrl) — not forced here so LAN overrides stick.
@@ -25,6 +38,9 @@ services:
       - MONEYPENNY_EDITION=sbc
 
   ollama:
+    # Throughput, not latency: embeddings and the E2B fallback tolerate the A55s
+    # and this keeps them off the cores the audio path needs.
+    cpuset: *cpuset-bulk
     # Keep embed + small chat fallback resident; leave headroom for music/STT.
     environment:
       - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-2}
@@ -34,6 +50,9 @@ services:
 
   # Dual-track STT: RKNN NPU Whisper base (faster-whisper CPU if .rknn missing)
   stt-whisper:
+    # Inference is on the NPU; the CPU side is mel-spectrogram prep and request
+    # handling, which still sits in the utterance latency path.
+    cpuset: *cpuset-latency
     build:
       context: ./services/stt-rknn
       dockerfile: Dockerfile
@@ -64,6 +83,8 @@ services:
       - /proc/device-tree/compatible:/proc/device-tree/compatible:ro
 
   piper-tts:
+    # TTS is synchronous with a spoken reply — keep it off the little cores.
+    cpuset: *cpuset-latency
     environment:
       - PIPER_VOICE=${PIPER_VOICE:-en_GB-cori-medium}
       - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-cori-medium.onnx}

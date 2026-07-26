@@ -18,3 +18,14 @@ napi-build = "2"
 
 [profile.release]
 lto = true
+# One codegen unit lets LTO see the whole crate; the crate is small so the
+# build-time cost is negligible. Matters for the per-frame RMS/VAD path, which
+# is the only hot Rust here — Opus itself is C, via audiopus/libopus.
+codegen-units = 1
+#
+# Deliberately NOT `panic = "abort"`: napi-rs catches panics and converts them
+# to JS exceptions. Aborting would take the whole bot process down instead.
+#
+# Deliberately no `target-cpu` here either — it would apply to every target and
+# a binary built with newer ISA features than the run host SIGILLs. The Docker
+# build sets it via RUSTFLAGS, where build host == run host (see bot/Dockerfile).

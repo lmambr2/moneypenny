@@ -43,8 +43,15 @@ RUN cd web && npm ci
 # Build workspace packages → bot tsc → Vue UI.
 # `build:native || true` inside npm run build keeps image green if Rust/napi fails.
 COPY . .
-RUN echo "building bot image arch=${TARGETARCH:-unknown}" \
-    && npm run build
+# `target-cpu=native` is safe here and ONLY here: the image is built on the
+# machine that runs it (the Pi builds its own arm64 image), so the ISA features
+# the compiler sees are the ones available at runtime. Setting this in
+# Cargo.toml instead would bake host features into binaries shipped elsewhere
+# and SIGILL on an older CPU. Override with RUSTFLAGS= for a portable image
+# built on one host and run on another.
+ARG RUSTFLAGS="-C target-cpu=native"
+RUN echo "building bot image arch=${TARGETARCH:-unknown} rustflags=${RUSTFLAGS}" \
+    && RUSTFLAGS="${RUSTFLAGS}" npm run build
 
 # `npm run build` tolerates a failed Rust/napi build (encoder falls back to
 # @discordjs/opus), which means an arm64 image can silently ship without the
