@@ -26,7 +26,7 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "format:check": "biome format --check .",
-    "check": "npm run lint && npm run build -w @moneypenny/ts6-client && tsc --noEmit && npm run test:all",
+    "check": "npm run lint && npm run build -w @moneypenny/ts6-client && npm run build:native && tsc --noEmit && npm run test:all",
     "scan:tags": "tsx src/tools/library-tag-scan.ts"
   },
   "license": "MIT",
