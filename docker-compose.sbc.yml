@@ -74,6 +74,8 @@ services:
       - RKNN_MODELS_DIR=${RKNN_MODELS_DIR:-/models/rknn}
       - RKNN_ENCODER=${RKNN_ENCODER:-}
       - RKNN_DECODER=${RKNN_DECODER:-}
+      # Used only when STT_BACKEND=sensevoice; shares the whisper-models volume.
+      - SENSEVOICE_MODEL_DIR=${SENSEVOICE_MODEL_DIR:-/models/sensevoice}
       # On-chip SRAM for RKNN runtime (host/driver must support; see Rockchip doc)
       - RKNN_INTERNAL_MEM_TYPE=${RKNN_INTERNAL_MEM_TYPE:-sram}
       - RKNN_WEIGHT_MEM_TYPE=${RKNN_WEIGHT_MEM_TYPE:-}
