@@ -23,11 +23,13 @@ RUN pip install --no-cache-dir --upgrade pip \
 # SenseVoice backend (STT_BACKEND=sensevoice). --no-deps is deliberate: the
 # rkvoice-stream package pins numpy<2 and pulls fastapi/uvicorn for its own
 # server, none of which this service uses — it only calls the backend class
-# directly. sentencepiece is the one real runtime dep (the 25055-token BPE
-# vocab, loaded in preload()); soundfile is only used by its file-decode path,
-# which we bypass by handing it a float32 array.
+# directly. Its two real runtime deps: sentencepiece (the 25055-token BPE
+# vocab) and kaldi_native_fbank (the 80-dim fbank front-end feeding LFR).
+# soundfile is only used by its file-decode path, which we bypass by handing it
+# a float32 array. All three are LAZY imports inside the backend, so a missing
+# one surfaces on the first transcribe as a 500, not at container load.
 RUN pip install --no-cache-dir --no-deps rkvoice-stream==0.1.1 \
-    && pip install --no-cache-dir sentencepiece
+    && pip install --no-cache-dir sentencepiece kaldi_native_fbank
 
 ENV PORT=9000 \
     STT_MODEL=tiny \
