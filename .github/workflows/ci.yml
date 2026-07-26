@@ -65,13 +65,15 @@ jobs:
       # Rust addon is the ONLY codec — which makes it a build requirement, not an
       # optimisation. `npm run check` builds it, and every test that touches the
       # encoder fails without it, so both the toolchain and libopus must be here.
-      - name: Install Opus toolchain
+      - name: Install media toolchain
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            libopus-dev pkg-config ffmpeg
           # Fail with a clear message rather than an opaque napi build error if the
           # runner image ever stops shipping Rust.
           cargo --version || { echo "::error::cargo not found — audio-native cannot build"; exit 1; }
           pkg-config --modversion opus
+          ffmpeg -version | head -1
 
       # Must EXERCISE the addon, not just require it: better-sqlite3's entry
       # module imports fine and only fails when the binding is first used, so a
