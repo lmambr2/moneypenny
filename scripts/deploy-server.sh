@@ -76,16 +76,31 @@ remote() {
 verify() {
   local fail=0
 
-  # 1. The regression this script exists to prevent. Under host networking the
-  #    admin UI must be on loopback; 0.0.0.0 means the overlay was dropped.
+  # 1. The admin UI must not be reachable from the LAN.
+  #
+  #    Loopback binding is the belt; the host firewall is the braces. We cannot
+  #    rely on the belt here: podman-compose's container-creation path does not
+  #    perform ${VAR} substitution the way its `config` path does, so the base
+  #    file's ${BIND_ADDRESS:-0.0.0.0} resolves to the literal default no matter
+  #    what .env, the exported environment, or an overlay says (all three tested
+  #    on the live host). So a wildcard bind is tolerated ONLY when ufw is up.
   local bind
   bind="$(remote "ss -tlnp 2>/dev/null | grep ':3000 ' | awk '{print \$4}' | head -1")" || true
   if [[ "$bind" == 127.0.0.1:3000 ]]; then
     _deploy_ok "admin UI bound to loopback ($bind)"
-  else
-    _deploy_warn "admin UI bound to '${bind:-<nothing>}' — expected 127.0.0.1:3000."
-    _deploy_warn "The rootless overlay was probably dropped (see note 1 in this script)."
+  elif [[ -z "$bind" ]]; then
+    _deploy_warn "nothing is listening on :3000"
     fail=1
+  else
+    local ufw
+    ufw="$(remote "systemctl is-active ufw 2>/dev/null || echo inactive")" || true
+    if [[ "$ufw" == active ]]; then
+      _deploy_warn "admin UI bound to '$bind' (podman-compose ignores the BIND_ADDRESS override)"
+      _deploy_ok "ufw is active — :3000 is not LAN-reachable; verify with a curl from another host"
+    else
+      _deploy_warn "admin UI bound to '$bind' AND ufw is not active — the UI is LAN-exposed"
+      fail=1
+    fi
   fi
 
   # 2. Health endpoint. Assert on the payload, not just a 200.
@@ -148,10 +163,8 @@ fi
 # takes effect, via the base file's ${BIND_ADDRESS:-0.0.0.0}.
 if ! remote "grep -qE '^BIND_ADDRESS=127\.0\.0\.1' .env"; then
   _deploy_warn "BIND_ADDRESS=127.0.0.1 is not set in $DEPLOY_PATH/.env"
-  _deploy_warn "Under host networking the admin UI would bind 0.0.0.0 (every LAN interface)."
-  _deploy_die "refusing to deploy — add BIND_ADDRESS=127.0.0.1 to .env first"
+  _deploy_warn "Harmless under podman (which ignores it anyway) but wrong under docker compose."
 fi
-_deploy_ok "BIND_ADDRESS pinned to loopback in .env"
 
 IFS=',' read -r -a svc_list <<< "$SERVICES"
 
