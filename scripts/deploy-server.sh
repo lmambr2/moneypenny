@@ -142,6 +142,17 @@ if [[ $NO_PULL -eq 0 ]]; then
   [[ "$dirty" == "0" ]] || _deploy_warn "$dirty uncommitted change(s) on the host — deploying them as-is"
 fi
 
+# podman-compose does not merge `environment` keys defined in more than one
+# compose file — the base file wins — so the overlay's BIND_ADDRESS is silently
+# ignored and the admin UI comes up on 0.0.0.0. The .env value is what actually
+# takes effect, via the base file's ${BIND_ADDRESS:-0.0.0.0}.
+if ! remote "grep -qE '^BIND_ADDRESS=127\.0\.0\.1' .env"; then
+  _deploy_warn "BIND_ADDRESS=127.0.0.1 is not set in $DEPLOY_PATH/.env"
+  _deploy_warn "Under host networking the admin UI would bind 0.0.0.0 (every LAN interface)."
+  _deploy_die "refusing to deploy — add BIND_ADDRESS=127.0.0.1 to .env first"
+fi
+_deploy_ok "BIND_ADDRESS pinned to loopback in .env"
+
 IFS=',' read -r -a svc_list <<< "$SERVICES"
 
 if [[ $NO_BUILD -eq 0 ]]; then

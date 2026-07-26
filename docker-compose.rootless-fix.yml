@@ -27,4 +27,12 @@ services:
       # on every LAN interface instead, leaving the host firewall as the only
       # thing in front of it. Loopback keeps the UI reachable on this machine
       # and unreachable from the LAN.
+      #
+      # NOT SUFFICIENT ON ITS OWN under podman-compose: it does not merge
+      # `environment` keys defined in more than one file, and the base file wins
+      # — verified on the live host, where the container came up with
+      # network_mode/user from this overlay but BIND_ADDRESS=0.0.0.0 from the
+      # base. The authoritative setting is BIND_ADDRESS=127.0.0.1 in .env, which
+      # feeds the base file's ${BIND_ADDRESS:-0.0.0.0}. This line is kept so the
+      # overlay is still correct under real docker compose, which does merge.
       - BIND_ADDRESS=127.0.0.1

@@ -96,7 +96,15 @@ services:
       # restricted to localhost on the host, so the UI is not LAN-exposed by
       # default. To reach it over the LAN, change the publish to
       # "0.0.0.0:3000:3000" AND firewall :3000 to the LAN in UFW (DESIGN §11).
-      - BIND_ADDRESS=0.0.0.0
+      #
+      # Overridable because that reasoning only holds under BRIDGE networking.
+      # With network_mode: host (the rootless-Podman overlay) there is no port
+      # publish to restrict, so 0.0.0.0 here would expose the admin UI on every
+      # LAN interface. Such deploys set BIND_ADDRESS=127.0.0.1 in .env — an env
+      # override rather than a compose-file override because podman-compose does
+      # NOT merge `environment` keys defined in more than one file (the base
+      # value wins), so an overlay alone silently fails to take effect.
+      - BIND_ADDRESS=${BIND_ADDRESS:-0.0.0.0}
       # OpenAI-compatible LLM endpoint. Defaults to Ollama + Gemma 4 E2B (the
       # validated default — NPU gives no decode speedup, see ROADMAP); the
       # installer overrides via .env, and --llm npu repoints these at rkllama.
