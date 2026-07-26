@@ -1,7 +1,5 @@
 import { createRequire } from "node:module";
-import opusModule from "@discordjs/opus";
 
-const { OpusEncoder } = opusModule;
 const require = createRequire(import.meta.url);
 
 const SAMPLE_RATE = 48000;
@@ -13,8 +11,8 @@ export const PCM_FRAME_BYTES = FRAME_SIZE * CHANNELS * 2; // 3840 bytes (16-bit 
 export interface Encoder {
   encode(pcm: Buffer): Buffer;
   decode(opus: Buffer): Buffer;
-  /** Which backend produced this encoder. */
-  backend?: "native" | "discordjs";
+  /** Which backend produced this encoder. Only the Rust N-API addon remains. */
+  backend?: "native";
 }
 
 type NativeOpusInstance = {
@@ -43,44 +41,44 @@ function tryLoadNative(): NativeMod["NativeOpus"] | null {
 }
 
 /**
- * Prefer Rust N-API Opus via @moneypenny/audio-native (PR-B4).
- * Falls back to @discordjs/opus when the native addon is missing or fails.
+ * Opus via the Rust N-API addon @moneypenny/audio-native (PR-B4).
+ *
+ * There is no fallback. @discordjs/opus was dropped because it vendors a
+ * libopus whose ARM NEON path relies on implicit function declarations, which
+ * GCC 14 (Debian 13) rejects outright — it cannot build on a modern arm64
+ * toolchain. Removing it also takes the node-pre-gyp -> tar advisory chain with
+ * it, which was the original reason to want it gone.
+ *
+ * Consequences, deliberately chosen: the native addon is now REQUIRED, so
+ * `npm run build` must not swallow a failed Rust build (the `|| true` is gone)
+ * and the image build asserts the addon loads. Failing loudly here beats a
+ * container that starts fine and then cannot emit audio.
  */
 export function createOpusEncoder(channels: number = CHANNELS): Encoder {
   const Ctor = tryLoadNative();
-  if (Ctor) {
-    try {
-      const native = new Ctor(SAMPLE_RATE, channels);
-      return {
-        backend: "native",
-        encode(pcm: Buffer): Buffer {
-          return native.encode(pcm);
-        },
-        decode(opusData: Buffer): Buffer {
-          return native.decode(opusData);
-        },
-      };
-    } catch {
-      // fall through
-    }
+  if (!Ctor) {
+    throw new Error(
+      "@moneypenny/audio-native failed to load — no Opus codec available. " +
+        "Build it with `npm run build:native` (or `build:native:arm64`); " +
+        "there is no @discordjs/opus fallback any more.",
+    );
   }
-
-  const opus = new OpusEncoder(SAMPLE_RATE, channels);
+  const native = new Ctor(SAMPLE_RATE, channels);
   return {
-    backend: "discordjs",
+    backend: "native",
     encode(pcm: Buffer): Buffer {
-      return opus.encode(pcm);
+      return native.encode(pcm);
     },
     decode(opusData: Buffer): Buffer {
-      return opus.decode(opusData);
+      return native.decode(opusData);
     },
   };
 }
 
 /** Diagnostics for tests / health. */
-export function opusBackendAvailable(): { native: boolean; active: "native" | "discordjs" } {
+export function opusBackendAvailable(): { native: boolean; active: "native" | "unavailable" } {
   const native = tryLoadNative() !== null;
-  return { native, active: native ? "native" : "discordjs" };
+  return { native, active: native ? "native" : "unavailable" };
 }
 
 let loggedBackendOnce = false;

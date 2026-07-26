@@ -6,9 +6,9 @@ export const registerPublicRoutes: HttpPlugin = (ctx: HttpAppContext) => {
   const { app, options } = ctx;
 
   app.get("/api/health", (_req, res) => {
-    // opus.native reports whether the Rust addon loaded, so a remote deploy
-    // check can tell a native arm64 image from one that silently fell back
-    // to @discordjs/opus (audit C3).
+    // opus.native reports whether the Rust addon loaded. It is the only codec
+    // now, so false means the image cannot do audio at all — verify-pi-deploy
+    // and any remote check can assert on this.
     res.json({ status: "ok", version: "0.1.0", opus: opusBackendAvailable() });
   });
 

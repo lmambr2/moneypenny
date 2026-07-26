@@ -19,7 +19,7 @@ function parseSize(data: Buffer, offset: number): { size: number; bytes: number 
 
 /**
  * Split a TeamSpeak Opus voice payload into single-frame packets decodable by
- * @discordjs/opus. Returns null when the TOC/layout is invalid.
+ * the Opus decoder. Returns null when the TOC/layout is invalid.
  *
  * Ported from libopus `opus_packet_parse` (RFC 6716 §3).
  */

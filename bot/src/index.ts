@@ -301,18 +301,17 @@ async function main() {
   });
   watchdog.start();
 
-  // Which Opus backend actually loaded (audit C3). The Rust addon is built per
-  // container platform and the image tolerates a failed build, so without this
-  // an arm64 image silently running the @discordjs/opus fallback looks identical
-  // to one running native. Operator confirmation here is the gate for dropping
-  // the fallback dependency.
+  // The Rust addon is the ONLY Opus codec now — @discordjs/opus is gone. If it
+  // did not load, the bot cannot emit or decode audio at all, so say so at
+  // error level rather than letting it surface later as silence in a channel.
   {
     const opus = opusBackendAvailable();
     logger.info(opus, "Opus backend");
     if (!opus.native) {
-      logger.warn(
-        "Rust audio-native addon not loaded — using @discordjs/opus fallback. " +
-          "Expected on unbuilt platforms; see packages/audio-native/README.md.",
+      logger.error(
+        "@moneypenny/audio-native did not load — NO Opus codec available. " +
+          "Music playback and voice will fail. Rebuild with `npm run build:native` " +
+          "(see packages/audio-native/README.md).",
       );
     }
   }

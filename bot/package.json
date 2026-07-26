@@ -10,7 +10,7 @@
   "scripts": {
     "predev": "npm run build -w @moneypenny/ts6-client",
     "dev": "tsx watch src/index.ts",
-    "build": "npm run build -w @moneypenny/ts6-client && npm run build:native || true && tsc && npm run build:web",
+    "build": "npm run build -w @moneypenny/ts6-client && npm run build:native && tsc && npm run build:web",
     "build:ts6": "npm run build -w @moneypenny/ts6-client",
     "build:native": "npm run build -w @moneypenny/audio-native",
     "build:native:arm64": "npm run build:arm64 -w @moneypenny/audio-native",
@@ -34,7 +34,6 @@
     "node": ">=22 <27"
   },
   "dependencies": {
-    "@discordjs/opus": "^0.10.0",
     "@honeybbq/teamspeak-client": "0.2.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@moneypenny/audio-native": "*",
@@ -74,7 +73,6 @@
     "vitest": "^4.1.2"
   },
   "allowScripts": {
-    "@discordjs/opus@0.10.0": true,
     "esbuild@0.28.1": true,
     "ffmpeg-static@5.3.0": true,
     "better-sqlite3@12.11.1": true

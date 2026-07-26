@@ -5,7 +5,8 @@
 #   Native addons (@moneypenny/audio-native, better-sqlite3, opus) compile for
 #   the *image* arch. Build on an arm64 host (Pi) or use buildx with qemu for
 #   TARGETARCH=arm64 — plain `docker build` on x86 cannot emit arm64 .node
-#   without a cross linker. Fallback: @discordjs/opus if audio-native fails.
+#   without a cross linker. There is NO fallback codec — audio-native is
+#   required, and the build fails if it does not compile.
 #   Host script: ./scripts/build-audio-native.sh [--with-arm64]
 #   See bot/packages/audio-native/README.md
 
@@ -14,14 +15,14 @@
 # security patches — and its ceiling is what pinned better-sqlite3 to 12.x
 # (13 requires >= 22). Keep build and runtime on the SAME major so the native
 # addons compiled in this stage match the runtime ABI.
-FROM node:24-bookworm-slim AS build
+FROM node:24-trixie-slim AS build
 
 # BuildKit injects TARGETARCH (amd64 | arm64). Used for operator logs only;
 # Node/Rust compile for the container platform automatically when not cross-linking.
 ARG TARGETARCH
 
-# Toolchain for native modules (@discordjs/opus, better-sqlite3, audio-native/libopus).
-# Rust is optional: if the audio-native build fails, encoder falls back to @discordjs/opus.
+# Toolchain for native modules (better-sqlite3, audio-native/libopus).
+# Rust is REQUIRED: audio-native is the only Opus codec.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 build-essential git ca-certificates pkg-config libopus-dev \
     curl \
@@ -41,7 +42,8 @@ COPY web/package.json web/package-lock.json ./web/
 RUN cd web && npm ci
 
 # Build workspace packages → bot tsc → Vue UI.
-# `build:native || true` inside npm run build keeps image green if Rust/napi fails.
+# build:native is no longer suffixed with `|| true`: a failed Rust build must
+# fail the image, because nothing else can encode Opus.
 COPY . .
 # `target-cpu=native` is safe here and ONLY here: the image is built on the
 # machine that runs it (the Pi builds its own arm64 image), so the ISA features
@@ -53,18 +55,18 @@ ARG RUSTFLAGS="-C target-cpu=native"
 RUN echo "building bot image arch=${TARGETARCH:-unknown} rustflags=${RUSTFLAGS}" \
     && RUSTFLAGS="${RUSTFLAGS}" npm run build
 
-# `npm run build` tolerates a failed Rust/napi build (encoder falls back to
-# @discordjs/opus), which means an arm64 image can silently ship without the
-# native addon. Report which backend the built image actually has (audit C3).
-# Informational only — the fallback is supported, so this must not fail the build.
+# The Rust addon is the ONLY Opus codec — @discordjs/opus was dropped because
+# its vendored libopus cannot build under GCC 14 on arm64. So this is now a hard
+# gate, not a report: an image without the addon starts fine and then cannot
+# play music or do voice, which is far worse than failing the build here.
 ARG TARGETARCH
-RUN node -e "import('./dist/audio/encoder.js').then(m=>{const i=m.opusBackendAvailable();console.log('[build] opus backend: '+JSON.stringify(i));if(!i.native)console.warn('[build] WARNING: audio-native addon did not build for arch='+(process.env.TARGETARCH||process.arch)+' — image will use the @discordjs/opus fallback');}).catch(e=>console.warn('[build] opus backend probe skipped: '+e.message))"
+RUN node -e "import('./dist/audio/encoder.js').then(m=>{const i=m.opusBackendAvailable();console.log('[build] opus backend: '+JSON.stringify(i));if(!i.native){console.error('[build] FATAL: @moneypenny/audio-native did not build for arch='+(process.env.TARGETARCH||process.arch)+'. There is no fallback codec — the image would start and be unable to emit audio.');process.exit(1);}}).catch(e=>{console.error('[build] FATAL: opus backend probe failed: '+e.message);process.exit(1);})"
 
 # Fail the build when a native addon needs a newer glibc than this image has.
 # This must run HERE, not in CI: node-pre-gyp downloads a prebuild matched to
 # the current machine, so a CI runner inspects a binary that never ships.
 # better-sqlite3 13 shipped a linux-arm64 prebuild needing GLIBC_2.38 against
-# bookworm's 2.36 — every CI check was green and the container crash-looped
+# the runtime image glibc — every CI check was green and the container crash-looped
 # with ERR_DLOPEN_FAILED on first database open.
 COPY scripts/check-glibc-floor.mjs /tmp/check-glibc-floor.mjs
 RUN GLIBC_FLOOR="$(ldd --version | head -1 | grep -oE '[0-9]+\.[0-9]+$')" \
@@ -76,8 +78,8 @@ RUN GLIBC_FLOOR="$(ldd --version | head -1 | grep -oE '[0-9]+\.[0-9]+$')" \
 RUN npm prune --omit=dev
 
 # ── Stage 1b: radio analyzer CLIs (OQ2 — keyfinder-cli + aubio) ───────────
-# libkeyfinder is not packaged on bookworm — build from source, then keyfinder-cli.
-FROM debian:bookworm-slim AS analyzer
+# libkeyfinder is not packaged in Debian — build from source, then keyfinder-cli.
+FROM debian:trixie-slim AS analyzer
 ARG LIBKEYFINDER_REF=2.2.8
 ARG KEYFINDER_CLI_REF=v1.2.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -100,11 +102,11 @@ RUN git clone --depth 1 --branch "${KEYFINDER_CLI_REF}" \
 
 # ── Stage 2: runtime ────────────────────────────────────────────────────────
 # Must track the build stage major — native addons are copied across.
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-trixie-slim AS runtime
 
 # Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
 # aubio-tools: BPM detection for the radio analyzer sidecar (docs/radio.md §9.5).
-# libopus0: optional @moneypenny/audio-native (PR-B4); discordjs/opus still works without it.
+# libopus0: runtime shared lib for @moneypenny/audio-native (PR-B4) — required.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg python3 python3-pip ca-certificates pandoc aubio-tools libfftw3-double3 libopus0 \
     && pip3 install --no-cache-dir --break-system-packages yt-dlp \

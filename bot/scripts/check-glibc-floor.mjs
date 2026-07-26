@@ -2,9 +2,8 @@
 /**
  * Fail when a native addon requires a newer glibc than the runtime image has.
  *
- * CI runners ship a newer glibc than `node:*-bookworm-slim` (Debian 12,
- * GLIBC 2.36). An addon can therefore load perfectly in CI and still die at
- * runtime with:
+ * A CI runner's glibc may differ from the runtime image's. An addon can
+ * therefore load perfectly in CI and still die at runtime with:
  *
  *   Error: /lib/aarch64-linux-gnu/libm.so.6: version `GLIBC_2.38' not found
  *
@@ -16,7 +15,7 @@
  * Scope: only PREBUILT artifacts (`prebuilds/` / `prebuild/`), because those
  * ship and load as-is. Addons compiled at install time (`build/Release/…`) are
  * built against whatever glibc is present — on this dev box or inside the
- * bookworm image — so their tags say nothing about the runtime. Pass --all to
+ * runtime image — so their tags say nothing about the runtime. Pass --all to
  * check every .node anyway, which is meaningful only when run inside an
  * environment that matches the runtime image.
  *
@@ -35,7 +34,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const args = process.argv.slice(2);
-let floor = "2.36"; // node:*-bookworm-slim (Debian 12)
+let floor = "2.41"; // node:*-trixie-slim (Debian 13); Dockerfile passes the real value
 let checkAll = false;
 const dirs = [];
 for (let i = 0; i < args.length; i++) {
@@ -141,7 +140,7 @@ if (checked === 0) {
 if (failed) {
   console.error(
     `\nAn addon needs a newer glibc than the runtime image (floor ${floor}, ` +
-      `node:*-bookworm-slim = Debian 12). It will crash at startup with ` +
+      `node:*-trixie-slim = Debian 13). It will crash at startup with ` +
       `ERR_DLOPEN_FAILED even though CI passed. Pin the dependency back, force a ` +
       `source build, or move the image to a newer Debian base.`,
   );
