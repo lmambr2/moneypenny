@@ -38,11 +38,24 @@ describe("isRadioSeedFriendlySong", () => {
     expect(isRadioSeedFriendlySong(seed({ duration: 0 }))).toBe(true);
   });
 
-  it("rejects tracks longer than the cap", () => {
-    expect(isRadioSeedFriendlySong(seed({ duration: RADIO_SEED_MAX_DURATION_SEC + 1 }))).toBe(
+  // Length no longer disqualifies: auto-DJ airs a bounded window of a long mix
+  // (radio/mix-window.ts), so an hour-long upload costs one queue slot, not an
+  // hour of the station. Callers wanting whole tracks pass allowLongMixes=false.
+  it("admits over-long tracks so they can be windowed", () => {
+    expect(isRadioSeedFriendlySong(seed({ duration: RADIO_SEED_MAX_DURATION_SEC + 1 }))).toBe(true);
+    expect(isRadioSeedFriendlySong(seed({ duration: 3 * 60 * 60 }))).toBe(true);
+    expect(isRadioSeedFriendlySong(seed({ duration: RADIO_SEED_MAX_DURATION_SEC }))).toBe(true);
+  });
+
+  it("still enforces the cap when long mixes are disallowed", () => {
+    const overCap = seed({ duration: RADIO_SEED_MAX_DURATION_SEC + 1 });
+    expect(isRadioSeedFriendlySong(overCap, RADIO_SEED_MAX_DURATION_SEC, null, null, false)).toBe(
       false,
     );
-    expect(isRadioSeedFriendlySong(seed({ duration: RADIO_SEED_MAX_DURATION_SEC }))).toBe(true);
+    const atCap = seed({ duration: RADIO_SEED_MAX_DURATION_SEC });
+    expect(isRadioSeedFriendlySong(atCap, RADIO_SEED_MAX_DURATION_SEC, null, null, false)).toBe(
+      true,
+    );
   });
 
   // Multi-hour mixes hog the channel; these titles are rejected on text even

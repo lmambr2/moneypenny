@@ -74,20 +74,35 @@ const DEFAULT_SEED_EXTERNAL_RATIO = 2 / 3;
 
 export type RadioSeedSource = "local" | "youtube" | "stream";
 
-/** True when a track is short enough (or duration unknown) and not an obvious mega-mix title. */
+/**
+ * True when a track may feed auto-DJ.
+ *
+ * Length is deliberately NOT disqualifying any more: a long DJ mix airs as a
+ * bounded window (radio/mix-window.ts) instead of owning the station, so the
+ * only thing an hour-long mix costs us is one queue slot. What still
+ * disqualifies is content that cannot be aired at all — livestreams with no
+ * discrete media URL (dead air whatever window we ask for), non-music, blocked
+ * genres, and blacklisted tracks.
+ *
+ * `maxDurationSec` is retained for callers that genuinely want whole tracks; it
+ * is only applied when `allowLongMixes` is false.
+ */
 export function isRadioSeedFriendlySong(
   song: Pick<Song, "id" | "name" | "artist" | "duration" | "album" | "platform">,
   maxDurationSec = RADIO_SEED_MAX_DURATION_SEC,
   blockedGenres?: readonly string[] | null,
   blacklist?: PlaybackBlacklist | null,
+  allowLongMixes = true,
 ): boolean {
   if (blacklist?.isBlacklisted(song)) return false;
   if (isBlockedGenreSong(song, blockedGenres)) return false;
   // Docs / podcasts / trailers / clickbait — never feed auto-DJ.
   if (isNonMusicContent(song)) return false;
   // 24/7 LIVE radios / Lofi-style streams — yt-dlp returns no URL → dead air.
+  // This one survives allowLongMixes: it is about playability, not length.
   if (isYoutubeLivestreamRadioTitle(song.name)) return false;
-  // YouTube: same hard gates as search/play (full album, live, >15m, non-music).
+  // YouTube: same hard gates as search/play. The "radio" policy keeps full-album,
+  // livestream and non-music rejection but drops the >15m rule.
   if (
     song.platform === "youtube" &&
     shouldBlockYoutubeSong({
@@ -95,22 +110,38 @@ export function isRadioSeedFriendlySong(
       artist: song.artist,
       album: song.album,
       duration: song.duration,
+      policy: allowLongMixes ? "radio" : "search",
     })
   ) {
     return false;
   }
-  if (song.duration > 0 && song.duration > maxDurationSec) return false;
   const n = `${song.name} ${song.artist}`.toLowerCase();
-  // "4 hours", "full album", "vol. 1" multi-hour livestream titles, etc.
-  if (/\b\d+\s*hours?\b/.test(n)) return false;
+  // A full album is a different work per track, not a mix — still rejected.
   if (/\bfull\s+album\b/.test(n)) return false;
-  if (/\b\d+\s*hour\s+of\b/.test(n)) return false;
-  // Multi-hour / livestream mix titles (even when duration metadata is missing).
-  if (/\bmix\s+for\b/.test(n)) return false;
-  if (/\bsynthwave\s+mix\b/.test(n) || /\bstudy\s+music\b/.test(n)) {
-    if (song.duration === 0 || song.duration > 20 * 60) return false;
+  if (!allowLongMixes) {
+    if (song.duration > 0 && song.duration > maxDurationSec) return false;
+    // "4 hours", "vol. 1" multi-hour livestream titles, etc.
+    if (/\b\d+\s*hours?\b/.test(n)) return false;
+    if (/\b\d+\s*hour\s+of\b/.test(n)) return false;
+    if (/\bmix\s+for\b/.test(n)) return false;
+    if (/\bsynthwave\s+mix\b/.test(n) || /\bstudy\s+music\b/.test(n)) {
+      if (song.duration === 0 || song.duration > 20 * 60) return false;
+    }
+    if (/\bvol\.?\s*\d+\b/.test(n) && (song.duration === 0 || song.duration > 30 * 60)) {
+      return false;
+    }
+    return true;
   }
-  if (/\bvol\.?\s*\d+\b/.test(n) && (song.duration === 0 || song.duration > 30 * 60)) return false;
+  // Unknown duration on a mix-shaped title is the endless-stream signature: we
+  // cannot window what we cannot measure, so those stay out.
+  const mixShaped =
+    /\b\d+\s*hours?\b/.test(n) ||
+    /\b\d+\s*hour\s+of\b/.test(n) ||
+    /\bmix\s+for\b/.test(n) ||
+    /\bsynthwave\s+mix\b/.test(n) ||
+    /\bstudy\s+music\b/.test(n) ||
+    /\bvol\.?\s*\d+\b/.test(n);
+  if (mixShaped && !(song.duration > 0)) return false;
   return true;
 }
 
@@ -208,9 +239,7 @@ export function diversifyArtists<T extends { id: string; artist?: string }>(
       const next = list[0]!;
       // Prefer not to place the same artist twice in a row when other artists remain.
       if (out.length > 0 && artistDiversityKey(out[out.length - 1]!) === k) {
-        const othersLeft = keys.some(
-          (ok) => ok !== k && (buckets.get(ok)?.length ?? 0) > 0,
-        );
+        const othersLeft = keys.some((ok) => ok !== k && (buckets.get(ok)?.length ?? 0) > 0);
         if (othersLeft) continue;
       }
       list.shift();

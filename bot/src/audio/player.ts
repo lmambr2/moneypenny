@@ -53,6 +53,13 @@ export interface BuildFfmpegArgsOpts {
    * Inserted as a single `-af <graph>` before PCM encode.
    */
   audioFilter?: string | null;
+  /**
+   * Cap output to this many seconds (`-t`). Used to air a window of a long DJ
+   * mix instead of letting a 3-hour upload own the station. ffmpeg simply ends
+   * the stream at the limit, so the normal end-of-stream → trackEnd → advance
+   * path runs; no separate timer or stop() call is involved.
+   */
+  maxSeconds?: number | null;
 }
 
 export function buildFfmpegArgs(
@@ -79,6 +86,11 @@ export function buildFfmpegArgs(
   }
   if (seekSeconds > 0) args.push("-ss", String(seekSeconds));
   args.push("-i", url);
+  // After -i so it bounds OUTPUT duration from the seek point, not input.
+  const maxSec = opts?.maxSeconds;
+  if (typeof maxSec === "number" && Number.isFinite(maxSec) && maxSec > 0) {
+    args.push("-t", String(Math.floor(maxSec)));
+  }
   const af = typeof opts?.audioFilter === "string" ? opts.audioFilter.trim() : "";
   if (af) {
     // Reject newlines / control chars that could break argv; allow ,=: for lavfi graphs.
@@ -220,7 +232,12 @@ export class AudioPlayer extends EventEmitter {
     return this.musicAudioFilter;
   }
 
-  play(url: string, seekSeconds = 0, songDuration = 0, opts?: { volumePctFloor?: number }): void {
+  play(
+    url: string,
+    seekSeconds = 0,
+    songDuration = 0,
+    opts?: { volumePctFloor?: number; maxSeconds?: number | null },
+  ): void {
     // 1. Stop all current playback; bump sessionId to invalidate stale callbacks.
     this.stop();
     // Per-play volume floor (radio speech): spoken audio must not ride the
@@ -250,7 +267,10 @@ export class AudioPlayer extends EventEmitter {
     // Speech / bumper plays: keep full band. Music: optional radio color overlay.
     const isSpeech = this.playVolumeFloor != null;
     const af = !isSpeech ? this.musicAudioFilter : null;
-    const args = buildFfmpegArgs(url, seekSeconds, { audioFilter: af });
+    const args = buildFfmpegArgs(url, seekSeconds, {
+      audioFilter: af,
+      maxSeconds: opts?.maxSeconds ?? null,
+    });
 
     const ffmpegBin = getFfmpegCommand();
     this.ffmpeg = spawn(ffmpegBin, args, { stdio: ["ignore", "pipe", "pipe"] });

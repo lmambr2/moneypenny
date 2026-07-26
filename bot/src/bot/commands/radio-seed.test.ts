@@ -7,6 +7,7 @@ import {
   isRadioSeedFriendlySong,
   mixLocalAndExternalSeeds,
   orderSeedCandidates,
+  RADIO_SEED_MAX_DURATION_SEC,
   RadioCommands,
   shuffleSongs,
 } from "./radio-commands.js";
@@ -82,8 +83,20 @@ describe("isRadioSeedFriendlySong", () => {
         }),
       ),
     ).toBe(false);
+    // A plain over-long track is now ADMITTED — it airs as a ~10 minute window
+    // rather than two hours. Only unplayable/non-music content is rejected.
     expect(
       isRadioSeedFriendlySong(song({ id: "long", name: "Epic Track", duration: 2 * 3600 })),
+    ).toBe(true);
+    // ...unless the caller explicitly wants whole tracks.
+    expect(
+      isRadioSeedFriendlySong(
+        song({ id: "long2", name: "Epic Track", duration: 2 * 3600 }),
+        RADIO_SEED_MAX_DURATION_SEC,
+        null,
+        null,
+        false,
+      ),
     ).toBe(false);
     expect(
       isRadioSeedFriendlySong(song({ id: "alb", name: "Led Zeppelin II Full Album", duration: 0 })),
