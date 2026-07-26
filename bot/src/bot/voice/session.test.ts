@@ -94,6 +94,8 @@ function makeSession(over: Partial<VoiceSessionDeps> = {}) {
     captureDuck: unknown;
     ensureMusicDuckedOnWake(clientId: number): void;
     pruneClientMaps(live: Set<number>): void;
+    ttsPlaybackActive: boolean;
+    speechQueue: { isSpeaking: boolean };
   };
 
   return { session, deps, player, tsClient, onClientList, internal };
@@ -222,5 +224,61 @@ describe("VoiceSession duck release on speaker departure (audit A2)", () => {
     internal.speakerArm.arm(1);
     internal.ensureMusicDuckedOnWake(1);
     expect(player.isSttDucked()).toBe(false);
+  });
+});
+
+describe("VoiceSession wake duck vs the bot's own TTS", () => {
+  // The player is shared: speak() parks the song in savedMusic and plays the
+  // reply on the SAME AudioPlayer. getState() reports "playing" either way, so
+  // a wake arriving mid-reply used to duck the reply itself — heard live as
+  // Moneypenny dropping to a mutter partway through "Now playing: ...".
+  it("ducks normally when the player is playing actual music", () => {
+    const { internal, player } = makeSession();
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).toHaveBeenCalledWith(15);
+    expect(player.ducked()).toBe(true);
+    expect(internal.captureDuck).not.toBeNull();
+  });
+
+  it("does NOT duck while a TTS reply is playing", () => {
+    const { internal, player } = makeSession();
+    internal.ttsPlaybackActive = true;
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
+    expect(player.ducked()).toBe(false);
+    // No duck means no capture state and therefore no watchdog to leak.
+    expect(internal.captureDuck).toBeNull();
+  });
+
+  it("does NOT duck while the speech queue is still speaking", () => {
+    const { internal, player } = makeSession();
+    // isSpeaking is a getter on SpeechQueue — spy on it rather than assigning.
+    vi.spyOn(internal.speechQueue, "isSpeaking", "get").mockReturnValue(true);
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
+    expect(player.ducked()).toBe(false);
+  });
+
+  it("resumes ducking once the reply has finished", () => {
+    const { internal, player } = makeSession();
+    internal.ttsPlaybackActive = true;
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
+
+    // cleanup() in speak() clears the flag when trackEnd/error/abort fires.
+    internal.ttsPlaybackActive = false;
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).toHaveBeenCalledWith(15);
+    expect(player.ducked()).toBe(true);
+  });
+
+  it("still skips the duck when TTS is playing over an otherwise duckable track", () => {
+    // Guards against a future refactor reordering the TTS check below the
+    // getState()/queue.current() guards, which would restore the old bug.
+    const { internal, player } = makeSession();
+    internal.ttsPlaybackActive = true;
+    vi.spyOn(internal.speechQueue, "isSpeaking", "get").mockReturnValue(true);
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
   });
 });

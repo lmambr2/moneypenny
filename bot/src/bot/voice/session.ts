@@ -1195,6 +1195,17 @@ export class VoiceSession {
    */
   private ensureMusicDuckedOnWake(clientId: number): void {
     if (!this.duckMusicOnSpeech) return;
+    // The player is shared between music and bot TTS: speak() parks the song in
+    // savedMusic and plays the reply on the SAME player. So while a reply is in
+    // flight the thing playing IS her own voice, and ducking here attenuates the
+    // announcement mid-sentence instead of the music — heard as her dropping to
+    // a mutter partway through, then recovering when the duck is released.
+    // getState() cannot distinguish the two ("playing" either way); this is the
+    // same pair of flags the barge-in path uses to tell TTS from pure music.
+    if (this.ttsPlaybackActive || this.speechQueue.isSpeaking) {
+      this.deps.logger.debug({ clientId }, "Voice: wake duck skipped — bot TTS is speaking");
+      return;
+    }
     if (this.deps.player.getState() !== "playing") {
       // Idle channel is common — do not spam info logs on every wake.
       this.deps.logger.debug(
