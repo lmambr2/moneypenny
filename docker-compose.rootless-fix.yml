@@ -1,0 +1,30 @@
+# Rootless Podman overlay for the x86 server edition.
+#
+# Apply LAST, after the base + server files:
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml \
+#                  -f docker-compose.rootless-fix.yml up -d
+#
+# user "0:0" is NOT a privilege escalation under rootless Podman: container
+# uid 0 maps to the *host* user running the daemon, which is what owns the
+# bind-mounted bot/data and music. Container uid 1000 would instead land in a
+# subuid range that owns nothing on the host, so every write would fail. This
+# is the standard rootless bind-mount idiom; the alternative is a
+# `podman unshare chown` pass over the data dirs (what install.sh does).
+#
+# network_mode host lets the bot reach host-systemd ollama on 127.0.0.1:11434
+# and the loopback-bound sidecars (stt 9000, piper 8880, qdrant 6333,
+# mempalace 8090) without rootless netns gymnastics. Pair it with
+# scripts/fix-hostnet-urls.sh, which pins those URLs to loopback in config.json.
+services:
+  bot:
+    user: "0:0"
+    network_mode: "host"
+    networks: !reset null
+    environment:
+      # The base compose sets 0.0.0.0, which is correct for bridge networking —
+      # you must bind the wildcard to be reachable outside the network
+      # namespace. Under host networking that same value publishes the admin UI
+      # on every LAN interface instead, leaving the host firewall as the only
+      # thing in front of it. Loopback keeps the UI reachable on this machine
+      # and unreachable from the LAN.
+      - BIND_ADDRESS=127.0.0.1
