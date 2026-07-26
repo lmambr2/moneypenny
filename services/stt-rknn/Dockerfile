@@ -20,6 +20,15 @@ RUN pip install --no-cache-dir --upgrade pip \
         || pip install --no-cache-dir rknnlite \
         || echo "rknnlite not on this platform — CPU fallback only")
 
+# SenseVoice backend (STT_BACKEND=sensevoice). --no-deps is deliberate: the
+# rkvoice-stream package pins numpy<2 and pulls fastapi/uvicorn for its own
+# server, none of which this service uses — it only calls the backend class
+# directly. sentencepiece is the one real runtime dep (the 25055-token BPE
+# vocab, loaded in preload()); soundfile is only used by its file-decode path,
+# which we bypass by handing it a float32 array.
+RUN pip install --no-cache-dir --no-deps rkvoice-stream==0.1.1 \
+    && pip install --no-cache-dir sentencepiece
+
 ENV PORT=9000 \
     STT_MODEL=tiny \
     STT_DEVICE=npu \
