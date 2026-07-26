@@ -246,6 +246,30 @@
           <button class="btn-primary" @click="saveIdleTimeout">Save</button>
         </div>
       </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <Icon icon="mdi:account-group-outline" class="setting-icon" />
+          <div>
+            <div>Follow the crowd</div>
+            <div style="font-size:12px; opacity:0.6; margin-top:2px">When nobody is left in her channel, move to the busiest channel that has people in it. Never follows into AFK channels, and never moves while she still has company.</div>
+          </div>
+        </div>
+        <div class="prefix-input-wrap">
+          <input type="checkbox" class="profile-toggle-switch" v-model="autoFollowEnabled" />
+          <input
+            v-model.number="autoFollowCooldownSec"
+            type="number"
+            min="0"
+            class="input input-sm"
+            style="max-width:80px"
+            placeholder="60"
+            :disabled="!autoFollowEnabled"
+          />
+          <span style="font-size:13px; opacity:0.7">s min. gap</span>
+          <button class="btn-primary" @click="saveAutoFollow">Save</button>
+        </div>
+      </div>
     </section>
 
     <!-- AI & Permissions (admin only) -->
@@ -1884,6 +1908,8 @@ async function loadIdleTimeout() {
   try {
     const res = await api.get('/api/bot/settings');
     idleTimeout.value = res.data.idleTimeoutMinutes ?? 0;
+    autoFollowEnabled.value = !!res.data.autoFollowEnabled;
+    autoFollowCooldownSec.value = res.data.autoFollowCooldownSec ?? 60;
   } catch (e) {
     console.error('Settings load/save failed', e);
   }
@@ -1892,6 +1918,22 @@ async function loadIdleTimeout() {
 async function saveIdleTimeout() {
   try {
     await api.post('/api/bot/settings', { idleTimeoutMinutes: idleTimeout.value });
+  } catch (e) {
+    console.error('Settings load/save failed', e);
+  }
+}
+
+// Follow-the-crowd. The AFK channel-name list is a string[] and has no flat
+// settings type, so it stays in config.json; the defaults cover the usual names.
+const autoFollowEnabled = ref(false);
+const autoFollowCooldownSec = ref(60);
+
+async function saveAutoFollow() {
+  try {
+    await api.post('/api/bot/settings', {
+      autoFollowEnabled: autoFollowEnabled.value,
+      autoFollowCooldownSec: autoFollowCooldownSec.value,
+    });
   } catch (e) {
     console.error('Settings load/save failed', e);
   }
