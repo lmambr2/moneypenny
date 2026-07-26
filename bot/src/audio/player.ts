@@ -1,37 +1,11 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { accessSync, chmodSync, constants, rmSync } from "node:fs";
-import { createRequire } from "node:module";
+import { rmSync } from "node:fs";
 import type { Logger } from "../logger.js";
 import { createOpusEncoder, type Encoder, PCM_FRAME_BYTES } from "./encoder.js";
 
-const require = createRequire(import.meta.url);
-/** Optional dep — prefer system ffmpeg on the Pi; ffmpeg-static is a large fallback. */
-const ffmpegPath: string | null = (() => {
-  try {
-    return require("ffmpeg-static") as string;
-  } catch {
-    return null;
-  }
-})();
-
 /** Global PID tracker — prevents processes from being orphaned when class instances are swapped. */
 const globalActivePids = new Set<number>();
-
-function isExecutable(binPath: string): boolean {
-  try {
-    accessSync(binPath, constants.X_OK);
-    return true;
-  } catch {
-    try {
-      chmodSync(binPath, 0o755);
-      accessSync(binPath, constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
 
 function ffmpegWorks(bin: string): boolean {
   try {
@@ -42,15 +16,24 @@ function ffmpegWorks(bin: string): boolean {
   }
 }
 
-const resolvedFfmpeg: string = (() => {
-  if (ffmpegWorks("ffmpeg")) return "ffmpeg";
-  const isWinPath = ffmpegPath ? /\\/.test(ffmpegPath) || ffmpegPath.endsWith(".exe") : false;
-  const onWindows = process.platform === "win32";
-  if (ffmpegPath && onWindows === isWinPath) {
-    if (isExecutable(ffmpegPath) && ffmpegWorks(ffmpegPath)) return ffmpegPath;
-  }
-  return "ffmpeg";
-})();
+const FFMPEG_BIN = "ffmpeg";
+
+/**
+ * System ffmpeg only. The `ffmpeg-static` npm fallback was dropped: the runtime
+ * image installs ffmpeg from apt unconditionally, so the fallback could never
+ * fire in production — ~70MB plus an install script carried purely for
+ * bare-metal dev.
+ *
+ * Probed once at load so a missing binary is reported here, rather than as an
+ * opaque spawn failure on the first track.
+ */
+if (!ffmpegWorks(FFMPEG_BIN)) {
+  console.error(
+    "[AudioPlayer] ffmpeg not found on PATH — playback will fail. " +
+      "Install ffmpeg (the container image ships it; bare-metal dev must provide it).",
+  );
+}
+const resolvedFfmpeg: string = FFMPEG_BIN;
 
 export function getFfmpegCommand(): string {
   return resolvedFfmpeg;
