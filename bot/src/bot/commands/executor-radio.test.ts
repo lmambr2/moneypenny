@@ -60,7 +60,7 @@ describe("cmdRadio", () => {
 });
 
 describe("cmdRadio ops (§8/§12)", () => {
-  function opsHarness() {
+  function opsHarness(playerState: "idle" | "playing" | "paused" = "idle") {
     const radio = defaultRadioConfig();
     radio.profiles = {
       mining: {
@@ -152,9 +152,10 @@ describe("cmdRadio ops (§8/§12)", () => {
         },
       ]),
     };
+    const resolveAndPlay = vi.fn(async (_song?: { id?: string }) => true);
     const ex = new CommandExecutor({
       playback: {
-        resolveAndPlay: vi.fn(async () => true),
+        resolveAndPlay,
         extractId: (s: string) => s,
         searchFirst: vi.fn(async () => ({
           provider: { platform: "local" },
@@ -169,7 +170,7 @@ describe("cmdRadio ops (§8/§12)", () => {
           },
         })),
       } as never,
-      player: { getState: () => "idle", resetFailures: vi.fn() } as never,
+      player: { getState: () => playerState, resetFailures: vi.fn() } as never,
       queue: queue as never,
       config: { commandPrefix: "!", radio } as never,
       profileManager: {} as never,
@@ -181,7 +182,7 @@ describe("cmdRadio ops (§8/§12)", () => {
       ),
       tagStore,
     });
-    return { ex, radio, queue, queued, streamProvider };
+    return { ex, radio, queue, queued, streamProvider, resolveAndPlay };
   }
 
   it("ops list names profiles and the active one", async () => {
@@ -311,6 +312,40 @@ describe("cmdRadio ops (§8/§12)", () => {
     const before = queued.length;
     expect(await ex.autoProgramRadio()).toBe(false);
     expect(queued.length).toBe(before);
+  });
+
+  /**
+   * Dead-air restock used to re-queue the just-FINISHED track at index 0 and
+   * then play() + resolveAndPlay() it, restarting the song that had just ended.
+   * Seen live in play_history: "Zane Williams - 99 Bottles" at 20:35:31 and
+   * again at 20:39:38, one song length apart. The head-insert is only meant to
+   * protect a track that is genuinely mid-play.
+   */
+  it("does not restart the track that just finished (player idle)", async () => {
+    const { ex, radio, queue, resolveAndPlay } = opsHarness("idle");
+    radio.activeProfile = "mining";
+    queue.add({ id: "just-finished" } as never);
+    queue.play();
+    resolveAndPlay.mockClear();
+
+    expect(await ex.autoProgramRadio()).toBe(true);
+
+    const startedIds = resolveAndPlay.mock.calls.map((c) => c[0]?.id);
+    expect(startedIds).not.toContain("just-finished");
+  });
+
+  it("still protects a track that is genuinely mid-play", async () => {
+    const { ex, radio, queue, queued, resolveAndPlay } = opsHarness("playing");
+    radio.activeProfile = "mining";
+    queue.add({ id: "now-playing" } as never);
+    queue.play();
+    resolveAndPlay.mockClear();
+
+    expect(await ex.autoProgramRadio()).toBe(true);
+
+    // Kept at the head of the rebuilt queue, and NOT re-resolved (no SIGKILL).
+    expect(queued[0]?.id).toBe("now-playing");
+    expect(resolveAndPlay).not.toHaveBeenCalled();
   });
 
   it("unknown profile lists what exists", async () => {

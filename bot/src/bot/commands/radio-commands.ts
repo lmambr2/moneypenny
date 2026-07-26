@@ -641,7 +641,21 @@ export class RadioCommands {
     // the ban-list track at head, resolveAndPlay fails, idle forever.
     const currentBlocked = !!(current && bl?.isBlacklisted(current));
     const preserveCurrent = !!(current && keepStream);
-    const requeueCurrent = !!(current && (preserveCurrent || !currentBlocked));
+    /**
+     * Only re-queue the current track when audio is ACTUALLY running.
+     *
+     * The head-insert below exists so a restock does not SIGKILL a song
+     * mid-play — that is the `keepStream` case, which takes the playAt(0) path
+     * and never re-resolves. When the player is idle the "current" song is the
+     * one that just FINISHED, and re-queueing it puts it at index 0 where the
+     * else-branch calls queue.play() + resolveAndPlay() — restarting the track
+     * that just ended. Confirmed in play_history: "Zane Williams - 99 Bottles"
+     * at 20:35:31 then again at 20:39:38, one song length apart.
+     *
+     * Anti-repeat cannot catch it either: keptIds deliberately excludes the
+     * current id from the pool, so the saturation filter never sees it.
+     */
+    const requeueCurrent = preserveCurrent;
 
     const userPendingPlayable: QueuedSong[] = [];
     for (let i = 0; i < prevList.length; i++) {
