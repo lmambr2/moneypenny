@@ -22,6 +22,14 @@ x-cpuset-latency: &cpuset-latency ${CPUSET_LATENCY:-4-7}
 x-cpuset-bulk: &cpuset-bulk ${CPUSET_BULK:-0-3}
 
 services:
+  # TS6 is a packet relay — clients do the Opus work, the server forwards UDP to
+  # subscribers. Measured at 1.4% CPU / 24 MB on this board, and a full 32-slot
+  # server is still a few percent of one core. Two A55s is far more than it needs;
+  # the point is a dedicated pair so an ollama embedding burst cannot starve the
+  # voice relay, while leaving the A76 cluster entirely to the audio path.
+  teamspeak:
+    cpuset: ${CPUSET_TS:-0-1}
+
   bot:
     # Opus encode/decode on a 20ms cadence + voice routing.
     cpuset: *cpuset-latency
