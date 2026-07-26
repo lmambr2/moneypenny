@@ -713,7 +713,7 @@ export class VoiceSession {
     if (isSpeech) this.scheduleStreamIdle(v.clientId, true);
     else this.scheduleStreamIdle(v.clientId, false);
 
-    const musicPlaying = this.deps.player.getState() === "playing";
+    const musicPlaying = this.isMusicPlaying();
     const flushMs = inCapture
       ? this.streamFlushMs
       : musicPlaying
@@ -827,7 +827,10 @@ export class VoiceSession {
     }
 
     // Loud music still streaming — don't pollute command capture until ducked.
-    if (inCommand && this.deps.player.getState() === "playing" && !this.deps.player.isSttDucked()) {
+    // Must be MUSIC: while the bot is speaking, the player also reports
+    // "playing" but is deliberately NOT duck-flagged, so using getState() here
+    // silently dropped every command spoken over a reply.
+    if (inCommand && this.isMusicPlaying() && !this.deps.player.isSttDucked()) {
       this.deps.logger.debug({ clientId }, "Voice: STT flush held — music not ducked yet");
       return;
     }
@@ -1221,6 +1224,23 @@ export class VoiceSession {
    * Wake-only ("moneypenny" with no command) still hits this path via out.keyword.
    * No duck on command-mode audio alone — music must keep playing until KWS fires.
    */
+  /** True while the shared player is airing the bot's own TTS rather than music. */
+  private isBotSpeaking(): boolean {
+    return this.ttsPlaybackActive || this.speechQueue.isSpeaking;
+  }
+
+  /**
+   * True only when real MUSIC is on the wire.
+   *
+   * player.getState() reports "playing" for a TTS reply too, because speak()
+   * airs the reply on the same AudioPlayer. Every caller that means "music is
+   * competing with the speaker" must use this instead, or it will treat
+   * Moneypenny's own voice as music.
+   */
+  private isMusicPlaying(): boolean {
+    return this.deps.player.getState() === "playing" && !this.isBotSpeaking();
+  }
+
   private ensureMusicDuckedOnWake(clientId: number): void {
     if (!this.duckMusicOnSpeech) return;
     // The player is shared between music and bot TTS: speak() parks the song in
@@ -1230,7 +1250,7 @@ export class VoiceSession {
     // a mutter partway through, then recovering when the duck is released.
     // getState() cannot distinguish the two ("playing" either way); this is the
     // same pair of flags the barge-in path uses to tell TTS from pure music.
-    if (this.ttsPlaybackActive || this.speechQueue.isSpeaking) {
+    if (this.isBotSpeaking()) {
       this.deps.logger.debug({ clientId }, "Voice: wake duck skipped — bot TTS is speaking");
       return;
     }

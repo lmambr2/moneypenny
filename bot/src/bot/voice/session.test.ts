@@ -337,3 +337,49 @@ describe("VoiceSession stale pause/stop suppression", () => {
     expect(inner.ttsPlaybackActive).toBe(false);
   });
 });
+
+/**
+ * The shared AudioPlayer reports "playing" for a TTS reply as well as music,
+ * because speak() airs the reply on the same player. Callers that mean "music
+ * is competing with the speaker" must not be fooled by the bot's own voice.
+ *
+ * This bit twice: once ducking a reply mid-sentence, and once dropping command
+ * audio -- the flush guard held capture "until music is ducked", but during TTS
+ * the duck is deliberately skipped, so the guard never released.
+ */
+describe("VoiceSession music-vs-own-voice", () => {
+  type Internals = {
+    ttsPlaybackActive: boolean;
+    speechQueue: { isSpeaking: boolean };
+    isMusicPlaying(): boolean;
+    isBotSpeaking(): boolean;
+  };
+
+  it("counts real music as music", () => {
+    const { session } = makeSession(); // fakePlayer defaults to "playing"
+    const inner = session as unknown as Internals;
+    expect(inner.isMusicPlaying()).toBe(true);
+    expect(inner.isBotSpeaking()).toBe(false);
+  });
+
+  it("does not count the bot's own TTS as music", () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.ttsPlaybackActive = true;
+    expect(inner.isBotSpeaking()).toBe(true);
+    expect(inner.isMusicPlaying()).toBe(false);
+  });
+
+  it("does not count a queued reply still being spoken as music", () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    vi.spyOn(inner.speechQueue, "isSpeaking", "get").mockReturnValue(true);
+    expect(inner.isMusicPlaying()).toBe(false);
+  });
+
+  it("reports no music when the player is idle", () => {
+    const player = fakePlayer("idle");
+    const { session } = makeSession({ player } as unknown as Partial<VoiceSessionDeps>);
+    expect((session as unknown as Internals).isMusicPlaying()).toBe(false);
+  });
+});
