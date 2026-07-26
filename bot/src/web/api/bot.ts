@@ -59,6 +59,8 @@ export function createBotRouter(
       musicBlockedGenres: Array.isArray(config.musicBlockedGenres)
         ? config.musicBlockedGenres
         : ["rap", "hip hop", "hip-hop", "hiphop", "r&b", "rnb", "r and b", "rhythm and blues"],
+      autoFollowEnabled: config.autoFollowEnabled ?? false,
+      autoFollowCooldownSec: config.autoFollowCooldownSec ?? 60,
       ragEnabled: config.ragEnabled ?? false,
       ragTopK: config.ragTopK ?? 6,
       memoryEnabled: config.memoryEnabled ?? false,
@@ -127,6 +129,10 @@ export function createBotRouter(
       msg?: string;
     }[] = [
       { key: "idleTimeoutMinutes", type: "number", min: 0, touch: "idle" },
+      { key: "autoFollowEnabled", type: "boolean" },
+      // autoFollowAfkChannels is a string[] and has no flat type; edit it in
+      // config.json. Its defaults already cover the usual AFK channel names.
+      { key: "autoFollowCooldownSec", type: "number", min: 0 },
       { key: "llmEnabled", type: "boolean", touch: "llm" },
       { key: "llmUrl", type: "string", touch: "llm" },
       { key: "llmModel", type: "string", touch: "llm" },

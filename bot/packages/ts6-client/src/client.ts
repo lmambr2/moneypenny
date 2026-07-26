@@ -580,6 +580,23 @@ export class TS3Client extends EventEmitter {
   }
 
   /**
+   * Every client on the virtual server, with the channel each is sitting in.
+   *
+   * getClientsInChannel() narrows the same list to the bot's own channel; this
+   * is the unfiltered view, used to find where people actually are when the
+   * bot's channel has emptied out.
+   */
+  async getAllClients(): Promise<ClientInfo[]> {
+    if (!this.client) return [];
+    try {
+      return await listClients(this.client);
+    } catch (err) {
+      this.logger.warn({ err }, "getAllClients failed");
+      return [];
+    }
+  }
+
+  /**
    * Resolve the bot's current channel id. Prefer clientlist self-row (authoritative),
    * then the library in-memory map, then HTTP Query clientinfo. Avoids 0n when join
    * reported "already member" without updating the library map (scheduled bumper bug).

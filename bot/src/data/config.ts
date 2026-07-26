@@ -28,6 +28,19 @@ export interface BotConfig {
   autoReturnDelay: number;
   autoPauseOnEmpty: boolean;
   idleTimeoutMinutes: number;
+  /**
+   * Follow the crowd: when nobody is left in the bot's channel, move to the
+   * busiest channel that has people in it. Off by default — a bot that relocates
+   * itself is surprising unless you asked for it.
+   */
+  autoFollowEnabled: boolean;
+  /**
+   * Channel names never followed into, matched case-insensitively. AFK is the
+   * point of the feature: people parked there do not want a DJ to arrive.
+   */
+  autoFollowAfkChannels: string[];
+  /** Minimum gap between automatic moves, so a tie or a churning channel cannot make the bot hop. */
+  autoFollowCooldownSec: number;
   // Public base URL used when generating share links (e.g. the bot's dedicated link).
   // Leave empty to use the browser's current origin. Example:
   //   "https://music.example.com" or "http://1.2.3.4:3000"
@@ -234,6 +247,9 @@ export function getDefaultConfig(): BotConfig {
     autoReturnDelay: 300,
     autoPauseOnEmpty: true,
     idleTimeoutMinutes: 0,
+    autoFollowEnabled: false,
+    autoFollowAfkChannels: ["AFK", "Away", "AFK / Away"],
+    autoFollowCooldownSec: 60,
     publicUrl: "",
     trustProxy: false,
     trustProxyHops: 1,

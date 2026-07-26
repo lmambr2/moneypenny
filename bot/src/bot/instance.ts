@@ -69,6 +69,7 @@ import { RoutedCommandExecutor } from "./control/routed-executor.js";
 import { TextMessageHandler } from "./control/text-handler.js";
 import { createYtLibrary } from "./factory/yt-library.js";
 import { KnowledgeService } from "./knowledge/service.js";
+import { AutoFollow } from "./lifecycle/auto-follow.js";
 import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
 import { countChannelHumans, IdlePoller } from "./lifecycle/idle-poller.js";
 import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
@@ -136,6 +137,7 @@ export class BotInstance extends EventEmitter {
   private statusRegistry: ExternalStatusRegistry;
   private knowledge: KnowledgeService;
   private llm: LlmRuntime;
+  private autoFollow: AutoFollow;
   private idlePoller: IdlePoller;
   private radio: RadioDirector;
   private bumperFactory: RadioBumperFactory;
@@ -553,6 +555,13 @@ export class BotInstance extends EventEmitter {
       logger: this.logger,
     });
 
+    this.autoFollow = new AutoFollow({
+      config: this.config,
+      logger: this.logger,
+      tsClient: this.tsClient,
+      isConnected: () => this.connected,
+    });
+
     this.idlePoller = new IdlePoller({
       config: this.config,
       logger: this.logger,
@@ -566,6 +575,8 @@ export class BotInstance extends EventEmitter {
         if (this.config.roastEnabled) {
           this.roast.runTick(userCount).catch(() => {});
         }
+        // Empty channel: go find the crowd (no-op unless autoFollowEnabled).
+        this.autoFollow.maybeFollow(userCount).catch(() => {});
       },
     });
 
