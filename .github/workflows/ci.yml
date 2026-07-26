@@ -60,14 +60,19 @@ jobs:
       # install scripts unless allowScripts covers them, and allowScripts keys
       # are VERSION-PINNED — so bumping a native dep re-blocks its build with no
       # error. `npm ci` still exits 0; only requiring the module catches it.
-      # Must EXERCISE each addon, not just require it: better-sqlite3's entry
+      # audio-native binds system libopus through pkg-config. @discordjs/opus was
+      # dropped (its vendored libopus cannot build under GCC 14 on arm64), so the
+      # Rust addon is the only codec and `npm run build` no longer tolerates a
+      # failed native build — without this the whole gate fails at link time.
+      - name: Install libopus
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus-dev
+
+      # Must EXERCISE the addon, not just require it: better-sqlite3's entry
       # module imports fine and only fails when the binding is first used, so a
       # bare require() reports success on a build that cannot open a database.
-      - name: Verify native modules built
+      - name: Verify better-sqlite3 binding
         working-directory: bot
-        run: |
-          node -e "const D=require('better-sqlite3');const db=new D(':memory:');db.exec('create table t(x)');db.close();console.log('better-sqlite3 ok')"
-          node -e "const {OpusEncoder}=require('@discordjs/opus');new OpusEncoder(48000,2).encode(Buffer.alloc(3840));console.log('@discordjs/opus ok')"
+        run: node -e "const D=require('better-sqlite3');const db=new D(':memory:');db.exec('create table t(x)');db.close();console.log('better-sqlite3 ok')"
 
       # NOTE: the glibc-floor check deliberately does NOT run here. node-pre-gyp
       # downloads a prebuild matched to the CURRENT machine, so on a runner it
@@ -84,6 +89,24 @@ jobs:
       - name: Check
         working-directory: bot
         run: npm run check
+
+      # Runs AFTER the build, because the Rust addon is produced by
+      # `npm run build:native` inside `npm run check` — it does not exist at
+      # npm ci time like better-sqlite3 does. Exercise a real encode/decode:
+      # loading the module proves nothing about whether it can do Opus.
+      - name: Verify audio-native Opus codec
+        working-directory: bot
+        run: |
+          node -e "
+          const { createOpusEncoder, opusBackendAvailable, PCM_FRAME_BYTES } = await import('./dist/audio/encoder.js');
+          const info = opusBackendAvailable();
+          if (!info.native) { console.error('FATAL: audio-native did not build — there is no fallback codec'); process.exit(1); }
+          const enc = createOpusEncoder();
+          const opus = enc.encode(Buffer.alloc(PCM_FRAME_BYTES, 0));
+          const pcm = enc.decode(opus);
+          if (!(opus.length > 0 && pcm.length >= PCM_FRAME_BYTES)) { console.error('FATAL: Opus round-trip failed'); process.exit(1); }
+          console.log('audio-native ok:', JSON.stringify(info), 'opus bytes', opus.length);
+          " --input-type=module
 
       - name: Build web
         working-directory: bot/web
