@@ -275,6 +275,8 @@ export class LlmModule {
         tools: undefined,
         tool_choice: "none",
         temperature: this.temperature,
+        // Doctrine / org answers need room; tool path stays short (tools.ts).
+        max_tokens: 2048,
       });
       const msg = resp.choices?.[0]?.message;
       // Gemma/Ollama often leave content empty and put the answer in reasoning —

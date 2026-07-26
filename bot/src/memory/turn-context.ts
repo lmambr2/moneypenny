@@ -29,7 +29,7 @@ export interface MemoryBudgets {
 
 export const DEFAULT_MEMORY_BUDGETS: Required<MemoryBudgets> = {
   workingTurns: 6,
-  doctrineChunks: 6,
+  doctrineChunks: 8,
   orgKgHits: 4,
   playbooks: 2,
   lastTools: 3,

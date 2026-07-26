@@ -60,7 +60,7 @@ export function createBotRouter(
         ? config.musicBlockedGenres
         : ["rap", "hip hop", "hip-hop", "hiphop", "r&b", "rnb", "r and b", "rhythm and blues"],
       ragEnabled: config.ragEnabled ?? false,
-      ragTopK: config.ragTopK ?? 4,
+      ragTopK: config.ragTopK ?? 6,
       memoryEnabled: config.memoryEnabled ?? false,
       kgEnabled: config.kgEnabled ?? false,
       mempalaceEnabled: config.mempalaceEnabled ?? false,

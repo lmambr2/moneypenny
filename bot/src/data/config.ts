@@ -265,7 +265,7 @@ export function getDefaultConfig(): BotConfig {
     vectorDbUrl: "",
     embeddingUrl: "",
     embeddingModel: "",
-    ragTopK: 4,
+    ragTopK: 6,
     ragCollection: "moneypenny_docs",
     rerankerUrl: "",
     rerankerModel: "bge-reranker-large",
@@ -293,7 +293,7 @@ export function getDefaultConfig(): BotConfig {
     },
     memoryContext: {
       workingTurns: 6,
-      doctrineChunks: 6,
+      doctrineChunks: 8,
       dedupeInjections: true,
       playbooksEnabled: false,
       playbookCapture: false,
