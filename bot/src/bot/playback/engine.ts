@@ -1,7 +1,7 @@
 import type { EventEmitter } from "node:events";
 import path from "node:path";
 import type { AudioPlayer } from "../../audio/player.js";
-import { isRadioFill, type PlayQueue, type QueuedSong } from "../../audio/queue.js";
+import { isRadioFill, PlayMode, type PlayQueue, type QueuedSong } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { BotDatabase } from "../../data/database.js";
 import type { Logger } from "../../logger.js";
@@ -157,6 +157,10 @@ export class PlaybackEngine {
       this.rememberDemoSongId(localSong.id);
       this.opts.queue.clear();
       this.opts.queue.add({ ...localSong, platform: "local", source: "system" });
+      // One song in the queue: without an explicit mode this inherits whatever
+      // the last feature left (RandomLoop by default), whose single-song branch
+      // replays forever. !test is a demo — it plays once.
+      this.opts.queue.setMode?.(PlayMode.Sequential);
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -182,6 +186,7 @@ export class PlaybackEngine {
     this.rememberDemoSongId(song.id);
     this.opts.queue.clear();
     this.opts.queue.add({ ...song, platform: provider.platform, source: "system" });
+    this.opts.queue.setMode?.(PlayMode.Sequential);
     this.opts.queue.play();
     this.opts.player.resetFailures();
     const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -497,6 +502,8 @@ export class PlaybackEngine {
       }
       this.opts.queue.clear();
       this.opts.queue.addMany(allowed.map((s) => ({ ...s, platform, source: "user" as const })));
+      // Play the playlist through, then end — do not inherit a loop mode.
+      this.opts.queue.setMode?.(PlayMode.Sequential);
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -510,6 +517,7 @@ export class PlaybackEngine {
     }
     this.opts.queue.clear();
     this.opts.queue.add({ ...resolved.item, platform, source: "user" });
+    this.opts.queue.setMode?.(PlayMode.Sequential);
     this.opts.queue.play();
     this.opts.player.resetFailures();
     const ok = await this.resolveAndPlay(this.opts.queue.current()!);
