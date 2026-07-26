@@ -1,0 +1,64 @@
+# Container image scanning for the bot image.
+#
+# Was committed as the unedited GitHub template: it built
+# `docker.io/my-organization/my-app` from the repo root, where there is no
+# Dockerfile, so every run failed before Trivy ever ran. It also only watched
+# `master`, which is the branch nothing lands on.
+#
+# Building the image here has a second payoff: bot/Dockerfile runs
+# scripts/check-glibc-floor.mjs, so an addon whose prebuild needs a newer glibc
+# than the runtime image fails the build instead of crash-looping in production.
+name: trivy
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+  schedule:
+    - cron: "22 12 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: scan bot image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Only this job uploads SARIF.
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # Context is bot/ because the Dockerfile copies package.json, the
+      # workspace packages and web/ relative to that directory.
+      - name: Build the bot image
+        run: docker build -f bot/Dockerfile -t moneypenny-bot:${{ github.sha }} bot
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe # 0.28.0
+        with:
+          image-ref: moneypenny-bot:${{ github.sha }}
+          format: template
+          template: "@/contrib/sarif.tpl"
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          # Report rather than gate: base-image CVEs land without warning and
+          # must not block an unrelated push. The Security tab is the signal.
+          exit-code: "0"
+
+      - name: Upload results
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
+        with:
+          sarif_file: trivy-results.sarif

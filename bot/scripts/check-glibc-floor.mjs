@@ -24,7 +24,7 @@
  * to the floor. Uses `strings` when available, else scans the file for the
  * literal tags, so it needs no toolchain.
  *
- * Usage: node scripts/check-glibc-floor.mjs [--floor 2.36] [--all] [dir ...]
+ * Usage: node bot/scripts/check-glibc-floor.mjs [--floor 2.36] [--all] [dir ...]
  */
 
 import { execFileSync } from "node:child_process";
@@ -32,7 +32,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const args = process.argv.slice(2);
 let floor = "2.36"; // node:*-bookworm-slim (Debian 12)
