@@ -15,7 +15,7 @@ import {
 import { buildRevisePrompt, type ClaimCheckResult, runClaimCheck } from "../rag/claim-check.js";
 import { type ChatMessage, extractAssistantText, LlmClient } from "./client.js";
 import { ANALYST_SYSTEM_PROMPT, type DelegateClient } from "./delegate.js";
-import { FallbackLlmClient } from "./fallback-client.js";
+import { FallbackLlmClient, type LlmRoute } from "./fallback-client.js";
 import { ConversationStore, type HistoryEntry } from "./history.js";
 import { probeLlmEndpoint } from "./probe.js";
 import { buildToolRequest, DEFAULT_SYSTEM_PROMPT, type MusicToolName } from "./tools.js";
@@ -478,6 +478,16 @@ export class LlmModule {
   async isAvailable(): Promise<boolean> {
     const s = await this.getAvailability();
     return s.available;
+  }
+
+  /**
+   * Which endpoint actually served the last completion. Cheap and probe-free —
+   * safe for the unauthenticated /api/health path, unlike getAvailability(),
+   * which probes and can block for the endpoint timeout.
+   */
+  getLastRoute(): LlmRoute {
+    if (this.client instanceof FallbackLlmClient) return this.client.getLastRoute();
+    return { route: "none", at: 0 };
   }
 
   async getAvailability(): Promise<{

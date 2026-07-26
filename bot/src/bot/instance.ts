@@ -971,6 +971,11 @@ export class BotInstance extends EventEmitter {
     return this.generateProvider.handleGenerate(prompt, invokerKey);
   }
 
+  /** Which LLM endpoint served the last completion — probe-free, for /api/health. */
+  getLlmRoute(): { route: "primary" | "fallback" | "none"; at: number } {
+    return this.llm.getModule()?.getLastRoute() ?? { route: "none", at: 0 };
+  }
+
   getLlmStatus() {
     return this.llm.getLlmStatus();
   }
