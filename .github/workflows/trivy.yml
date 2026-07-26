@@ -54,6 +54,13 @@ jobs:
           template: "@/contrib/sarif.tpl"
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
+          # Only CVEs with a fix available upstream. The first run reported 100
+          # alerts, none in our code or our dependencies: 95 were Debian base
+          # packages and 5 were npm's own bundled deps inside the Node image.
+          # Most carry no Debian fix, so without this the Security tab fills
+          # with findings that cannot be acted on and the real ones are lost.
+          # A fixable base-image CVE now means: rebuild, or bump the base image.
+          ignore-unfixed: true
           # Report rather than gate: base-image CVEs land without warning and
           # must not block an unrelated push. The Security tab is the signal.
           exit-code: "0"
