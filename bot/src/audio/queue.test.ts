@@ -622,3 +622,49 @@ describe("PlayQueue", () => {
     });
   });
 });
+
+/**
+ * 80edaa8 made RandomLoop the default so auto-DJ would not lock into sequential
+ * order. But `!play` clears the queue down to a single track, and RandomLoop's
+ * single-song branch replays it forever — so asking for one song silently put
+ * the station on loop. Seen live: "Klendathu Drop" three times with no command
+ * or restock behind the third play.
+ */
+describe("single-song queue looping (regression)", () => {
+  const song = (id: string) => ({
+    id,
+    name: id,
+    artist: "",
+    album: "",
+    platform: "local" as const,
+    coverUrl: "",
+    duration: 10,
+  });
+
+  it("RandomLoop replays a lone song forever — the behaviour !play must avoid", () => {
+    const q = new PlayQueue();
+    q.setMode(PlayMode.RandomLoop);
+    q.add(song("only"));
+    q.play();
+    expect(q.next()?.id).toBe("only");
+    expect(q.next()?.id).toBe("only");
+  });
+
+  it("Sequential lets a lone song end, so dead-air restock can program something new", () => {
+    const q = new PlayQueue();
+    q.setMode(PlayMode.Sequential);
+    q.add(song("only"));
+    q.play();
+    expect(q.next()).toBeNull();
+  });
+
+  it("RandomLoop still cycles a multi-song queue without immediate repeats", () => {
+    const q = new PlayQueue();
+    q.setMode(PlayMode.RandomLoop);
+    for (const id of ["a", "b", "c"]) q.add(song(id));
+    q.play();
+    const first = q.current()?.id;
+    const second = q.next()?.id;
+    expect(second).not.toBe(first);
+  });
+});

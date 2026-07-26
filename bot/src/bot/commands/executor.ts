@@ -213,6 +213,12 @@ export class CommandExecutor {
     const { provider, song } = hit;
     this.deps.queue.clear();
     this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
+    // The queue is now exactly ONE song, and PlayQueue defaults to RandomLoop —
+    // whose single-song branch replays that track forever. Asking for a song is
+    // not asking for it on loop: play it, then let the queue run dry so dead-air
+    // restock programs something new. Radio sets its own mode in
+    // programFromProfile, so this cannot fight auto-DJ shuffle.
+    this.deps.queue.setMode?.(PlayMode.Sequential);
     this.deps.queue.play();
     this.deps.player.resetFailures();
     const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
