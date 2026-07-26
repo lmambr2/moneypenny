@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Install RKNN Whisper weights on the Pi and verify the NPU backend loads.
 #
-# Why this exists: the shipped weights are i8-quantized, and the Rockchip model
-# zoo has an open issue where i8 Whisper garbles output on RK3588 (base returns
-# garbled text, small returns empty) while unquantized converts transcribe
-# correctly — airockchip/rknn_model_zoo#314. Swapping to `fp` weights is the
-# cheapest test of that, but it replaces the live STT model, so this backs up
-# first and can roll back.
+# Why this exists: swapping the STT model is otherwise a hand-edit of a root-owned
+# Docker volume with no undo, so this backs up first and can roll back.
+#
+# NOTE (2026-07-25): this script was written to test a hypothesis that turned out
+# to be false — that the deployed weights were i8-quantized and that mis-transcribed
+# voice commands were a quantization artifact (airockchip/rknn_model_zoo#314).
+# A local `fp` reconversion of whisper base produced files byte-identical in SIZE
+# to the deployed pair (encoder 44598316, decoder 159699025), which means the Pi
+# has been running unquantized weights all along. 44.6MB for a ~20M-param encoder
+# is fp16; an i8 build would be roughly half that. Mis-transcription is a base-model
+# accuracy limit, not quantization. Keep the script for future model swaps; do not
+# re-run the fp experiment.
 #
 #   ./scripts/install-rknn-whisper.sh enc.rknn dec.rknn      # install + verify
 #   ./scripts/install-rknn-whisper.sh --rollback             # restore backup
@@ -65,7 +71,7 @@ for f in "$ENC" "$DEC"; do
   head -c 4 "$f" | grep -q "RKNN" || die "$f does not look like an .rknn (missing RKNN magic)"
 done
 
-say "Sizes (fp weights should be ~2x the i8 originals: enc ~45MB→~90MB, dec ~160MB→~320MB)"
+say "Sizes (current deployed pair is enc 44598316 / dec 159699025, both fp)"
 ls -lh "$ENC" "$DEC" | awk '{print "  ", $5, $9}'
 
 say "Backing up current i8 weights → $BACKUP"
