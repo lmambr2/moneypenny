@@ -1,5 +1,5 @@
 import type { TS3TextMessage } from "@moneypenny/ts6-client";
-import { isRadioFill, type QueuedSong } from "../../audio/queue.js";
+import { isRadioFill, PlayMode, type QueuedSong } from "../../audio/queue.js";
 import { isBlockedGenreSong } from "../../music/genre-block.js";
 import { isNonMusicContent } from "../../music/non-music.js";
 import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
@@ -49,7 +49,10 @@ const SEED_SEARCH_LIMIT = 30;
 /** Smaller YT pull per seed — yt-dlp is slower and mega-mixes are common. */
 const SEED_YT_SEARCH_LIMIT = 12;
 const SEED_POOL_CAP = 18;
-const RECENT_SEED_MEMORY = 16;
+/** Soft memory of song ids programmed into recent auto-DJ pools (anti-repeat). */
+const RECENT_SEED_MEMORY = 48;
+/** Cap how many tracks from one artist land in a single seed pool. */
+const SEED_MAX_PER_ARTIST = 2;
 const DEFAULT_SEED_SOURCES: Array<"local" | "youtube" | "stream"> = ["local", "youtube"];
 /** ~33% library / ~66% external (YouTube / stream URLs) when both have hits. */
 const DEFAULT_SEED_EXTERNAL_RATIO = 2 / 3;
@@ -127,6 +130,62 @@ export function orderSeedCandidates<T extends { id: string }>(
     ? [...shuffleSongs(fresh, rng), ...shuffleSongs(stale, rng)]
     : [...fresh, ...stale];
   return ordered.slice(0, Math.max(1, cap));
+}
+
+/** Normalize artist for diversity keys (empty → unique per track id). */
+export function artistDiversityKey(song: { id: string; artist?: string }): string {
+  const a = (song.artist ?? "").trim().toLowerCase();
+  return a || `__id:${song.id}`;
+}
+
+/**
+ * Reorder / thin a pool so one artist cannot dominate and back-to-back same-artist
+ * tracks are avoided when alternatives exist. Caps `maxPerArtist` (default 2).
+ */
+export function diversifyArtists<T extends { id: string; artist?: string }>(
+  songs: T[],
+  opts: { maxPerArtist?: number; rng?: () => number } = {},
+): T[] {
+  if (songs.length <= 1) return songs.slice();
+  const maxPer = Math.max(1, opts.maxPerArtist ?? SEED_MAX_PER_ARTIST);
+  const rng = opts.rng ?? Math.random;
+
+  // Bucket by artist (preserve relative order within bucket).
+  const buckets = new Map<string, T[]>();
+  const order: string[] = [];
+  for (const s of songs) {
+    const k = artistDiversityKey(s);
+    if (!buckets.has(k)) {
+      buckets.set(k, []);
+      order.push(k);
+    }
+    const list = buckets.get(k)!;
+    if (list.length < maxPer) list.push(s);
+  }
+
+  // Round-robin across artists so the queue is not AAAA…BBBB.
+  const keys = shuffleSongs(order, rng);
+  const out: T[] = [];
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const k of keys) {
+      const list = buckets.get(k);
+      if (!list?.length) continue;
+      const next = list[0]!;
+      // Prefer not to place the same artist twice in a row when other artists remain.
+      if (out.length > 0 && artistDiversityKey(out[out.length - 1]!) === k) {
+        const othersLeft = keys.some(
+          (ok) => ok !== k && (buckets.get(ok)?.length ?? 0) > 0,
+        );
+        if (othersLeft) continue;
+      }
+      list.shift();
+      out.push(next);
+      progress = true;
+    }
+  }
+  return out;
 }
 
 /**
@@ -494,6 +553,16 @@ export class RadioCommands {
       return 0;
     }
 
+    // Artist spacing for playlist/tag pools too (seed path already diversified).
+    const wantShuffle = music.shuffle !== false;
+    let programPool = diversifyArtists(pool, { maxPerArtist: SEED_MAX_PER_ARTIST });
+    if (wantShuffle) programPool = shuffleSongs(programPool);
+    pool.length = 0;
+    pool.push(...programPool);
+
+    // Profile shuffle → random-loop queue (not sequential). Explicit false → seq.
+    this.deps.queue.setMode?.(wantShuffle ? PlayMode.RandomLoop : PlayMode.Sequential);
+
     // Remember seed-sourced ids so the next restock prefers other tracks.
     this.noteSeedProgrammed(pool.map((s) => s.id));
 
@@ -667,12 +736,15 @@ export class RadioCommands {
       }
     }
 
-    const ordered = mixLocalAndExternalSeeds([...localById.values()], [...externalById.values()], {
-      cap: SEED_POOL_CAP,
+    let ordered = mixLocalAndExternalSeeds([...localById.values()], [...externalById.values()], {
+      cap: SEED_POOL_CAP * 2, // over-fetch then thin by artist
       externalRatio,
       recentIds: this.recentSeedSongIds,
       shuffle,
     });
+    ordered = diversifyArtists(ordered, { maxPerArtist: SEED_MAX_PER_ARTIST });
+    if (shuffle) ordered = shuffleSongs(ordered);
+    ordered = ordered.slice(0, SEED_POOL_CAP);
 
     if (ordered.length > 0) {
       const localN = ordered.filter((s) => s.platform === "local").length;

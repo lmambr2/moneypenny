@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { Song } from "../../music/provider.js";
 import type { CommandExecutorDeps } from "./executor.js";
 import {
+  artistDiversityKey,
+  diversifyArtists,
   isRadioSeedFriendlySong,
   mixLocalAndExternalSeeds,
   orderSeedCandidates,
@@ -39,6 +41,7 @@ function mockQueue(opts?: {
     list: vi.fn(() => opts?.list ?? []),
     current: vi.fn(() => opts?.current ?? null),
     getCurrentIndex: vi.fn(() => opts?.currentIndex ?? -1),
+    setMode: vi.fn(),
     size: () => added.length,
     _added: added,
   };
@@ -481,5 +484,38 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     const cmds = new RadioCommands(deps, async () => []);
     expect(await cmds.autoProgram()).toBe(false);
     expect(generateAndIngest).not.toHaveBeenCalled();
+  });
+});
+
+describe("diversifyArtists", () => {
+  it("caps tracks per artist and avoids back-to-back same artist when possible", () => {
+    const pool = [
+      song({ id: "a1", name: "A1", artist: "Alpha" }),
+      song({ id: "a2", name: "A2", artist: "Alpha" }),
+      song({ id: "a3", name: "A3", artist: "Alpha" }),
+      song({ id: "b1", name: "B1", artist: "Beta" }),
+      song({ id: "c1", name: "C1", artist: "Gamma" }),
+    ];
+    // Deterministic rng: always pick first option in shuffle → stable keys order
+    let i = 0;
+    const rng = () => {
+      i += 1;
+      return 0; // Fisher–Yates with 0 keeps original order
+    };
+    const out = diversifyArtists(pool, { maxPerArtist: 2, rng });
+    const alpha = out.filter((s) => artistDiversityKey(s) === "alpha");
+    expect(alpha.length).toBeLessThanOrEqual(2);
+    expect(out.length).toBe(4); // 2 Alpha + Beta + Gamma
+    // No three Alphas
+    expect(out.map((s) => s.id)).not.toContain("a3");
+  });
+
+  it("empty artist falls back to id key (each track unique)", () => {
+    const pool = [
+      song({ id: "x", name: "X", artist: "" }),
+      song({ id: "y", name: "Y", artist: "" }),
+    ];
+    const out = diversifyArtists(pool, { maxPerArtist: 1, rng: () => 0 });
+    expect(out).toHaveLength(2);
   });
 });
