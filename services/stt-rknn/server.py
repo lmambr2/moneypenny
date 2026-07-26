@@ -5,9 +5,7 @@ Moneypenny STT — RKNN track (SBC edition / Rockchip NPU).
 Same HTTP contract as stt-whisper-cpp / legacy stt-whisper.
 
 Env:
-  STT_BACKEND     rknn (default) | sensevoice | faster-whisper (force CPU fallback)
-  SENSEVOICE_MODEL_DIR  dir with sense-voice-encoder.rk3588.*.rknn + am.mvn +
-                  embedding.npy + chn_jpn_yue_eng_ko_spectok.bpe.model
+  STT_BACKEND     rknn (default) | faster-whisper (force CPU fallback)
   STT_FALLBACK    faster-whisper | none   (used if RKNN fails to load)
   STT_MODEL       tiny|base|…  (ladder name; RKNN uses converted pair)
   STT_DEVICE      npu|cpu
@@ -38,7 +36,6 @@ STT_COMPUTE = os.environ.get("STT_COMPUTE_TYPE", "int8")
 RKNN_ENCODER = os.environ.get("RKNN_ENCODER", "").strip()
 RKNN_DECODER = os.environ.get("RKNN_DECODER", "").strip()
 RKNN_MODELS_DIR = Path(os.environ.get("RKNN_MODELS_DIR", "/models/rknn"))
-SENSEVOICE_MODEL_DIR = os.environ.get("SENSEVOICE_MODEL_DIR", "/models/sensevoice")
 MAX_PCM_BYTES = int(os.environ.get("MAX_PCM_BYTES", str(25 * 1024 * 1024)))
 MIN_SPEECH_PEAK = float(os.environ.get("MIN_SPEECH_PEAK", "0.01"))
 SILENCE_TAIL_S = float(os.environ.get("SILENCE_TAIL_S", "0.8"))
@@ -130,36 +127,6 @@ class RknnWhisper:
         return self._impl.transcribe(audio, sample_rate)
 
 
-class SenseVoiceRknn:
-    """SenseVoice-small (encoder + CTC) on the NPU, via rkvoice-stream's backend.
-
-    Why this exists alongside RknnWhisper: whisper decodes autoregressively, so
-    cost scales with output length — measured on this Pi at 45ms/token for base
-    and 257ms/token for medium (medium ~4.9s for a voice command). SenseVoice is
-    encoder-only: one forward over LFR features yields CTC logits, no decode
-    loop, at roughly whisper-small accuracy.
-
-    fp16 only. Rockchip int8 collapses the 25055-way CTC projection (BLANK wins
-    every frame → empty text), the same class of failure as whisper i8 in
-    airockchip/rknn_model_zoo#314.
-    """
-
-    def __init__(self, model_dir: str) -> None:
-        from rkvoice_stream.backends.asr.sensevoice_rknn import SenseVoiceRKNNBackend
-
-        # The backend reads both of these at preload().
-        os.environ.setdefault("SENSEVOICE_RKNN_MODEL_DIR", model_dir)
-        os.environ.setdefault("RK_PLATFORM", "rk3588")
-        self._impl = SenseVoiceRKNNBackend()
-        self._impl.preload()
-
-    def transcribe(self, audio, sample_rate: int) -> str:
-        # Pinned to "en": auto-detect costs a language-ID prompt frame and this
-        # deployment is English-only. sample_rate is already TARGET_SR by here.
-        result = self._impl.transcribe_array(audio, language="en")
-        return (getattr(result, "text", "") or "").strip()
-
-
 def get_model():
     global _MODEL, _ENGINE
     if _MODEL is not None:
@@ -167,20 +134,6 @@ def get_model():
     with _MODEL_LOCK:
         if _MODEL is not None:
             return _MODEL
-
-        want_sensevoice = STT_BACKEND in ("sensevoice", "sense-voice") and STT_DEVICE != "cpu"
-        if want_sensevoice:
-            try:
-                _MODEL = SenseVoiceRknn(SENSEVOICE_MODEL_DIR)
-                _ENGINE = "sensevoice"
-                print("[stt-rknn] backend=sensevoice (NPU)", flush=True)
-                return _MODEL
-            except Exception as e:
-                # Same posture as the RKNN path: a missing model must not take
-                # voice down entirely, but STT_FALLBACK=none can force it loud.
-                print(f"[stt-rknn] SenseVoice unavailable: {e}", flush=True)
-                if STT_FALLBACK in ("none", "off", "0"):
-                    raise
 
         want_rknn = STT_BACKEND in ("rknn", "rknpu", "npu") and STT_DEVICE != "cpu"
         if want_rknn:
@@ -245,8 +198,6 @@ def transcribe_audio(audio, sample_rate: int = TARGET_SR) -> str:
     if audio is None or len(audio) < int(0.1 * sample_rate):
         return ""
     model = get_model()
-    if isinstance(model, SenseVoiceRknn):
-        return model.transcribe(audio, sample_rate)
     if isinstance(model, RknnWhisper):
         try:
             return model.transcribe(audio, sample_rate)
@@ -363,7 +314,7 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "engine": _ENGINE if ready else f"{STT_BACKEND}(loading)",
-                    "family": "sensevoice" if _ENGINE == "sensevoice" else "whisper",
+                    "family": "whisper",
                     "track": "sbc",
                     "model": STT_MODEL,
                     "device": STT_DEVICE,
