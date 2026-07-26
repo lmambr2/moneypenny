@@ -282,3 +282,58 @@ describe("VoiceSession wake duck vs the bot's own TTS", () => {
     expect(player.duckForStt).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * suppressNextTrackAdvance is armed by a pause/stop voice reply and meant to
+ * swallow exactly ONE trackEnd — the one from that reply's TTS, arriving within
+ * seconds. Barge-in cancels TTS via player.stop(), which emits no trackEnd, so
+ * the flag could survive and later eat a real end-of-song, parking the queue
+ * into dead air. Same shape as the other cross-path state bugs.
+ */
+describe("VoiceSession stale pause/stop suppression", () => {
+  type Internals = {
+    suppressNextTrackAdvance: boolean;
+    suppressArmedAt: number;
+    savedMusic: unknown;
+    captureDuck: unknown;
+    ttsPlaybackActive: boolean;
+  };
+
+  it("swallows the trackEnd from the reply it was armed for", async () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.suppressNextTrackAdvance = true;
+    inner.suppressArmedAt = Date.now();
+
+    const playNext = vi.fn(async () => true);
+    expect(await session.handleTrackEnd(playNext)).toBe(true);
+    expect(playNext).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale flag rather than parking the queue", async () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.suppressNextTrackAdvance = true;
+    inner.suppressArmedAt = Date.now() - 5 * 60_000; // TTS trackEnd never came
+
+    const playNext = vi.fn(async () => true);
+    await session.handleTrackEnd(playNext);
+    // Must fall through to the normal resume/advance path, not swallow it.
+    expect(inner.suppressNextTrackAdvance).toBe(false);
+  });
+
+  it("clears cross-path state on cleanup so it cannot survive a reconnect", () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.suppressNextTrackAdvance = true;
+    inner.savedMusic = { song: { id: "x" }, elapsed: 5 };
+    inner.ttsPlaybackActive = true;
+
+    session.cleanup();
+
+    expect(inner.suppressNextTrackAdvance).toBe(false);
+    expect(inner.savedMusic).toBeNull();
+    expect(inner.captureDuck).toBeNull();
+    expect(inner.ttsPlaybackActive).toBe(false);
+  });
+});

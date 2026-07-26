@@ -233,6 +233,10 @@ export class CommandExecutor {
     if (localHit) {
       this.deps.queue.clear();
       this.deps.queue.add({ ...localHit, platform: "local", source: "user" });
+      // One song in the queue: without an explicit mode this inherits whatever
+      // the last feature left (RandomLoop by default), which replays a lone
+      // track forever. Same trap !play fell into.
+      this.deps.queue.setMode?.(PlayMode.Sequential);
       this.deps.queue.play();
       this.deps.player.resetFailures();
       const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
@@ -622,6 +626,8 @@ export class CommandExecutor {
     for (const song of songs) {
       this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
+    // Play the playlist through, then let it end — do not inherit a loop mode.
+    this.deps.queue.setMode?.(PlayMode.Sequential);
     const first = this.deps.queue.play();
     if (first) await this.deps.playback.resolveAndPlay(first);
     return `Loaded ${songs.length} songs. Now playing: ${first?.name ?? "unknown"}`;
@@ -647,6 +653,9 @@ export class CommandExecutor {
     for (const song of songs) {
       this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
+    // Play the album through, then let it end — do not inherit a loop mode
+    // (a one-track album would otherwise repeat forever).
+    this.deps.queue.setMode?.(PlayMode.Sequential);
     const first = this.deps.queue.play();
     if (first) await this.deps.playback.resolveAndPlay(first);
     return `Loaded ${songs.length} songs. Now playing: ${first?.name ?? "unknown"}`;
@@ -664,6 +673,9 @@ export class CommandExecutor {
     for (const song of filtered) {
       this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
+    // Intentional: "artist mode" is meant to keep playing that artist. Every
+    // other queue-replacing command now sets its own mode, so this no longer
+    // leaks into the next !play / !album / !chevron7.
     this.deps.queue.setMode(PlayMode.Loop);
     this.deps.player.resetFailures();
     const first = this.deps.queue.play();
