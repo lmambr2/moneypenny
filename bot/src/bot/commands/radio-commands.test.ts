@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Song } from "../../music/provider.js";
 import {
+  externalSeedQuery,
   isRadioSeedFriendlySong,
   mixLocalAndExternalSeeds,
   normalizeSeedSources,
@@ -251,5 +252,54 @@ describe("parseTagFilters", () => {
   it("returns all-undefined for an empty filter object", () => {
     const out = parseTagFilters({});
     expect(Object.values(out).every((v) => v === undefined)).toBe(true);
+  });
+});
+
+/**
+ * Auto-DJ repeated the same ~40 tracks because the external half of every seed
+ * pool came back empty: profile seeds are genre phrases, and YouTube's top hits
+ * for a bare genre phrase are 1-3 hour compilations that isRadioSeedFriendlySong
+ * rejects at the 15-minute cap. Measured on the live seven seeds, 5/84 results
+ * survived bare vs 51/84 with the suffix.
+ */
+describe("externalSeedQuery", () => {
+  it("biases a bare genre seed toward single tracks", () => {
+    expect(externalSeedQuery("classic rock")).toBe("classic rock official audio");
+    expect(externalSeedQuery("yacht rock")).toBe("yacht rock official audio");
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(externalSeedQuery("  hard rock  ")).toBe("hard rock official audio");
+  });
+
+  it("is idempotent — never doubles the suffix", () => {
+    const once = externalSeedQuery("soft rock");
+    expect(externalSeedQuery(once)).toBe(once);
+  });
+
+  it("leaves seeds that already request a specific upload alone", () => {
+    expect(externalSeedQuery("Toto - Africa (Official Video)")).toBe(
+      "Toto - Africa (Official Video)",
+    );
+    expect(externalSeedQuery("Lido Shuffle - Full Version")).toBe("Lido Shuffle - Full Version");
+    expect(externalSeedQuery("Boz Scaggs lyrics")).toBe("Boz Scaggs lyrics");
+  });
+
+  it("never rewrites a URL seed — those go to the stream bridge verbatim", () => {
+    const spotify = "https://open.spotify.com/track/abc123";
+    expect(externalSeedQuery(spotify)).toBe(spotify);
+    expect(externalSeedQuery("tidal://track/42")).toBe("tidal://track/42");
+    expect(externalSeedQuery("http://icecast.example/stream.mp3")).toBe(
+      "http://icecast.example/stream.mp3",
+    );
+  });
+
+  it("passes an empty seed through untouched", () => {
+    expect(externalSeedQuery("")).toBe("");
+    expect(externalSeedQuery("   ")).toBe("");
+  });
+
+  it("honours a caller-supplied suffix", () => {
+    expect(externalSeedQuery("pop rock", "topic")).toBe("pop rock topic");
   });
 });

@@ -51,6 +51,21 @@ const SEED_YT_SEARCH_LIMIT = 12;
 const SEED_POOL_CAP = 18;
 /** Soft memory of song ids programmed into recent auto-DJ pools (anti-repeat). */
 const RECENT_SEED_MEMORY = 48;
+/**
+ * Appended to EXTERNAL seed searches only.
+ *
+ * Profile seeds are genre phrases ("classic rock", "yacht rock"), and YouTube's
+ * top results for a bare genre phrase are compilations and DJ mixes running one
+ * to three hours — every one of which isRadioSeedFriendlySong correctly rejects
+ * at the 15-minute cap. Measured on the live library's seven seeds: 5/84 results
+ * survived the filter bare, versus 51/84 with this suffix. Without it the
+ * external half of the pool comes back empty and auto-DJ cycles the same ~40
+ * local tracks forever.
+ *
+ * Local search must NOT get this — "classic rock official audio" matches nothing
+ * in a filename-indexed library.
+ */
+const EXTERNAL_SEED_SUFFIX = "official audio";
 /** Cap how many tracks from one artist land in a single seed pool. */
 const SEED_MAX_PER_ARTIST = 2;
 const DEFAULT_SEED_SOURCES: Array<"local" | "youtube" | "stream"> = ["local", "youtube"];
@@ -130,6 +145,24 @@ export function orderSeedCandidates<T extends { id: string }>(
     ? [...shuffleSongs(fresh, rng), ...shuffleSongs(stale, rng)]
     : [...fresh, ...stale];
   return ordered.slice(0, Math.max(1, cap));
+}
+
+/**
+ * Bias an external (YouTube / stream) seed search toward single tracks rather
+ * than hour-long compilations. Idempotent, and left alone when the seed is
+ * already a URL or already track-shaped.
+ */
+export function externalSeedQuery(seed: string, suffix = EXTERNAL_SEED_SUFFIX): string {
+  const q = seed.trim();
+  if (!q) return q;
+  // Seed lines may be Spotify/Tidal/Icecast URLs handed to the stream bridge —
+  // appending words would break resolution.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(q)) return q;
+  const lower = q.toLowerCase();
+  if (lower.includes(suffix.toLowerCase())) return q;
+  // Already asking for a specific upload — do not double up.
+  if (/\b(official (audio|video|music video)|lyrics?|full version)\b/i.test(lower)) return q;
+  return `${q} ${suffix}`;
 }
 
 /** Normalize artist for diversity keys (empty → unique per track id). */
@@ -714,7 +747,10 @@ export class RadioCommands {
       for (const src of sources) {
         try {
           const provider = this.deps.getProvider(new Set([flagFor(src)]));
-          const result = await provider.search(q, limitFor(src));
+          // Local search keeps the raw seed; only external searches get biased
+          // toward single tracks (see EXTERNAL_SEED_SUFFIX).
+          const query = src === "local" ? q : externalSeedQuery(q);
+          const result = await provider.search(query, limitFor(src));
           const platform =
             (provider.platform as "local" | "youtube" | "stream") ||
             (src === "local" ? "local" : src === "youtube" ? "youtube" : "stream");
