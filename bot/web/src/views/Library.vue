@@ -442,11 +442,65 @@ Body markdown…</pre>
             {{ filteredDoctrine.length }} / {{ doctrine.length }}
           </span>
         </div>
-        <div v-if="filteredDoctrine.length === 0" class="empty">No docs match “{{ doctrineFilter.trim() }}”.</div>
+
+        <!-- Folder breadcrumb (hidden while searching) -->
+        <nav v-if="!doctrineFilter.trim()" class="doctrine-crumbs" aria-label="Doctrine folder">
+          <button
+            type="button"
+            class="doctrine-crumb"
+            :class="{ active: !doctrineCwd }"
+            @click="setDoctrineCwd('')"
+            title="Doctrine root"
+          >
+            doctrine
+          </button>
+          <template v-for="c in doctrineCrumbs" :key="c.path">
+            <span class="doctrine-crumb-sep" aria-hidden="true">/</span>
+            <button
+              type="button"
+              class="doctrine-crumb"
+              :class="{ active: c.path === doctrineCwd }"
+              @click="setDoctrineCwd(c.path)"
+              :title="c.path"
+            >
+              {{ c.name }}
+            </button>
+          </template>
+        </nav>
+        <p v-if="doctrineFilter.trim()" class="doctrine-search-hint">
+          Searching all folders — clear the filter to browse by directory.
+        </p>
+
+        <div
+          v-if="filteredDoctrine.length === 0 && doctrineFoldersHere.length === 0"
+          class="empty"
+        >
+          <template v-if="doctrineFilter.trim()">No docs match “{{ doctrineFilter.trim() }}”.</template>
+          <template v-else>No documents in this folder.</template>
+        </div>
         <div v-else class="doctrine-list">
+        <!-- Subfolders (browse mode only) -->
+        <div
+          v-for="folder in doctrineFoldersHere"
+          :key="'dir:' + folder.path"
+          class="doctrine-item doctrine-folder-item"
+        >
+          <button
+            type="button"
+            class="doctrine-row doctrine-folder-row"
+            @click="setDoctrineCwd(folder.path)"
+            :title="'Open ' + folder.path"
+          >
+            <span class="doctrine-folder-icon" aria-hidden="true">📁</span>
+            <span class="doctrine-source doctrine-folder-name">{{ folder.name }}/</span>
+            <span class="doctrine-chunks">{{ folder.docCount }} doc{{ folder.docCount === 1 ? '' : 's' }}</span>
+            <span class="doctrine-folder-chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
+        <!-- Files in this folder (or global search hits) -->
         <div v-for="d in filteredDoctrine" :key="d.source" class="doctrine-item">
           <div class="doctrine-row">
-            <span class="doctrine-source">{{ d.source }}</span>
+            <span class="doctrine-source" :title="d.source">{{ doctrineDisplayName(d.source) }}</span>
             <span v-if="d.tags.length" class="doctrine-tags" :title="d.tags.join(', ')">
               <span v-for="tag in d.tags.slice(0, 3)" :key="tag" class="doctrine-tag">{{ tag }}</span>
               <span v-if="d.tags.length > 3" class="doctrine-tag-more">+{{ d.tags.length - 3 }}</span>
@@ -671,17 +725,82 @@ const editorPreviewHtml = computed(() => renderMarkdownPreview(editorContent.val
 const showNewDoc = ref(false);
 const newDocPath = ref('');
 const doctrineFilter = ref('');
+/** Current folder under doctrine/ ('' = root). Nested paths use `/`. */
+const doctrineCwd = ref('');
 const exportAvailable = ref(false);
 
+function doctrineParentDir(source: string): string {
+  const i = source.lastIndexOf('/');
+  return i < 0 ? '' : source.slice(0, i);
+}
+
+function doctrineBasename(source: string): string {
+  const i = source.lastIndexOf('/');
+  return i < 0 ? source : source.slice(i + 1);
+}
+
+/** Breadcrumb segments for the current cwd. */
+const doctrineCrumbs = computed(() => {
+  if (!doctrineCwd.value) return [] as { name: string; path: string }[];
+  const parts = doctrineCwd.value.split('/').filter(Boolean);
+  return parts.map((name, i) => ({
+    name,
+    path: parts.slice(0, i + 1).join('/'),
+  }));
+});
+
+/**
+ * Subfolders visible at the current cwd (browse mode only).
+ * Counts all nested docs under each immediate child folder.
+ */
+const doctrineFoldersHere = computed(() => {
+  if (doctrineFilter.value.trim()) return [] as { name: string; path: string; docCount: number }[];
+  const cwd = doctrineCwd.value;
+  const prefix = cwd ? `${cwd}/` : '';
+  const counts = new Map<string, number>();
+  for (const d of doctrine.value) {
+    if (prefix) {
+      if (!d.source.startsWith(prefix)) continue;
+    }
+    const rel = prefix ? d.source.slice(prefix.length) : d.source;
+    const slash = rel.indexOf('/');
+    if (slash < 0) continue;
+    const name = rel.slice(0, slash);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, docCount]) => ({
+      name,
+      path: cwd ? `${cwd}/${name}` : name,
+      docCount,
+    }));
+});
+
+/** Files to list: search hits (all folders) or only files in the current folder. */
 const filteredDoctrine = computed(() => {
   const q = doctrineFilter.value.trim().toLowerCase();
-  if (!q) return doctrine.value;
-  return doctrine.value.filter((d) => {
-    if (d.source.toLowerCase().includes(q)) return true;
-    if (d.classification.toLowerCase().includes(q)) return true;
-    return d.tags.some((t) => t.toLowerCase().includes(q));
-  });
+  if (q) {
+    return doctrine.value.filter((d) => {
+      if (d.source.toLowerCase().includes(q)) return true;
+      if (d.classification.toLowerCase().includes(q)) return true;
+      return d.tags.some((t) => t.toLowerCase().includes(q));
+    });
+  }
+  const cwd = doctrineCwd.value;
+  return doctrine.value.filter((d) => doctrineParentDir(d.source) === cwd);
 });
+
+function setDoctrineCwd(path: string) {
+  doctrineCwd.value = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  doctrineFilter.value = '';
+}
+
+/** Basename in browse mode; full path while searching. */
+function doctrineDisplayName(source: string): string {
+  if (doctrineFilter.value.trim()) return source;
+  return doctrineBasename(source);
+}
 
 function onDoctrineEditorKeydown(e: KeyboardEvent) {
   if (!(e.ctrlKey || e.metaKey) || e.key !== 's') return;
@@ -717,7 +836,8 @@ async function toggleNewDoc() {
   if (!(await discardEditorIfDirty())) return;
   editingSource.value = null;
   showNewDoc.value = true;
-  newDocPath.value = '';
+  // Prefill folder from browser cwd so nested create stays in context.
+  newDocPath.value = doctrineCwd.value ? `${doctrineCwd.value}/` : '';
   doctrineMsg.value = '';
 }
 
@@ -1825,6 +1945,49 @@ async function refreshIndex() {
   white-space: nowrap;
 }
 
+.doctrine-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  font-family: ui-monospace, monospace;
+}
+
+.doctrine-crumb {
+  border: none;
+  background: transparent;
+  color: var(--accent, #6ea8fe);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font: inherit;
+
+  &:hover {
+    background: var(--bg);
+    text-decoration: underline;
+  }
+
+  &.active {
+    color: var(--text);
+    font-weight: 600;
+    cursor: default;
+    text-decoration: none;
+  }
+}
+
+.doctrine-crumb-sep {
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.doctrine-search-hint {
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
 .doctrine-list {
   display: flex;
   flex-direction: column;
@@ -1844,6 +2007,41 @@ async function refreshIndex() {
   &:last-child {
     border-bottom: none;
   }
+}
+
+.doctrine-folder-item {
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.doctrine-folder-row {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+
+  &:hover {
+    background: var(--bg);
+  }
+}
+
+.doctrine-folder-icon {
+  flex-shrink: 0;
+  font-size: 1.05em;
+  line-height: 1;
+}
+
+.doctrine-folder-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.doctrine-folder-chevron {
+  color: var(--text-tertiary);
+  font-size: 1.1em;
+  padding-left: 4px;
 }
 
 .doctrine-row {
