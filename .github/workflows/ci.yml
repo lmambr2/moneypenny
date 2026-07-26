@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 24 = production parity (bot/Dockerfile builds on node:24-bookworm-slim).
+        # 24 = production parity (bot/Dockerfile builds on node:24-trixie-slim).
         # 22 = the lower bound of `engines`, so a dependency that quietly raises
         # its floor fails here instead of on someone's machine. Node 20 was
         # dropped when it went EOL in April 2026.
@@ -56,10 +56,6 @@ jobs:
         working-directory: bot/web
         run: npm ci
 
-      # The failure mode this repo actually hit: npm >= 12 skips dependency
-      # install scripts unless allowScripts covers them, and allowScripts keys
-      # are VERSION-PINNED — so bumping a native dep re-blocks its build with no
-      # error. `npm ci` still exits 0; only requiring the module catches it.
       # audio-native binds system libopus through pkg-config. @discordjs/opus was
       # dropped (its vendored libopus cannot build under GCC 14 on arm64), so the
       # Rust addon is the ONLY codec — which makes it a build requirement, not an
@@ -75,6 +71,11 @@ jobs:
           pkg-config --modversion opus
           ffmpeg -version | head -1
 
+      # The failure mode this repo actually hit: npm >= 12 skips dependency
+      # install scripts unless allowScripts covers them, and allowScripts keys
+      # are VERSION-PINNED — so bumping a native dep re-blocks its build with no
+      # error. `npm ci` still exits 0.
+      #
       # Must EXERCISE the addon, not just require it: better-sqlite3's entry
       # module imports fine and only fails when the binding is first used, so a
       # bare require() reports success on a build that cannot open a database.
@@ -99,22 +100,27 @@ jobs:
         run: npm run check
 
       # Runs AFTER `npm run check`, which is what builds the Rust addon — it does
-      # not exist at npm ci time the way better-sqlite3 does. Exercise a real
-      # encode/decode: loading the module proves nothing about whether it can
-      # actually do Opus.
+      # not exist at npm ci time the way better-sqlite3 does.
+      #
+      # Loads the addon directly rather than through dist/: `check` runs
+      # `tsc --noEmit`, so compiled output never exists in CI. Exercising a real
+      # encode/decode also proves more than importing the module would — with no
+      # fallback codec, "it loaded" and "it can do Opus" must both hold.
       - name: Verify audio-native Opus codec
         working-directory: bot
         run: |
           node -e "
-          const { createOpusEncoder, opusBackendAvailable, PCM_FRAME_BYTES } = await import('./dist/audio/encoder.js');
-          const info = opusBackendAvailable();
-          if (!info.native) { console.error('FATAL: audio-native did not build — there is no fallback codec'); process.exit(1); }
-          const enc = createOpusEncoder();
-          const opus = enc.encode(Buffer.alloc(PCM_FRAME_BYTES, 0));
+          const { NativeOpus } = require('@moneypenny/audio-native');
+          const FRAME = 3840; // 20ms @ 48kHz stereo s16
+          const enc = new NativeOpus(48000, 2);
+          const opus = enc.encode(Buffer.alloc(FRAME, 0));
           const pcm = enc.decode(opus);
-          if (!(opus.length > 0 && pcm.length >= PCM_FRAME_BYTES)) { console.error('FATAL: Opus round-trip failed'); process.exit(1); }
-          console.log('audio-native ok:', JSON.stringify(info), 'opus bytes', opus.length);
-          " --input-type=module
+          if (!(opus.length > 0 && pcm.length >= FRAME)) {
+            console.error('FATAL: Opus round-trip failed');
+            process.exit(1);
+          }
+          console.log('audio-native ok — opus bytes', opus.length, 'pcm bytes', pcm.length);
+          "
 
       - name: Build web
         working-directory: bot/web
@@ -132,7 +138,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          # Must satisfy engines (>=22 <27); Node 20 is EOL.
+          node-version: "24"
 
       # Kept separate from Renovate on purpose: Renovate does not manage npm
       # `overrides`, and this repo's remaining advisories are all resolved
