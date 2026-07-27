@@ -320,3 +320,37 @@ export function blacklistedMessage(song: { name?: string; artist?: string }): st
   const label = [song.name, song.artist].filter(Boolean).join(" — ") || "that track";
   return `Blocked by station blacklist: ${label}`;
 }
+
+/**
+ * Artists whose tracks may never be banned.
+ *
+ * Matching deliberately looks at BOTH the artist field and the title, because
+ * the artist field is unreliable on re-uploads — the same track exists in the
+ * library as "Ella Langley - …" and as "CountryHype - Ella Langley - …", where
+ * the artist is the uploader. Checking only `artist` would protect one copy and
+ * leave the other bannable, which is the same "protected in one path, not the
+ * other" trap that produced several bugs in this codebase.
+ *
+ * Substring matching is intentional (titles carry suffixes like "(Official
+ * Lyric Video)"), so keep entries specific — a one-word name would over-match.
+ */
+export function isBanProtected(
+  song: { name?: string | null; artist?: string | null } | null | undefined,
+  protectedArtists: readonly string[] | null | undefined,
+): boolean {
+  if (!song || !protectedArtists?.length) return false;
+  const hay = `${song.name ?? ""} ${song.artist ?? ""}`.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!hay) return false;
+  return protectedArtists.some((raw) => {
+    const needle = String(raw ?? "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    return needle.length > 0 && hay.includes(needle);
+  });
+}
+
+export function banProtectedMessage(song: { name?: string; artist?: string }): string {
+  const label = [song.name, song.artist].filter(Boolean).join(" — ") || "that track";
+  return `Not a chance — ${label} is on the protected list.`;
+}

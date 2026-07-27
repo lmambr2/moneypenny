@@ -51,6 +51,7 @@ export const registerProtectedApi: HttpPlugin = (ctx: HttpAppContext) => {
         playbackBlacklist: options.playbackBlacklist,
         radioAnalyzer: options.radioAnalyzer,
         getRadioConfig: () => options.config.radio,
+        getBanProtectedArtists: () => options.config.playbackBanProtectedArtists,
         canEditTags: async (user) => {
           const bot = options.botManager.getAllBots()[0];
           if (!bot) return false;

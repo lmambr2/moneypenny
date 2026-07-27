@@ -2,6 +2,7 @@ import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
+import { banProtectedMessage, isBanProtected } from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { DEFAULT_DEMO_VIDEO_URL, extractVideoId, isDemoTestTrack } from "../../music/youtube.js";
 import type { TagStore } from "../../radio/index.js";
@@ -482,6 +483,9 @@ export class CommandExecutor {
     }
     if (isDemoTestTrack(song)) {
       return "Can't ban the !test demo track.";
+    }
+    if (isBanProtected(song, this.deps.config.playbackBanProtectedArtists)) {
+      return banProtectedMessage(song);
     }
     if (bl.isBlacklisted(song)) {
       return `Already banned: ${song.name} — ${song.artist}. Use ${p}skip if it's still playing.`;

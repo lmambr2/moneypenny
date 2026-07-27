@@ -33,6 +33,12 @@ export interface BotConfig {
    * busiest channel that has people in it. Off by default — a bot that relocates
    * itself is surprising unless you asked for it.
    */
+  /**
+   * Artists that !ban / the web ban endpoint must refuse. Matched against BOTH
+   * title and artist (re-uploads put the real artist in the title), so keep
+   * entries specific enough not to over-match.
+   */
+  playbackBanProtectedArtists: string[];
   autoFollowEnabled: boolean;
   /**
    * Channel names never followed into, matched case-insensitively. AFK is the
@@ -247,6 +253,7 @@ export function getDefaultConfig(): BotConfig {
     autoReturnDelay: 300,
     autoPauseOnEmpty: true,
     idleTimeoutMinutes: 0,
+    playbackBanProtectedArtists: [],
     autoFollowEnabled: false,
     autoFollowAfkChannels: ["AFK", "Away", "AFK / Away"],
     autoFollowCooldownSec: 60,
