@@ -22,6 +22,13 @@ export interface BlacklistEntry {
 }
 
 export interface PlaybackBlacklistOptions {
+  /**
+   * Artists that can never be banned. Enforced HERE rather than at each caller:
+   * isBlacklisted() is the single gate every consumer already funnels through
+   * (playback resolve, radio seeds, search filters), so protecting it protects
+   * all of them — including any future caller nobody remembers to guard.
+   */
+  protectedArtists?: () => readonly string[];
   db: Database.Database;
   now?: () => number;
 }
@@ -96,6 +103,11 @@ export function blacklistContentKey(
 export class PlaybackBlacklist {
   private db: Database.Database;
   private nowFn: () => number;
+  /**
+   * Live view of config.playbackBanProtectedArtists. Read through a getter so a
+   * settings change takes effect without rebuilding the store.
+   */
+  private protectedArtists: () => readonly string[];
   private insertStmt: Database.Statement;
   private deleteStmt: Database.Statement;
   private hasStmt: Database.Statement;
@@ -104,6 +116,7 @@ export class PlaybackBlacklist {
   constructor(opts: PlaybackBlacklistOptions) {
     this.db = opts.db;
     this.nowFn = opts.now ?? Date.now;
+    this.protectedArtists = opts.protectedArtists ?? (() => []);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS playback_blacklist (
         track_key TEXT PRIMARY KEY,
@@ -180,6 +193,16 @@ export class PlaybackBlacklist {
   }): BlacklistEntry {
     const trackKey = entry.trackKey.trim();
     if (!trackKey) throw Object.assign(new Error("trackKey required"), { code: "VALIDATION" });
+    // Belt to isBlacklisted()'s braces: refusing here keeps rows from
+    // accumulating at all, so `!ban list` never shows a ban that does nothing.
+    if (isBanProtected(entry, this.protectedArtists())) {
+      throw Object.assign(
+        new Error(banProtectedMessage(entry as { name?: string; artist?: string })),
+        {
+          code: "BAN_PROTECTED",
+        },
+      );
+    }
     const createdAt = this.nowFn();
     const platform = entry.platform ?? null;
     const name = entry.name ?? null;
@@ -260,6 +283,10 @@ export class PlaybackBlacklist {
     song: { id?: string | null; name?: string | null; artist?: string | null } | null | undefined,
   ): boolean {
     if (!song) return false;
+    // Protection wins over any stored row. A ban predating the protection (or
+    // written straight to the DB) must not keep the track silently unplayable —
+    // blacklisted tracks are skipped without a user-visible error.
+    if (isBanProtected(song, this.protectedArtists())) return false;
     if (song.id) {
       if (this.hasKey(song.id)) return true;
       const vid = extractVideoId(song.id);
@@ -273,6 +300,25 @@ export class PlaybackBlacklist {
     const fp = blacklistContentKey(song.name, song.artist);
     if (fp && this.hasKey(fp)) return true;
     return false;
+  }
+
+  /**
+   * Drop stored bans for artists that are now protected.
+   *
+   * isBlacklisted() already ignores them, so this is about hygiene rather than
+   * correctness: without it `!ban list` shows entries that do nothing, and the
+   * rows come back to life if the artist is later removed from the protected
+   * list. Adding someone to the list should RELEASE them, not merely stop new
+   * bans — "protect Ella" means she plays, not just that she cannot be re-banned.
+   *
+   * Returns the entries removed, for logging at startup.
+   */
+  releaseProtected(): BlacklistEntry[] {
+    const protectedArtists = this.protectedArtists();
+    if (!protectedArtists.length) return [];
+    const freed = this.list().filter((e) => isBanProtected(e, protectedArtists));
+    for (const e of freed) this.remove(e.trackKey);
+    return freed;
   }
 
   keySet(): Set<string> {

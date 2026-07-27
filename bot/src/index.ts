@@ -111,7 +111,23 @@ async function main() {
 
   const musicDir = process.env.MUSIC_DIR || "/music";
   const tagStore = new TagStore({ db: db.db });
-  const playbackBlacklist = new PlaybackBlacklist({ db: db.db });
+  const playbackBlacklist = new PlaybackBlacklist({
+    db: db.db,
+    // Read live so a settings change takes effect without a restart.
+    protectedArtists: () => config.playbackBanProtectedArtists ?? [],
+  });
+  // Adding an artist to the protected list must RELEASE existing bans, not just
+  // block new ones — a ban predating the protection would otherwise keep the
+  // track silently skipped.
+  {
+    const freed = playbackBlacklist.releaseProtected();
+    if (freed.length > 0) {
+      logger.info(
+        { count: freed.length, tracks: freed.map((e) => e.name ?? e.trackKey).slice(0, 10) },
+        "Released blacklisted tracks by protected artists",
+      );
+    }
+  }
   const localProvider = new LocalProvider({
     musicDir,
     excludedIds: () => tagStore.bumperKeySet(), // hide bumper-flagged assets from music search (§9.2)
