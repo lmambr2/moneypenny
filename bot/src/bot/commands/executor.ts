@@ -2,7 +2,11 @@ import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
-import { banProtectedMessage, isBanProtected } from "../../music/playback-blacklist.js";
+import {
+  banProtectedMessage,
+  blacklistContentKey,
+  isBanProtected,
+} from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { DEFAULT_DEMO_VIDEO_URL, extractVideoId, isDemoTestTrack } from "../../music/youtube.js";
 import type { TagStore } from "../../radio/index.js";
@@ -348,20 +352,39 @@ export class CommandExecutor {
   /**
    * `!skip` / `!next` — advance one track only (radio boundary / bumper aware).
    * Title/URL jumps use `!jump` / `!go` so bare next is never overloaded.
+   *
+   * Query form (`!skip ella`): jump to a *different* queue/search hit when one
+   * exists. If the query only matches what's already playing (common when
+   * someone tries to "skip Ella" while Ella is on), advance instead of
+   * re-searching and restarting the same track — that loop made the station
+   * look stuck after we protected ban-able artists from being wiped.
    */
   private async cmdSkip(cmd: ParsedCommand): Promise<string> {
     this.deps.playback.clearUserPause?.();
     const query = cmd.args.trim();
     if (query) {
+      const otherIdx = findQueueIndexByQuery(this.deps.queue, query);
+      if (otherIdx != null) {
+        const jumped = await this.cmdJump(cmd);
+        const p = this.deps.config.commandPrefix;
+        return `${jumped} — tip: ${p}jump <query|url> starts a track directly.`;
+      }
+      const current = this.deps.queue.current();
+      if (current && songMatchesQuery(current, query)) {
+        // "!skip ella" while Ella is NP → leave this track, do not re-queue her.
+        return this.advanceOneTrack();
+      }
+      // Different track requested — jump/search (still may no-op-same via cmdJump).
+      const jumped = await this.cmdJump(cmd);
       const p = this.deps.config.commandPrefix;
-      return (
-        `${p}skip / ${p}next only advance the queue. ` +
-        `To start a title or URL now: ${p}jump <query|url> (or ${p}go). ` +
-        `To put it up next without cutting: ${p}playnext <query|url>.`
-      );
+      return `${jumped} — tip: ${p}jump <query|url> starts a track directly.`;
     }
 
-    // Manual skip = track boundary: radio may play a due bumper first.
+    return this.advanceOneTrack();
+  }
+
+  /** Manual skip / track-boundary advance (radio bumper aware). */
+  private async advanceOneTrack(): Promise<string> {
     if (this.deps.radio) {
       if ((await this.deps.radio.onTrackBoundary()) === "bumper") {
         return "📻 Station break — music resumes after.";
@@ -393,9 +416,19 @@ export class CommandExecutor {
       return `Jumped to: ${song.name} - ${song.artist}`;
     }
 
+    // Query only matches now-playing (findQueueIndex excludes current) — leave it.
+    const current = this.deps.queue.current();
+    if (current && songMatchesQuery(current, query)) {
+      return this.advanceOneTrack();
+    }
+
     const hit = await this.deps.playback.searchFirst(cmd, 1);
     if (!hit) return `No results found for: ${query}`;
     const { provider, song } = hit;
+    // Search resolved back to the same track that's already on — advance, don't restart.
+    if (current && isSamePlaybackTrack(current, song)) {
+      return this.advanceOneTrack();
+    }
     const queued = { ...song, platform: provider.platform, source: "user" as const };
     const wasIdle = this.deps.queue.getCurrentIndex() < 0 || this.deps.queue.size() === 0;
     this.deps.queue.addNext(queued);
@@ -857,26 +890,55 @@ export class CommandExecutor {
   }
 }
 
+/** Tokenize a free-text track query (name / artist fragments). */
+export function queryTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** True when every query token appears in name/artist/album. */
+export function songMatchesQuery(
+  song: { name?: string; artist?: string; album?: string } | null | undefined,
+  query: string,
+): boolean {
+  if (!song) return false;
+  const tokens = queryTokens(query);
+  if (tokens.length === 0) return false;
+  const hay = `${song.name ?? ""} ${song.artist ?? ""} ${song.album ?? ""}`.toLowerCase();
+  return tokens.every((t) => hay.includes(t));
+}
+
+/**
+ * Same playable item under different queue ids (local hash vs YT id, or
+ * title+artist fingerprint). Used so jump/search does not restart NP.
+ */
+export function isSamePlaybackTrack(
+  a: { id?: string | null; name?: string | null; artist?: string | null },
+  b: { id?: string | null; name?: string | null; artist?: string | null },
+): boolean {
+  if (a.id && b.id && a.id === b.id) return true;
+  const va = a.id ? extractVideoId(a.id) : null;
+  const vb = b.id ? extractVideoId(b.id) : null;
+  if (va && vb && va === vb) return true;
+  const ka = blacklistContentKey(a.name, a.artist);
+  const kb = blacklistContentKey(b.name, b.artist);
+  return !!(ka && kb && ka === kb);
+}
+
 /** Match queue entries by case-insensitive name/artist/album token inclusion. */
 export function findQueueIndexByQuery(
   queue: Pick<PlayQueue, "list" | "getCurrentIndex">,
   query: string,
 ): number | null {
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const tokens = queryTokens(query);
   if (tokens.length === 0) return null;
 
   const songs = queue.list();
   const cur = queue.getCurrentIndex();
-  const matches = (i: number): boolean => {
-    const s = songs[i];
-    if (!s) return false;
-    const hay = `${s.name} ${s.artist} ${s.album}`.toLowerCase();
-    return tokens.every((t) => hay.includes(t));
-  };
+  const matches = (i: number): boolean => songMatchesQuery(songs[i], query);
 
   // Prefer upcoming tracks after the current one, then anything else (not current).
   for (let i = cur + 1; i < songs.length; i++) {

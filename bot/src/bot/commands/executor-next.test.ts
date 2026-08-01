@@ -51,11 +51,19 @@ describe("findQueueIndexByQuery", () => {
 });
 
 describe("!skip / !next (bare advance)", () => {
-  it("!next with args does not jump — points at !jump", async () => {
+  // `!next <query>` used to refuse with guidance text and do nothing, so users
+  // just retyped it. It now performs the jump (and still names !jump as the
+  // direct command).
+  it("!next with args jumps to the matching track", async () => {
+    const queue = new PlayQueue();
+    queue.add(song("1", "Hello", "Adele"));
+    queue.add(song("2", "Titanium", "David Guetta"));
+    queue.play(); // on Adele
+    const resolveAndPlay = vi.fn(async () => true);
     const ex = new CommandExecutor({
-      playback: { clearUserPause: vi.fn() },
-      player: {},
-      queue: { current: () => song("a", "A") },
+      playback: { clearUserPause: vi.fn(), resolveAndPlay },
+      player: { resetFailures: vi.fn() },
+      queue,
       config: { commandPrefix: "!" },
       profileManager: {},
       tsClient: {},
@@ -70,8 +78,50 @@ describe("!skip / !next (bare advance)", () => {
       rawArgs: ["titanium"],
       flags: new Set(),
     });
-    expect(out).toMatch(/!jump/);
-    expect(out).toMatch(/playnext/);
+    expect(resolveAndPlay).toHaveBeenCalled();
+    expect(queue.current()?.name).toBe("Titanium");
+    expect(out).toMatch(/Titanium/);
+    // Must not lead with the prefix — that is the self-echo command loop.
+    expect(out?.startsWith("!")).toBe(false);
+  });
+
+  it("!skip matching now-playing advances instead of re-searching the same track", async () => {
+    // Protecting ban-able artists left them in rotation; "!skip ella" while Ella
+    // was NP used to search+restart her. Advance instead.
+    const queue = new PlayQueue();
+    queue.add(song("ella-1", "Choosin Texas", "Ella Langley"));
+    queue.add(song("other", "Something Else", "Other Artist"));
+    queue.play(); // Ella NP
+    const searchFirst = vi.fn(async () => ({
+      provider: { platform: "youtube" as const },
+      song: song("ella-2", "Choosin Texas", "Ella Langley"),
+    }));
+    const resolveAndPlay = vi.fn(async () => true);
+    const playNext = vi.fn(async () => {
+      queue.next();
+    });
+    const ex = new CommandExecutor({
+      playback: { clearUserPause: vi.fn(), resolveAndPlay, searchFirst },
+      player: { resetFailures: vi.fn() },
+      queue,
+      config: { commandPrefix: "!" },
+      profileManager: {},
+      tsClient: {},
+      isConnected: () => true,
+      playNext,
+      getProvider: vi.fn(),
+    } as unknown as CommandExecutorDeps);
+
+    const out = await ex.execute({
+      name: "skip",
+      args: "ella",
+      rawArgs: ["ella"],
+      flags: new Set(),
+    });
+    expect(searchFirst).not.toHaveBeenCalled();
+    expect(playNext).toHaveBeenCalled();
+    expect(out).toMatch(/Skipped/i);
+    expect(queue.current()?.name).toBe("Something Else");
   });
 
   it("plain !skip uses the radio boundary path", async () => {

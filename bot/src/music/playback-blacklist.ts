@@ -316,8 +316,37 @@ export class PlaybackBlacklist {
   releaseProtected(): BlacklistEntry[] {
     const protectedArtists = this.protectedArtists();
     if (!protectedArtists.length) return [];
-    const freed = this.list().filter((e) => isBanProtected(e, protectedArtists));
-    for (const e of freed) this.remove(e.trackKey);
+    // list() hides content: fingerprint keys — scan the full table so orphaned
+    // fingerprints for protected artists are dropped too (otherwise they keep
+    // blocking YT re-seeds while the primary row was already released).
+    const rows = this.listStmt.all() as {
+      track_key: string;
+      platform: string | null;
+      name: string | null;
+      artist: string | null;
+      reason: string | null;
+      created_by: string | null;
+      created_at: number;
+    }[];
+    const freed: BlacklistEntry[] = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const entry: BlacklistEntry = {
+        trackKey: r.track_key,
+        platform: r.platform,
+        name: r.name,
+        artist: r.artist,
+        reason: r.reason,
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+      };
+      if (!isBanProtected(entry, protectedArtists)) continue;
+      if (seen.has(r.track_key)) continue;
+      seen.add(r.track_key);
+      this.remove(r.track_key);
+      // User-facing list should not show content: keys.
+      if (!r.track_key.startsWith(CONTENT_KEY_PREFIX)) freed.push(entry);
+    }
     return freed;
   }
 
