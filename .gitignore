@@ -65,7 +65,9 @@ models/**/tokenizer/
 
 # Local music library — populated at runtime by downloads/uploads, not source.
 # On a live deploy this is gigabytes of audio; it must never enter the repo.
-music/
+# Anchored: unanchored `music/` also ignored `bot/src/music/` (source).
+/music/
+/bot/music/
 
 # Logs & runtime
 *.log
