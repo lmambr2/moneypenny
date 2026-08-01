@@ -176,6 +176,42 @@ export type TS3ClientEventMap = {
   voiceTransportUnhealthy: [];
 };
 
+/** How long we remember our own outbound chat for content-based echo drop. */
+const OUTBOUND_ECHO_TTL_MS = 20_000;
+const OUTBOUND_ECHO_MAX = 48;
+
+/**
+ * Inbound chat that must never re-enter the command router.
+ * Historical poison: bot replied with a tip that LED with `!skip / !next only
+ * advance…`; TeamSpeak re-delivered it; parse → skip → same tip → flood.
+ */
+export function isCommandEchoPoison(message: string): boolean {
+  const t = message.trim();
+  if (!t) return false;
+  if (/only\s+advance\s+the\s+queue/i.test(t)) return true;
+  if (/^!\s*skip\s*\/\s*!?\s*next\b/i.test(t)) return true;
+  if (/to\s+start\s+a\s+title\s+or\s+url\s+now\s*:/i.test(t) && /^!/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Soften a bot reply so it cannot be re-parsed as a station command if it
+ * ever echoes back (belt after invoker-id + content filters).
+ * Leading ASCII `!` is replaced with fullwidth `！` (same glyph, not our prefix).
+ */
+export function sanitizeOutboundCommandPrefix(message: string, prefix = "!"): string {
+  if (!message || !prefix) return message;
+  const trimmedStart = message.trimStart();
+  if (!trimmedStart.startsWith(prefix)) return message;
+  // Only rewrite when the next char looks like a command name (letter).
+  const after = trimmedStart.slice(prefix.length);
+  if (!/^[a-zA-Z]/.test(after)) return message;
+  const leadWs = message.slice(0, message.length - trimmedStart.length);
+  if (prefix === "!") return `${leadWs}！${after}`;
+  // Unknown prefix: insert a word so it no longer starts with prefix+token.
+  return `${leadWs}› ${trimmedStart}`;
+}
+
 export class TS3Client extends EventEmitter {
   private client: TS3FullClient | null = null;
   private identity: Identity;
@@ -187,6 +223,8 @@ export class TS3Client extends EventEmitter {
   private udpErrorTimer: ReturnType<typeof setTimeout> | null = null;
   /** Ref-count for inbound capture — library drops voice UDP unless a handler is registered. */
   private inboundVoiceConsumers = 0;
+  /** Recent channel text we sent — drop identical inbound (invoker-id can miss). */
+  private recentOutbound: Array<{ text: string; at: number }> = [];
   private libraryVoiceBridge: ((v: VoiceData) => void) | null = null;
   private inboundVoicePackets = 0;
   /** S-OC2 — sendVoice failure window → voiceTransportUnhealthy once. */
@@ -360,17 +398,7 @@ export class TS3Client extends EventEmitter {
       },
     });
 
-    this.client.on("textMessage", (msg: TextMessage) => {
-      const tsMsg: TS3TextMessage = {
-        invokerName: msg.invokerName,
-        invokerId: String(msg.invokerID),
-        invokerUid: msg.invokerUID,
-        invokerGroups: msg.invokerGroups,
-        message: msg.message,
-        targetMode: msg.targetMode,
-      };
-      this.emit("textMessage", tsMsg);
-    });
+    this.client.on("textMessage", (msg: TextMessage) => this.onLibraryTextMessage(msg));
 
     // Library event name is `poked` (README also says "poke").
     this.client.on("poked", (ev: PokeEvent) => {
@@ -521,9 +549,33 @@ export class TS3Client extends EventEmitter {
 
   async sendTextMessage(message: string, targetMode: number = 2): Promise<void> {
     if (!this.client) return;
+    // Never emit a reply that starts with `!command` — if self-echo leaks past
+    // invoker-id filtering, a prefix-leading tip becomes an infinite command loop.
+    const safe = sanitizeOutboundCommandPrefix(message, "!");
+    this.rememberOutbound(safe);
     // targetMode 2 = channel, target 0 = current channel
     const target = targetMode === 2 ? BigInt(0) : BigInt(this.clientId);
-    await sendTextMessage(this.client, targetMode, target, message);
+    await sendTextMessage(this.client, targetMode, target, safe);
+  }
+
+  private rememberOutbound(message: string): void {
+    const text = message.trim();
+    if (!text) return;
+    const now = Date.now();
+    this.recentOutbound.push({ text, at: now });
+    if (this.recentOutbound.length > OUTBOUND_ECHO_MAX) {
+      this.recentOutbound.splice(0, this.recentOutbound.length - OUTBOUND_ECHO_MAX);
+    }
+    // Drop stale entries opportunistically.
+    this.recentOutbound = this.recentOutbound.filter((e) => now - e.at < OUTBOUND_ECHO_TTL_MS);
+  }
+
+  private isRecentOutbound(message: string): boolean {
+    const text = message.trim();
+    if (!text) return false;
+    const now = Date.now();
+    this.recentOutbound = this.recentOutbound.filter((e) => now - e.at < OUTBOUND_ECHO_TTL_MS);
+    return this.recentOutbound.some((e) => e.text === text);
   }
 
   /**
@@ -544,7 +596,9 @@ export class TS3Client extends EventEmitter {
    */
   async sendChannelMessage(channelID: bigint, message: string): Promise<void> {
     if (!this.client) return;
-    await sendTextMessage(this.client, 2, channelID, message);
+    const safe = sanitizeOutboundCommandPrefix(message, "!");
+    this.rememberOutbound(safe);
+    await sendTextMessage(this.client, 2, channelID, safe);
   }
 
   async getClientsInChannel(): Promise<ClientInfo[]> {
@@ -908,6 +962,47 @@ export class TS3Client extends EventEmitter {
     healthyReset?: number;
   }): void {
     this.voiceTransportHealth = new VoiceTransportHealth(opts);
+  }
+
+  /**
+   * Inbound text message from the library.
+   *
+   * Drops our OWN messages before any consumer sees them. The command router
+   * parses anything starting with the command prefix, and replies sometimes
+   * quote commands, so a self-echo re-parses as that command and replies again
+   * — an unbounded loop that floods the channel. Filtering here (rather than in
+   * the host's text handler) means every consumer — commands, roast capture,
+   * presence — inherits the guard.
+   */
+  private onLibraryTextMessage(msg: TextMessage): void {
+    const raw = typeof msg.message === "string" ? msg.message : String(msg.message ?? "");
+    // 1) Own client id (library may use number or string for invokerID).
+    const invokerNum = Number(msg.invokerID);
+    if (this.clientId > 0 && Number.isFinite(invokerNum) && invokerNum === this.clientId) {
+      this.logger.debug({ message: raw }, "Ignoring own text message (clid)");
+      return;
+    }
+    // 2) Exact content we just sent (covers clid mismatch / delayed echo).
+    if (this.isRecentOutbound(raw)) {
+      this.logger.debug({ message: raw.slice(0, 120) }, "Ignoring own text message (content echo)");
+      return;
+    }
+    // 3) Known flood poison (even if sent by an older build still running).
+    if (isCommandEchoPoison(raw)) {
+      this.logger.warn(
+        { message: raw.slice(0, 160), invokerID: msg.invokerID },
+        "Dropping command-echo poison message (skip usage loop)",
+      );
+      return;
+    }
+    this.emit("textMessage", {
+      invokerName: msg.invokerName,
+      invokerId: String(msg.invokerID),
+      invokerUid: msg.invokerUID,
+      invokerGroups: msg.invokerGroups,
+      message: raw,
+      targetMode: msg.targetMode,
+    } satisfies TS3TextMessage);
   }
 
   getIdentityExport(): string {

@@ -21,12 +21,22 @@ export interface TextMessageHandlerDeps {
 
 /** TeamSpeak text-message path: roast capture → rights context → ControlRouter. */
 export class TextMessageHandler {
+  /** Identical reply within this window is suppressed (echo-loop breaker). */
+  private static readonly REPLY_DEDUPE_MS = 4_000;
+  private lastReply: { text: string; at: number } | null = null;
+
   constructor(private deps: TextMessageHandlerDeps) {}
 
   async handle(msg: TS3TextMessage): Promise<void> {
-    this.deps.roast.captureLine(msg);
-
     const invokerClid = Number.parseInt(msg.invokerId, 10);
+    // Host-level self filter (ts6-client also filters; belt if clid was 0 there).
+    const ownId = this.deps.tsClient.getClientId?.() ?? 0;
+    if (ownId > 0 && Number.isFinite(invokerClid) && invokerClid === ownId) {
+      this.deps.logger.debug({ message: msg.message }, "Text handler: ignore own message");
+      return;
+    }
+
+    this.deps.roast.captureLine(msg);
     // Presence for radio: chat proves a human is here even if clientlist lags.
     if (Number.isFinite(invokerClid) && invokerClid > 0) {
       try {
@@ -75,7 +85,7 @@ export class TextMessageHandler {
     try {
       const response = await this.deps.router.execute(decision, context);
       if (response) {
-        await this.deps.tsClient.sendTextMessage(response);
+        await this.sendReply(response);
       } else if (decision.type === "deterministic" && decision.command) {
         this.deps.logger.warn(
           { command: decision.command.name },
@@ -85,10 +95,29 @@ export class TextMessageHandler {
     } catch (err) {
       this.deps.logger.error({ err, decision }, "ControlRouter error");
       try {
-        await this.deps.tsClient.sendTextMessage(`Error: ${(err as Error).message}`);
+        await this.sendReply(`Error: ${(err as Error).message}`);
       } catch {
         /* best-effort error reply */
       }
     }
+  }
+
+  /** Send channel reply with identical-text flood suppression. */
+  private async sendReply(text: string): Promise<void> {
+    const trimmed = text.trim();
+    const now = Date.now();
+    if (
+      this.lastReply &&
+      this.lastReply.text === trimmed &&
+      now - this.lastReply.at < TextMessageHandler.REPLY_DEDUPE_MS
+    ) {
+      this.deps.logger.warn(
+        { preview: trimmed.slice(0, 80) },
+        "Suppressing identical channel reply (echo loop breaker)",
+      );
+      return;
+    }
+    this.lastReply = { text: trimmed, at: now };
+    await this.deps.tsClient.sendTextMessage(text);
   }
 }
