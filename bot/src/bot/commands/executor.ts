@@ -351,35 +351,17 @@ export class CommandExecutor {
 
   /**
    * `!skip` / `!next` — advance one track only (radio boundary / bumper aware).
-   * Title/URL jumps use `!jump` / `!go` so bare next is never overloaded.
+   * Args are ignored. To start a title/URL now use `!jump` / `!go`; for up-next
+   * without cutting, `!playnext`.
    *
-   * Query form (`!skip ella`): jump to a *different* queue/search hit when one
-   * exists. If the query only matches what's already playing (common when
-   * someone tries to "skip Ella" while Ella is on), advance instead of
-   * re-searching and restarting the same track — that loop made the station
-   * look stuck after we protected ban-able artists from being wiped.
+   * Do NOT reply with a "only advance… use !jump…" usage string. The old reply
+   * LED with the command prefix (`!skip / !next only advance…`), TeamSpeak
+   * echoed it as the bot's own message, the client re-parsed it as `skip`, and
+   * the channel flooded until restart. Self-echo guard is belt; never emit that
+   * shape of reply.
    */
-  private async cmdSkip(cmd: ParsedCommand): Promise<string> {
+  private async cmdSkip(_cmd: ParsedCommand): Promise<string> {
     this.deps.playback.clearUserPause?.();
-    const query = cmd.args.trim();
-    if (query) {
-      const otherIdx = findQueueIndexByQuery(this.deps.queue, query);
-      if (otherIdx != null) {
-        const jumped = await this.cmdJump(cmd);
-        const p = this.deps.config.commandPrefix;
-        return `${jumped} — tip: ${p}jump <query|url> starts a track directly.`;
-      }
-      const current = this.deps.queue.current();
-      if (current && songMatchesQuery(current, query)) {
-        // "!skip ella" while Ella is NP → leave this track, do not re-queue her.
-        return this.advanceOneTrack();
-      }
-      // Different track requested — jump/search (still may no-op-same via cmdJump).
-      const jumped = await this.cmdJump(cmd);
-      const p = this.deps.config.commandPrefix;
-      return `${jumped} — tip: ${p}jump <query|url> starts a track directly.`;
-    }
-
     return this.advanceOneTrack();
   }
 

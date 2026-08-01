@@ -119,8 +119,7 @@ describe("CommandExecutor transport delegation", () => {
     expect(h.profileManager.onSongChange).toHaveBeenCalledWith(null);
   });
 
-  // Regression for the overloaded-skip model: bare skip advances, it never
-  // starts a title. Args get a pointer to jump/playnext instead.
+  // skip/next only advance — never start a title (that's jump/go/playnext).
   it("skip with no args advances via playNext and clears the operator pause", async () => {
     const out = await h.exec.execute(cmd("skip"));
     expect(h.playback.clearUserPause).toHaveBeenCalled();
@@ -182,18 +181,41 @@ describe("CommandExecutor skip vs radio boundary", () => {
 });
 
 describe("CommandExecutor skip argument handling", () => {
-  it("skip with a query explains jump/playnext instead of searching", async () => {
+  /**
+   * Args on skip/next are ignored (advance only). We used to refuse with:
+   *   "!skip / !next only advance the queue. To start a title… !jump …"
+   * That reply LED with the command prefix, TeamSpeak echoed it as the bot's
+   * own message, re-parse → same reply → channel flood until restart.
+   */
+  it("skip with a query still only advances (never searches, never usage-spam)", async () => {
+    const searchFirst = vi.fn(async () => ({
+      provider: { platform: "youtube" as const },
+      song: song({ id: "yt-1", name: "Some Song", artist: "Somebody" }),
+    }));
     const h = makeDeps();
-    const out = await h.exec.execute(cmd("skip", "some song"));
-    expect(out).toContain("!jump");
-    expect(out).toContain("!playnext");
-    expect(h.deps.playNext).not.toHaveBeenCalled();
+    (h.deps.playback as unknown as { searchFirst: unknown }).searchFirst = searchFirst;
+    const out = await h.exec.execute(cmd("skip", "ella langley"));
+    expect(searchFirst).not.toHaveBeenCalled();
+    expect(h.deps.playNext).toHaveBeenCalledOnce();
+    expect(out?.trimStart().startsWith("!")).toBe(false);
+    expect(out).not.toMatch(/only advance the queue/i);
+    expect(out).not.toMatch(/!jump/i);
   });
 
-  it("next is an alias of skip", async () => {
+  it("next is an alias of skip (args ignored)", async () => {
     const h = makeDeps();
     const out = await h.exec.execute(cmd("next", "some song"));
-    expect(out).toContain("!jump");
+    expect(h.deps.playNext).toHaveBeenCalledOnce();
+    expect(out?.trimStart().startsWith("!")).toBe(false);
+    expect(out).not.toMatch(/only advance the queue/i);
+  });
+
+  it("never returns a reply that itself starts with the command prefix", async () => {
+    const h = makeDeps();
+    for (const c of [cmd("skip", "some song"), cmd("next", "some song"), cmd("skip")]) {
+      const out = await h.exec.execute(c);
+      expect(out?.trimStart().startsWith("!")).toBe(false);
+    }
   });
 });
 

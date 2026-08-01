@@ -50,16 +50,18 @@ describe("findQueueIndexByQuery", () => {
   });
 });
 
-describe("!skip / !next (bare advance)", () => {
-  // `!next <query>` used to refuse with guidance text and do nothing, so users
-  // just retyped it. It now performs the jump (and still names !jump as the
-  // direct command).
-  it("!next with args jumps to the matching track", async () => {
+describe("!skip / !next (bare advance only)", () => {
+  // Never refuse with "!skip / !next only advance… !jump …" — that self-echoed.
+  // Never jump/search on skip args either (that's !jump / !playnext).
+  it("!next with args only advances (ignores query)", async () => {
     const queue = new PlayQueue();
     queue.add(song("1", "Hello", "Adele"));
     queue.add(song("2", "Titanium", "David Guetta"));
     queue.play(); // on Adele
     const resolveAndPlay = vi.fn(async () => true);
+    const playNext = vi.fn(async () => {
+      queue.next();
+    });
     const ex = new CommandExecutor({
       playback: { clearUserPause: vi.fn(), resolveAndPlay },
       player: { resetFailures: vi.fn() },
@@ -68,7 +70,7 @@ describe("!skip / !next (bare advance)", () => {
       profileManager: {},
       tsClient: {},
       isConnected: () => true,
-      playNext: vi.fn(),
+      playNext,
       getProvider: vi.fn(),
     } as unknown as CommandExecutorDeps);
 
@@ -78,16 +80,13 @@ describe("!skip / !next (bare advance)", () => {
       rawArgs: ["titanium"],
       flags: new Set(),
     });
-    expect(resolveAndPlay).toHaveBeenCalled();
-    expect(queue.current()?.name).toBe("Titanium");
-    expect(out).toMatch(/Titanium/);
-    // Must not lead with the prefix — that is the self-echo command loop.
+    expect(playNext).toHaveBeenCalledOnce();
+    expect(resolveAndPlay).not.toHaveBeenCalled();
     expect(out?.startsWith("!")).toBe(false);
+    expect(out).not.toMatch(/only advance the queue/i);
   });
 
-  it("!skip matching now-playing advances instead of re-searching the same track", async () => {
-    // Protecting ban-able artists left them in rotation; "!skip ella" while Ella
-    // was NP used to search+restart her. Advance instead.
+  it("!skip ella while Ella is NP advances (does not re-search or usage-spam)", async () => {
     const queue = new PlayQueue();
     queue.add(song("ella-1", "Choosin Texas", "Ella Langley"));
     queue.add(song("other", "Something Else", "Other Artist"));
@@ -121,6 +120,8 @@ describe("!skip / !next (bare advance)", () => {
     expect(searchFirst).not.toHaveBeenCalled();
     expect(playNext).toHaveBeenCalled();
     expect(out).toMatch(/Skipped/i);
+    expect(out).not.toMatch(/only advance the queue/i);
+    expect(out?.startsWith("!")).toBe(false);
     expect(queue.current()?.name).toBe("Something Else");
   });
 
