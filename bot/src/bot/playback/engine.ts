@@ -163,7 +163,10 @@ export class PlaybackEngine {
       this.opts.queue.setMode?.(PlayMode.Sequential);
       this.opts.queue.play();
       this.opts.player.resetFailures();
-      const ok = await this.resolveAndPlay(this.opts.queue.current()!);
+      // !test must not burn auto-DJ anti-repeat (maxPlays/12h) — otherwise the
+      // demo track (and any artist it belongs to in a thin pool) never re-enters
+      // radio after a few !test smokes.
+      const ok = await this.resolveAndPlay(this.opts.queue.current()!, { skipHistory: true });
       if (ok) return `Now playing: ${localSong.name} - ${localSong.artist} (local)`;
       this.opts.logger.warn(
         { song: localSong.name },
@@ -189,7 +192,7 @@ export class PlaybackEngine {
     this.opts.queue.setMode?.(PlayMode.Sequential);
     this.opts.queue.play();
     this.opts.player.resetFailures();
-    const ok = await this.resolveAndPlay(this.opts.queue.current()!);
+    const ok = await this.resolveAndPlay(this.opts.queue.current()!, { skipHistory: true });
     if (!ok) return `Cannot play: ${song.name}`;
     const localPath = await this.resolveYoutubeLocalPath(DEFAULT_DEMO_VIDEO_ID);
     const suffix = localPath ? " (local)" : "";

@@ -259,6 +259,30 @@ export class LocalProvider implements MusicProvider {
     };
   }
 
+  /**
+   * Random subset of the library for auto-DJ when seedQueries are empty.
+   * Walk-order `search("")` only ever sees the first N filenames (A…C…), so
+   * artists later in the alphabet (e.g. Ella Langley after Dos Gringos) never
+   * enter the radio pool. Fisher–Yates partial shuffle fixes that.
+   */
+  async sampleSongs(limit = 80, rng: () => number = Math.random): Promise<Song[]> {
+    await this.ensureIndexed();
+    const all = this.visibleSongs();
+    if (all.length === 0 || limit <= 0) return [];
+    const n = Math.min(limit, all.length);
+    const idxs = Array.from({ length: all.length }, (_, i) => i);
+    for (let i = idxs.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const tmp = idxs[i]!;
+      idxs[i] = idxs[j]!;
+      idxs[j] = tmp;
+    }
+    return idxs.slice(0, n).map((i) => {
+      const { absolutePath: _path, ...song } = all[i]!;
+      return song;
+    });
+  }
+
   async getSongUrl(songId: string): Promise<string | null> {
     // Map an opaque ID back to its path; fall back to treating the input as a
     // path (m3u entries, direct user input). safeResolve is the single security

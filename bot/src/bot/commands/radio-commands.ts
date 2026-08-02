@@ -805,11 +805,24 @@ export class RadioCommands {
     }
 
     // No usable hits — sample the local library (still no mega-mix lock-in).
+    // Prefer a RANDOM sample: empty seedQueries + walk-order search("") only
+    // ever saw the first ~60 filenames, so mid/late alphabet artists never
+    // auto-DJ'd even with a full library (and 1-play/12h cooldown burned the
+    // few that did).
     if (localById.size === 0 && sources.includes("local")) {
       try {
-        const local = this.deps.getProvider(new Set(["l"]));
-        const browse = await local.search("", Math.max(SEED_SEARCH_LIMIT, 60));
-        absorb(browse.songs ?? [], "local", localById);
+        const local = this.deps.getProvider(new Set(["l"])) as MusicProvider & {
+          sampleSongs?: (limit: number) => Promise<Song[]>;
+        };
+        const sampleN = Math.max(SEED_SEARCH_LIMIT, 120);
+        let songs: Song[] = [];
+        if (typeof local.sampleSongs === "function") {
+          songs = await local.sampleSongs(sampleN);
+        } else {
+          const browse = await local.search("", sampleN);
+          songs = browse.songs ?? [];
+        }
+        absorb(songs, "local", localById);
       } catch (err) {
         this.deps.logger?.debug?.({ err }, "radio: library sample for seeds failed");
       }
