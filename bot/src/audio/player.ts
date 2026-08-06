@@ -2,7 +2,13 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { rmSync } from "node:fs";
 import type { Logger } from "../logger.js";
-import { createOpusEncoder, type Encoder, PCM_FRAME_BYTES } from "./encoder.js";
+import {
+  clampMusicOpusBitrateKbps,
+  createOpusEncoder,
+  type Encoder,
+  MUSIC_OPUS_BITRATE_KBPS_DEFAULT,
+  PCM_FRAME_BYTES,
+} from "./encoder.js";
 
 /** Global PID tracker — prevents processes from being orphaned when class instances are swapped. */
 const globalActivePids = new Set<number>();
@@ -212,11 +218,17 @@ export class AudioPlayer extends EventEmitter {
    * Spoken bumpers (volumePctFloor set) skip this so announcements stay clear.
    */
   private musicAudioFilter: string | null = null;
+  /**
+   * Opus target for TeamSpeak music frames (kbps). 0 = Auto.
+   * Hot-applied via setMusicOpusBitrateKbps (dashboard slider).
+   */
+  private musicOpusBitrateKbps = MUSIC_OPUS_BITRATE_KBPS_DEFAULT;
 
   constructor(logger: Logger) {
     super();
     this.encoder = createOpusEncoder();
     this.logger = logger;
+    this.applyEncoderBitrate();
   }
 
   /**
@@ -230,6 +242,31 @@ export class AudioPlayer extends EventEmitter {
 
   getMusicAudioFilter(): string | null {
     return this.musicAudioFilter;
+  }
+
+  /**
+   * Cap Opus bitrate for music sent to TeamSpeak (kbps).
+   * 0 = Auto. Takes effect on the next encoded frame (no restart required).
+   */
+  setMusicOpusBitrateKbps(kbps: number | null | undefined): void {
+    this.musicOpusBitrateKbps = clampMusicOpusBitrateKbps(
+      kbps === null || kbps === undefined ? MUSIC_OPUS_BITRATE_KBPS_DEFAULT : kbps,
+    );
+    this.applyEncoderBitrate();
+  }
+
+  getMusicOpusBitrateKbps(): number {
+    return this.musicOpusBitrateKbps;
+  }
+
+  private applyEncoderBitrate(): void {
+    if (typeof this.encoder.setBitrate !== "function") return;
+    const bps = this.musicOpusBitrateKbps <= 0 ? 0 : this.musicOpusBitrateKbps * 1000;
+    try {
+      this.encoder.setBitrate(bps);
+    } catch (err) {
+      this.logger.warn({ err, kbps: this.musicOpusBitrateKbps }, "Opus setBitrate failed");
+    }
   }
 
   play(

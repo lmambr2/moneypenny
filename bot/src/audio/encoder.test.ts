@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createOpusEncoder, opusBackendAvailable, PCM_FRAME_BYTES } from "./encoder.js";
+import {
+  clampMusicOpusBitrateKbps,
+  createOpusEncoder,
+  opusBackendAvailable,
+  PCM_FRAME_BYTES,
+} from "./encoder.js";
 
 /** 20ms @ 48kHz stereo s16 = 960 frames * 2ch * 2 bytes. */
 const FRAME = PCM_FRAME_BYTES;
@@ -89,5 +94,27 @@ describe("createOpusEncoder", () => {
     expect(a).not.toBe(b);
     expect(a.encode(Buffer.alloc(FRAME, 0)).length).toBeGreaterThan(0);
     expect(b.encode(Buffer.alloc(FRAME, 0)).length).toBeGreaterThan(0);
+  });
+
+  it.runIf(available)("setBitrate reduces payload size at low rates", () => {
+    const enc = createOpusEncoder();
+    const pcm = tone();
+    enc.setBitrate?.(128_000);
+    const high = enc.encode(pcm);
+    enc.setBitrate?.(32_000);
+    const low = enc.encode(pcm);
+    // Low bitrate should not be larger than high (allow equal on silence-ish edge cases).
+    expect(low.length).toBeLessThanOrEqual(high.length + 8);
+    expect(low.length).toBeGreaterThan(0);
+  });
+});
+
+describe("clampMusicOpusBitrateKbps", () => {
+  it("keeps Auto (0) and clamps range", () => {
+    expect(clampMusicOpusBitrateKbps(0)).toBe(0);
+    expect(clampMusicOpusBitrateKbps(64)).toBe(64);
+    expect(clampMusicOpusBitrateKbps(12)).toBe(24);
+    expect(clampMusicOpusBitrateKbps(999)).toBe(160);
+    expect(clampMusicOpusBitrateKbps(NaN)).toBe(64);
   });
 });

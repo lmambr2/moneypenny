@@ -1,7 +1,7 @@
 #![deny(clippy::all)]
 
 use audiopus::coder::{Decoder as OpusDecoder, Encoder as OpusEncoder};
-use audiopus::{Application, Channels, SampleRate};
+use audiopus::{Application, Bitrate, Channels, SampleRate};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -55,6 +55,25 @@ impl NativeOpus {
       channels,
       frame_size,
     })
+  }
+
+  /// Set target Opus bitrate in bits/second.
+  ///
+  /// `bps <= 0` selects libopus Auto. Values are clamped to the Opus-meaningful
+  /// range (500–512000). Used by the dashboard music stream bitrate slider so
+  /// Starlink/uplink-constrained hosts can trade quality for bandwidth.
+  #[napi]
+  pub fn set_bitrate_bps(&mut self, bps: i32) -> Result<()> {
+    let bitrate = if bps <= 0 {
+      Bitrate::Auto
+    } else {
+      Bitrate::BitsPerSecond(bps.clamp(500, 512_000))
+    };
+    self
+      .encoder
+      .set_bitrate(bitrate)
+      .map_err(|e| Error::from_reason(format!("opus set_bitrate: {e:?}")))?;
+    Ok(())
   }
 
   /// Encode interleaved s16le PCM to a single Opus packet.

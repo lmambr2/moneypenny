@@ -5,6 +5,7 @@ import { parseBotScope } from "../../bot/scope.js";
 import type { AuditStore } from "../../data/audit.js";
 import type { AvatarStore } from "../../data/avatars.js";
 import { redactBotInstanceSecrets } from "../../data/bot-secrets.js";
+import { clampMusicOpusBitrateKbps } from "../../audio/encoder.js";
 import type { BotConfig } from "../../data/config.js";
 import { saveConfig } from "../../data/config.js";
 import type { BotDatabase } from "../../data/database.js";
@@ -56,6 +57,7 @@ export function createBotRouter(
       roastCooldownMinutes: config.roastCooldownMinutes ?? 180,
       roastMinScore: config.roastMinScore ?? 4,
       youtubeSaveEnabled: config.youtubeSaveEnabled ?? false,
+      musicOpusBitrateKbps: config.musicOpusBitrateKbps ?? 64,
       musicBlockedGenres: Array.isArray(config.musicBlockedGenres)
         ? config.musicBlockedGenres
         : ["rap", "hip hop", "hip-hop", "hiphop", "r&b", "rnb", "r and b", "rhythm and blues"],
@@ -115,6 +117,7 @@ export function createBotRouter(
       fileDrop: false,
       stream: false,
       voice: false,
+      musicBitrate: false,
     };
 
     // Flat config keys, table-driven: {type, bounds, subsystem to re-apply}.
@@ -162,6 +165,14 @@ export function createBotRouter(
       },
       // youtubeSaveEnabled / musicBlockedGenres are read live — no re-apply.
       { key: "youtubeSaveEnabled", type: "boolean" },
+      {
+        key: "musicOpusBitrateKbps",
+        type: "int",
+        min: 0,
+        max: 160,
+        touch: "musicBitrate",
+        msg: "musicOpusBitrateKbps must be 0 (Auto) or an integer 24–160",
+      },
       { key: "ragEnabled", type: "boolean", touch: "rag" },
       { key: "ragTopK", type: "int", min: 1, touch: "rag" },
       { key: "vectorDbUrl", type: "string" },
@@ -234,6 +245,19 @@ export function createBotRouter(
         cfg[spec.key] = v;
       }
       if (spec.touch) touched[spec.touch] = true;
+    }
+
+    // Clamp music Opus bitrate: 0 = Auto; else 24–160 kbps (reject bare 1–23).
+    if (touched.musicBitrate) {
+      const raw = config.musicOpusBitrateKbps;
+      if (typeof raw === "number" && raw > 0 && raw < 24) {
+        res.status(400).json({
+          error: "musicOpusBitrateKbps must be 0 (Auto) or an integer 24–160",
+          code: "VALIDATION_ERROR",
+        });
+        return;
+      }
+      config.musicOpusBitrateKbps = clampMusicOpusBitrateKbps(raw);
     }
 
     if ("musicBlockedGenres" in body) {
@@ -719,6 +743,13 @@ export function createBotRouter(
       }
       if (touched.stream) bot.updateStreamBridge(config.streamBridgeUrl ?? "");
       if (touched.voice && config.voice) bot.updateVoice(config.voice);
+      if (touched.musicBitrate) {
+        try {
+          bot.applyMusicOpusBitrate?.(config.musicOpusBitrateKbps);
+        } catch {
+          /* optional on fakes */
+        }
+      }
       // SC org URL/name are read live; rebind plugin so !ops picks up Settings.
       bot.refreshScOrgPlugin?.();
     }

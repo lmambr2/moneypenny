@@ -389,6 +389,7 @@ export class BotInstance extends EventEmitter {
     // Apply optional Icecast tee from config (default off).
     this.icecastTee.apply(this.config.radio?.icecast ?? null);
     this.applyAudioColor(this.config.radio?.audioColor);
+    this.applyMusicOpusBitrate(this.config.musicOpusBitrateKbps);
 
     this.commands = new CommandExecutor({
       playback: this.playback,
@@ -1346,6 +1347,20 @@ export class BotInstance extends EventEmitter {
     const active = !!this.config.radio?.enabled && p !== "off";
     this.player.setMusicAudioFilter(active ? audioColorFilter(p) : null);
     this.logger.info({ audioColor: p, active }, "radio music audio color applied");
+  }
+
+  /**
+   * Hot-apply Opus bitrate for music frames to TeamSpeak (kbps).
+   * Takes effect on the next encoded frame. 0 = Auto.
+   */
+  applyMusicOpusBitrate(kbps?: number | null): void {
+    const v = kbps ?? this.config.musicOpusBitrateKbps ?? 64;
+    this.config.musicOpusBitrateKbps = v;
+    this.player.setMusicOpusBitrateKbps(v);
+    this.logger.info(
+      { musicOpusBitrateKbps: this.player.getMusicOpusBitrateKbps() },
+      "music Opus bitrate applied",
+    );
   }
 
   /** Tee PCM to Icecast when running (fail-open). */

@@ -137,6 +137,12 @@ export interface BotConfig {
   // default (downloading is against YouTube ToS — a self-hosted call).
   youtubeSaveEnabled: boolean;
   /**
+   * Opus bitrate for music frames sent to TeamSpeak (kbps).
+   * 0 = Auto (libopus). Typical: 48–64 Starlink-friendly, 96–128 high quality.
+   * Clamped 24–160 when non-zero. Hot-applied on Settings save.
+   */
+  musicOpusBitrateKbps: number;
+  /**
    * Genre terms blocked from search / queue / radio seed (title, artist, album,
    * and local genre tags). Default: rap / hip-hop / R&B family.
    * Explicit `[]` disables the policy. See `music/genre-block.ts`.
@@ -281,6 +287,8 @@ export function getDefaultConfig(): BotConfig {
     radio: defaultRadioConfig(),
     streamBridgeUrl: "",
     youtubeSaveEnabled: false,
+    // Default 64 kbps: solid stereo music, ~half the uplink of 128k full music.
+    musicOpusBitrateKbps: 64,
     musicBlockedGenres: [...DEFAULT_MUSIC_BLOCKED_GENRES],
     // Endpoint/model default empty → clients use env / edition defaults
     // (turbovec:6333 / ollama / nomic-embed-text-v2-moe or bge-large-en-v1.5).

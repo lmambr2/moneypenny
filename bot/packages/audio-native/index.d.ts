@@ -13,6 +13,14 @@ export declare function nativeAudioBackend(): string
 export declare class NativeOpus {
   /** Create a native Opus codec. Defaults match TeamSpeak music: 48kHz stereo, 20ms frames. */
   constructor(sampleRate: number, channels: number)
+  /**
+   * Set target Opus bitrate in bits/second.
+   *
+   * `bps <= 0` selects libopus Auto. Values are clamped to the Opus-meaningful
+   * range (500–512000). Used by the dashboard music stream bitrate slider so
+   * Starlink/uplink-constrained hosts can trade quality for bandwidth.
+   */
+  setBitrateBps(bps: number): void
   /** Encode interleaved s16le PCM to a single Opus packet. */
   encode(pcm: Buffer): Buffer
   /** Decode one Opus packet to interleaved s16le PCM. */
