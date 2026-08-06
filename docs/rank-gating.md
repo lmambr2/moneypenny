@@ -130,6 +130,30 @@ See [rag-ingestion.md](./rag-ingestion.md) for how classification is set at inge
 
 ---
 
+## Coexistence with session voice-priority roles
+
+Permanent rank groups above are the **only** source of truth for Moneypenny
+command rights and doctrine clearance. Ops may also create **temporary session
+roles** on TeamSpeak for voice priority, channel placement, and Priority Speaker
+targets: Flight Lead / Captain; Pilot; Gunner / WSO; Engineer / Comms (S-6);
+Wingman / Crew; Guest.
+
+Those session-role groups:
+
+- Are assigned for a session and **cleared after the op** (not sticky permanent ranks for volume).
+- **Must not** replace or silently substitute for the permanent-rank IDs in
+  `scripts/rights-rank-gating.json` / live `rights` rules.
+- Do **not** grant or deny music/doctrine rights by themselves unless an
+  explicit, documented rights rule is added later.
+
+Tag session groups with the **`Session /`** name prefix and list their IDs in
+`sessionRoles.groupIds`. Clear after the op with **`!session clear`** (mod/admin).
+Full procedure (channel template, S-6 checklist, Priority Speaker, multi-PTT,
+music ducking kept as-is):
+**[voice-priority-session-discipline.md](./voice-priority-session-discipline.md)**.
+
+---
+
 ## Customizing
 
 1. Look up your server-group IDs in TS6 (or `GET /1/servergrouplist` via HTTP Query).

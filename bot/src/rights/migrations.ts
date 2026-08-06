@@ -149,6 +149,14 @@ const DELTAS: readonly RightsDelta[] = [
     version: 13,
     defaultAllow: ["jump", "go"],
   },
+  {
+    // Temporary Session / role clear after ops (docs/voice-priority-session-discipline.md).
+    version: 14,
+    groups: {
+      mod: ["session"],
+      admin: ["session"],
+    },
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

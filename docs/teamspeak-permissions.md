@@ -107,8 +107,10 @@ group must have:
   (`music/playback-blacklist.ts`). It bans *tracks*, not people, and never
   touches the TS ban list.
 - **Create, edit, or delete channels.** She only joins and lists them.
-- **Edit server settings, server groups, or other clients' groups.** She only
-  *reads* group membership for rank gating.
+- **Edit server settings or permanent rank groups.** Rank gating only *reads*
+  group membership. Optional exception: when `sessionRoles.groupIds` is set,
+  `!session clear` uses Query `servergroupdelclient` **only** for those
+  allowlisted temporary Session / role groups (never permanent rights IDs).
 - **Upload files to a channel.** The only upload is her own avatar.
 - **Server-wide file browse.** Only the drop channel.
 

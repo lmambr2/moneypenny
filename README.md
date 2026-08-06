@@ -470,6 +470,8 @@ See [docs/remote-llm.md](./docs/remote-llm.md) for split-brain + analyst presets
 - `adminGroups` (TS server-group IDs used as the web-admin fallback + legacy simple mode)
 - `rights` (full custom rules JSON — starter template: `scripts/rights-rank-gating.json`; replace placeholder group IDs with yours)
 - See **[docs/rank-gating.md](./docs/rank-gating.md)** for the military-rank tier map, doctrine levels, and TS6 group-resolution notes
+- Ops voice priority (session roles vs permanent ranks, channel split, keep music ducking): **[docs/voice-priority-session-discipline.md](./docs/voice-priority-session-discipline.md)**
+- Temporary Session / groups: `sessionRoles.groupIds` + **`!session clear`** (mod/admin; Query required)
 
 **Voice**
 - `voice.enabled`

@@ -73,6 +73,12 @@ import { AutoFollow } from "./lifecycle/auto-follow.js";
 import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
 import { countChannelHumans, IdlePoller } from "./lifecycle/idle-poller.js";
 import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
+import {
+  countHumansFromClientListBody,
+  defaultSessionRolesConfig,
+  permanentRankIdsFromRights,
+  SessionRolesService,
+} from "./lifecycle/session-roles.js";
 import { LlmRuntime } from "./llm/runtime.js";
 import { PlaybackEngine } from "./playback/engine.js";
 import { BotProfileManager } from "./profile.js";
@@ -139,6 +145,7 @@ export class BotInstance extends EventEmitter {
   private llm: LlmRuntime;
   private autoFollow: AutoFollow;
   private idlePoller: IdlePoller;
+  private sessionRoles: SessionRolesService;
   private radio: RadioDirector;
   private bumperFactory: RadioBumperFactory;
   private bumperCache: BumperCache;
@@ -563,6 +570,16 @@ export class BotInstance extends EventEmitter {
       isConnected: () => this.connected,
     });
 
+    this.sessionRoles = new SessionRolesService({
+      getConfig: () => this.config.sessionRoles ?? defaultSessionRolesConfig(),
+      getPermanentRankIds: () =>
+        permanentRankIdsFromRights(this.config.rights, this.config.adminGroups ?? []),
+      getHttpQuery: () => this.tsClient.getHttpQuery(),
+      getBotClientId: () => this.tsClient.getClientId(),
+      isConnected: () => this.connected,
+      logger: this.logger,
+    });
+
     this.idlePoller = new IdlePoller({
       config: this.config,
       logger: this.logger,
@@ -578,6 +595,8 @@ export class BotInstance extends EventEmitter {
         }
         // Empty channel: go find the crowd (no-op unless autoFollowEnabled).
         this.autoFollow.maybeFollow(userCount).catch(() => {});
+        // Server-wide empty → optional Session / role auto-clear (not channel-only).
+        void this.pollSessionRolesEmptyServer();
       },
     });
 
@@ -660,6 +679,7 @@ export class BotInstance extends EventEmitter {
         }
       },
       ops: this.ops,
+      sessionRoles: this.sessionRoles,
       moderation: (action, target, canRun) => this.moderationAction(action, target, canRun),
       knowledge: this.knowledge,
       generate: {
@@ -1199,6 +1219,37 @@ export class BotInstance extends EventEmitter {
   handleOps(args: string, canRun?: (c: string) => boolean) {
     this.refreshScOrgPlugin();
     return this.ops.handle(args, canRun ?? (() => true));
+  }
+
+  /** Temporary Session / role status or clear (S-6). */
+  handleSession(args: string, canRun?: (c: string) => boolean) {
+    return this.sessionRoles.handle(args, canRun ?? (() => true));
+  }
+
+  /**
+   * Count humans server-wide (all channels) for session-role auto-clear.
+   * Falls back to Query clientlist; never uses music-channel-only idle.
+   */
+  private async pollSessionRolesEmptyServer(): Promise<void> {
+    const cfg = this.config.sessionRoles ?? defaultSessionRolesConfig();
+    if (!cfg.autoClearOnEmpty || !cfg.groupIds?.length) return;
+    try {
+      let humans = 0;
+      try {
+        const all = await this.tsClient.getAllClients();
+        const botId = this.tsClient.getClientId();
+        humans = countChannelHumans(all, botId);
+      } catch {
+        const q = this.tsClient.getHttpQuery();
+        if (!q) return;
+        const res = await q.clientList(1);
+        if (res.status < 200 || res.status >= 300) return;
+        humans = countHumansFromClientListBody(res.body, this.tsClient.getClientId());
+      }
+      this.sessionRoles.onServerHumanCount(humans);
+    } catch (err) {
+      this.logger.debug?.({ err }, "session-roles empty-server poll failed");
+    }
   }
 
   /** Rebind SC org plugin from live config / env (G2). */

@@ -4,6 +4,10 @@ import type { RightsConfig } from "../rights/index.js";
 import { type VoiceConfig, defaultVoiceConfig } from "../voice/index.js";
 import { type RadioConfig, defaultRadioConfig } from "../radio/index.js";
 import { type BotScopeConfig, defaultBotScope } from "../bot/scope.js";
+import {
+  type SessionRolesConfig,
+  defaultSessionRolesConfig,
+} from "../bot/lifecycle/session-roles.js";
 import { DEFAULT_MUSIC_BLOCKED_GENRES } from "../music/genre-block.js";
 
 export interface BotConfig {
@@ -28,6 +32,11 @@ export interface BotConfig {
   autoReturnDelay: number;
   autoPauseOnEmpty: boolean;
   idleTimeoutMinutes: number;
+  /**
+   * Temporary Session / … server groups for voice priority (not rights ranks).
+   * See docs/voice-priority-session-discipline.md and !session clear.
+   */
+  sessionRoles: SessionRolesConfig;
   /**
    * Follow the crowd: when nobody is left in the bot's channel, move to the
    * busiest channel that has people in it. Off by default — a bot that relocates
@@ -259,6 +268,7 @@ export function getDefaultConfig(): BotConfig {
     autoReturnDelay: 300,
     autoPauseOnEmpty: true,
     idleTimeoutMinutes: 0,
+    sessionRoles: defaultSessionRolesConfig(),
     playbackBanProtectedArtists: [],
     autoFollowEnabled: false,
     autoFollowAfkChannels: ["AFK", "Away", "AFK / Away"],
@@ -342,6 +352,7 @@ const DEEP_MERGE_KEYS = [
   "voice",
   "radio",
   "scope",
+  "sessionRoles",
 ] as const;
 
 /**
