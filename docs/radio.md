@@ -35,7 +35,8 @@ playlist refs); switch live with the active-profile dropdown or `!radio ops <nam
   dead-air, bumper length, speech volume floor, profile picker
 - **Op-context profiles** editor: seed queries, seed local/YouTube/stream + external %,
   playlist refs, bumper topics/tone, shuffle, **ACE-Step if empty** (per profile)
-- **Rating-weighted rotation** / **harmonic sequencing** / **analyzer on ingest**
+- **Rating-weighted rotation** / **smart rotation** (artist/album separation + energy bias) /
+  **harmonic sequencing** / **analyzer on ingest**
 - **Music color / quality** (clean · AM · FM · telephone · vinyl · lofi)
 - **Bumper sources:** prerecorded · stationId · timeCheck · nowPlaying · doctrine · memory
 - **Org memory on air** (`memoryBroadcastOptIn`) — KG/diary only; never private `!remember`
@@ -838,6 +839,20 @@ OQ3 scan ──decides──▶ OQ2 analyzer ──runs──▶ key/BPM coverag
    upcoming queue window, not a hard selection constraint (tracks lacking a key fall
    back to normal order). Composes with OQ7 (weighting picks the bag draw; ordering
    reorders the window). Active only once key coverage is adequate.
+
+**Smart rotation (Auto-DJ pool ordering, 2026-08):** after play-history cooldown,
+`applyPoolOrdering` runs pure stages in `bot/src/radio/smart-rotation.ts`:
+
+1. **Artist / album separation** (`radio.smartRotation.separation`, default on) —
+   greedy windows so the same artist (default window 4) or album (window 6) does not
+   reappear when alternatives exist; `relaxOnEmpty` still places a track if the pool
+   is thin.
+2. **Rating-weighted draw** (OQ7, existing).
+3. **Energy bias** (`radio.smartRotation.energyBias`, default on) — soft continuity
+   using TagStore `energy` when present; no-op when coverage is empty.
+4. **Harmonic sequencing** (OQ5, existing, still opt-in).
+
+Radio-off remains byte-identical (`enabled: false` never enters this path).
 6. **Ratings model** → **per-user + smoothed aggregate.** `ts:*` and `web:*` counted
    as distinct raters; **not linked in v1** (Bayesian smoothing damps the double-count).
    Add a verify-in-channel account-link flow later only if precision matters.

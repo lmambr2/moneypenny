@@ -590,6 +590,7 @@ export function createBotRouter(
         "ratingWeight",
         "autoDjRepeat",
         "harmonicSequencing",
+        "smartRotation",
         "audioColor",
         "icecast",
       ]);

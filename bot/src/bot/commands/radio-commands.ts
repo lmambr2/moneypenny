@@ -6,7 +6,7 @@ import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { isYoutubeLivestreamRadioTitle, shouldBlockYoutubeSong } from "../../music/youtube.js";
 // YT seed hits are primarily filtered in YouTubeProvider via yt-dlp categories/track.
-import { orderKeysHarmonically } from "../../radio/harmonic.js";
+import { applySmartRotation } from "../../radio/smart-rotation.js";
 import {
   filterAutoDjRepeatEligible,
   isAutoDjRepeatBlocked,
@@ -17,7 +17,6 @@ import {
   type RadioProfile,
   type TagStore,
 } from "../../radio/index.js";
-import { orderKeysByRatingWeight } from "../../radio/rating-weight.js";
 import type { ParsedCommand } from "../commands.js";
 import type { CommandExecutorDeps } from "./executor.js";
 
@@ -615,8 +614,30 @@ export class RadioCommands {
       return 0;
     }
 
-    // Artist spacing for playlist/tag pools too (seed path already diversified).
+    // Smart rotation (separation → rating → energy → harmonic) then hard artist
+    // cap + optional shuffle for residual bag noise.
     const wantShuffle = music.shuffle !== false;
+    {
+      const ids = pool.map((s) => s.id).filter(Boolean);
+      if (ids.length > 1) {
+        const orderedIds = this.applyPoolOrdering(ids, pool);
+        const byId = new Map(pool.map((s) => [s.id, s]));
+        const reordered: QueuedSong[] = [];
+        const seen = new Set<string>();
+        for (const id of orderedIds) {
+          const s = byId.get(id);
+          if (s && !seen.has(id)) {
+            reordered.push(s);
+            seen.add(id);
+          }
+        }
+        for (const s of pool) {
+          if (s.id && !seen.has(s.id)) reordered.push(s);
+        }
+        pool.length = 0;
+        pool.push(...reordered);
+      }
+    }
     let programPool = diversifyArtists(pool, { maxPerArtist: SEED_MAX_PER_ARTIST });
     if (wantShuffle) programPool = shuffleSongs(programPool);
     pool.length = 0;
@@ -1002,39 +1023,61 @@ export class RadioCommands {
   }
 
   /**
-   * OQ7 rating weight + OQ5 harmonic sequencing on a selected key list.
-   * Rating weight reorders first (preference bag); harmonic then smooths neighbors.
+   * Smart rotation on a selected key list (docs/radio.md):
+   * separation → rating weight → energy bias → harmonic.
+   * Optional `songs` supplies artist/album for separation (seed/playlist pools).
    */
-  applyPoolOrdering(keys: string[]): string[] {
-    if (keys.length <= 1 || !this.deps.tagStore) return keys;
+  applyPoolOrdering(
+    keys: string[],
+    songs?: Array<{ id: string; artist?: string; album?: string }>,
+  ): string[] {
+    if (keys.length <= 1) return keys;
     const radio = this.deps.config.radio ?? {};
     const store = this.deps.tagStore;
-    let ordered = keys;
-    const rw = radio.ratingWeight;
-    // Default on when radio config omits ratingWeight (matches defaultRadioConfig).
-    const weightEnabled = rw?.enabled !== false;
-    if (weightEnabled) {
-      ordered = orderKeysByRatingWeight(ordered, (k) => store.smoothedScore(k), {
-        enabled: true,
-        exponent: rw?.exponent ?? 1,
-        maxRatio: rw?.maxRatio ?? 3,
-      });
-    }
+    const songById = songs ? new Map(songs.map((s) => [s.id, s])) : null;
+    const sr = radio.smartRotation;
+
+    const metaOf = (k: string) => {
+      const t = store?.get(k);
+      const s = songById?.get(k);
+      return {
+        artist: s?.artist,
+        album: s?.album,
+        energy: t?.energy,
+        musicalKey: t?.musicalKey,
+        keyScale: t?.keyScale,
+      };
+    };
+
     const harmonicOn = !!(
       radio.harmonicSequencing ||
       radio.profiles?.[radio.activeProfile ?? ""]?.music?.harmonicSequencing
     );
-    if (harmonicOn) {
-      ordered = orderKeysHarmonically(
-        ordered,
-        (k) => {
-          const t = store.get(k);
-          return t ? { musicalKey: t.musicalKey, keyScale: t.keyScale } : null;
-        },
-        true,
-      );
-    }
-    return ordered;
+    const rw = radio.ratingWeight;
+    // Rating default ON (matches defaultRadioConfig / prior behaviour).
+    const ratingEnabled = rw?.enabled !== false;
+
+    return applySmartRotation(keys, metaOf, {
+      separation: {
+        enabled: sr?.separation?.enabled !== false,
+        artistWindow: sr?.separation?.artistWindow ?? 4,
+        albumWindow: sr?.separation?.albumWindow ?? 6,
+        relaxOnEmpty: sr?.separation?.relaxOnEmpty !== false,
+      },
+      rating: ratingEnabled
+        ? {
+            enabled: true,
+            exponent: rw?.exponent ?? 1,
+            maxRatio: rw?.maxRatio ?? 3,
+          }
+        : { enabled: false },
+      energyBias: {
+        enabled: sr?.energyBias?.enabled !== false,
+        maxJump: sr?.energyBias?.maxJump ?? 0.35,
+      },
+      harmonic: harmonicOn,
+      scoreOf: store ? (k) => store.smoothedScore(k) : undefined,
+    });
   }
 
   /** Overlay keys → playable local Songs; stale rows (deleted files) skipped. */
