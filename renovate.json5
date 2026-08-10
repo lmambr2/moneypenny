@@ -56,12 +56,12 @@
       "enabled": false
     },
 
-    // better-sqlite3 13 requires Node >= 22; the bot image is node:20. Revisit
-    // together with the base image, not on its own.
+    // better-sqlite3 13 needs Node >= 22. The bot image is node:24-trixie-slim
+    // (see bot/Dockerfile); majors are allowed again. keep allowScripts in sync.
     {
       "matchPackageNames": ["better-sqlite3"],
       "matchUpdateTypes": ["major"],
-      "enabled": false
+      "enabled": true
     },
 
     // vue-tsc 3.x cannot load TypeScript 7 — it resolves typescript/lib/tsc.js,
