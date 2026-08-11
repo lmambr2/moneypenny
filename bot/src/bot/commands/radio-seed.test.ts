@@ -412,6 +412,65 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     expect(ids).toContain("seed1");
   });
 
+  it("restock does not re-queue already-played user tracks (sequential history)", async () => {
+    // Queue still holds past !adds at indices < currentIndex. Restock used to
+    // re-add them and replay the whole Wheeler stack after dead-air fill.
+    const playedUser = {
+      ...song({ id: "wwj1", name: "Already Played" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const nowPlaying = {
+      ...song({ id: "now", name: "Now" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const upcomingUser = {
+      ...song({ id: "wwj2", name: "Still Pending" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const localSearch = vi.fn(async () => ({
+      songs: [song({ id: "seed1", name: "Seed A", duration: 180 })],
+      playlists: [],
+      albums: [],
+    }));
+    const queue = mockQueue({
+      list: [playedUser, nowPlaying, upcomingUser],
+      current: nowPlaying,
+      currentIndex: 1,
+    });
+    const deps = {
+      config: {
+        commandPrefix: "!",
+        aceStepAutoFill: false,
+        radio: {
+          enabled: true,
+          activeProfile: "lobby",
+          profiles: {
+            lobby: {
+              name: "lobby",
+              music: { seedQueries: ["rock"], seedSources: ["local"], shuffle: false },
+            },
+          },
+        },
+      },
+      queue,
+      player: { resetFailures: vi.fn(), getState: () => "playing" },
+      playback: { resolveAndPlay: vi.fn(async () => true), searchFirst: vi.fn() },
+      getProvider: vi.fn(() => ({ platform: "local", search: localSearch })),
+      logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+    } as unknown as CommandExecutorDeps;
+
+    const cmds = new RadioCommands(deps, async () => []);
+    expect(await cmds.autoProgram()).toBe(true);
+    const ids = queue._added.map((s) => s.id);
+    expect(ids).toContain("now");
+    expect(ids).toContain("wwj2");
+    expect(ids).toContain("seed1");
+    expect(ids).not.toContain("wwj1");
+  });
+
   it("profile aceStepAutoFill true runs gen even when global autoFill is off", async () => {
     const genSong = song({ id: "g1", name: "Gen", duration: 90 });
     const generateAndIngest = vi.fn(async () => ({

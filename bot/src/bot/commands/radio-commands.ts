@@ -688,9 +688,15 @@ export class RadioCommands {
      */
     const requeueCurrent = preserveCurrent;
 
+    // Only keep UPCOMING human tracks. In Sequential the queue still holds
+    // already-played songs at indices < currentIndex; re-adding those on restock
+    // re-ran the whole !add pile (e.g. Wheeler Walker Jr. stack played twice).
+    // Past radio fill is dropped either way (isRadioFill).
     const userPendingPlayable: QueuedSong[] = [];
     for (let i = 0; i < prevList.length; i++) {
       if (i === curIdx) continue;
+      // Already played (or left behind) — do not resurrect on restock.
+      if (curIdx >= 0 && i < curIdx) continue;
       const s = prevList[i]!;
       if (isRadioFill(s)) continue;
       if (bl?.isBlacklisted(s)) continue;
