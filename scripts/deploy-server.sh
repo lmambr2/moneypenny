@@ -166,6 +166,14 @@ if ! remote "grep -qE '^BIND_ADDRESS=127\.0\.0\.1' .env"; then
   _deploy_warn "Harmless under podman (which ignores it anyway) but wrong under docker compose."
 fi
 
+# Deploy smoke: after connect the bot runs !test when PHASE0_AUTO_TEST is truthy.
+# Without it, a successful deploy is silent until radio dead-air restocks (~1–2 min).
+if remote "grep -qE '^PHASE0_AUTO_TEST=(1|true|yes)$' .env"; then
+  _deploy_ok "PHASE0_AUTO_TEST enabled — expect auto !test after connect"
+else
+  _deploy_warn "PHASE0_AUTO_TEST is not set in $DEPLOY_PATH/.env — no auto !test on recreate"
+fi
+
 IFS=',' read -r -a svc_list <<< "$SERVICES"
 
 if [[ $NO_BUILD -eq 0 ]]; then
