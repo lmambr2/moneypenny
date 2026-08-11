@@ -305,6 +305,9 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     expect(added.some((a) => a.platform === "local")).toBe(true);
     // Must not have used generic searchFirst helper
     expect(deps.playback.searchFirst).not.toHaveBeenCalled();
+    // Smart rotation order is played sequentially — RandomLoop used to
+    // re-roll the same seed bag and make smart rotation a no-op.
+    expect(queue.setMode).toHaveBeenCalledWith("seq");
   });
 
   it("seedSources local-only skips YouTube", async () => {
@@ -530,5 +533,17 @@ describe("diversifyArtists", () => {
     ];
     const out = diversifyArtists(pool, { maxPerArtist: 1, rng: () => 0 });
     expect(out).toHaveLength(2);
+  });
+
+  it("preserveOrder keeps first-seen artist order (no key shuffle)", () => {
+    const pool = [
+      song({ id: "b1", name: "B1", artist: "Beta" }),
+      song({ id: "a1", name: "A1", artist: "Alpha" }),
+      song({ id: "c1", name: "C1", artist: "Gamma" }),
+      song({ id: "a2", name: "A2", artist: "Alpha" }),
+    ];
+    const out = diversifyArtists(pool, { maxPerArtist: 2, preserveOrder: true });
+    // Round-robin in first-seen artist order: Beta, Alpha, Gamma, then Alpha again
+    expect(out.map((s) => s.id)).toEqual(["b1", "a1", "c1", "a2"]);
   });
 });

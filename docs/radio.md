@@ -852,6 +852,13 @@ OQ3 scan ──decides──▶ OQ2 analyzer ──runs──▶ key/BPM coverag
    using TagStore `energy` when present; no-op when coverage is empty.
 4. **Harmonic sequencing** (OQ5, existing, still opt-in).
 
+The programmed order is **preserved at play time**: after smart rotation the queue
+mode is **Sequential** (not RandomLoop). A post-order Fisher–Yates + RandomLoop used
+to throw the order away and cycle the same ~18 seed hits until restock — smart
+rotation was a no-op in practice. Profile `music.shuffle` still randomizes **seed
+candidate assembly** only; end-of-queue sequential drain triggers dead-air restock
+for a fresher bag.
+
 Radio-off remains byte-identical (`enabled: false` never enters this path).
 6. **Ratings model** → **per-user + smoothed aggregate.** `ts:*` and `web:*` counted
    as distinct raters; **not linked in v1** (Bayesian smoothing damps the double-count).

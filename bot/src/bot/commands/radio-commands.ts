@@ -204,10 +204,15 @@ export function artistDiversityKey(song: { id: string; artist?: string }): strin
 /**
  * Reorder / thin a pool so one artist cannot dominate and back-to-back same-artist
  * tracks are avoided when alternatives exist. Caps `maxPerArtist` (default 2).
+ *
+ * `preserveOrder: true` keeps the input's first-seen artist order (used after
+ * smart rotation so artist-cap thinning does not re-shuffle the programmed
+ * sequence). Default shuffles artist keys for residual bag diversity when
+ * called from seed assembly.
  */
 export function diversifyArtists<T extends { id: string; artist?: string }>(
   songs: T[],
-  opts: { maxPerArtist?: number; rng?: () => number } = {},
+  opts: { maxPerArtist?: number; rng?: () => number; preserveOrder?: boolean } = {},
 ): T[] {
   if (songs.length <= 1) return songs.slice();
   const maxPer = Math.max(1, opts.maxPerArtist ?? SEED_MAX_PER_ARTIST);
@@ -227,7 +232,7 @@ export function diversifyArtists<T extends { id: string; artist?: string }>(
   }
 
   // Round-robin across artists so the queue is not AAAA…BBBB.
-  const keys = shuffleSongs(order, rng);
+  const keys = opts.preserveOrder ? order : shuffleSongs(order, rng);
   const out: T[] = [];
   let progress = true;
   while (progress) {
@@ -615,8 +620,12 @@ export class RadioCommands {
     }
 
     // Smart rotation (separation → rating → energy → harmonic) then hard artist
-    // cap + optional shuffle for residual bag noise.
-    const wantShuffle = music.shuffle !== false;
+    // cap. Do NOT reshuffle afterward and do NOT use RandomLoop: both undid the
+    // programmed order and left Auto-DJ cycling the same ~SEED_POOL_CAP seed
+    // hits (same YouTube search results) until the next restock — smart rotation
+    // felt identical to the old bag-RNG. Profile `shuffle` still randomizes seed
+    // *candidate assembly* in expandSeedQueries; final play order is sequential
+    // so the queue ends → dead-air restock pulls a fresher bag.
     {
       const ids = pool.map((s) => s.id).filter(Boolean);
       if (ids.length > 1) {
@@ -638,13 +647,14 @@ export class RadioCommands {
         pool.push(...reordered);
       }
     }
-    let programPool = diversifyArtists(pool, { maxPerArtist: SEED_MAX_PER_ARTIST });
-    if (wantShuffle) programPool = shuffleSongs(programPool);
+    const programPool = diversifyArtists(pool, {
+      maxPerArtist: SEED_MAX_PER_ARTIST,
+      preserveOrder: true,
+    });
     pool.length = 0;
     pool.push(...programPool);
 
-    // Profile shuffle → random-loop queue (not sequential). Explicit false → seq.
-    this.deps.queue.setMode?.(wantShuffle ? PlayMode.RandomLoop : PlayMode.Sequential);
+    this.deps.queue.setMode?.(PlayMode.Sequential);
 
     // Remember seed-sourced ids so the next restock prefers other tracks.
     this.noteSeedProgrammed(pool.map((s) => s.id));
