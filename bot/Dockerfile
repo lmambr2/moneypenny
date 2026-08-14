@@ -107,7 +107,13 @@ RUN git clone --depth 1 --branch "${KEYFINDER_CLI_REF}" \
 # ── Stage 2: runtime ────────────────────────────────────────────────────────
 # Must track the build stage major — native addons are copied across.
 FROM node:24.19.0-trixie-slim AS runtime
-RUN npm install -g npm@latest
+# Production only runs `node dist/index.js`. Drop image-bundled npm so Trivy
+# does not keep flagging CVEs under /usr/local/lib/node_modules/npm (ip-address,
+# brace-expansion, …) that never execute at runtime.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/bin/npm /usr/local/bin/npx \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/corepack 2>/dev/null || true
 
 # Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
 # aubio-tools: BPM detection for the radio analyzer sidecar (docs/radio.md §9.5).
