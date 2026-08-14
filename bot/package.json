@@ -1,7 +1,7 @@
 {
   "name": "moneypenny",
   "version": "0.1.0",
-  "description": "TeamSpeak music bot (Moneypenny fork) — local-first + YouTube + LLM control",
+  "description": "TeamSpeak music bot (Moneypenny fork) \u2014 local-first + YouTube + LLM control",
   "type": "module",
   "private": true,
   "workspaces": [
@@ -45,16 +45,19 @@
     "multer": "^2.2.0",
     "music-metadata": "^11.14.0",
     "pino": "^10.3.1",
-    "swagger-ui-dist": "^5.32.12",
+    "swagger-ui-dist": "^5.32.13",
     "tweetnacl": "^1.0.3",
     "ws": "^8.21.3",
     "zod": "^4.4.3"
   },
   "overrides": {
-    "tar": "^7.5.21",
-    "brace-expansion": "^5.0.8",
-    "minimatch": "^10.2.5",
-    "@hono/node-server": "^2.0.11"
+    "tar": "^7.5.22",
+    "brace-expansion": "^5.0.9",
+    "minimatch": "^10.2.6",
+    "@hono/node-server": "^2.1.0",
+    "fast-uri": "^3.1.5",
+    "hono": "^4.13.2",
+    "nanoid": "^3.3.18"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",

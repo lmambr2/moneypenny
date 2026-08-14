@@ -15,7 +15,11 @@
 # security patches — and its ceiling is what pinned better-sqlite3 to 12.x
 # (13 requires >= 22). Keep build and runtime on the SAME major so the native
 # addons compiled in this stage match the runtime ABI.
-FROM node:24-trixie-slim AS build
+FROM node:24.19.0-trixie-slim AS build
+
+# Keep image-bundled npm (and its nested deps) current for Trivy findings that
+# live under /usr/local/lib/node_modules/npm, not app/node_modules.
+RUN npm install -g npm@latest
 
 # BuildKit injects TARGETARCH (amd64 | arm64). Used for operator logs only;
 # Node/Rust compile for the container platform automatically when not cross-linking.
@@ -102,7 +106,8 @@ RUN git clone --depth 1 --branch "${KEYFINDER_CLI_REF}" \
 
 # ── Stage 2: runtime ────────────────────────────────────────────────────────
 # Must track the build stage major — native addons are copied across.
-FROM node:24-trixie-slim AS runtime
+FROM node:24.19.0-trixie-slim AS runtime
+RUN npm install -g npm@latest
 
 # Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
 # aubio-tools: BPM detection for the radio analyzer sidecar (docs/radio.md §9.5).
