@@ -69,9 +69,16 @@ import { RoutedCommandExecutor } from "./control/routed-executor.js";
 import { TextMessageHandler } from "./control/text-handler.js";
 import { createYtLibrary } from "./factory/yt-library.js";
 import { KnowledgeService } from "./knowledge/service.js";
+import { AutoFollow } from "./lifecycle/auto-follow.js";
 import { bindPlayerEvents, bindTsEvents } from "./lifecycle/event-bindings.js";
 import { countChannelHumans, IdlePoller } from "./lifecycle/idle-poller.js";
 import { schedulePhase0AutoPlay } from "./lifecycle/phase0.js";
+import {
+  countHumansFromClientListBody,
+  defaultSessionRolesConfig,
+  permanentRankIdsFromRights,
+  SessionRolesService,
+} from "./lifecycle/session-roles.js";
 import { LlmRuntime } from "./llm/runtime.js";
 import { PlaybackEngine } from "./playback/engine.js";
 import { BotProfileManager } from "./profile.js";
@@ -136,7 +143,9 @@ export class BotInstance extends EventEmitter {
   private statusRegistry: ExternalStatusRegistry;
   private knowledge: KnowledgeService;
   private llm: LlmRuntime;
+  private autoFollow: AutoFollow;
   private idlePoller: IdlePoller;
+  private sessionRoles: SessionRolesService;
   private radio: RadioDirector;
   private bumperFactory: RadioBumperFactory;
   private bumperCache: BumperCache;
@@ -387,6 +396,7 @@ export class BotInstance extends EventEmitter {
     // Apply optional Icecast tee from config (default off).
     this.icecastTee.apply(this.config.radio?.icecast ?? null);
     this.applyAudioColor(this.config.radio?.audioColor);
+    this.applyMusicOpusBitrate(this.config.musicOpusBitrateKbps);
 
     this.commands = new CommandExecutor({
       playback: this.playback,
@@ -553,6 +563,23 @@ export class BotInstance extends EventEmitter {
       logger: this.logger,
     });
 
+    this.autoFollow = new AutoFollow({
+      config: this.config,
+      logger: this.logger,
+      tsClient: this.tsClient,
+      isConnected: () => this.connected,
+    });
+
+    this.sessionRoles = new SessionRolesService({
+      getConfig: () => this.config.sessionRoles ?? defaultSessionRolesConfig(),
+      getPermanentRankIds: () =>
+        permanentRankIdsFromRights(this.config.rights, this.config.adminGroups ?? []),
+      getHttpQuery: () => this.tsClient.getHttpQuery(),
+      getBotClientId: () => this.tsClient.getClientId(),
+      isConnected: () => this.connected,
+      logger: this.logger,
+    });
+
     this.idlePoller = new IdlePoller({
       config: this.config,
       logger: this.logger,
@@ -566,6 +593,10 @@ export class BotInstance extends EventEmitter {
         if (this.config.roastEnabled) {
           this.roast.runTick(userCount).catch(() => {});
         }
+        // Empty channel: go find the crowd (no-op unless autoFollowEnabled).
+        this.autoFollow.maybeFollow(userCount).catch(() => {});
+        // Server-wide empty → optional Session / role auto-clear (not channel-only).
+        void this.pollSessionRolesEmptyServer();
       },
     });
 
@@ -648,6 +679,7 @@ export class BotInstance extends EventEmitter {
         }
       },
       ops: this.ops,
+      sessionRoles: this.sessionRoles,
       moderation: (action, target, canRun) => this.moderationAction(action, target, canRun),
       knowledge: this.knowledge,
       generate: {
@@ -971,6 +1003,11 @@ export class BotInstance extends EventEmitter {
     return this.generateProvider.handleGenerate(prompt, invokerKey);
   }
 
+  /** Which LLM endpoint served the last completion — probe-free, for /api/health. */
+  getLlmRoute(): { route: "primary" | "fallback" | "none"; at: number } {
+    return this.llm.getModule()?.getLastRoute() ?? { route: "none", at: 0 };
+  }
+
   getLlmStatus() {
     return this.llm.getLlmStatus();
   }
@@ -1184,6 +1221,37 @@ export class BotInstance extends EventEmitter {
     return this.ops.handle(args, canRun ?? (() => true));
   }
 
+  /** Temporary Session / role status or clear (S-6). */
+  handleSession(args: string, canRun?: (c: string) => boolean) {
+    return this.sessionRoles.handle(args, canRun ?? (() => true));
+  }
+
+  /**
+   * Count humans server-wide (all channels) for session-role auto-clear.
+   * Falls back to Query clientlist; never uses music-channel-only idle.
+   */
+  private async pollSessionRolesEmptyServer(): Promise<void> {
+    const cfg = this.config.sessionRoles ?? defaultSessionRolesConfig();
+    if (!cfg.autoClearOnEmpty || !cfg.groupIds?.length) return;
+    try {
+      let humans = 0;
+      try {
+        const all = await this.tsClient.getAllClients();
+        const botId = this.tsClient.getClientId();
+        humans = countChannelHumans(all, botId);
+      } catch {
+        const q = this.tsClient.getHttpQuery();
+        if (!q) return;
+        const res = await q.clientList(1);
+        if (res.status < 200 || res.status >= 300) return;
+        humans = countHumansFromClientListBody(res.body, this.tsClient.getClientId());
+      }
+      this.sessionRoles.onServerHumanCount(humans);
+    } catch (err) {
+      this.logger.debug?.({ err }, "session-roles empty-server poll failed");
+    }
+  }
+
   /** Rebind SC org plugin from live config / env (G2). */
   refreshScOrgPlugin(): void {
     const base =
@@ -1330,6 +1398,20 @@ export class BotInstance extends EventEmitter {
     const active = !!this.config.radio?.enabled && p !== "off";
     this.player.setMusicAudioFilter(active ? audioColorFilter(p) : null);
     this.logger.info({ audioColor: p, active }, "radio music audio color applied");
+  }
+
+  /**
+   * Hot-apply Opus bitrate for music frames to TeamSpeak (kbps).
+   * Takes effect on the next encoded frame. 0 = Auto.
+   */
+  applyMusicOpusBitrate(kbps?: number | null): void {
+    const v = kbps ?? this.config.musicOpusBitrateKbps ?? 64;
+    this.config.musicOpusBitrateKbps = v;
+    this.player.setMusicOpusBitrateKbps(v);
+    this.logger.info(
+      { musicOpusBitrateKbps: this.player.getMusicOpusBitrateKbps() },
+      "music Opus bitrate applied",
+    );
   }
 
   /** Tee PCM to Icecast when running (fail-open). */

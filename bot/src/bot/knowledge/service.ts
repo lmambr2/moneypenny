@@ -155,7 +155,7 @@ export class KnowledgeService {
       configured: this.deps.config.ragEnabled ?? false,
       available,
       docCount: this.doctrine?.list().length ?? 0,
-      topK: this.deps.config.ragTopK ?? 4,
+      topK: this.deps.config.ragTopK ?? 6,
       vectorDbUrl: this.deps.config.vectorDbUrl ?? "",
       embeddingUrl: this.deps.config.embeddingUrl || this.deps.config.llmUrl || "",
       embeddingModel: this.deps.config.embeddingModel ?? "",

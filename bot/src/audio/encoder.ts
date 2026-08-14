@@ -11,6 +11,11 @@ export const PCM_FRAME_BYTES = FRAME_SIZE * CHANNELS * 2; // 3840 bytes (16-bit 
 export interface Encoder {
   encode(pcm: Buffer): Buffer;
   decode(opus: Buffer): Buffer;
+  /**
+   * Target Opus bitrate in bits/second. `bps <= 0` = Auto (libopus default).
+   * Optional — older native builds without setBitrateBps no-op safely.
+   */
+  setBitrate?(bps: number): void;
   /** Which backend produced this encoder. Only the Rust N-API addon remains. */
   backend?: "native";
 }
@@ -18,7 +23,29 @@ export interface Encoder {
 type NativeOpusInstance = {
   encode(pcm: Buffer): Buffer;
   decode(opus: Buffer): Buffer;
+  setBitrateBps?(bps: number): void;
 };
+
+/** Music stream bitrate bounds (kbps). 0 = Auto. */
+export const MUSIC_OPUS_BITRATE_KBPS_MIN = 24;
+export const MUSIC_OPUS_BITRATE_KBPS_MAX = 160;
+/** Dashboard default — solid stereo music without maxing Starlink uplink. */
+export const MUSIC_OPUS_BITRATE_KBPS_DEFAULT = 64;
+
+/**
+ * Clamp dashboard kbps to a safe Opus range.
+ * 0 stays 0 (Auto). Non-finite → default.
+ */
+export function clampMusicOpusBitrateKbps(kbps: unknown): number {
+  if (kbps === 0 || kbps === "0") return 0;
+  const n = typeof kbps === "number" ? kbps : Number(kbps);
+  if (!Number.isFinite(n)) return MUSIC_OPUS_BITRATE_KBPS_DEFAULT;
+  if (n <= 0) return 0;
+  return Math.max(
+    MUSIC_OPUS_BITRATE_KBPS_MIN,
+    Math.min(MUSIC_OPUS_BITRATE_KBPS_MAX, Math.round(n)),
+  );
+}
 
 type NativeMod = {
   NativeOpus: new (sampleRate: number, channels: number) => NativeOpusInstance;
@@ -66,6 +93,12 @@ export function createOpusEncoder(channels: number = CHANNELS): Encoder {
   const native = new Ctor(SAMPLE_RATE, channels);
   return {
     backend: "native",
+    setBitrate(bps: number): void {
+      if (typeof native.setBitrateBps !== "function") return;
+      const n = Number(bps);
+      if (!Number.isFinite(n)) return;
+      native.setBitrateBps(n <= 0 ? 0 : Math.round(n));
+    },
     encode(pcm: Buffer): Buffer {
       return native.encode(pcm);
     },

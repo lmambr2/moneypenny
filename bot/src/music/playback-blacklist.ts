@@ -22,6 +22,13 @@ export interface BlacklistEntry {
 }
 
 export interface PlaybackBlacklistOptions {
+  /**
+   * Artists that can never be banned. Enforced HERE rather than at each caller:
+   * isBlacklisted() is the single gate every consumer already funnels through
+   * (playback resolve, radio seeds, search filters), so protecting it protects
+   * all of them — including any future caller nobody remembers to guard.
+   */
+  protectedArtists?: () => readonly string[];
   db: Database.Database;
   now?: () => number;
 }
@@ -96,6 +103,11 @@ export function blacklistContentKey(
 export class PlaybackBlacklist {
   private db: Database.Database;
   private nowFn: () => number;
+  /**
+   * Live view of config.playbackBanProtectedArtists. Read through a getter so a
+   * settings change takes effect without rebuilding the store.
+   */
+  private protectedArtists: () => readonly string[];
   private insertStmt: Database.Statement;
   private deleteStmt: Database.Statement;
   private hasStmt: Database.Statement;
@@ -104,6 +116,7 @@ export class PlaybackBlacklist {
   constructor(opts: PlaybackBlacklistOptions) {
     this.db = opts.db;
     this.nowFn = opts.now ?? Date.now;
+    this.protectedArtists = opts.protectedArtists ?? (() => []);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS playback_blacklist (
         track_key TEXT PRIMARY KEY,
@@ -180,6 +193,16 @@ export class PlaybackBlacklist {
   }): BlacklistEntry {
     const trackKey = entry.trackKey.trim();
     if (!trackKey) throw Object.assign(new Error("trackKey required"), { code: "VALIDATION" });
+    // Belt to isBlacklisted()'s braces: refusing here keeps rows from
+    // accumulating at all, so `!ban list` never shows a ban that does nothing.
+    if (isBanProtected(entry, this.protectedArtists())) {
+      throw Object.assign(
+        new Error(banProtectedMessage(entry as { name?: string; artist?: string })),
+        {
+          code: "BAN_PROTECTED",
+        },
+      );
+    }
     const createdAt = this.nowFn();
     const platform = entry.platform ?? null;
     const name = entry.name ?? null;
@@ -260,6 +283,10 @@ export class PlaybackBlacklist {
     song: { id?: string | null; name?: string | null; artist?: string | null } | null | undefined,
   ): boolean {
     if (!song) return false;
+    // Protection wins over any stored row. A ban predating the protection (or
+    // written straight to the DB) must not keep the track silently unplayable —
+    // blacklisted tracks are skipped without a user-visible error.
+    if (isBanProtected(song, this.protectedArtists())) return false;
     if (song.id) {
       if (this.hasKey(song.id)) return true;
       const vid = extractVideoId(song.id);
@@ -273,6 +300,54 @@ export class PlaybackBlacklist {
     const fp = blacklistContentKey(song.name, song.artist);
     if (fp && this.hasKey(fp)) return true;
     return false;
+  }
+
+  /**
+   * Drop stored bans for artists that are now protected.
+   *
+   * isBlacklisted() already ignores them, so this is about hygiene rather than
+   * correctness: without it `!ban list` shows entries that do nothing, and the
+   * rows come back to life if the artist is later removed from the protected
+   * list. Adding someone to the list should RELEASE them, not merely stop new
+   * bans — "protect Ella" means she plays, not just that she cannot be re-banned.
+   *
+   * Returns the entries removed, for logging at startup.
+   */
+  releaseProtected(): BlacklistEntry[] {
+    const protectedArtists = this.protectedArtists();
+    if (!protectedArtists.length) return [];
+    // list() hides content: fingerprint keys — scan the full table so orphaned
+    // fingerprints for protected artists are dropped too (otherwise they keep
+    // blocking YT re-seeds while the primary row was already released).
+    const rows = this.listStmt.all() as {
+      track_key: string;
+      platform: string | null;
+      name: string | null;
+      artist: string | null;
+      reason: string | null;
+      created_by: string | null;
+      created_at: number;
+    }[];
+    const freed: BlacklistEntry[] = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const entry: BlacklistEntry = {
+        trackKey: r.track_key,
+        platform: r.platform,
+        name: r.name,
+        artist: r.artist,
+        reason: r.reason,
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+      };
+      if (!isBanProtected(entry, protectedArtists)) continue;
+      if (seen.has(r.track_key)) continue;
+      seen.add(r.track_key);
+      this.remove(r.track_key);
+      // User-facing list should not show content: keys.
+      if (!r.track_key.startsWith(CONTENT_KEY_PREFIX)) freed.push(entry);
+    }
+    return freed;
   }
 
   keySet(): Set<string> {
@@ -319,4 +394,38 @@ export function filterNotBlacklisted<
 export function blacklistedMessage(song: { name?: string; artist?: string }): string {
   const label = [song.name, song.artist].filter(Boolean).join(" — ") || "that track";
   return `Blocked by station blacklist: ${label}`;
+}
+
+/**
+ * Artists whose tracks may never be banned.
+ *
+ * Matching deliberately looks at BOTH the artist field and the title, because
+ * the artist field is unreliable on re-uploads — the same track exists in the
+ * library as "Ella Langley - …" and as "CountryHype - Ella Langley - …", where
+ * the artist is the uploader. Checking only `artist` would protect one copy and
+ * leave the other bannable, which is the same "protected in one path, not the
+ * other" trap that produced several bugs in this codebase.
+ *
+ * Substring matching is intentional (titles carry suffixes like "(Official
+ * Lyric Video)"), so keep entries specific — a one-word name would over-match.
+ */
+export function isBanProtected(
+  song: { name?: string | null; artist?: string | null } | null | undefined,
+  protectedArtists: readonly string[] | null | undefined,
+): boolean {
+  if (!song || !protectedArtists?.length) return false;
+  const hay = `${song.name ?? ""} ${song.artist ?? ""}`.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!hay) return false;
+  return protectedArtists.some((raw) => {
+    const needle = String(raw ?? "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    return needle.length > 0 && hay.includes(needle);
+  });
+}
+
+export function banProtectedMessage(song: { name?: string; artist?: string }): string {
+  const label = [song.name, song.artist].filter(Boolean).join(" — ") || "that track";
+  return `Not a chance — ${label} is on the protected list.`;
 }

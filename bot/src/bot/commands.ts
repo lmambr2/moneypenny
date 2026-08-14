@@ -113,6 +113,13 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "hangar", kind: "special" },
   // Org/ops brief + external status plugins (feature-roadmap G1/G2).
   { name: "ops", kind: "special" },
+  // Temporary Session / role groups — clear after op (S-6 / mod).
+  {
+    name: "session",
+    kind: "special",
+    admin: true,
+    description: "Status/clear temporary Session / server groups (voice priority)",
+  },
   // G4 moderation (rights-gated; fail-open on transport).
   { name: "mute", kind: "special", admin: true },
   { name: "kick", kind: "special", admin: true },

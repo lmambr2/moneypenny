@@ -4,6 +4,10 @@ import type { RightsConfig } from "../rights/index.js";
 import { type VoiceConfig, defaultVoiceConfig } from "../voice/index.js";
 import { type RadioConfig, defaultRadioConfig } from "../radio/index.js";
 import { type BotScopeConfig, defaultBotScope } from "../bot/scope.js";
+import {
+  type SessionRolesConfig,
+  defaultSessionRolesConfig,
+} from "../bot/lifecycle/session-roles.js";
 import { DEFAULT_MUSIC_BLOCKED_GENRES } from "../music/genre-block.js";
 
 export interface BotConfig {
@@ -28,6 +32,30 @@ export interface BotConfig {
   autoReturnDelay: number;
   autoPauseOnEmpty: boolean;
   idleTimeoutMinutes: number;
+  /**
+   * Temporary Session / … server groups for voice priority (not rights ranks).
+   * See docs/voice-priority-session-discipline.md and !session clear.
+   */
+  sessionRoles: SessionRolesConfig;
+  /**
+   * Follow the crowd: when nobody is left in the bot's channel, move to the
+   * busiest channel that has people in it. Off by default — a bot that relocates
+   * itself is surprising unless you asked for it.
+   */
+  /**
+   * Artists that !ban / the web ban endpoint must refuse. Matched against BOTH
+   * title and artist (re-uploads put the real artist in the title), so keep
+   * entries specific enough not to over-match.
+   */
+  playbackBanProtectedArtists: string[];
+  autoFollowEnabled: boolean;
+  /**
+   * Channel names never followed into, matched case-insensitively. AFK is the
+   * point of the feature: people parked there do not want a DJ to arrive.
+   */
+  autoFollowAfkChannels: string[];
+  /** Minimum gap between automatic moves, so a tie or a churning channel cannot make the bot hop. */
+  autoFollowCooldownSec: number;
   // Public base URL used when generating share links (e.g. the bot's dedicated link).
   // Leave empty to use the browser's current origin. Example:
   //   "https://music.example.com" or "http://1.2.3.4:3000"
@@ -117,6 +145,12 @@ export interface BotConfig {
   // local library (deduped by video id), so replays serve the saved file. Off by
   // default (downloading is against YouTube ToS — a self-hosted call).
   youtubeSaveEnabled: boolean;
+  /**
+   * Opus bitrate for music frames sent to TeamSpeak (kbps).
+   * 0 = Auto (libopus). Typical: 48–64 Starlink-friendly, 96–128 high quality.
+   * Clamped 24–160 when non-zero. Hot-applied on Settings save.
+   */
+  musicOpusBitrateKbps: number;
   /**
    * Genre terms blocked from search / queue / radio seed (title, artist, album,
    * and local genre tags). Default: rap / hip-hop / R&B family.
@@ -234,6 +268,11 @@ export function getDefaultConfig(): BotConfig {
     autoReturnDelay: 300,
     autoPauseOnEmpty: true,
     idleTimeoutMinutes: 0,
+    sessionRoles: defaultSessionRolesConfig(),
+    playbackBanProtectedArtists: [],
+    autoFollowEnabled: false,
+    autoFollowAfkChannels: ["AFK", "Away", "AFK / Away"],
+    autoFollowCooldownSec: 60,
     publicUrl: "",
     trustProxy: false,
     trustProxyHops: 1,
@@ -258,6 +297,8 @@ export function getDefaultConfig(): BotConfig {
     radio: defaultRadioConfig(),
     streamBridgeUrl: "",
     youtubeSaveEnabled: false,
+    // Default 64 kbps: solid stereo music, ~half the uplink of 128k full music.
+    musicOpusBitrateKbps: 64,
     musicBlockedGenres: [...DEFAULT_MUSIC_BLOCKED_GENRES],
     // Endpoint/model default empty → clients use env / edition defaults
     // (turbovec:6333 / ollama / nomic-embed-text-v2-moe or bge-large-en-v1.5).
@@ -265,7 +306,7 @@ export function getDefaultConfig(): BotConfig {
     vectorDbUrl: "",
     embeddingUrl: "",
     embeddingModel: "",
-    ragTopK: 4,
+    ragTopK: 6,
     ragCollection: "moneypenny_docs",
     rerankerUrl: "",
     rerankerModel: "bge-reranker-large",
@@ -293,7 +334,7 @@ export function getDefaultConfig(): BotConfig {
     },
     memoryContext: {
       workingTurns: 6,
-      doctrineChunks: 6,
+      doctrineChunks: 8,
       dedupeInjections: true,
       playbooksEnabled: false,
       playbookCapture: false,
@@ -311,6 +352,7 @@ const DEEP_MERGE_KEYS = [
   "voice",
   "radio",
   "scope",
+  "sessionRoles",
 ] as const;
 
 /**

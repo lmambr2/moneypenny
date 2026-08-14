@@ -58,6 +58,9 @@ function fakeBot() {
     updateVoice(...a: any[]) {
       this.calls.push(["voice", a]);
     },
+    applyMusicOpusBitrate(...a: any[]) {
+      this.calls.push(["musicBitrate", a]);
+    },
     getEffectiveRights: async () => ({
       subject: { uid: "u1", serverGroups: ["105"] },
       rightsEnabled: true,
@@ -229,6 +232,25 @@ describe("bot settings router", () => {
         ],
       ],
     ]);
+  });
+
+  it("updates music Opus bitrate and applies live", async () => {
+    const res = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({ musicOpusBitrateKbps: 48 });
+    expect(res.status).toBe(200);
+    expect(config.musicOpusBitrateKbps).toBe(48);
+    expect(bot.calls).toEqual([["musicBitrate", [48]]]);
+    expect(
+      JSON.parse(readFileSync(join(configDir, "config.json"), "utf-8")).musicOpusBitrateKbps,
+    ).toBe(48);
+
+    const bad = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({ musicOpusBitrateKbps: 12 });
+    expect(bad.status).toBe(400);
   });
 
   it("updates rights settings and applies them live", async () => {

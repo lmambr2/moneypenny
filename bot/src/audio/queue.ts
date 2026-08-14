@@ -34,7 +34,8 @@ export function isRadioFill(song: QueuedSong): boolean {
 export class PlayQueue {
   private songs: QueuedSong[] = [];
   private currentIndex = -1;
-  private mode: PlayMode = PlayMode.Sequential;
+  /** Default shuffle bag (random-loop): no sequential lock-in for radio/auto-DJ. */
+  private mode: PlayMode = PlayMode.RandomLoop;
   private playedIndices = new Set<number>();
   private history: number[] = [];
   private forwardStack: number[] = [];

@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { Song } from "../../music/provider.js";
 import type { CommandExecutorDeps } from "./executor.js";
 import {
+  artistDiversityKey,
+  diversifyArtists,
   isRadioSeedFriendlySong,
   mixLocalAndExternalSeeds,
   orderSeedCandidates,
+  RADIO_SEED_MAX_DURATION_SEC,
   RadioCommands,
   shuffleSongs,
 } from "./radio-commands.js";
@@ -39,6 +42,7 @@ function mockQueue(opts?: {
     list: vi.fn(() => opts?.list ?? []),
     current: vi.fn(() => opts?.current ?? null),
     getCurrentIndex: vi.fn(() => opts?.currentIndex ?? -1),
+    setMode: vi.fn(),
     size: () => added.length,
     _added: added,
   };
@@ -79,8 +83,20 @@ describe("isRadioSeedFriendlySong", () => {
         }),
       ),
     ).toBe(false);
+    // A plain over-long track is now ADMITTED — it airs as a ~10 minute window
+    // rather than two hours. Only unplayable/non-music content is rejected.
     expect(
       isRadioSeedFriendlySong(song({ id: "long", name: "Epic Track", duration: 2 * 3600 })),
+    ).toBe(true);
+    // ...unless the caller explicitly wants whole tracks.
+    expect(
+      isRadioSeedFriendlySong(
+        song({ id: "long2", name: "Epic Track", duration: 2 * 3600 }),
+        RADIO_SEED_MAX_DURATION_SEC,
+        null,
+        null,
+        false,
+      ),
     ).toBe(false);
     expect(
       isRadioSeedFriendlySong(song({ id: "alb", name: "Led Zeppelin II Full Album", duration: 0 })),
@@ -289,6 +305,9 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     expect(added.some((a) => a.platform === "local")).toBe(true);
     // Must not have used generic searchFirst helper
     expect(deps.playback.searchFirst).not.toHaveBeenCalled();
+    // Smart rotation order is played sequentially — RandomLoop used to
+    // re-roll the same seed bag and make smart rotation a no-op.
+    expect(queue.setMode).toHaveBeenCalledWith("seq");
   });
 
   it("seedSources local-only skips YouTube", async () => {
@@ -393,6 +412,65 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     expect(ids).toContain("seed1");
   });
 
+  it("restock does not re-queue already-played user tracks (sequential history)", async () => {
+    // Queue still holds past !adds at indices < currentIndex. Restock used to
+    // re-add them and replay the whole Wheeler stack after dead-air fill.
+    const playedUser = {
+      ...song({ id: "wwj1", name: "Already Played" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const nowPlaying = {
+      ...song({ id: "now", name: "Now" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const upcomingUser = {
+      ...song({ id: "wwj2", name: "Still Pending" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const localSearch = vi.fn(async () => ({
+      songs: [song({ id: "seed1", name: "Seed A", duration: 180 })],
+      playlists: [],
+      albums: [],
+    }));
+    const queue = mockQueue({
+      list: [playedUser, nowPlaying, upcomingUser],
+      current: nowPlaying,
+      currentIndex: 1,
+    });
+    const deps = {
+      config: {
+        commandPrefix: "!",
+        aceStepAutoFill: false,
+        radio: {
+          enabled: true,
+          activeProfile: "lobby",
+          profiles: {
+            lobby: {
+              name: "lobby",
+              music: { seedQueries: ["rock"], seedSources: ["local"], shuffle: false },
+            },
+          },
+        },
+      },
+      queue,
+      player: { resetFailures: vi.fn(), getState: () => "playing" },
+      playback: { resolveAndPlay: vi.fn(async () => true), searchFirst: vi.fn() },
+      getProvider: vi.fn(() => ({ platform: "local", search: localSearch })),
+      logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+    } as unknown as CommandExecutorDeps;
+
+    const cmds = new RadioCommands(deps, async () => []);
+    expect(await cmds.autoProgram()).toBe(true);
+    const ids = queue._added.map((s) => s.id);
+    expect(ids).toContain("now");
+    expect(ids).toContain("wwj2");
+    expect(ids).toContain("seed1");
+    expect(ids).not.toContain("wwj1");
+  });
+
   it("profile aceStepAutoFill true runs gen even when global autoFill is off", async () => {
     const genSong = song({ id: "g1", name: "Gen", duration: 90 });
     const generateAndIngest = vi.fn(async () => ({
@@ -481,5 +559,50 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     const cmds = new RadioCommands(deps, async () => []);
     expect(await cmds.autoProgram()).toBe(false);
     expect(generateAndIngest).not.toHaveBeenCalled();
+  });
+});
+
+describe("diversifyArtists", () => {
+  it("caps tracks per artist and avoids back-to-back same artist when possible", () => {
+    const pool = [
+      song({ id: "a1", name: "A1", artist: "Alpha" }),
+      song({ id: "a2", name: "A2", artist: "Alpha" }),
+      song({ id: "a3", name: "A3", artist: "Alpha" }),
+      song({ id: "b1", name: "B1", artist: "Beta" }),
+      song({ id: "c1", name: "C1", artist: "Gamma" }),
+    ];
+    // Deterministic rng: always pick first option in shuffle → stable keys order
+    let i = 0;
+    const rng = () => {
+      i += 1;
+      return 0; // Fisher–Yates with 0 keeps original order
+    };
+    const out = diversifyArtists(pool, { maxPerArtist: 2, rng });
+    const alpha = out.filter((s) => artistDiversityKey(s) === "alpha");
+    expect(alpha.length).toBeLessThanOrEqual(2);
+    expect(out.length).toBe(4); // 2 Alpha + Beta + Gamma
+    // No three Alphas
+    expect(out.map((s) => s.id)).not.toContain("a3");
+  });
+
+  it("empty artist falls back to id key (each track unique)", () => {
+    const pool = [
+      song({ id: "x", name: "X", artist: "" }),
+      song({ id: "y", name: "Y", artist: "" }),
+    ];
+    const out = diversifyArtists(pool, { maxPerArtist: 1, rng: () => 0 });
+    expect(out).toHaveLength(2);
+  });
+
+  it("preserveOrder keeps first-seen artist order (no key shuffle)", () => {
+    const pool = [
+      song({ id: "b1", name: "B1", artist: "Beta" }),
+      song({ id: "a1", name: "A1", artist: "Alpha" }),
+      song({ id: "c1", name: "C1", artist: "Gamma" }),
+      song({ id: "a2", name: "A2", artist: "Alpha" }),
+    ];
+    const out = diversifyArtists(pool, { maxPerArtist: 2, preserveOrder: true });
+    // Round-robin in first-seen artist order: Beta, Alpha, Gamma, then Alpha again
+    expect(out.map((s) => s.id)).toEqual(["b1", "a1", "c1", "a2"]);
   });
 });

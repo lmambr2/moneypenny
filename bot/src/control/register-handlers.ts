@@ -5,6 +5,7 @@ import type { HangarService } from "../bot/community/hangar.js";
 import type { KgService } from "../bot/community/kg.js";
 import type { MemoryService } from "../bot/community/memory.js";
 import type { OpsService } from "../bot/community/ops.js";
+import type { SessionRolesService } from "../bot/lifecycle/session-roles.js";
 import type { RoastService } from "../bot/community/roast.js";
 import type { KnowledgeService } from "../bot/knowledge/service.js";
 import type { PlaybackEngine } from "../bot/playback/engine.js";
@@ -23,6 +24,8 @@ export interface CommandHandlerHost {
   /** Channel clients for hangar nick resolution (optional). */
   getHangarClients?: () => Promise<Array<{ uid?: string; nickname?: string; id?: number }>>;
   ops?: OpsService;
+  /** Temporary Session / role clear (optional until wired). */
+  sessionRoles?: SessionRolesService;
   moderation?: (
     action: "mute" | "kick",
     target: string,
@@ -118,6 +121,10 @@ export function registerBotCommands(registry: CommandRegistry, host: CommandHand
     ops: async (cmd, ctx) => {
       if (!host.ops) return "Ops status is not available on this bot.";
       return host.ops.handle(cmd.args, ctx.canRun);
+    },
+    session: async (cmd, ctx) => {
+      if (!host.sessionRoles) return "Session roles are not available on this bot.";
+      return host.sessionRoles.handle(cmd.args, ctx.canRun);
     },
     mute: async (cmd, ctx) => {
       const target = cmd.args.trim();

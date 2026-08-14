@@ -80,6 +80,10 @@ STT mishearings like “money penny” / “money petty” are accepted. Toggle 
 
 Music ducks briefly **only while STT runs** on the watchword (not on the first syllable). After a watchword-only utterance, playback **stays ducked** for up to 15 seconds (`listenWindowMs`, minimum 15s) so a short follow-up like “pause” is not drowned out by the bot’s own music. Volume restores when the armed window expires, after a routed command, or after you say pause/stop. Restore is **immediate** (no fade) when ducking ends.
 
+For **multi-person ops** (session roles, captains net, Priority Speaker, keep
+this ducking path): see
+**[voice-priority-session-discipline.md](./voice-priority-session-discipline.md)**.
+
 ### Under-music reliability (V1 / H4)
 
 | Path | When | Notes |

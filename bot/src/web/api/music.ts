@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Logger } from "../../logger.js";
 import type { LocalProvider } from "../../music/local.js";
 import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
+import { banProtectedMessage, isBanProtected } from "../../music/playback-blacklist.js";
 import type { MusicProvider } from "../../music/provider.js";
 import { guessTrackTags } from "../../music/tag-guess.js";
 import type { RadioAnalyzer, TagStore, TrackTags } from "../../radio/index.js";
@@ -31,6 +32,8 @@ export interface MusicRouterOptions {
   tagStore?: TagStore;
   /** Admin-curated ban list — blocks playback without deleting files. */
   playbackBlacklist?: PlaybackBlacklist;
+  /** Artists the ban endpoint must refuse (config.playbackBanProtectedArtists). */
+  getBanProtectedArtists?: () => readonly string[] | undefined;
   radioAnalyzer?: RadioAnalyzer;
   getRadioConfig?: () => RadioConfig;
   /**
@@ -72,8 +75,15 @@ export function createMusicRouter(
   logger: Logger,
   options: MusicRouterOptions = {},
 ): Router {
-  const { tagStore, playbackBlacklist, radioAnalyzer, getRadioConfig, canEditTags, askLlm } =
-    options;
+  const {
+    tagStore,
+    playbackBlacklist,
+    radioAnalyzer,
+    getRadioConfig,
+    canEditTags,
+    askLlm,
+    getBanProtectedArtists,
+  } = options;
   const router = Router();
 
   /** Admin always; optional canEditTags for @dj / radio.tags web editors. */
@@ -221,6 +231,22 @@ export function createMusicRouter(
       }
       if (trackKey.includes("..") || trackKey.includes("/") || trackKey.includes("\\")) {
         res.status(400).json({ error: "Invalid track key", code: "VALIDATION_ERROR" });
+        return;
+      }
+      // Same protection as chat !ban — otherwise the web UI is a way around it.
+      const protectedArtists = getBanProtectedArtists?.();
+      const candidate = {
+        name: typeof body.name === "string" ? body.name : null,
+        artist: typeof body.artist === "string" ? body.artist : null,
+      };
+      if (isBanProtected(candidate, protectedArtists)) {
+        res.status(403).json({
+          error: banProtectedMessage({
+            name: candidate.name ?? undefined,
+            artist: candidate.artist ?? undefined,
+          }),
+          code: "BAN_PROTECTED",
+        });
         return;
       }
       const entry = playbackBlacklist.add({

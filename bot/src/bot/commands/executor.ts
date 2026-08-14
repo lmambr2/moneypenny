@@ -2,6 +2,11 @@ import type { TS3Client, TS3TextMessage } from "@moneypenny/ts6-client";
 import type { AudioPlayer } from "../../audio/player.js";
 import { PlayMode, type PlayQueue } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
+import {
+  banProtectedMessage,
+  blacklistContentKey,
+  isBanProtected,
+} from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { DEFAULT_DEMO_VIDEO_URL, extractVideoId, isDemoTestTrack } from "../../music/youtube.js";
 import type { TagStore } from "../../radio/index.js";
@@ -213,6 +218,12 @@ export class CommandExecutor {
     const { provider, song } = hit;
     this.deps.queue.clear();
     this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
+    // The queue is now exactly ONE song, and PlayQueue defaults to RandomLoop —
+    // whose single-song branch replays that track forever. Asking for a song is
+    // not asking for it on loop: play it, then let the queue run dry so dead-air
+    // restock programs something new. Radio sets its own mode in
+    // programFromProfile, so this cannot fight auto-DJ shuffle.
+    this.deps.queue.setMode?.(PlayMode.Sequential);
     this.deps.queue.play();
     this.deps.player.resetFailures();
     const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
@@ -227,6 +238,10 @@ export class CommandExecutor {
     if (localHit) {
       this.deps.queue.clear();
       this.deps.queue.add({ ...localHit, platform: "local", source: "user" });
+      // One song in the queue: without an explicit mode this inherits whatever
+      // the last feature left (RandomLoop by default), which replays a lone
+      // track forever. Same trap !play fell into.
+      this.deps.queue.setMode?.(PlayMode.Sequential);
       this.deps.queue.play();
       this.deps.player.resetFailures();
       const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
@@ -336,21 +351,22 @@ export class CommandExecutor {
 
   /**
    * `!skip` / `!next` — advance one track only (radio boundary / bumper aware).
-   * Title/URL jumps use `!jump` / `!go` so bare next is never overloaded.
+   * Args are ignored. To start a title/URL now use `!jump` / `!go`; for up-next
+   * without cutting, `!playnext`.
+   *
+   * Do NOT reply with a "only advance… use !jump…" usage string. The old reply
+   * LED with the command prefix (`!skip / !next only advance…`), TeamSpeak
+   * echoed it as the bot's own message, the client re-parsed it as `skip`, and
+   * the channel flooded until restart. Self-echo guard is belt; never emit that
+   * shape of reply.
    */
-  private async cmdSkip(cmd: ParsedCommand): Promise<string> {
+  private async cmdSkip(_cmd: ParsedCommand): Promise<string> {
     this.deps.playback.clearUserPause?.();
-    const query = cmd.args.trim();
-    if (query) {
-      const p = this.deps.config.commandPrefix;
-      return (
-        `${p}skip / ${p}next only advance the queue. ` +
-        `To start a title or URL now: ${p}jump <query|url> (or ${p}go). ` +
-        `To put it up next without cutting: ${p}playnext <query|url>.`
-      );
-    }
+    return this.advanceOneTrack();
+  }
 
-    // Manual skip = track boundary: radio may play a due bumper first.
+  /** Manual skip / track-boundary advance (radio bumper aware). */
+  private async advanceOneTrack(): Promise<string> {
     if (this.deps.radio) {
       if ((await this.deps.radio.onTrackBoundary()) === "bumper") {
         return "📻 Station break — music resumes after.";
@@ -382,9 +398,19 @@ export class CommandExecutor {
       return `Jumped to: ${song.name} - ${song.artist}`;
     }
 
+    // Query only matches now-playing (findQueueIndex excludes current) — leave it.
+    const current = this.deps.queue.current();
+    if (current && songMatchesQuery(current, query)) {
+      return this.advanceOneTrack();
+    }
+
     const hit = await this.deps.playback.searchFirst(cmd, 1);
     if (!hit) return `No results found for: ${query}`;
     const { provider, song } = hit;
+    // Search resolved back to the same track that's already on — advance, don't restart.
+    if (current && isSamePlaybackTrack(current, song)) {
+      return this.advanceOneTrack();
+    }
     const queued = { ...song, platform: provider.platform, source: "user" as const };
     const wasIdle = this.deps.queue.getCurrentIndex() < 0 || this.deps.queue.size() === 0;
     this.deps.queue.addNext(queued);
@@ -472,6 +498,9 @@ export class CommandExecutor {
     }
     if (isDemoTestTrack(song)) {
       return "Can't ban the !test demo track.";
+    }
+    if (isBanProtected(song, this.deps.config.playbackBanProtectedArtists)) {
+      return banProtectedMessage(song);
     }
     if (bl.isBlacklisted(song)) {
       return `Already banned: ${song.name} — ${song.artist}. Use ${p}skip if it's still playing.`;
@@ -616,6 +645,8 @@ export class CommandExecutor {
     for (const song of songs) {
       this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
+    // Play the playlist through, then let it end — do not inherit a loop mode.
+    this.deps.queue.setMode?.(PlayMode.Sequential);
     const first = this.deps.queue.play();
     if (first) await this.deps.playback.resolveAndPlay(first);
     return `Loaded ${songs.length} songs. Now playing: ${first?.name ?? "unknown"}`;
@@ -641,6 +672,9 @@ export class CommandExecutor {
     for (const song of songs) {
       this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
+    // Play the album through, then let it end — do not inherit a loop mode
+    // (a one-track album would otherwise repeat forever).
+    this.deps.queue.setMode?.(PlayMode.Sequential);
     const first = this.deps.queue.play();
     if (first) await this.deps.playback.resolveAndPlay(first);
     return `Loaded ${songs.length} songs. Now playing: ${first?.name ?? "unknown"}`;
@@ -658,6 +692,9 @@ export class CommandExecutor {
     for (const song of filtered) {
       this.deps.queue.add({ ...song, platform: provider.platform, source: "user" });
     }
+    // Intentional: "artist mode" is meant to keep playing that artist. Every
+    // other queue-replacing command now sets its own mode, so this no longer
+    // leaks into the next !play / !album / !chevron7.
     this.deps.queue.setMode(PlayMode.Loop);
     this.deps.player.resetFailures();
     const first = this.deps.queue.play();
@@ -835,26 +872,55 @@ export class CommandExecutor {
   }
 }
 
+/** Tokenize a free-text track query (name / artist fragments). */
+export function queryTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** True when every query token appears in name/artist/album. */
+export function songMatchesQuery(
+  song: { name?: string; artist?: string; album?: string } | null | undefined,
+  query: string,
+): boolean {
+  if (!song) return false;
+  const tokens = queryTokens(query);
+  if (tokens.length === 0) return false;
+  const hay = `${song.name ?? ""} ${song.artist ?? ""} ${song.album ?? ""}`.toLowerCase();
+  return tokens.every((t) => hay.includes(t));
+}
+
+/**
+ * Same playable item under different queue ids (local hash vs YT id, or
+ * title+artist fingerprint). Used so jump/search does not restart NP.
+ */
+export function isSamePlaybackTrack(
+  a: { id?: string | null; name?: string | null; artist?: string | null },
+  b: { id?: string | null; name?: string | null; artist?: string | null },
+): boolean {
+  if (a.id && b.id && a.id === b.id) return true;
+  const va = a.id ? extractVideoId(a.id) : null;
+  const vb = b.id ? extractVideoId(b.id) : null;
+  if (va && vb && va === vb) return true;
+  const ka = blacklistContentKey(a.name, a.artist);
+  const kb = blacklistContentKey(b.name, b.artist);
+  return !!(ka && kb && ka === kb);
+}
+
 /** Match queue entries by case-insensitive name/artist/album token inclusion. */
 export function findQueueIndexByQuery(
   queue: Pick<PlayQueue, "list" | "getCurrentIndex">,
   query: string,
 ): number | null {
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const tokens = queryTokens(query);
   if (tokens.length === 0) return null;
 
   const songs = queue.list();
   const cur = queue.getCurrentIndex();
-  const matches = (i: number): boolean => {
-    const s = songs[i];
-    if (!s) return false;
-    const hay = `${s.name} ${s.artist} ${s.album}`.toLowerCase();
-    return tokens.every((t) => hay.includes(t));
-  };
+  const matches = (i: number): boolean => songMatchesQuery(songs[i], query);
 
   // Prefer upcoming tracks after the current one, then anything else (not current).
   for (let i = cur + 1; i < songs.length; i++) {

@@ -14,23 +14,23 @@
   },
   "dependencies": {
     "@iconify/vue": "^5.0.1",
-    "pinia": "^4.0.2",
-    "vue": "^3.5.0",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.41",
     "vue-router": "^5.2.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.4.11",
-    "happy-dom": "^20.0.10",
-    "sass": "^1.87.0",
+    "happy-dom": "^20.11.2",
+    "sass": "^1.102.0",
     "typescript": "^6.0.3",
-    "vite": "^8.1.5",
-    "vitest": "^4.1.4",
-    "vue-tsc": "^3.3.8"
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^3.3.9"
   },
   "overrides": {
-    "brace-expansion": "^5.0.8",
-    "minimatch": "^10.2.5"
+    "brace-expansion": "^5.0.9",
+    "minimatch": "^10.2.6"
   },
   "allowScripts": {
     "@parcel/watcher": false

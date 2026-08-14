@@ -12,12 +12,12 @@
     "admin": [
       "stop", "clear", "move", "moveclient", "moveall", "vol", "mode",
       "follow", "remove", "ban", "unban", "reindex", "ingeststatus", "generate", "ops",
-      "mute", "kick", "recording", "workorder.clear",
+      "mute", "kick", "recording", "workorder.clear", "session",
       "radio.power", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags"
     ],
     "analyst": ["analyst", "agent", "intsum", "aar", "ops"],
     "dj": ["stop", "clear", "vol", "mode", "remove", "ban", "unban", "radio.ops", "radio.bumper", "radio.say", "radio.skip", "radio.tags", "generate", "ops"],
-    "mod": ["move", "moveclient", "moveall", "follow", "mute", "kick"],
+    "mod": ["move", "moveclient", "moveall", "follow", "mute", "kick", "session"],
     "doctrine_restricted": ["doctrine:restricted"],
     "doctrine_confidential": ["doctrine:confidential"],
     "doctrine_secret": ["doctrine:secret"]

@@ -16,6 +16,13 @@ export interface FallbackLlmClientOptions {
   logger?: Logger;
 }
 
+/** Which endpoint served the most recent completion. */
+export interface LlmRoute {
+  route: "primary" | "fallback" | "none";
+  /** epoch ms of that completion; 0 when nothing has run yet. */
+  at: number;
+}
+
 export interface LlmEndpointHealth {
   primaryAvailable: boolean;
   fallbackAvailable: boolean;
@@ -50,6 +57,8 @@ export class FallbackLlmClient {
   private fallback?: LlmClient;
   private logger?: Logger;
   private lastUsedFallback = false;
+  /** Ground truth about what actually served the last completion. */
+  private lastRoute: LlmRoute = { route: "none", at: 0 };
 
   constructor(options: FallbackLlmClientOptions) {
     this.primary = new LlmClient({ ...options.primary, logger: options.logger });
@@ -67,6 +76,19 @@ export class FallbackLlmClient {
 
   usedFallbackLast(): boolean {
     return this.lastUsedFallback;
+  }
+
+  /**
+   * What actually served the most recent completion, and when.
+   *
+   * Reported by /api/health so a silent downgrade to the fallback is visible
+   * without probing. Probing there would be wrong: the endpoint is
+   * unauthenticated and drives the Docker healthcheck, so an unreachable
+   * primary (8s timeout, observed) could stall the check and trigger a restart.
+   * This is observed history — free to read, and truer than a probe.
+   */
+  getLastRoute(): LlmRoute {
+    return { ...this.lastRoute };
   }
 
   getBaseUrl(): string {
@@ -91,7 +113,9 @@ export class FallbackLlmClient {
   async chat(req: ChatCompletionRequest): Promise<ChatCompletionResponse> {
     this.lastUsedFallback = false;
     try {
-      return await this.primary.chat(req);
+      const res = await this.primary.chat(req);
+      this.lastRoute = { route: "primary", at: Date.now() };
+      return res;
     } catch (err) {
       if (!this.fallback || !isRetryableLlmError(err)) throw err;
       this.logger?.warn(
@@ -99,7 +123,9 @@ export class FallbackLlmClient {
         "Primary LLM failed — retrying on fallback",
       );
       this.lastUsedFallback = true;
-      return this.fallback.chat(req);
+      const res = await this.fallback.chat(req);
+      this.lastRoute = { route: "fallback", at: Date.now() };
+      return res;
     }
   }
 }

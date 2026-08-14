@@ -316,3 +316,32 @@ describe("AudioPlayer Icecast tee PCM emit (R-R6)", () => {
     expect(onFrame.mock.calls[0]![0]).toBeInstanceOf(Buffer);
   });
 });
+
+describe("buildFfmpegArgs mix windowing", () => {
+  // Long auto-DJ mixes air as a bounded window: ffmpeg ends the stream at -t, so
+  // the normal end-of-stream → trackEnd → advance path runs with no extra timer.
+  it("adds -t after -i so it bounds output from the seek point", () => {
+    const args = buildFfmpegArgs("http://x/mix.m4a", 4127, { maxSeconds: 600 });
+    const i = args.indexOf("-i");
+    const t = args.indexOf("-t");
+    expect(t).toBeGreaterThan(i);
+    expect(args[t + 1]).toBe("600");
+    expect(args[args.indexOf("-ss") + 1]).toBe("4127");
+  });
+
+  it("omits -t entirely when no window is requested", () => {
+    expect(buildFfmpegArgs("http://x/a.mp3", 0)).not.toContain("-t");
+    expect(buildFfmpegArgs("http://x/a.mp3", 0, { maxSeconds: null })).not.toContain("-t");
+    expect(buildFfmpegArgs("http://x/a.mp3", 0, { maxSeconds: 0 })).not.toContain("-t");
+  });
+
+  it("ignores a non-finite or negative window", () => {
+    expect(buildFfmpegArgs("http://x/a.mp3", 0, { maxSeconds: Number.NaN })).not.toContain("-t");
+    expect(buildFfmpegArgs("http://x/a.mp3", 0, { maxSeconds: -30 })).not.toContain("-t");
+  });
+
+  it("floors a fractional window — ffmpeg -t wants whole seconds here", () => {
+    const args = buildFfmpegArgs("http://x/a.mp3", 0, { maxSeconds: 600.7 });
+    expect(args[args.indexOf("-t") + 1]).toBe("600");
+  });
+});

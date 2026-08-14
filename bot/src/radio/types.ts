@@ -139,6 +139,26 @@ export interface RadioConfig {
   // OQ5: harmonic ordering of the upcoming queue window (per profile).
   harmonicSequencing?: boolean;
   /**
+   * Smart rotation (Auto-DJ pool ordering). Pure post-selection reorder:
+   * artist/album separation → rating weight → energy bias → harmonic.
+   * Off fields fall back to defaults in smart-rotation.ts; `enabled: false`
+   * on a sub-policy disables that stage only.
+   */
+  smartRotation?: {
+    /** Artist/album spacing windows. Default on when smartRotation is present. */
+    separation?: {
+      enabled?: boolean;
+      artistWindow?: number;
+      albumWindow?: number;
+      relaxOnEmpty?: boolean;
+    };
+    /** Soft energy continuity (needs TagStore energy). Default on. */
+    energyBias?: {
+      enabled?: boolean;
+      maxJump?: number;
+    };
+  };
+  /**
    * Music "color" overlay (ffmpeg -af): off | am | fm | telephone | vinyl | lofi.
    * Applied to music decode only; spoken bumpers stay clean. Default off.
    */
@@ -217,6 +237,11 @@ export function defaultRadioConfig(): RadioConfig {
     ratingWeight: { enabled: true, exponent: 1, maxRatio: 3 },
     autoDjRepeat: { enabled: true, maxPlays: 1, cooldownHours: 12 },
     harmonicSequencing: false,
+    // Separation + energy bias on for Auto-DJ; no-ops when meta is missing.
+    smartRotation: {
+      separation: { enabled: true, artistWindow: 4, albumWindow: 6, relaxOnEmpty: true },
+      energyBias: { enabled: true, maxJump: 0.35 },
+    },
     analyzer: { enabled: false, tool: "keyfinder", onIngest: true },
     audioColor: "off",
   };

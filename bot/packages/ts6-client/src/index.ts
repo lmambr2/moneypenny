@@ -22,9 +22,13 @@
 export type { FileUploadInfo } from "@honeybbq/teamspeak-client";
 export {
   asChannelId,
+  type BusiestChannelOpts,
+  type ChannelPopulation,
   filterClientsInChannel,
+  pickBusiestChannel,
   resolveOwnChannelId,
   sameChannelId,
+  tallyChannelPopulations,
 } from "./channel-presence.js";
 export {
   type ChannelFile,

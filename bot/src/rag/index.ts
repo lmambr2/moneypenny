@@ -54,7 +54,7 @@ export class RetrievalStore {
     this.embeddings = opts.embeddings;
     this.vectorStore = opts.vectorStore;
     this.collection = opts.collection;
-    this.topK = opts.topK ?? 4;
+    this.topK = opts.topK ?? 6;
     this.reranker = opts.reranker;
     this.logger = opts.logger;
   }

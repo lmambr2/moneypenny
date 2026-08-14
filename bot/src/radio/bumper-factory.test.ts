@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildTimeCheckSpeech,
   cleanBumperScript,
+  clipMaterialForSpeech,
   finalizeBumperScript,
   isBumperEligibleMaterial,
   isBumperEligibleSource,
@@ -579,5 +580,65 @@ describe("bumper script sanitizers", () => {
     expect(isGroundedInMaterial("The prompt asks to speak ONE short radio bumper", mat)).toBe(
       false,
     );
+  });
+});
+
+/**
+ * The material fallback fires whenever the LLM rewrite is rejected — which is
+ * routine when the primary LLM is unreachable and a small fallback model
+ * answers with meta-commentary. It must never put a sentence fragment on air:
+ * production aired "...Do ensure you collaborate seamlessly across all
+ * divisions to" because the old implementation word-sliced unconditionally.
+ */
+describe("clipMaterialForSpeech — whole sentences only", () => {
+  it("returns a complete sentence untouched", () => {
+    const m =
+      "The Office of Organizational Analysis provides independent assessment of Talon operations.";
+    expect(clipMaterialForSpeech(m, 75)).toBe(m);
+  });
+
+  it("drops a trailing fragment left by the chunker", () => {
+    const m =
+      "One must uphold the highest standards of integrity and confidentiality. " +
+      "Do ensure you collaborate seamlessly across all divisions to";
+    const out = clipMaterialForSpeech(m, 75);
+    expect(out).toBe("One must uphold the highest standards of integrity and confidentiality.");
+    expect(out).not.toMatch(/divisions to$/);
+  });
+
+  it("returns null rather than air a fragment when nothing is complete", () => {
+    expect(
+      clipMaterialForSpeech("Do ensure you collaborate across all divisions to", 75),
+    ).toBeNull();
+  });
+
+  // The old bug: a sentence longer than the cap was cut mid-clause.
+  it("never truncates a sentence to fit the cap", () => {
+    const long = `${"word ".repeat(60).trim()} finished.`;
+    expect(clipMaterialForSpeech(long, 20)).toBeNull();
+  });
+
+  it("keeps at most two sentences", () => {
+    const m = "Alpha team holds the line. Bravo team covers the flank. Charlie team is reserve.";
+    const out = clipMaterialForSpeech(m, 75) ?? "";
+    expect(out).toBe("Alpha team holds the line. Bravo team covers the flank.");
+  });
+
+  it("stops before exceeding the cap rather than cutting", () => {
+    const m =
+      "Alpha team holds the line at the northern approach. Bravo team covers the southern flank.";
+    const out = clipMaterialForSpeech(m, 10) ?? "";
+    expect(out).toBe("Alpha team holds the line at the northern approach.");
+  });
+
+  it("always ends on terminal punctuation when it returns anything", () => {
+    for (const m of [
+      "Heavies establish the perimeter before the larger ships jump in.",
+      "Task Force 18 entered the corridor within the authorised window. Then it",
+      "Alpha holds. Bravo covers. Charlie waits.",
+    ]) {
+      const out = clipMaterialForSpeech(m, 75);
+      if (out) expect(out).toMatch(/[.!?]$/);
+    }
   });
 });

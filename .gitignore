@@ -54,11 +54,20 @@ models/convert/.venv/
 models/convert/.venv-rknn2/
 models/convert/vendor/
 models/npu-llm/**
+# Tokenizer/config sidecars shipped beside weights (the weights above are
+# ignored by extension, but these are plain JSON and were slipping through).
+models/**/tokenizer/
 !models/**/README.md
 !models/**/Modelfile
 # Allow small RKNN companion text assets
 !models/rknn/vocab_en.txt
 !models/rknn/mel_80_filters.txt
+
+# Local music library — populated at runtime by downloads/uploads, not source.
+# On a live deploy this is gigabytes of audio; it must never enter the repo.
+# Anchored: unanchored `music/` also ignored `bot/src/music/` (source).
+/music/
+/bot/music/
 
 # Logs & runtime
 *.log

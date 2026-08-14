@@ -1,12 +1,12 @@
 import type { TS3TextMessage } from "@moneypenny/ts6-client";
-import { isRadioFill, type QueuedSong } from "../../audio/queue.js";
+import { isRadioFill, PlayMode, type QueuedSong } from "../../audio/queue.js";
 import { isBlockedGenreSong } from "../../music/genre-block.js";
 import { isNonMusicContent } from "../../music/non-music.js";
 import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { isYoutubeLivestreamRadioTitle, shouldBlockYoutubeSong } from "../../music/youtube.js";
 // YT seed hits are primarily filtered in YouTubeProvider via yt-dlp categories/track.
-import { orderKeysHarmonically } from "../../radio/harmonic.js";
+import { applySmartRotation } from "../../radio/smart-rotation.js";
 import {
   filterAutoDjRepeatEligible,
   isAutoDjRepeatBlocked,
@@ -17,7 +17,6 @@ import {
   type RadioProfile,
   type TagStore,
 } from "../../radio/index.js";
-import { orderKeysByRatingWeight } from "../../radio/rating-weight.js";
 import type { ParsedCommand } from "../commands.js";
 import type { CommandExecutorDeps } from "./executor.js";
 
@@ -49,27 +48,60 @@ const SEED_SEARCH_LIMIT = 30;
 /** Smaller YT pull per seed — yt-dlp is slower and mega-mixes are common. */
 const SEED_YT_SEARCH_LIMIT = 12;
 const SEED_POOL_CAP = 18;
-const RECENT_SEED_MEMORY = 16;
+/** Soft memory of song ids programmed into recent auto-DJ pools (anti-repeat). */
+const RECENT_SEED_MEMORY = 48;
+/**
+ * Appended to EXTERNAL seed searches only.
+ *
+ * Profile seeds are genre phrases ("classic rock", "yacht rock"), and YouTube's
+ * top results for a bare genre phrase are compilations and DJ mixes running one
+ * to three hours — every one of which isRadioSeedFriendlySong correctly rejects
+ * at the 15-minute cap. Measured on the live library's seven seeds: 5/84 results
+ * survived the filter bare, versus 51/84 with this suffix. Without it the
+ * external half of the pool comes back empty and auto-DJ cycles the same ~40
+ * local tracks forever.
+ *
+ * Local search must NOT get this — "classic rock official audio" matches nothing
+ * in a filename-indexed library.
+ */
+const EXTERNAL_SEED_SUFFIX = "official audio";
+/** Cap how many tracks from one artist land in a single seed pool. */
+const SEED_MAX_PER_ARTIST = 2;
 const DEFAULT_SEED_SOURCES: Array<"local" | "youtube" | "stream"> = ["local", "youtube"];
 /** ~33% library / ~66% external (YouTube / stream URLs) when both have hits. */
 const DEFAULT_SEED_EXTERNAL_RATIO = 2 / 3;
 
 export type RadioSeedSource = "local" | "youtube" | "stream";
 
-/** True when a track is short enough (or duration unknown) and not an obvious mega-mix title. */
+/**
+ * True when a track may feed auto-DJ.
+ *
+ * Length is deliberately NOT disqualifying any more: a long DJ mix airs as a
+ * bounded window (radio/mix-window.ts) instead of owning the station, so the
+ * only thing an hour-long mix costs us is one queue slot. What still
+ * disqualifies is content that cannot be aired at all — livestreams with no
+ * discrete media URL (dead air whatever window we ask for), non-music, blocked
+ * genres, and blacklisted tracks.
+ *
+ * `maxDurationSec` is retained for callers that genuinely want whole tracks; it
+ * is only applied when `allowLongMixes` is false.
+ */
 export function isRadioSeedFriendlySong(
   song: Pick<Song, "id" | "name" | "artist" | "duration" | "album" | "platform">,
   maxDurationSec = RADIO_SEED_MAX_DURATION_SEC,
   blockedGenres?: readonly string[] | null,
   blacklist?: PlaybackBlacklist | null,
+  allowLongMixes = true,
 ): boolean {
   if (blacklist?.isBlacklisted(song)) return false;
   if (isBlockedGenreSong(song, blockedGenres)) return false;
   // Docs / podcasts / trailers / clickbait — never feed auto-DJ.
   if (isNonMusicContent(song)) return false;
   // 24/7 LIVE radios / Lofi-style streams — yt-dlp returns no URL → dead air.
+  // This one survives allowLongMixes: it is about playability, not length.
   if (isYoutubeLivestreamRadioTitle(song.name)) return false;
-  // YouTube: same hard gates as search/play (full album, live, >15m, non-music).
+  // YouTube: same hard gates as search/play. The "radio" policy keeps full-album,
+  // livestream and non-music rejection but drops the >15m rule.
   if (
     song.platform === "youtube" &&
     shouldBlockYoutubeSong({
@@ -77,22 +109,38 @@ export function isRadioSeedFriendlySong(
       artist: song.artist,
       album: song.album,
       duration: song.duration,
+      policy: allowLongMixes ? "radio" : "search",
     })
   ) {
     return false;
   }
-  if (song.duration > 0 && song.duration > maxDurationSec) return false;
   const n = `${song.name} ${song.artist}`.toLowerCase();
-  // "4 hours", "full album", "vol. 1" multi-hour livestream titles, etc.
-  if (/\b\d+\s*hours?\b/.test(n)) return false;
+  // A full album is a different work per track, not a mix — still rejected.
   if (/\bfull\s+album\b/.test(n)) return false;
-  if (/\b\d+\s*hour\s+of\b/.test(n)) return false;
-  // Multi-hour / livestream mix titles (even when duration metadata is missing).
-  if (/\bmix\s+for\b/.test(n)) return false;
-  if (/\bsynthwave\s+mix\b/.test(n) || /\bstudy\s+music\b/.test(n)) {
-    if (song.duration === 0 || song.duration > 20 * 60) return false;
+  if (!allowLongMixes) {
+    if (song.duration > 0 && song.duration > maxDurationSec) return false;
+    // "4 hours", "vol. 1" multi-hour livestream titles, etc.
+    if (/\b\d+\s*hours?\b/.test(n)) return false;
+    if (/\b\d+\s*hour\s+of\b/.test(n)) return false;
+    if (/\bmix\s+for\b/.test(n)) return false;
+    if (/\bsynthwave\s+mix\b/.test(n) || /\bstudy\s+music\b/.test(n)) {
+      if (song.duration === 0 || song.duration > 20 * 60) return false;
+    }
+    if (/\bvol\.?\s*\d+\b/.test(n) && (song.duration === 0 || song.duration > 30 * 60)) {
+      return false;
+    }
+    return true;
   }
-  if (/\bvol\.?\s*\d+\b/.test(n) && (song.duration === 0 || song.duration > 30 * 60)) return false;
+  // Unknown duration on a mix-shaped title is the endless-stream signature: we
+  // cannot window what we cannot measure, so those stay out.
+  const mixShaped =
+    /\b\d+\s*hours?\b/.test(n) ||
+    /\b\d+\s*hour\s+of\b/.test(n) ||
+    /\bmix\s+for\b/.test(n) ||
+    /\bsynthwave\s+mix\b/.test(n) ||
+    /\bstudy\s+music\b/.test(n) ||
+    /\bvol\.?\s*\d+\b/.test(n);
+  if (mixShaped && !(song.duration > 0)) return false;
   return true;
 }
 
@@ -127,6 +175,83 @@ export function orderSeedCandidates<T extends { id: string }>(
     ? [...shuffleSongs(fresh, rng), ...shuffleSongs(stale, rng)]
     : [...fresh, ...stale];
   return ordered.slice(0, Math.max(1, cap));
+}
+
+/**
+ * Bias an external (YouTube / stream) seed search toward single tracks rather
+ * than hour-long compilations. Idempotent, and left alone when the seed is
+ * already a URL or already track-shaped.
+ */
+export function externalSeedQuery(seed: string, suffix = EXTERNAL_SEED_SUFFIX): string {
+  const q = seed.trim();
+  if (!q) return q;
+  // Seed lines may be Spotify/Tidal/Icecast URLs handed to the stream bridge —
+  // appending words would break resolution.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(q)) return q;
+  const lower = q.toLowerCase();
+  if (lower.includes(suffix.toLowerCase())) return q;
+  // Already asking for a specific upload — do not double up.
+  if (/\b(official (audio|video|music video)|lyrics?|full version)\b/i.test(lower)) return q;
+  return `${q} ${suffix}`;
+}
+
+/** Normalize artist for diversity keys (empty → unique per track id). */
+export function artistDiversityKey(song: { id: string; artist?: string }): string {
+  const a = (song.artist ?? "").trim().toLowerCase();
+  return a || `__id:${song.id}`;
+}
+
+/**
+ * Reorder / thin a pool so one artist cannot dominate and back-to-back same-artist
+ * tracks are avoided when alternatives exist. Caps `maxPerArtist` (default 2).
+ *
+ * `preserveOrder: true` keeps the input's first-seen artist order (used after
+ * smart rotation so artist-cap thinning does not re-shuffle the programmed
+ * sequence). Default shuffles artist keys for residual bag diversity when
+ * called from seed assembly.
+ */
+export function diversifyArtists<T extends { id: string; artist?: string }>(
+  songs: T[],
+  opts: { maxPerArtist?: number; rng?: () => number; preserveOrder?: boolean } = {},
+): T[] {
+  if (songs.length <= 1) return songs.slice();
+  const maxPer = Math.max(1, opts.maxPerArtist ?? SEED_MAX_PER_ARTIST);
+  const rng = opts.rng ?? Math.random;
+
+  // Bucket by artist (preserve relative order within bucket).
+  const buckets = new Map<string, T[]>();
+  const order: string[] = [];
+  for (const s of songs) {
+    const k = artistDiversityKey(s);
+    if (!buckets.has(k)) {
+      buckets.set(k, []);
+      order.push(k);
+    }
+    const list = buckets.get(k)!;
+    if (list.length < maxPer) list.push(s);
+  }
+
+  // Round-robin across artists so the queue is not AAAA…BBBB.
+  const keys = opts.preserveOrder ? order : shuffleSongs(order, rng);
+  const out: T[] = [];
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const k of keys) {
+      const list = buckets.get(k);
+      if (!list?.length) continue;
+      const next = list[0]!;
+      // Prefer not to place the same artist twice in a row when other artists remain.
+      if (out.length > 0 && artistDiversityKey(out[out.length - 1]!) === k) {
+        const othersLeft = keys.some((ok) => ok !== k && (buckets.get(ok)?.length ?? 0) > 0);
+        if (othersLeft) continue;
+      }
+      list.shift();
+      out.push(next);
+      progress = true;
+    }
+  }
+  return out;
 }
 
 /**
@@ -494,6 +619,43 @@ export class RadioCommands {
       return 0;
     }
 
+    // Smart rotation (separation → rating → energy → harmonic) then hard artist
+    // cap. Do NOT reshuffle afterward and do NOT use RandomLoop: both undid the
+    // programmed order and left Auto-DJ cycling the same ~SEED_POOL_CAP seed
+    // hits (same YouTube search results) until the next restock — smart rotation
+    // felt identical to the old bag-RNG. Profile `shuffle` still randomizes seed
+    // *candidate assembly* in expandSeedQueries; final play order is sequential
+    // so the queue ends → dead-air restock pulls a fresher bag.
+    {
+      const ids = pool.map((s) => s.id).filter(Boolean);
+      if (ids.length > 1) {
+        const orderedIds = this.applyPoolOrdering(ids, pool);
+        const byId = new Map(pool.map((s) => [s.id, s]));
+        const reordered: QueuedSong[] = [];
+        const seen = new Set<string>();
+        for (const id of orderedIds) {
+          const s = byId.get(id);
+          if (s && !seen.has(id)) {
+            reordered.push(s);
+            seen.add(id);
+          }
+        }
+        for (const s of pool) {
+          if (s.id && !seen.has(s.id)) reordered.push(s);
+        }
+        pool.length = 0;
+        pool.push(...reordered);
+      }
+    }
+    const programPool = diversifyArtists(pool, {
+      maxPerArtist: SEED_MAX_PER_ARTIST,
+      preserveOrder: true,
+    });
+    pool.length = 0;
+    pool.push(...programPool);
+
+    this.deps.queue.setMode?.(PlayMode.Sequential);
+
     // Remember seed-sourced ids so the next restock prefers other tracks.
     this.noteSeedProgrammed(pool.map((s) => s.id));
 
@@ -510,11 +672,31 @@ export class RadioCommands {
     // the ban-list track at head, resolveAndPlay fails, idle forever.
     const currentBlocked = !!(current && bl?.isBlacklisted(current));
     const preserveCurrent = !!(current && keepStream);
-    const requeueCurrent = !!(current && (preserveCurrent || !currentBlocked));
+    /**
+     * Only re-queue the current track when audio is ACTUALLY running.
+     *
+     * The head-insert below exists so a restock does not SIGKILL a song
+     * mid-play — that is the `keepStream` case, which takes the playAt(0) path
+     * and never re-resolves. When the player is idle the "current" song is the
+     * one that just FINISHED, and re-queueing it puts it at index 0 where the
+     * else-branch calls queue.play() + resolveAndPlay() — restarting the track
+     * that just ended. Confirmed in play_history: "Zane Williams - 99 Bottles"
+     * at 20:35:31 then again at 20:39:38, one song length apart.
+     *
+     * Anti-repeat cannot catch it either: keptIds deliberately excludes the
+     * current id from the pool, so the saturation filter never sees it.
+     */
+    const requeueCurrent = preserveCurrent;
 
+    // Only keep UPCOMING human tracks. In Sequential the queue still holds
+    // already-played songs at indices < currentIndex; re-adding those on restock
+    // re-ran the whole !add pile (e.g. Wheeler Walker Jr. stack played twice).
+    // Past radio fill is dropped either way (isRadioFill).
     const userPendingPlayable: QueuedSong[] = [];
     for (let i = 0; i < prevList.length; i++) {
       if (i === curIdx) continue;
+      // Already played (or left behind) — do not resurrect on restock.
+      if (curIdx >= 0 && i < curIdx) continue;
       const s = prevList[i]!;
       if (isRadioFill(s)) continue;
       if (bl?.isBlacklisted(s)) continue;
@@ -645,7 +827,10 @@ export class RadioCommands {
       for (const src of sources) {
         try {
           const provider = this.deps.getProvider(new Set([flagFor(src)]));
-          const result = await provider.search(q, limitFor(src));
+          // Local search keeps the raw seed; only external searches get biased
+          // toward single tracks (see EXTERNAL_SEED_SUFFIX).
+          const query = src === "local" ? q : externalSeedQuery(q);
+          const result = await provider.search(query, limitFor(src));
           const platform =
             (provider.platform as "local" | "youtube" | "stream") ||
             (src === "local" ? "local" : src === "youtube" ? "youtube" : "stream");
@@ -657,22 +842,38 @@ export class RadioCommands {
     }
 
     // No usable hits — sample the local library (still no mega-mix lock-in).
+    // Prefer a RANDOM sample: empty seedQueries + walk-order search("") only
+    // ever saw the first ~60 filenames, so mid/late alphabet artists never
+    // auto-DJ'd even with a full library (and 1-play/12h cooldown burned the
+    // few that did).
     if (localById.size === 0 && sources.includes("local")) {
       try {
-        const local = this.deps.getProvider(new Set(["l"]));
-        const browse = await local.search("", Math.max(SEED_SEARCH_LIMIT, 60));
-        absorb(browse.songs ?? [], "local", localById);
+        const local = this.deps.getProvider(new Set(["l"])) as MusicProvider & {
+          sampleSongs?: (limit: number) => Promise<Song[]>;
+        };
+        const sampleN = Math.max(SEED_SEARCH_LIMIT, 120);
+        let songs: Song[] = [];
+        if (typeof local.sampleSongs === "function") {
+          songs = await local.sampleSongs(sampleN);
+        } else {
+          const browse = await local.search("", sampleN);
+          songs = browse.songs ?? [];
+        }
+        absorb(songs, "local", localById);
       } catch (err) {
         this.deps.logger?.debug?.({ err }, "radio: library sample for seeds failed");
       }
     }
 
-    const ordered = mixLocalAndExternalSeeds([...localById.values()], [...externalById.values()], {
-      cap: SEED_POOL_CAP,
+    let ordered = mixLocalAndExternalSeeds([...localById.values()], [...externalById.values()], {
+      cap: SEED_POOL_CAP * 2, // over-fetch then thin by artist
       externalRatio,
       recentIds: this.recentSeedSongIds,
       shuffle,
     });
+    ordered = diversifyArtists(ordered, { maxPerArtist: SEED_MAX_PER_ARTIST });
+    if (shuffle) ordered = shuffleSongs(ordered);
+    ordered = ordered.slice(0, SEED_POOL_CAP);
 
     if (ordered.length > 0) {
       const localN = ordered.filter((s) => s.platform === "local").length;
@@ -838,39 +1039,61 @@ export class RadioCommands {
   }
 
   /**
-   * OQ7 rating weight + OQ5 harmonic sequencing on a selected key list.
-   * Rating weight reorders first (preference bag); harmonic then smooths neighbors.
+   * Smart rotation on a selected key list (docs/radio.md):
+   * separation → rating weight → energy bias → harmonic.
+   * Optional `songs` supplies artist/album for separation (seed/playlist pools).
    */
-  applyPoolOrdering(keys: string[]): string[] {
-    if (keys.length <= 1 || !this.deps.tagStore) return keys;
+  applyPoolOrdering(
+    keys: string[],
+    songs?: Array<{ id: string; artist?: string; album?: string }>,
+  ): string[] {
+    if (keys.length <= 1) return keys;
     const radio = this.deps.config.radio ?? {};
     const store = this.deps.tagStore;
-    let ordered = keys;
-    const rw = radio.ratingWeight;
-    // Default on when radio config omits ratingWeight (matches defaultRadioConfig).
-    const weightEnabled = rw?.enabled !== false;
-    if (weightEnabled) {
-      ordered = orderKeysByRatingWeight(ordered, (k) => store.smoothedScore(k), {
-        enabled: true,
-        exponent: rw?.exponent ?? 1,
-        maxRatio: rw?.maxRatio ?? 3,
-      });
-    }
+    const songById = songs ? new Map(songs.map((s) => [s.id, s])) : null;
+    const sr = radio.smartRotation;
+
+    const metaOf = (k: string) => {
+      const t = store?.get(k);
+      const s = songById?.get(k);
+      return {
+        artist: s?.artist,
+        album: s?.album,
+        energy: t?.energy,
+        musicalKey: t?.musicalKey,
+        keyScale: t?.keyScale,
+      };
+    };
+
     const harmonicOn = !!(
       radio.harmonicSequencing ||
       radio.profiles?.[radio.activeProfile ?? ""]?.music?.harmonicSequencing
     );
-    if (harmonicOn) {
-      ordered = orderKeysHarmonically(
-        ordered,
-        (k) => {
-          const t = store.get(k);
-          return t ? { musicalKey: t.musicalKey, keyScale: t.keyScale } : null;
-        },
-        true,
-      );
-    }
-    return ordered;
+    const rw = radio.ratingWeight;
+    // Rating default ON (matches defaultRadioConfig / prior behaviour).
+    const ratingEnabled = rw?.enabled !== false;
+
+    return applySmartRotation(keys, metaOf, {
+      separation: {
+        enabled: sr?.separation?.enabled !== false,
+        artistWindow: sr?.separation?.artistWindow ?? 4,
+        albumWindow: sr?.separation?.albumWindow ?? 6,
+        relaxOnEmpty: sr?.separation?.relaxOnEmpty !== false,
+      },
+      rating: ratingEnabled
+        ? {
+            enabled: true,
+            exponent: rw?.exponent ?? 1,
+            maxRatio: rw?.maxRatio ?? 3,
+          }
+        : { enabled: false },
+      energyBias: {
+        enabled: sr?.energyBias?.enabled !== false,
+        maxJump: sr?.energyBias?.maxJump ?? 0.35,
+      },
+      harmonic: harmonicOn,
+      scoreOf: store ? (k) => store.smoothedScore(k) : undefined,
+    });
   }
 
   /** Overlay keys → playable local Songs; stale rows (deleted files) skipped. */

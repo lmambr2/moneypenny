@@ -173,6 +173,9 @@ export class LlmRuntime {
         ? new DelegateClient({
             baseUrl: delegateUrl,
             model: this.deps.config.llmDelegateModel || undefined,
+            // Degrade to the fast chat model rather than failing the request
+            // when the heavy model cannot be loaded (single-GPU VRAM contention).
+            fallbackModel: this.deps.config.llmModel || undefined,
             logger: this.deps.logger,
           })
         : undefined,

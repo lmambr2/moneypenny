@@ -2,7 +2,13 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { rmSync } from "node:fs";
 import type { Logger } from "../logger.js";
-import { createOpusEncoder, type Encoder, PCM_FRAME_BYTES } from "./encoder.js";
+import {
+  clampMusicOpusBitrateKbps,
+  createOpusEncoder,
+  type Encoder,
+  MUSIC_OPUS_BITRATE_KBPS_DEFAULT,
+  PCM_FRAME_BYTES,
+} from "./encoder.js";
 
 /** Global PID tracker — prevents processes from being orphaned when class instances are swapped. */
 const globalActivePids = new Set<number>();
@@ -53,6 +59,13 @@ export interface BuildFfmpegArgsOpts {
    * Inserted as a single `-af <graph>` before PCM encode.
    */
   audioFilter?: string | null;
+  /**
+   * Cap output to this many seconds (`-t`). Used to air a window of a long DJ
+   * mix instead of letting a 3-hour upload own the station. ffmpeg simply ends
+   * the stream at the limit, so the normal end-of-stream → trackEnd → advance
+   * path runs; no separate timer or stop() call is involved.
+   */
+  maxSeconds?: number | null;
 }
 
 export function buildFfmpegArgs(
@@ -79,6 +92,11 @@ export function buildFfmpegArgs(
   }
   if (seekSeconds > 0) args.push("-ss", String(seekSeconds));
   args.push("-i", url);
+  // After -i so it bounds OUTPUT duration from the seek point, not input.
+  const maxSec = opts?.maxSeconds;
+  if (typeof maxSec === "number" && Number.isFinite(maxSec) && maxSec > 0) {
+    args.push("-t", String(Math.floor(maxSec)));
+  }
   const af = typeof opts?.audioFilter === "string" ? opts.audioFilter.trim() : "";
   if (af) {
     // Reject newlines / control chars that could break argv; allow ,=: for lavfi graphs.
@@ -200,11 +218,17 @@ export class AudioPlayer extends EventEmitter {
    * Spoken bumpers (volumePctFloor set) skip this so announcements stay clear.
    */
   private musicAudioFilter: string | null = null;
+  /**
+   * Opus target for TeamSpeak music frames (kbps). 0 = Auto.
+   * Hot-applied via setMusicOpusBitrateKbps (dashboard slider).
+   */
+  private musicOpusBitrateKbps = MUSIC_OPUS_BITRATE_KBPS_DEFAULT;
 
   constructor(logger: Logger) {
     super();
     this.encoder = createOpusEncoder();
     this.logger = logger;
+    this.applyEncoderBitrate();
   }
 
   /**
@@ -220,7 +244,37 @@ export class AudioPlayer extends EventEmitter {
     return this.musicAudioFilter;
   }
 
-  play(url: string, seekSeconds = 0, songDuration = 0, opts?: { volumePctFloor?: number }): void {
+  /**
+   * Cap Opus bitrate for music sent to TeamSpeak (kbps).
+   * 0 = Auto. Takes effect on the next encoded frame (no restart required).
+   */
+  setMusicOpusBitrateKbps(kbps: number | null | undefined): void {
+    this.musicOpusBitrateKbps = clampMusicOpusBitrateKbps(
+      kbps === null || kbps === undefined ? MUSIC_OPUS_BITRATE_KBPS_DEFAULT : kbps,
+    );
+    this.applyEncoderBitrate();
+  }
+
+  getMusicOpusBitrateKbps(): number {
+    return this.musicOpusBitrateKbps;
+  }
+
+  private applyEncoderBitrate(): void {
+    if (typeof this.encoder.setBitrate !== "function") return;
+    const bps = this.musicOpusBitrateKbps <= 0 ? 0 : this.musicOpusBitrateKbps * 1000;
+    try {
+      this.encoder.setBitrate(bps);
+    } catch (err) {
+      this.logger.warn({ err, kbps: this.musicOpusBitrateKbps }, "Opus setBitrate failed");
+    }
+  }
+
+  play(
+    url: string,
+    seekSeconds = 0,
+    songDuration = 0,
+    opts?: { volumePctFloor?: number; maxSeconds?: number | null },
+  ): void {
     // 1. Stop all current playback; bump sessionId to invalidate stale callbacks.
     this.stop();
     // Per-play volume floor (radio speech): spoken audio must not ride the
@@ -250,7 +304,10 @@ export class AudioPlayer extends EventEmitter {
     // Speech / bumper plays: keep full band. Music: optional radio color overlay.
     const isSpeech = this.playVolumeFloor != null;
     const af = !isSpeech ? this.musicAudioFilter : null;
-    const args = buildFfmpegArgs(url, seekSeconds, { audioFilter: af });
+    const args = buildFfmpegArgs(url, seekSeconds, {
+      audioFilter: af,
+      maxSeconds: opts?.maxSeconds ?? null,
+    });
 
     const ffmpegBin = getFfmpegCommand();
     this.ffmpeg = spawn(ffmpegBin, args, { stdio: ["ignore", "pipe", "pipe"] });

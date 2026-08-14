@@ -150,7 +150,37 @@ When you hit a failure mode — especially one an LLM “fixed” wrong — add 
 
 ---
 
-## 5. Pi deploy safeguards (mandatory for agents)
+## 5. Deploy safeguards (mandatory for agents)
+
+### 5a. x86 server — CURRENT PRODUCTION (rootless Podman)
+
+Production moved off the Pi on **2026-07-26**. Live host is `allie@192.168.1.89`
+(`rgbmasheen`), deploy dir **`/media/storage/moneypenny`**. The opi5 Pi is
+decommissioned and powered off — §5b below is historical.
+
+```bash
+./scripts/deploy-server.sh              # pull → build → recreate → verify
+./scripts/deploy-server.sh --verify     # post-deploy checks only
+./scripts/deploy-server.sh --services bot,stt-whisper
+```
+
+**Never drive `docker compose` by hand here.** The runtime is `podman-compose`
+emulating the Docker CLI, and three of its behaviours produce a *running but
+wrong* deployment — the worst failure shape, because everything looks healthy:
+
+| Trap | Consequence | Handled by |
+|------|-------------|------------|
+| `COMPOSE_FILE` in `.env` is **not honoured** | A bare `docker compose up -d` drops `docker-compose.rootless-fix.yml`; the bot returns on bridge networking with `BIND_ADDRESS=0.0.0.0`, publishing the admin UI on every LAN interface | script always passes all three `-f` flags, overlay last |
+| `up` **restarts** an existing stopped container instead of recreating it | Environment changes appear to deploy while the old env stays live | script runs `podman rm -f` first |
+| `podman-compose` has **no `rm` subcommand** | `docker compose rm` exits 2 mid-deploy | script uses `podman rm -f <name>` |
+
+Also: the remote login shell is **fish** — wrap remote commands in `bash -lc`
+or `(...)` is parsed as command substitution. And `user: "0:0"` in the overlay
+is **correct, not a privilege bug**: under rootless Podman container-uid-0 maps
+to the host user that owns the bind mounts, while uid 1000 lands in an unowned
+subuid range.
+
+### 5b. Pi deploy safeguards (historical — hardware decommissioned)
 
 **Never improvise rsync/ssh deploys.** Use the scripts:
 

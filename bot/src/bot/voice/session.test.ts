@@ -94,6 +94,8 @@ function makeSession(over: Partial<VoiceSessionDeps> = {}) {
     captureDuck: unknown;
     ensureMusicDuckedOnWake(clientId: number): void;
     pruneClientMaps(live: Set<number>): void;
+    ttsPlaybackActive: boolean;
+    speechQueue: { isSpeaking: boolean };
   };
 
   return { session, deps, player, tsClient, onClientList, internal };
@@ -222,5 +224,162 @@ describe("VoiceSession duck release on speaker departure (audit A2)", () => {
     internal.speakerArm.arm(1);
     internal.ensureMusicDuckedOnWake(1);
     expect(player.isSttDucked()).toBe(false);
+  });
+});
+
+describe("VoiceSession wake duck vs the bot's own TTS", () => {
+  // The player is shared: speak() parks the song in savedMusic and plays the
+  // reply on the SAME AudioPlayer. getState() reports "playing" either way, so
+  // a wake arriving mid-reply used to duck the reply itself — heard live as
+  // Moneypenny dropping to a mutter partway through "Now playing: ...".
+  it("ducks normally when the player is playing actual music", () => {
+    const { internal, player } = makeSession();
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).toHaveBeenCalledWith(15);
+    expect(player.ducked()).toBe(true);
+    expect(internal.captureDuck).not.toBeNull();
+  });
+
+  it("does NOT duck while a TTS reply is playing", () => {
+    const { internal, player } = makeSession();
+    internal.ttsPlaybackActive = true;
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
+    expect(player.ducked()).toBe(false);
+    // No duck means no capture state and therefore no watchdog to leak.
+    expect(internal.captureDuck).toBeNull();
+  });
+
+  it("does NOT duck while the speech queue is still speaking", () => {
+    const { internal, player } = makeSession();
+    // isSpeaking is a getter on SpeechQueue — spy on it rather than assigning.
+    vi.spyOn(internal.speechQueue, "isSpeaking", "get").mockReturnValue(true);
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
+    expect(player.ducked()).toBe(false);
+  });
+
+  it("resumes ducking once the reply has finished", () => {
+    const { internal, player } = makeSession();
+    internal.ttsPlaybackActive = true;
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
+
+    // cleanup() in speak() clears the flag when trackEnd/error/abort fires.
+    internal.ttsPlaybackActive = false;
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).toHaveBeenCalledWith(15);
+    expect(player.ducked()).toBe(true);
+  });
+
+  it("still skips the duck when TTS is playing over an otherwise duckable track", () => {
+    // Guards against a future refactor reordering the TTS check below the
+    // getState()/queue.current() guards, which would restore the old bug.
+    const { internal, player } = makeSession();
+    internal.ttsPlaybackActive = true;
+    vi.spyOn(internal.speechQueue, "isSpeaking", "get").mockReturnValue(true);
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * suppressNextTrackAdvance is armed by a pause/stop voice reply and meant to
+ * swallow exactly ONE trackEnd — the one from that reply's TTS, arriving within
+ * seconds. Barge-in cancels TTS via player.stop(), which emits no trackEnd, so
+ * the flag could survive and later eat a real end-of-song, parking the queue
+ * into dead air. Same shape as the other cross-path state bugs.
+ */
+describe("VoiceSession stale pause/stop suppression", () => {
+  type Internals = {
+    suppressNextTrackAdvance: boolean;
+    suppressArmedAt: number;
+    savedMusic: unknown;
+    captureDuck: unknown;
+    ttsPlaybackActive: boolean;
+  };
+
+  it("swallows the trackEnd from the reply it was armed for", async () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.suppressNextTrackAdvance = true;
+    inner.suppressArmedAt = Date.now();
+
+    const playNext = vi.fn(async () => true);
+    expect(await session.handleTrackEnd(playNext)).toBe(true);
+    expect(playNext).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale flag rather than parking the queue", async () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.suppressNextTrackAdvance = true;
+    inner.suppressArmedAt = Date.now() - 5 * 60_000; // TTS trackEnd never came
+
+    const playNext = vi.fn(async () => true);
+    await session.handleTrackEnd(playNext);
+    // Must fall through to the normal resume/advance path, not swallow it.
+    expect(inner.suppressNextTrackAdvance).toBe(false);
+  });
+
+  it("clears cross-path state on cleanup so it cannot survive a reconnect", () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.suppressNextTrackAdvance = true;
+    inner.savedMusic = { song: { id: "x" }, elapsed: 5 };
+    inner.ttsPlaybackActive = true;
+
+    session.cleanup();
+
+    expect(inner.suppressNextTrackAdvance).toBe(false);
+    expect(inner.savedMusic).toBeNull();
+    expect(inner.captureDuck).toBeNull();
+    expect(inner.ttsPlaybackActive).toBe(false);
+  });
+});
+
+/**
+ * The shared AudioPlayer reports "playing" for a TTS reply as well as music,
+ * because speak() airs the reply on the same player. Callers that mean "music
+ * is competing with the speaker" must not be fooled by the bot's own voice.
+ *
+ * This bit twice: once ducking a reply mid-sentence, and once dropping command
+ * audio -- the flush guard held capture "until music is ducked", but during TTS
+ * the duck is deliberately skipped, so the guard never released.
+ */
+describe("VoiceSession music-vs-own-voice", () => {
+  type Internals = {
+    ttsPlaybackActive: boolean;
+    speechQueue: { isSpeaking: boolean };
+    isMusicPlaying(): boolean;
+    isBotSpeaking(): boolean;
+  };
+
+  it("counts real music as music", () => {
+    const { session } = makeSession(); // fakePlayer defaults to "playing"
+    const inner = session as unknown as Internals;
+    expect(inner.isMusicPlaying()).toBe(true);
+    expect(inner.isBotSpeaking()).toBe(false);
+  });
+
+  it("does not count the bot's own TTS as music", () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    inner.ttsPlaybackActive = true;
+    expect(inner.isBotSpeaking()).toBe(true);
+    expect(inner.isMusicPlaying()).toBe(false);
+  });
+
+  it("does not count a queued reply still being spoken as music", () => {
+    const { session } = makeSession();
+    const inner = session as unknown as Internals;
+    vi.spyOn(inner.speechQueue, "isSpeaking", "get").mockReturnValue(true);
+    expect(inner.isMusicPlaying()).toBe(false);
+  });
+
+  it("reports no music when the player is idle", () => {
+    const player = fakePlayer("idle");
+    const { session } = makeSession({ player } as unknown as Partial<VoiceSessionDeps>);
+    expect((session as unknown as Internals).isMusicPlaying()).toBe(false);
   });
 });

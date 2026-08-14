@@ -157,6 +157,52 @@
       </div>
     </section>
 
+    <!-- Stream quality (TeamSpeak Opus uplink) -->
+    <section v-if="session.isAdmin.value" class="settings-section">
+      <h2 class="section-title">Stream quality</h2>
+      <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 10px">
+        <div class="setting-label">
+          <Icon icon="mdi:waveform" class="setting-icon" />
+          <div>
+            <div>Music Opus bitrate</div>
+            <div style="font-size:12px; opacity:0.6; margin-top:2px">
+              Bandwidth of music Moneypenny sends to TeamSpeak (upload from this host).
+              Lower helps Starlink / weak uplink. Does not change listener download from the TS server.
+              Takes effect within ~20&nbsp;ms of Save (no restart).
+            </div>
+          </div>
+        </div>
+        <div class="bitrate-slider-row">
+          <input
+            v-model.number="musicOpusBitrateKbps"
+            type="range"
+            min="24"
+            max="128"
+            step="8"
+            class="bitrate-slider"
+            :title="`${musicOpusBitrateKbps} kbps`"
+          />
+          <div class="bitrate-value">
+            <strong>{{ musicOpusBitrateKbps }}</strong> kbps
+            <span class="bitrate-hint">{{ musicOpusBitrateHint }}</span>
+          </div>
+        </div>
+        <div class="bitrate-presets">
+          <button type="button" class="btn-sm" @click="musicOpusBitrateKbps = 48">48 · lean</button>
+          <button type="button" class="btn-sm" @click="musicOpusBitrateKbps = 64">64 · default</button>
+          <button type="button" class="btn-sm" @click="musicOpusBitrateKbps = 96">96 · rich</button>
+          <button type="button" class="btn-sm" @click="musicOpusBitrateKbps = 128">128 · max</button>
+        </div>
+        <div class="prefix-input-wrap" style="justify-content: flex-start">
+          <button class="btn-primary" :disabled="savingBitrate" @click="saveMusicBitrate">
+            {{ savingBitrate ? 'Saving…' : 'Save bitrate' }}
+          </button>
+          <span v-if="bitrateMsg" class="user-success" style="margin-left: 10px">{{ bitrateMsg }}</span>
+          <span v-if="bitrateErr" class="user-error" style="margin-left: 10px">{{ bitrateErr }}</span>
+        </div>
+      </div>
+    </section>
+
     <!-- Music Sources (Local-first) -->
     <section class="settings-section">
       <h2 class="section-title">Music Sources</h2>
@@ -244,6 +290,30 @@
           />
           <span style="font-size:13px; opacity:0.7">min</span>
           <button class="btn-primary" @click="saveIdleTimeout">Save</button>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <Icon icon="mdi:account-group-outline" class="setting-icon" />
+          <div>
+            <div>Follow the crowd</div>
+            <div style="font-size:12px; opacity:0.6; margin-top:2px">When nobody is left in her channel, move to the busiest channel that has people in it. Never follows into AFK channels, and never moves while she still has company.</div>
+          </div>
+        </div>
+        <div class="prefix-input-wrap">
+          <input type="checkbox" class="profile-toggle-switch" v-model="autoFollowEnabled" />
+          <input
+            v-model.number="autoFollowCooldownSec"
+            type="number"
+            min="0"
+            class="input input-sm"
+            style="max-width:80px"
+            placeholder="60"
+            :disabled="!autoFollowEnabled"
+          />
+          <span style="font-size:13px; opacity:0.7">s min. gap</span>
+          <button class="btn-primary" @click="saveAutoFollow">Save</button>
         </div>
       </div>
     </section>
@@ -1880,18 +1950,71 @@ async function savePrefix() {
 // Idle timeout
 const idleTimeout = ref(0);
 
+// Music Opus bitrate (TeamSpeak uplink)
+const musicOpusBitrateKbps = ref(64);
+const savingBitrate = ref(false);
+const bitrateMsg = ref('');
+const bitrateErr = ref('');
+const musicOpusBitrateHint = computed(() => {
+  const n = musicOpusBitrateKbps.value;
+  if (n <= 48) return '· lean (Starlink-friendly)';
+  if (n <= 72) return '· balanced default';
+  if (n <= 100) return '· rich';
+  return '· high quality';
+});
+
 async function loadIdleTimeout() {
   try {
     const res = await api.get('/api/bot/settings');
     idleTimeout.value = res.data.idleTimeoutMinutes ?? 0;
+    autoFollowEnabled.value = !!res.data.autoFollowEnabled;
+    autoFollowCooldownSec.value = res.data.autoFollowCooldownSec ?? 60;
+    const br = res.data.musicOpusBitrateKbps;
+    if (typeof br === 'number' && Number.isFinite(br) && br >= 24) {
+      musicOpusBitrateKbps.value = Math.min(128, Math.max(24, Math.round(br)));
+    } else if (br === 0) {
+      musicOpusBitrateKbps.value = 64; // Auto not exposed on slider; show default
+    }
   } catch (e) {
     console.error('Settings load/save failed', e);
+  }
+}
+
+async function saveMusicBitrate() {
+  bitrateMsg.value = '';
+  bitrateErr.value = '';
+  savingBitrate.value = true;
+  try {
+    const kbps = Math.min(128, Math.max(24, Math.round(Number(musicOpusBitrateKbps.value) || 64)));
+    musicOpusBitrateKbps.value = kbps;
+    await api.post('/api/bot/settings', { musicOpusBitrateKbps: kbps });
+    bitrateMsg.value = `Saved ${kbps} kbps — applied live.`;
+  } catch (e: any) {
+    bitrateErr.value = e?.response?.data?.error ?? 'Failed to save bitrate';
+  } finally {
+    savingBitrate.value = false;
   }
 }
 
 async function saveIdleTimeout() {
   try {
     await api.post('/api/bot/settings', { idleTimeoutMinutes: idleTimeout.value });
+  } catch (e) {
+    console.error('Settings load/save failed', e);
+  }
+}
+
+// Follow-the-crowd. The AFK channel-name list is a string[] and has no flat
+// settings type, so it stays in config.json; the defaults cover the usual names.
+const autoFollowEnabled = ref(false);
+const autoFollowCooldownSec = ref(60);
+
+async function saveAutoFollow() {
+  try {
+    await api.post('/api/bot/settings', {
+      autoFollowEnabled: autoFollowEnabled.value,
+      autoFollowCooldownSec: autoFollowCooldownSec.value,
+    });
   } catch (e) {
     console.error('Settings load/save failed', e);
   }
@@ -3707,6 +3830,35 @@ onMounted(() => {
   font-size: 12px;
   color: var(--text-tertiary);
   &.logged { color: var(--color-online); }
+}
+
+.bitrate-slider-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+.bitrate-slider {
+  flex: 1;
+  min-width: 160px;
+  max-width: 420px;
+  accent-color: var(--color-primary);
+}
+.bitrate-value {
+  font-size: 14px;
+  min-width: 12rem;
+  strong { font-variant-numeric: tabular-nums; }
+}
+.bitrate-hint {
+  margin-left: 6px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.bitrate-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .login-methods {

@@ -144,7 +144,7 @@ export class LlmClient {
       tools: req.tools,
       tool_choice: req.tool_choice ?? "auto",
       temperature: req.temperature ?? 0.2,
-      max_tokens: req.max_tokens ?? 512,
+      max_tokens: req.max_tokens ?? 1024,
       stream: false,
       // ollama extension (ignored by other OpenAI servers): keep the model
       // resident for 2h so a !ask after a lull doesn't pay the cold-load tax.

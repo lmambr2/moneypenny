@@ -174,11 +174,16 @@ export function isYoutubeTooLong(durationSec: number | null | undefined): boolea
 /**
  * YouTube content policy.
  * - `search` (default): full gates — categories (Gaming/News/…), non-music titles,
- *   full albums, livestream radios, >15m. Used for ytsearch / auto-DJ seeds.
+ *   full albums, livestream radios, >15m. Used for ytsearch.
+ * - `radio`: as `search`, but WITHOUT the >15m gate. Auto-DJ airs a bounded
+ *   window of a long mix (see radio/mix-window.ts) rather than the whole thing,
+ *   so length is no longer a reason to reject one. Every other gate still
+ *   applies — in particular livestream radios, which have no discrete media URL
+ *   and would produce dead air no matter how short a window we asked for.
  * - `explicit`: user pasted a concrete media URL — **always passes** content gates
  *   (unique works, long mixes, odd categories). SSRF / ban-list still apply elsewhere.
  */
-export type YoutubeBlockPolicy = "search" | "explicit";
+export type YoutubeBlockPolicy = "search" | "radio" | "explicit";
 
 /** Combined gate for YouTube queue pollution (title dump, non-music, or over-long). */
 export function shouldBlockYoutubeSong(opts: {
@@ -197,7 +202,8 @@ export function shouldBlockYoutubeSong(opts: {
   if (isYoutubeFullAlbumTitle(opts.title ?? "")) return true;
   if (isYoutubeLivestreamRadioTitle(opts.title ?? "")) return true;
   if (isYtDlpLiveStream(opts.ytMeta)) return true;
-  if (isYoutubeTooLong(opts.duration)) return true;
+  // `radio` keeps every gate except length — auto-DJ windows long mixes.
+  if ((opts.policy ?? "search") !== "radio" && isYoutubeTooLong(opts.duration)) return true;
   if (
     shouldBlockAsNonMusic(
       {

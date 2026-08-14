@@ -62,6 +62,19 @@ export { isUnderBumperDir, type LastPlayedBumper, pinBumperToPool } from "./pin.
 export { PrerecordedPool, type PrerecordedPoolDeps } from "./prerecorded.js";
 export { orderKeysByRatingWeight, type RatingWeightOpts } from "./rating-weight.js";
 export {
+  applySmartRotation,
+  DEFAULT_ENERGY_BIAS,
+  DEFAULT_SEPARATION,
+  type EnergyBiasPolicy,
+  normalizeEnergyBias,
+  normalizeSeparation,
+  orderKeysByEnergyBias,
+  orderKeysWithSeparation,
+  type SeparationPolicy,
+  type SmartRotationOpts,
+  type SmartRotationTrackMeta,
+} from "./smart-rotation.js";
+export {
   type RelayConfig,
   RelayScheduler,
   type RelaySchedulerDeps,

@@ -100,6 +100,15 @@ export class VoiceSession {
   private readonly duckWatchdogMs = 18_000;
   /** After voice pause/stop, TTS trackEnd must not advance the music queue. */
   private suppressNextTrackAdvance = false;
+  /**
+   * When the suppress flag was armed. It is meant to swallow exactly one
+   * trackEnd — the one from the "Paused"/"Stopped" TTS reply, which lands within
+   * seconds. But barge-in cancels TTS via player.stop(), which emits NO
+   * trackEnd, so the flag could survive and later eat a real end-of-song,
+   * stalling the queue into dead air. Treat a stale flag as expired.
+   */
+  private suppressArmedAt = 0;
+  private static readonly SUPPRESS_TTL_MS = 30_000;
   private segmenterOpts: { sampleRate: number; channels: number; energyThreshold: number } | null =
     null;
   private tempDir: string | null = null;
@@ -440,6 +449,7 @@ export class VoiceSession {
     if (voiceReplyClearsSavedMusic(reply)) {
       this.savedMusic = null;
       this.suppressNextTrackAdvance = true;
+      this.suppressArmedAt = Date.now();
       return;
     }
     if (isPlaybackControlReply(reply)) {
@@ -454,10 +464,19 @@ export class VoiceSession {
    */
   async handleTrackEnd(playNext: () => Promise<boolean>): Promise<boolean> {
     if (this.suppressNextTrackAdvance) {
+      const ageMs = Date.now() - this.suppressArmedAt;
       this.suppressNextTrackAdvance = false;
-      this.savedMusic = null;
-      this.deps.logger.info("Voice: holding queue after pause/stop reply");
-      return true;
+      if (ageMs <= VoiceSession.SUPPRESS_TTL_MS) {
+        this.savedMusic = null;
+        this.deps.logger.info("Voice: holding queue after pause/stop reply");
+        return true;
+      }
+      // Stale: the TTS trackEnd it was armed for never arrived. Swallowing this
+      // one would park the queue and hand the station to dead air.
+      this.deps.logger.warn(
+        { ageMs },
+        "Voice: stale pause/stop suppress expired — advancing normally",
+      );
     }
     return this.tryResumeMusic(playNext);
   }
@@ -493,6 +512,15 @@ export class VoiceSession {
 
   cleanup(): void {
     this.clearDuckWatchdog();
+    // Cross-path state must not survive a disable/reconnect: a leftover
+    // suppress eats the first trackEnd after reconnecting, and a leftover
+    // savedMusic/captureDuck resumes or ducks against a stale session.
+    this.suppressNextTrackAdvance = false;
+    this.suppressArmedAt = 0;
+    this.savedMusic = null;
+    this.captureDuck = null;
+    this.captureDuckClientId = null;
+    this.ttsPlaybackActive = false;
     for (const buf of this.streamBuffers.values()) {
       if (buf.flushTimer) clearTimeout(buf.flushTimer);
       if (buf.idleTimer) clearTimeout(buf.idleTimer);
@@ -685,7 +713,7 @@ export class VoiceSession {
     if (isSpeech) this.scheduleStreamIdle(v.clientId, true);
     else this.scheduleStreamIdle(v.clientId, false);
 
-    const musicPlaying = this.deps.player.getState() === "playing";
+    const musicPlaying = this.isMusicPlaying();
     const flushMs = inCapture
       ? this.streamFlushMs
       : musicPlaying
@@ -799,7 +827,10 @@ export class VoiceSession {
     }
 
     // Loud music still streaming — don't pollute command capture until ducked.
-    if (inCommand && this.deps.player.getState() === "playing" && !this.deps.player.isSttDucked()) {
+    // Must be MUSIC: while the bot is speaking, the player also reports
+    // "playing" but is deliberately NOT duck-flagged, so using getState() here
+    // silently dropped every command spoken over a reply.
+    if (inCommand && this.isMusicPlaying() && !this.deps.player.isSttDucked()) {
       this.deps.logger.debug({ clientId }, "Voice: STT flush held — music not ducked yet");
       return;
     }
@@ -1193,8 +1224,36 @@ export class VoiceSession {
    * Wake-only ("moneypenny" with no command) still hits this path via out.keyword.
    * No duck on command-mode audio alone — music must keep playing until KWS fires.
    */
+  /** True while the shared player is airing the bot's own TTS rather than music. */
+  private isBotSpeaking(): boolean {
+    return this.ttsPlaybackActive || this.speechQueue.isSpeaking;
+  }
+
+  /**
+   * True only when real MUSIC is on the wire.
+   *
+   * player.getState() reports "playing" for a TTS reply too, because speak()
+   * airs the reply on the same AudioPlayer. Every caller that means "music is
+   * competing with the speaker" must use this instead, or it will treat
+   * Moneypenny's own voice as music.
+   */
+  private isMusicPlaying(): boolean {
+    return this.deps.player.getState() === "playing" && !this.isBotSpeaking();
+  }
+
   private ensureMusicDuckedOnWake(clientId: number): void {
     if (!this.duckMusicOnSpeech) return;
+    // The player is shared between music and bot TTS: speak() parks the song in
+    // savedMusic and plays the reply on the SAME player. So while a reply is in
+    // flight the thing playing IS her own voice, and ducking here attenuates the
+    // announcement mid-sentence instead of the music — heard as her dropping to
+    // a mutter partway through, then recovering when the duck is released.
+    // getState() cannot distinguish the two ("playing" either way); this is the
+    // same pair of flags the barge-in path uses to tell TTS from pure music.
+    if (this.isBotSpeaking()) {
+      this.deps.logger.debug({ clientId }, "Voice: wake duck skipped — bot TTS is speaking");
+      return;
+    }
     if (this.deps.player.getState() !== "playing") {
       // Idle channel is common — do not spam info logs on every wake.
       this.deps.logger.debug(

@@ -245,4 +245,28 @@ export class TS6HttpQuery {
     }
     return result;
   }
+
+  /** List server groups (sgid + name). Used for session-role tagging diagnostics. */
+  async serverGroupList(sid = 1): Promise<HttpQueryResult> {
+    return this.request("GET", `/1/servergrouplist?sid=${sid}`);
+  }
+
+  /** Members of a server group (client database ids). */
+  async serverGroupClientList(sgid: number, sid = 1): Promise<HttpQueryResult> {
+    return this.request("GET", `/1/servergroupclientlist?sid=${sid}&sgid=${sgid}`);
+  }
+
+  /**
+   * Remove a client (by database id) from a server group.
+   * Used only for allowlisted temporary Session / role groups — never permanent ranks.
+   * Throws HttpQueryError on non-2xx.
+   */
+  async serverGroupDelClient(sgid: number, cldbid: number, sid = 1): Promise<HttpQueryResult> {
+    const path = `/1/servergroupdelclient?sid=${sid}`;
+    const result = await this.request("POST", path, { sgid, cldbid });
+    if (result.status < 200 || result.status >= 300) {
+      throw new HttpQueryError(path, result.status, result.body);
+    }
+    return result;
+  }
 }

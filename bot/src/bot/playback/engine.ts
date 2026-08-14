@@ -1,7 +1,7 @@
 import type { EventEmitter } from "node:events";
 import path from "node:path";
 import type { AudioPlayer } from "../../audio/player.js";
-import type { PlayQueue, QueuedSong } from "../../audio/queue.js";
+import { isRadioFill, PlayMode, type PlayQueue, type QueuedSong } from "../../audio/queue.js";
 import type { BotConfig } from "../../data/config.js";
 import type { BotDatabase } from "../../data/database.js";
 import type { Logger } from "../../logger.js";
@@ -24,6 +24,7 @@ import {
   shouldBlockYoutubeSong,
 } from "../../music/youtube.js";
 import type { YtLibrary } from "../../music/ytlibrary.js";
+import { planMixWindow } from "../../radio/mix-window.js";
 import type { ParsedCommand } from "../commands.js";
 import type { BotProfileManager } from "../profile.js";
 import { extractMediaId, pickProvider, providerForPlatform } from "./providers.js";
@@ -156,9 +157,16 @@ export class PlaybackEngine {
       this.rememberDemoSongId(localSong.id);
       this.opts.queue.clear();
       this.opts.queue.add({ ...localSong, platform: "local", source: "system" });
+      // One song in the queue: without an explicit mode this inherits whatever
+      // the last feature left (RandomLoop by default), whose single-song branch
+      // replays forever. !test is a demo — it plays once.
+      this.opts.queue.setMode?.(PlayMode.Sequential);
       this.opts.queue.play();
       this.opts.player.resetFailures();
-      const ok = await this.resolveAndPlay(this.opts.queue.current()!);
+      // !test must not burn auto-DJ anti-repeat (maxPlays/12h) — otherwise the
+      // demo track (and any artist it belongs to in a thin pool) never re-enters
+      // radio after a few !test smokes.
+      const ok = await this.resolveAndPlay(this.opts.queue.current()!, { skipHistory: true });
       if (ok) return `Now playing: ${localSong.name} - ${localSong.artist} (local)`;
       this.opts.logger.warn(
         { song: localSong.name },
@@ -181,9 +189,10 @@ export class PlaybackEngine {
     this.rememberDemoSongId(song.id);
     this.opts.queue.clear();
     this.opts.queue.add({ ...song, platform: provider.platform, source: "system" });
+    this.opts.queue.setMode?.(PlayMode.Sequential);
     this.opts.queue.play();
     this.opts.player.resetFailures();
-    const ok = await this.resolveAndPlay(this.opts.queue.current()!);
+    const ok = await this.resolveAndPlay(this.opts.queue.current()!, { skipHistory: true });
     if (!ok) return `Cannot play: ${song.name}`;
     const localPath = await this.resolveYoutubeLocalPath(DEFAULT_DEMO_VIDEO_ID);
     const suffix = localPath ? " (local)" : "";
@@ -397,7 +406,33 @@ export class PlaybackEngine {
       // skipHistory resumes keep the flag until resumePlayback clears it after success.
       if (!opts?.skipHistory) this.userPause = null;
       const seek = Math.max(0, opts?.seekSeconds ?? 0);
-      this.opts.player.play(url, seek, song.duration);
+      // Long auto-DJ mixes air as a ~10 minute window rather than owning the
+      // station for hours. Only radio fill, and only when this is not already a
+      // positioned play (pause-resume / explicit seek) — a track someone asked
+      // for by name plays in full however long it is.
+      const window =
+        isRadioFill(song) && seek === 0 && !opts?.skipHistory ? planMixWindow(song.duration) : null;
+      if (window) {
+        this.opts.logger.info(
+          {
+            songId: song.id,
+            name: song.name,
+            durationSec: song.duration,
+            seekSeconds: window.seekSeconds,
+            windowSec: window.maxSeconds,
+          },
+          "radio: airing a window of a long mix",
+        );
+      }
+      // Only pass options when windowing — an unwindowed play keeps the plain
+      // three-argument call it has always made.
+      if (window) {
+        this.opts.player.play(url, window.seekSeconds, song.duration, {
+          maxSeconds: window.maxSeconds,
+        });
+      } else {
+        this.opts.player.play(url, seek, song.duration);
+      }
       if (!opts?.skipHistory) {
         this.opts.database.addPlayHistory({
           botId: this.opts.botId,
@@ -470,6 +505,8 @@ export class PlaybackEngine {
       }
       this.opts.queue.clear();
       this.opts.queue.addMany(allowed.map((s) => ({ ...s, platform, source: "user" as const })));
+      // Play the playlist through, then end — do not inherit a loop mode.
+      this.opts.queue.setMode?.(PlayMode.Sequential);
       this.opts.queue.play();
       this.opts.player.resetFailures();
       const ok = await this.resolveAndPlay(this.opts.queue.current()!);
@@ -483,6 +520,7 @@ export class PlaybackEngine {
     }
     this.opts.queue.clear();
     this.opts.queue.add({ ...resolved.item, platform, source: "user" });
+    this.opts.queue.setMode?.(PlayMode.Sequential);
     this.opts.queue.play();
     this.opts.player.resetFailures();
     const ok = await this.resolveAndPlay(this.opts.queue.current()!);
