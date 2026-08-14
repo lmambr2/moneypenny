@@ -181,16 +181,19 @@ export function isRightsConfig(v: unknown): v is RightsConfig {
 }
 
 /** Commands gated separately from the public set (DESIGN §R1 — analyst delegation). */
-const ANALYST_COMMANDS = ["analyst", "agent"] as const;
+const ANALYST_COMMANDS = ["analyst", "agent", "intsum", "aar"] as const;
+/** ACE-Step — @dj in the rank-gating template; fallback ruleset has no DJ group. */
+const DJ_COMMANDS = ["generate"] as const;
 
 export function defaultRightsConfig(adminGroups: number[] = []): RightsConfig {
+  const gated = new Set<string>([...ANALYST_COMMANDS, ...DJ_COMMANDS]);
   const publicDefault = [...PUBLIC_COMMANDS]
     .map((c) => c.toLowerCase())
-    .filter((c) => !(ANALYST_COMMANDS as readonly string[]).includes(c));
+    .filter((c) => !gated.has(c));
   return {
     defaultAllow: publicDefault,
     commandGroups: {
-      admin: [...ADMIN_COMMANDS].map((c) => c.toLowerCase()),
+      admin: [...ADMIN_COMMANDS, ...DJ_COMMANDS].map((c) => c.toLowerCase()),
       analyst: [...ANALYST_COMMANDS],
     },
     superAdminUids: [],

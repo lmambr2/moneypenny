@@ -18,6 +18,7 @@ export function sourceFlags(source?: string): Set<string> {
   const flags = new Set<string>();
   if (source === "youtube") flags.add("y");
   else if (source === "local") flags.add("l");
+  else if (source === "stream") flags.add("s");
   // "auto" / undefined → no flag → BotInstance defaults to Local (primary).
   return flags;
 }

@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { QueuedSong } from "../../audio/queue.js";
 import type { BotInstance } from "../../bot/instance.js";
 import {
+  parseMusicPlatform,
   requireBody,
   zNonEmptyString,
   zPlayerModeToken,
@@ -19,21 +20,27 @@ import {
   zVolume,
 } from "../validate.js";
 
-const VALID_PLATFORMS = new Set(["local", "youtube", "stream"]);
-
-function parsePlatform(platform: unknown): "local" | "youtube" | "stream" {
-  if (platform === "local" || platform === "stream" || platform === "youtube") return platform;
-  return "youtube";
-}
-
 function requirePlatform(platform: unknown, res: Response): "local" | "youtube" | "stream" | null {
-  if (typeof platform === "string" && VALID_PLATFORMS.has(platform)) {
-    return platform as "local" | "youtube" | "stream";
-  }
+  if (platform === "local" || platform === "youtube" || platform === "stream") return platform;
   res
     .status(400)
     .json({ error: "platform must be local, youtube, or stream", code: "VALIDATION_ERROR" });
   return null;
+}
+
+/** Default missing platform to youtube; 400 on an explicit unknown value. */
+function parsePlatformOrDefault(
+  platform: unknown,
+  res: Response,
+): "local" | "youtube" | "stream" | null {
+  const parsed = parseMusicPlatform(platform);
+  if (!parsed) {
+    res
+      .status(400)
+      .json({ error: "platform must be local, youtube, or stream", code: "VALIDATION_ERROR" });
+    return null;
+  }
+  return parsed;
 }
 
 /** Load songs into the queue and start playback with retry-skip on resolve failures. */
@@ -353,9 +360,11 @@ export function createPlayerRouter(
       if (!(await denyUnless(bot, req, res, "playlist"))) return;
       if (!(await denyUnless(bot, req, res, "clear"))) return;
       const { playlistId, platform } = req.body;
+      const plat = parsePlatformOrDefault(platform, res);
+      if (!plat) return;
       // Use the bot's own provider lookup — it already knows about youtube,
       // which the router's constructor params did not.
-      const provider = bot.getProviderFor(parsePlatform(platform));
+      const provider = bot.getProviderFor(plat);
 
       bot.getPlayer().stop();
       bot.getPlayer().resetFailures();
@@ -386,7 +395,9 @@ export function createPlayerRouter(
       if (!(await denyUnless(bot, req, res, "album"))) return;
       if (!(await denyUnless(bot, req, res, "clear"))) return;
       const { albumId, platform } = req.body;
-      const provider = bot.getProviderFor(parsePlatform(platform));
+      const plat = parsePlatformOrDefault(platform, res);
+      if (!plat) return;
+      const provider = bot.getProviderFor(plat);
 
       bot.getPlayer().stop();
       bot.getPlayer().resetFailures();
@@ -594,7 +605,9 @@ export function createPlayerRouter(
       const bot = requireBot(req);
       if (!(await denyUnless(bot, req, res, "add"))) return;
       const { songId, platform } = req.body;
-      const provider = bot.getProviderFor(parsePlatform(platform));
+      const plat = parsePlatformOrDefault(platform, res);
+      if (!plat) return;
+      const provider = bot.getProviderFor(plat);
 
       const song = await provider.getSongDetail(songId);
       if (!song) {

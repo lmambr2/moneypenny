@@ -67,6 +67,18 @@ describe("PlayQueue", () => {
     expect(queue.current()?.id).toBe("1");
   });
 
+  it("playedIndexSet snapshots the random bag (copy, not alias)", () => {
+    queue.setMode(PlayMode.RandomLoop);
+    queue.add(makeSong("a"));
+    queue.add(makeSong("b"));
+    queue.add(makeSong("c"));
+    queue.playAt(1);
+    const snap = queue.playedIndexSet();
+    expect([...snap]).toEqual([1]);
+    snap.add(99);
+    expect(queue.playedIndexSet().has(99)).toBe(false);
+  });
+
   it("advances to next song in sequential mode", () => {
     queue.setMode(PlayMode.Sequential);
     queue.add(makeSong("1"));

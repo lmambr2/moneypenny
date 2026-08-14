@@ -22,6 +22,7 @@ const BLOCKED_HOSTNAMES = new Set([
   "spotify-bridge",
   "ace-step",
   "teamspeak",
+  "turbovec",
   "host.docker.internal",
   "metadata.google.internal",
   "metadata",
@@ -69,9 +70,17 @@ function ipv4MappedFromV6(host: string): number[] | null {
   return null;
 }
 
+function isUnspecifiedIpv6(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "::" || h === "::0" || h === "0:0:0:0:0:0:0:0") return true;
+  // Compressed leftovers Node still hands us as "::".
+  return /^0(:0)+$/.test(h);
+}
+
 function isBlockedIpv6(host: string): boolean {
   const h = host.toLowerCase().replace(/^\[|\]$/g, "");
   if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true;
+  if (isUnspecifiedIpv6(h)) return true; // [::] binds/connects locally
   if (h.startsWith("fe80:")) return true; // link-local
   if (h.startsWith("fc") || h.startsWith("fd")) return true; // ULA
   if (h.startsWith("ff")) return true; // multicast
@@ -150,6 +159,20 @@ export async function assertPublicPlaybackUrl(input: string): Promise<boolean> {
 }
 
 /**
+ * True for a MUSIC_DIR filesystem path. Rejects URL schemes (file:, rtmp:, …)
+ * and protocol-relative / UNC targets that ffmpeg would open as a network I/O.
+ */
+export function isLocalLibraryPath(input: string): boolean {
+  const s = input.trim();
+  if (!s) return false;
+  if (s.includes("://")) return false;
+  if (s.startsWith("//") || s.startsWith("\\\\")) return false;
+  // `file:/etc/passwd` (one slash) and other scheme: forms, but not `C:\music`.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s) && !/^[a-zA-Z]:[\\/]/.test(s)) return false;
+  return true;
+}
+
+/**
  * Final gate before handing a URL to ffmpeg / axios playback.
  * Fail-closed on DNS error or private resolution (DNS rebinding defense).
  * Local filesystem paths (non-http) are allowed for library playback.
@@ -157,7 +180,6 @@ export async function assertPublicPlaybackUrl(input: string): Promise<boolean> {
 export async function assertSafePlaybackTarget(input: string): Promise<boolean> {
   const s = input.trim();
   if (!s) return false;
-  // Local absolute/relative paths for MUSIC_DIR files — not network SSRF.
-  if (!/^https?:\/\//i.test(s)) return true;
-  return assertPublicPlaybackUrl(s);
+  if (/^https?:\/\//i.test(s)) return assertPublicPlaybackUrl(s);
+  return isLocalLibraryPath(s);
 }

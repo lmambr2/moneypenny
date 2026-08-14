@@ -27,6 +27,24 @@ export const zQueuePlayMode = z.enum(["sequential", "shuffle", "repeat", "repeat
 /** Chat `!mode` short tokens used by Player API. */
 export const zPlayerModeToken = z.enum(["seq", "loop", "random", "rloop"]);
 
+/** Music provider platforms (provider boundary: local | youtube | stream). */
+export const MUSIC_PLATFORMS = ["local", "youtube", "stream"] as const;
+export type MusicPlatform = (typeof MUSIC_PLATFORMS)[number];
+export const zMusicPlatform = z.enum(MUSIC_PLATFORMS);
+
+/**
+ * Missing/empty → `fallback`. An explicit unknown platform is rejected (null)
+ * so HTTP handlers can 400 instead of silently routing to YouTube.
+ */
+export function parseMusicPlatform(
+  platform: unknown,
+  fallback: MusicPlatform = "youtube",
+): MusicPlatform | null {
+  if (platform === undefined || platform === null || platform === "") return fallback;
+  if (platform === "local" || platform === "youtube" || platform === "stream") return platform;
+  return null;
+}
+
 export type ParseOk<T> = { ok: true; data: T };
 export type ParseFail = { ok: false; error: string; details?: unknown };
 export type ParseResult<T> = ParseOk<T> | ParseFail;

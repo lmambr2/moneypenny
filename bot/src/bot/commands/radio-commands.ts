@@ -5,8 +5,6 @@ import { isNonMusicContent } from "../../music/non-music.js";
 import type { PlaybackBlacklist } from "../../music/playback-blacklist.js";
 import type { MusicProvider, Song } from "../../music/provider.js";
 import { isYoutubeLivestreamRadioTitle, shouldBlockYoutubeSong } from "../../music/youtube.js";
-// YT seed hits are primarily filtered in YouTubeProvider via yt-dlp categories/track.
-import { applySmartRotation } from "../../radio/smart-rotation.js";
 import {
   filterAutoDjRepeatEligible,
   isAutoDjRepeatBlocked,
@@ -17,6 +15,8 @@ import {
   type RadioProfile,
   type TagStore,
 } from "../../radio/index.js";
+// YT seed hits are primarily filtered in YouTubeProvider via yt-dlp categories/track.
+import { applySmartRotation } from "../../radio/smart-rotation.js";
 import type { ParsedCommand } from "../commands.js";
 import type { CommandExecutorDeps } from "./executor.js";
 
@@ -654,6 +654,15 @@ export class RadioCommands {
     pool.length = 0;
     pool.push(...programPool);
 
+    // Snapshot mode + played bag BEFORE setMode: Sequential/Loop use the
+    // index cursor; Random/RandomLoop use playedIndices. setMode() wipes the
+    // bag and would make every i < currentIndex look "already played".
+    const prevMode = this.deps.queue.getMode?.() ?? PlayMode.Sequential;
+    const playedBefore =
+      typeof this.deps.queue.playedIndexSet === "function"
+        ? this.deps.queue.playedIndexSet()
+        : new Set<number>();
+
     this.deps.queue.setMode?.(PlayMode.Sequential);
 
     // Remember seed-sourced ids so the next restock prefers other tracks.
@@ -692,11 +701,14 @@ export class RadioCommands {
     // already-played songs at indices < currentIndex; re-adding those on restock
     // re-ran the whole !add pile (e.g. Wheeler Walker Jr. stack played twice).
     // Past radio fill is dropped either way (isRadioFill).
+    const randomBag = prevMode === PlayMode.Random || prevMode === PlayMode.RandomLoop;
     const userPendingPlayable: QueuedSong[] = [];
     for (let i = 0; i < prevList.length; i++) {
       if (i === curIdx) continue;
-      // Already played (or left behind) — do not resurrect on restock.
-      if (curIdx >= 0 && i < curIdx) continue;
+      // Sequential/Loop: indices below the cursor already aired.
+      // Random bag: only drop songs the shuffle cycle actually played.
+      const alreadyPlayed = randomBag ? playedBefore.has(i) : curIdx >= 0 && i < curIdx;
+      if (alreadyPlayed) continue;
       const s = prevList[i]!;
       if (isRadioFill(s)) continue;
       if (bl?.isBlacklisted(s)) continue;
@@ -709,6 +721,10 @@ export class RadioCommands {
     // When idle, skip a blacklisted current so the seed pool can actually start.
     if (requeueCurrent && current) {
       this.deps.queue.add({ ...current });
+      // add() with currentIndex < 0 inserts human tracks *before* the first
+      // radio fill. Pin the cursor now so pending !add tracks stack after the
+      // song ffmpeg is still playing (not in front of it).
+      this.deps.queue.playAt?.(0);
     }
     for (const s of userPendingPlayable) {
       this.deps.queue.add({ ...s, source: s.source ?? "user" });

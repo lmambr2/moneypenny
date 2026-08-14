@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PlayMode, PlayQueue } from "../../audio/queue.js";
 import type { Song } from "../../music/provider.js";
 import type { CommandExecutorDeps } from "./executor.js";
 import {
@@ -469,6 +470,126 @@ describe("RadioCommands seed pool (local multi-hit)", () => {
     expect(ids).toContain("wwj2");
     expect(ids).toContain("seed1");
     expect(ids).not.toContain("wwj1");
+  });
+
+  it("restock keeps unplayed user tracks that sit before currentIndex in RandomLoop", async () => {
+    // Default / user !mode rloop: currentIndex is not a sequential "already
+    // played" cursor. Dropping i < curIdx resurrected the Sequential-history
+    // fix but discarded songs the shuffle bag had not played yet.
+    const unplayedLow = {
+      ...song({ id: "keep-me", name: "Not Played Yet" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const nowPlaying = {
+      ...song({ id: "now", name: "Now" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const upcoming = {
+      ...song({ id: "later", name: "Still Pending" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const queue = new PlayQueue();
+    queue.setMode(PlayMode.RandomLoop);
+    queue.add(unplayedLow);
+    queue.add(nowPlaying);
+    queue.add(upcoming);
+    queue.playAt(1);
+    expect(queue.current()?.id).toBe("now");
+
+    const localSearch = vi.fn(async () => ({
+      songs: [song({ id: "seed1", name: "Seed A", duration: 180 })],
+      playlists: [],
+      albums: [],
+    }));
+    const deps = {
+      config: {
+        commandPrefix: "!",
+        aceStepAutoFill: false,
+        radio: {
+          enabled: true,
+          activeProfile: "lobby",
+          profiles: {
+            lobby: {
+              name: "lobby",
+              music: { seedQueries: ["rock"], seedSources: ["local"], shuffle: false },
+            },
+          },
+        },
+      },
+      queue,
+      player: { resetFailures: vi.fn(), getState: () => "playing" },
+      playback: { resolveAndPlay: vi.fn(async () => true), searchFirst: vi.fn() },
+      getProvider: vi.fn(() => ({ platform: "local", search: localSearch })),
+      logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+    } as unknown as CommandExecutorDeps;
+
+    const cmds = new RadioCommands(deps, async () => []);
+    expect(await cmds.autoProgram()).toBe(true);
+    const ids = queue.list().map((s) => s.id);
+    expect(ids).toContain("now");
+    expect(ids).toContain("later");
+    expect(ids).toContain("keep-me");
+    expect(ids).toContain("seed1");
+  });
+
+  it("restock keeps a radio-fill current at head when an unplayed user track sits before it", async () => {
+    // After clear(), PlayQueue.add() of a user track treats currentIndex=-1 as
+    // "insert before the first radio fill". Re-adding the playing radio song
+    // then a kept user track swapped the head — playAt(0) pointed at the user
+    // song while ffmpeg kept the radio stream.
+    const unplayedUser = {
+      ...song({ id: "user-pending", name: "User Add" }),
+      source: "user" as const,
+      platform: "youtube" as const,
+    };
+    const radioNow = {
+      ...song({ id: "radio-now", name: "On Air" }),
+      source: "radio" as const,
+      platform: "local" as const,
+    };
+    const queue = new PlayQueue();
+    queue.setMode(PlayMode.RandomLoop);
+    queue.add(unplayedUser);
+    queue.add(radioNow);
+    queue.playAt(1);
+    expect(queue.current()?.id).toBe("radio-now");
+
+    const localSearch = vi.fn(async () => ({
+      songs: [song({ id: "seed1", name: "Seed A", duration: 180 })],
+      playlists: [],
+      albums: [],
+    }));
+    const deps = {
+      config: {
+        commandPrefix: "!",
+        aceStepAutoFill: false,
+        radio: {
+          enabled: true,
+          activeProfile: "lobby",
+          profiles: {
+            lobby: {
+              name: "lobby",
+              music: { seedQueries: ["rock"], seedSources: ["local"], shuffle: false },
+            },
+          },
+        },
+      },
+      queue,
+      player: { resetFailures: vi.fn(), getState: () => "playing" },
+      playback: { resolveAndPlay: vi.fn(async () => true), searchFirst: vi.fn() },
+      getProvider: vi.fn(() => ({ platform: "local", search: localSearch })),
+      logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+    } as unknown as CommandExecutorDeps;
+
+    const cmds = new RadioCommands(deps, async () => []);
+    expect(await cmds.autoProgram()).toBe(true);
+    expect(queue.current()?.id).toBe("radio-now");
+    const ids = queue.list().map((s) => s.id);
+    expect(ids).toContain("user-pending");
+    expect(ids[0]).toBe("radio-now");
   });
 
   it("profile aceStepAutoFill true runs gen even when global autoFill is off", async () => {

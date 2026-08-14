@@ -34,7 +34,7 @@ describe("player router", () => {
     rights.defaultAllow = ["help"];
     rights.rules = [
       ...(rights.rules ?? []),
-      { name: "web-admins-play", match: { serverGroups: ["107"] }, allow: ["play"] },
+      { name: "web-admins-play", match: { serverGroups: ["107"] }, allow: ["play", "add"] },
       { name: "field-grade-vol", match: { serverGroups: ["105"] }, allow: ["vol"] },
     ];
     const engine = new RightsEngine(rights);
@@ -168,6 +168,15 @@ describe("player router", () => {
       .post("/api/player/b1/play-song")
       .set("Cookie", adminCookie)
       .send({ song: { id: "x", platform: "netease", name: "n", artist: "a" } });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("rejects unknown platform on /add-by-id instead of searching YouTube", async () => {
+    const res = await request(app)
+      .post("/api/player/b1/add-by-id")
+      .set("Cookie", adminCookie)
+      .send({ songId: "abc", platform: "spotify" });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("VALIDATION_ERROR");
   });

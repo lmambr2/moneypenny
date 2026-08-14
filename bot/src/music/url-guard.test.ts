@@ -44,6 +44,16 @@ describe("isPublicPlaybackUrl", () => {
     expect(isPublicPlaybackUrl("ftp://example.com/x")).toBe(false);
     expect(isPublicPlaybackUrl("not a url")).toBe(false);
   });
+
+  it("blocks the turbovec sidecar hostname (compose service, not qdrant)", () => {
+    expect(isPublicPlaybackUrl("http://turbovec:6333/collections")).toBe(false);
+  });
+
+  it("blocks IPv6 unspecified (::) as a loopback-equivalent target", () => {
+    expect(isPublicPlaybackUrl("http://[::]/")).toBe(false);
+    expect(isPublicPlaybackUrl("http://[::0]/")).toBe(false);
+    expect(isPublicPlaybackUrl("http://[0:0:0:0:0:0:0:0]:11434/api/tags")).toBe(false);
+  });
 });
 
 describe("assertPublicPlaybackUrl", () => {
@@ -74,5 +84,18 @@ describe("assertSafePlaybackTarget", () => {
   it("rejects empty", async () => {
     expect(await assertSafePlaybackTarget("")).toBe(false);
     expect(await assertSafePlaybackTarget("   ")).toBe(false);
+  });
+
+  it("rejects URL schemes and protocol-relative targets (not library paths)", async () => {
+    // Final ffmpeg gate: only real filesystem paths may skip the HTTP SSRF check.
+    expect(await assertSafePlaybackTarget("file:///etc/passwd")).toBe(false);
+    expect(await assertSafePlaybackTarget("file:/etc/passwd")).toBe(false);
+    expect(await assertSafePlaybackTarget("rtmp://example.com/live")).toBe(false);
+    expect(await assertSafePlaybackTarget("//127.0.0.1/secret")).toBe(false);
+    expect(await assertSafePlaybackTarget("\\\\localhost\\c$\\windows")).toBe(false);
+  });
+
+  it("rejects IPv6 unspecified at the play-time gate", async () => {
+    expect(await assertSafePlaybackTarget("http://[::]/")).toBe(false);
   });
 });

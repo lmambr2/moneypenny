@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseWithSchema, zPlayerModeToken, zSeekSeconds, zVolume } from "./validate.js";
+import {
+  parseMusicPlatform,
+  parseWithSchema,
+  zMusicPlatform,
+  zPlayerModeToken,
+  zSeekSeconds,
+  zVolume,
+} from "./validate.js";
 
 describe("web/validate", () => {
   it("accepts volume in range", () => {
@@ -21,5 +28,14 @@ describe("web/validate", () => {
   it("validates player mode tokens", () => {
     expect(parseWithSchema(zPlayerModeToken, "shuffle").ok).toBe(false);
     expect(parseWithSchema(zPlayerModeToken, "random")).toEqual({ ok: true, data: "random" });
+  });
+
+  it("parseMusicPlatform keeps the three platforms and rejects the rest", () => {
+    expect(parseMusicPlatform(undefined)).toBe("youtube");
+    expect(parseMusicPlatform("")).toBe("youtube");
+    expect(parseMusicPlatform("stream")).toBe("stream");
+    expect(parseMusicPlatform("local")).toBe("local");
+    expect(parseMusicPlatform("spotify")).toBeNull();
+    expect(parseWithSchema(zMusicPlatform, "tidal").ok).toBe(false);
   });
 });

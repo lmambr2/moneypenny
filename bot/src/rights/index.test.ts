@@ -113,14 +113,28 @@ describe("RightsEngine", () => {
 describe("defaultRightsConfig", () => {
   it("grants public commands to everyone except analyst (gated to admins)", () => {
     const e = new RightsEngine(defaultRightsConfig([]));
+    const groupGranted = new Set(["analyst", "agent", "intsum", "aar", "generate"]);
     for (const cmd of PUBLIC_COMMANDS) {
-      if (cmd === "analyst" || cmd === "agent") {
+      if (groupGranted.has(cmd)) {
         expect(e.can(member, cmd)).toBe(false);
       } else {
         expect(e.can(member, cmd)).toBe(true);
       }
     }
     for (const cmd of ADMIN_COMMANDS) expect(e.can(member, cmd)).toBe(false);
+  });
+
+  it("does not grant generate / workflow docs to members (template GROUP_GRANTED)", () => {
+    // ACE-Step and R3 docs are @dj / @analyst in the shipped template. The
+    // fallback ruleset must not treat them as public just because they lack
+    // admin:true on the command manifest.
+    const e = new RightsEngine(defaultRightsConfig([]));
+    expect(e.can(member, "generate")).toBe(false);
+    expect(e.can(member, "intsum")).toBe(false);
+    expect(e.can(member, "aar")).toBe(false);
+    expect(e.can(member, "analyst")).toBe(false);
+    expect(e.can(member, "agent")).toBe(false);
+    expect(e.can(member, "play")).toBe(true);
   });
 
   it("grants admin and analyst commands to configured admin server-groups", () => {
@@ -131,6 +145,9 @@ describe("defaultRightsConfig", () => {
     }
     expect(e.can(officer, "analyst")).toBe(true);
     expect(e.can(officer, "agent")).toBe(true);
+    expect(e.can(officer, "intsum")).toBe(true);
+    expect(e.can(officer, "aar")).toBe(true);
+    expect(e.can(officer, "generate")).toBe(true);
     expect(e.can(member, "analyst")).toBe(false);
     // public still works for the member
     expect(e.can(member, "play")).toBe(true);

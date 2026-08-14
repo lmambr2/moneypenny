@@ -47,6 +47,15 @@ describe("music router", () => {
     expect(youtube.search).not.toHaveBeenCalled();
   });
 
+  it("rejects unknown platforms instead of silently searching YouTube", async () => {
+    const { app, youtube, stream } = build();
+    const res = await request(app).get("/search").query({ q: "neon", platform: "spotify" });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("VALIDATION_ERROR");
+    expect(youtube.search).not.toHaveBeenCalled();
+    expect(stream.search).not.toHaveBeenCalled();
+  });
+
   it("caps search limit at 50", async () => {
     const { app, youtube } = build();
     await request(app).get("/search").query({ q: "x", platform: "youtube", limit: "9999" });

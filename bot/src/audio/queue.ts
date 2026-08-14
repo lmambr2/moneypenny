@@ -332,6 +332,11 @@ export class PlayQueue {
     return this.currentIndex;
   }
 
+  /** Snapshot of the current-cycle played bag (Random / RandomLoop). */
+  playedIndexSet(): Set<number> {
+    return new Set(this.playedIndices);
+  }
+
   /** Number of songs not yet played in Random mode. */
   unplayedCount(): number {
     return this.songs.length - this.playedIndices.size;

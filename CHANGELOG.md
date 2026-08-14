@@ -6,6 +6,17 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-08-13
+
+### Bug hunt + behavior-preserving refactor (control, music, radio, rights, HTTP)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **url-guard:** `assertSafePlaybackTarget` no longer treats `file:`, `rtmp:`, protocol-relative, or UNC strings as library paths; block IPv6 unspecified (`::`) and the `turbovec` compose hostname
+- **control:** `sourceFlags("stream")` sets `-s` so LLM `play_music` does not silently fall back to local
+- **radio restock:** Random/RandomLoop no longer drops unplayed user tracks that sit before `currentIndex` (Sequential history rule stays); rebuild pins `playAt(0)` after re-queuing the playing track so a user `!add` cannot jump ahead of a radio-fill head
+- **rights:** `defaultRightsConfig` matches the template — members do not get `generate` / `intsum` / `aar`
+- **HTTP:** unknown `platform` values 400 instead of silently searching YouTube; shared `parseMusicPlatform` helper
+
 ## 2026-07-25
 
 ### Audit C1–E complete (Nest out, fetch, zod, voice slimming)

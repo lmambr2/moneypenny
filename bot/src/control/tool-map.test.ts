@@ -63,7 +63,19 @@ describe("tool-map (PR-A3)", () => {
   it("sourceFlags", () => {
     expect(sourceFlags("youtube").has("y")).toBe(true);
     expect(sourceFlags("local").has("l")).toBe(true);
+    expect(sourceFlags("stream").has("s")).toBe(true);
     expect(sourceFlags("auto").size).toBe(0);
+  });
+
+  it("play_music with stream source sets the -s flag (not local default)", () => {
+    const cmd = toolCallToCommand({
+      name: "play_music",
+      arguments: { query: "http://icecast.example.org/live", source: "stream" },
+    });
+    expect(cmd?.name).toBe("play");
+    expect(cmd?.flags.has("s")).toBe(true);
+    expect(cmd?.flags.has("y")).toBe(false);
+    expect(cmd?.flags.has("l")).toBe(false);
   });
 
   it("knownLlmToolNames includes specials and aliases", () => {

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { Router } from "express";
+import { type Response, Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import type { Logger } from "../../logger.js";
@@ -13,7 +13,7 @@ import type { RadioConfig } from "../../radio/types.js";
 import { errorCode, errorMessage } from "../../util/error.js";
 import { createRateLimit } from "../middleware/rateLimit.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
-import { parseWithSchema } from "../validate.js";
+import { parseMusicPlatform, parseWithSchema } from "../validate.js";
 import { multerArray, uploadedFiles } from "./upload.js";
 
 /** Phase 0 no-op; still validated so the endpoint cannot reflect arbitrary input. */
@@ -134,10 +134,24 @@ export function createMusicRouter(
     })();
   }
 
-  function getProvider(platform?: string): MusicProvider {
-    if (platform === "local") return localProvider;
-    if (platform === "stream") return streamProvider;
+  function getProvider(platform?: string): MusicProvider | null {
+    const plat = parseMusicPlatform(platform);
+    if (!plat) return null;
+    if (plat === "local") return localProvider;
+    if (plat === "stream") return streamProvider;
     return youtubeProvider;
+  }
+
+  function requireProvider(platform: string | undefined, res: Response): MusicProvider | null {
+    const provider = getProvider(platform);
+    if (!provider) {
+      res.status(400).json({
+        error: "platform must be local, youtube, or stream",
+        code: "VALIDATION_ERROR",
+      });
+      return null;
+    }
+    return provider;
   }
 
   router.get("/resolve", async (req, res) => {
@@ -170,12 +184,13 @@ export function createMusicRouter(
       const { q, platform, limit } = req.query;
       const query = typeof q === "string" ? q : "";
       const plat = typeof platform === "string" ? platform : "youtube";
+      const provider = requireProvider(plat, res);
+      if (!provider) return;
       // LocalProvider uses an empty query to list library tracks (Home/Library views).
       if (!query && plat !== "local") {
         res.status(400).json({ error: "q (query) is required", code: "VALIDATION_ERROR" });
         return;
       }
-      const provider = getProvider(plat);
       // Empty local query = library browse — allow a higher limit for the scrollable UI.
       const lim =
         !query && plat === "local" ? parseLibraryLimit(limit, 500) : parseSearchLimit(limit);
@@ -338,7 +353,7 @@ export function createMusicRouter(
       }
       const parsedLimit = parseSearchLimit(limit);
       // Phase 0: only YouTube is wired. Local + Stream will participate here later.
-      const result = await getProvider("youtube").search(q as string, parsedLimit);
+      const result = await youtubeProvider.search(q as string, parsedLimit);
       res.json({
         songs: result.songs,
         albums: result.albums,
@@ -352,7 +367,8 @@ export function createMusicRouter(
 
   router.get("/song/:id", async (req, res) => {
     try {
-      const provider = getProvider(req.query.platform as string);
+      const provider = requireProvider(req.query.platform as string, res);
+      if (!provider) return;
       const song = await provider.getSongDetail(req.params.id);
       if (!song) {
         res.status(404).json({ error: "Song not found" });
@@ -367,7 +383,8 @@ export function createMusicRouter(
 
   router.get("/playlist/:id", async (req, res) => {
     try {
-      const provider = getProvider(req.query.platform as string);
+      const provider = requireProvider(req.query.platform as string, res);
+      if (!provider) return;
       const songs = await provider.getPlaylistSongs(req.params.id);
       res.json({ songs });
     } catch (err) {
@@ -378,7 +395,8 @@ export function createMusicRouter(
 
   router.get("/recommend/playlists", async (req, res) => {
     try {
-      const provider = getProvider(req.query.platform as string);
+      const provider = requireProvider(req.query.platform as string, res);
+      if (!provider) return;
       const playlists = await provider.getRecommendPlaylists();
       res.json({ playlists });
     } catch (err) {
@@ -389,7 +407,8 @@ export function createMusicRouter(
 
   router.get("/album/:id", async (req, res) => {
     try {
-      const provider = getProvider(req.query.platform as string);
+      const provider = requireProvider(req.query.platform as string, res);
+      if (!provider) return;
       const songs = await provider.getAlbumSongs(req.params.id);
       res.json({ songs });
     } catch (err) {
@@ -400,7 +419,8 @@ export function createMusicRouter(
 
   router.get("/lyrics/:id", async (req, res) => {
     try {
-      const provider = getProvider(req.query.platform as string);
+      const provider = requireProvider(req.query.platform as string, res);
+      if (!provider) return;
       const lyrics = await provider.getLyrics(req.params.id);
       res.json({ lyrics });
     } catch (err) {
