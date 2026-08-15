@@ -30,7 +30,7 @@ function fakeBot() {
         cuePending: false,
         nextBumperHint: "Next bumper in 2 track(s)",
       },
-      voice: { enabled: true, duckOnSpeech: true },
+      voice: { enabled: true, duckOnSpeech: true, karaokeMode: false },
       rag: { enabled: true },
       feedback: [
         "TeamSpeak connected.",
@@ -135,7 +135,7 @@ describe("backlog API: hardening + live + recordings", () => {
     expect(res.body.queue[0].name).toBe("Next");
     expect(res.body.radio.nextBumperHint).toMatch(/bumper/i);
     expect(res.body.scope.serverLabel).toBe("SC-TS");
-    expect(res.body.voice).toEqual({ enabled: true, duckOnSpeech: true });
+    expect(res.body.voice).toEqual({ enabled: true, duckOnSpeech: true, karaokeMode: false });
     expect(res.body.rag).toEqual({ enabled: true });
     expect(res.body.feedback).toEqual(
       expect.arrayContaining([

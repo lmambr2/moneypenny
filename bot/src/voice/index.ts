@@ -38,7 +38,13 @@ export type {
   VoiceConfig,
   VoiceOutput,
 } from "./types.js";
-export { defaultVoiceConfig } from "./types.js";
+export {
+  DEFAULT_DUCK_MUSIC_VOLUME,
+  defaultVoiceConfig,
+  effectiveDuckVolume,
+  KARAOKE_DUCK_VOLUME,
+  normalizeDuckMusicVolume,
+} from "./types.js";
 export {
   type CreateVadOptions,
   createVadSegmenter,

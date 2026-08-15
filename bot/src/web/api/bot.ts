@@ -369,6 +369,12 @@ export function createBotRouter(
           .json({ error: "voice.energyThreshold must be a number", code: "VALIDATION_ERROR" });
         return;
       }
+      if ("karaokeMode" in patch && typeof patch.karaokeMode !== "boolean") {
+        res
+          .status(400)
+          .json({ error: "voice.karaokeMode must be a boolean", code: "VALIDATION_ERROR" });
+        return;
+      }
       for (const key of ["ttsBargeIn", "textWakeFallback"] as const) {
         if (key in patch && typeof patch[key] !== "boolean") {
           res
@@ -506,7 +512,31 @@ export function createBotRouter(
             });
             return;
           }
-          const m = music as { seedSources?: unknown; seedExternalRatio?: unknown };
+          const m = music as {
+            seedSources?: unknown;
+            seedExternalRatio?: unknown;
+            select?: unknown;
+          };
+          if ("select" in m && m.select !== undefined) {
+            if (typeof m.select !== "object" || m.select === null || Array.isArray(m.select)) {
+              res.status(400).json({
+                error: `radio.profiles.${name}.music.select must be an object`,
+                code: "VALIDATION_ERROR",
+              });
+              return;
+            }
+            const mood = (m.select as { mood?: unknown }).mood;
+            if (
+              mood !== undefined &&
+              (!Array.isArray(mood) || mood.some((x) => typeof x !== "string"))
+            ) {
+              res.status(400).json({
+                error: `radio.profiles.${name}.music.select.mood must be an array of strings`,
+                code: "VALIDATION_ERROR",
+              });
+              return;
+            }
+          }
           if ("seedSources" in m && m.seedSources !== undefined) {
             const ok2 =
               Array.isArray(m.seedSources) &&

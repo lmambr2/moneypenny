@@ -21,9 +21,6 @@ export const zVolume = z.coerce.number().finite().min(0).max(100);
 /** Seek position in seconds (non-negative). */
 export const zSeekSeconds = z.coerce.number().finite().min(0);
 
-/** Internal queue play modes (engine). */
-export const zQueuePlayMode = z.enum(["sequential", "shuffle", "repeat", "repeat-one"]);
-
 /** Chat `!mode` short tokens used by Player API. */
 export const zPlayerModeToken = z.enum(["seq", "loop", "random", "rloop"]);
 

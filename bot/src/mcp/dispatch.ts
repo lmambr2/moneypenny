@@ -39,10 +39,15 @@ export function buildPlayCommand(
   query: string,
   platform?: string,
 ): ParsedCommand | null {
+  const q = query.trim();
+  if (!q) return null;
+  if (platform !== undefined && platform !== "") {
+    if (platform !== "youtube" && platform !== "stream" && platform !== "local") return null;
+  }
   const flag =
     platform === "youtube" ? "-y" : platform === "stream" ? "-s" : platform === "local" ? "-l" : "";
-  const line = flag ? `!${verb} ${flag} ${query}` : `!${verb} ${query}`;
-  return parseCommand(line.trim(), "!");
+  const line = flag ? `!${verb} ${flag} ${q}` : `!${verb} ${q}`;
+  return parseCommand(line, "!");
 }
 
 export function simpleCommand(name: string, args = ""): ParsedCommand | null {

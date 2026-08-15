@@ -272,6 +272,35 @@ describe("VoiceSession wake duck vs the bot's own TTS", () => {
     expect(player.ducked()).toBe(true);
   });
 
+  it("karaoke mode ducks to 80 instead of the configured 15", () => {
+    const { session, internal, player } = makeSession({
+      config: {
+        commandPrefix: "!",
+        voice: {
+          enabled: true,
+          sttUrl: "http://127.0.0.1:9/",
+          duckMusicOnSpeech: true,
+          duckMusicVolume: 15,
+          karaokeMode: true,
+        },
+      },
+    } as unknown as Partial<VoiceSessionDeps>);
+    session.enable();
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).toHaveBeenCalledWith(80);
+  });
+
+  it("setKaraokeMode re-applies the duck while already ducked", () => {
+    const { session, internal, player } = makeSession();
+    session.enable();
+    internal.ensureMusicDuckedOnWake(1);
+    expect(player.duckForStt).toHaveBeenCalledWith(15);
+    session.setKaraokeMode(true);
+    expect(player.duckForStt).toHaveBeenCalledWith(80);
+    session.setKaraokeMode(false);
+    expect(player.duckForStt).toHaveBeenLastCalledWith(15);
+  });
+
   it("still skips the duck when TTS is playing over an otherwise duckable track", () => {
     // Guards against a future refactor reordering the TTS check below the
     // getState()/queue.current() guards, which would restore the old bug.

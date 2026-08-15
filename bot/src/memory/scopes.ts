@@ -64,7 +64,8 @@ export function isBroadcastSafeSource(source: string): boolean {
   if (s.includes("!remember")) return false;
   // Org sources
   if (s.includes("org knowledge") || s.includes("org memory") || s.includes("org kg")) return true;
-  if (s.startsWith("org")) return true;
+  // Prefix must be an org token (`org …` / `org:`), not any word starting "org".
+  if (/^org[\s:([]/.test(s)) return true;
   // Doctrine / files are fine for doctrine bumper, not for "memory" bumper
   return false;
 }

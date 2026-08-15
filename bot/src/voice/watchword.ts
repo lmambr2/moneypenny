@@ -100,6 +100,9 @@ export function voiceCommandShapeOk(name: string, args: string): boolean {
   if (name === "mode") {
     return /^(seq|loop|random|rloop)$/i.test(a);
   }
+  if (name === "karaoke") {
+    return a === "" || /^(on|off|status)$/i.test(a);
+  }
   if (name === "rate" || name === "unrate") {
     return a === "" || /^[1-5]$/.test(a);
   }

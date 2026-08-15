@@ -157,6 +157,11 @@ const DELTAS: readonly RightsDelta[] = [
       admin: ["session"],
     },
   },
+  {
+    // !karaoke on/off — public listen-duck toggle (80 vs 15).
+    version: 15,
+    defaultAllow: ["karaoke"],
+  },
 ];
 
 export const CURRENT_RIGHTS_VERSION = DELTAS[DELTAS.length - 1].version;

@@ -81,6 +81,8 @@ export interface CommandExecutorDeps {
    * Pass relay config to start timer bumpers, or null to stop (left relay / empty).
    */
   onRelayChanged?: (cfg: { relayUrl: string; bumperIntervalSec: number } | null) => void;
+  /** Live karaoke duck toggle (does not restart the voice pipeline). */
+  setKaraokeMode?: (on: boolean) => void;
 }
 
 /**
@@ -185,6 +187,8 @@ export class CommandExecutor {
         return this.cmdFollow(msg);
       case "help":
         return this.cmdHelp();
+      case "karaoke":
+        return this.cmdKaraoke(cmd);
       case "test":
         return this.cmdTest();
       default:
@@ -826,6 +830,7 @@ export class CommandExecutor {
       `${p}playlist <name|id> · ${p}album <id> · ${p}artist <name> · ${p}lyrics · ${p}vote`,
       `${p}test — Demo track (local copy if saved, else ${DEFAULT_DEMO_VIDEO_URL})`,
       `${p}radio [on|off|status|ops|bumper|say|skipbumper|pin|prewarm|gen] — Auto-DJ`,
+      `${p}karaoke [on|off] — Keep music loud while listening (duck 80 instead of 15)`,
       `${p}rate <1-5> [song] · ${p}unrate — Rate the current (or a searched) track`,
       "",
       "AI & knowledge (needs LLM / RAG enabled in Settings)",
@@ -862,6 +867,31 @@ export class CommandExecutor {
       "",
       `${p}help — This message`,
     ].join("\n");
+  }
+
+  private cmdKaraoke(cmd: ParsedCommand): string {
+    const p = this.deps.config.commandPrefix;
+    const sub = (cmd.rawArgs[0] ?? "").toLowerCase();
+    const current = this.deps.config.voice?.karaokeMode === true;
+    if (!sub || sub === "status") {
+      return current
+        ? "Karaoke ON — music stays loud while listening (duck 80)."
+        : "Karaoke OFF — normal voice duck.";
+    }
+    if (sub !== "on" && sub !== "off") {
+      return `Usage: ${p}karaoke [on|off]`;
+    }
+    const on = sub === "on";
+    if (this.deps.setKaraokeMode) {
+      this.deps.setKaraokeMode(on);
+    } else if (this.deps.config.voice) {
+      this.deps.config.voice.karaokeMode = on;
+    } else {
+      this.deps.config.voice = { karaokeMode: on } as BotConfig["voice"];
+    }
+    return on
+      ? "Karaoke ON — music stays loud while listening."
+      : "Karaoke OFF — back to normal duck.";
   }
 
   private async cmdTest(): Promise<string> {

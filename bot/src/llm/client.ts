@@ -164,7 +164,8 @@ export class LlmClient {
         { err: errorMessage(err), baseUrl: this.baseUrl },
         "LLM chat request failed",
       );
-      throw new Error(`LLM request failed: ${errorMessage(err)}`);
+      // Rethrow as-is so HttpRequestError.status reaches FallbackLlmClient.
+      throw err;
     }
   }
 }

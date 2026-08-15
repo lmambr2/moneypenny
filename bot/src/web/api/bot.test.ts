@@ -348,6 +348,25 @@ describe("bot settings router", () => {
     ]);
   });
 
+  it("rejects a non-boolean voice.karaokeMode", async () => {
+    const res = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({ voice: { karaokeMode: "yes" } });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("accepts karaokeMode on voice settings", async () => {
+    const res = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({ voice: { karaokeMode: true } });
+    expect(res.status).toBe(200);
+    expect(config.voice?.karaokeMode).toBe(true);
+    expect(bot.calls).toContainEqual(["voice", [expect.objectContaining({ karaokeMode: true })]]);
+  });
+
   it("updates radio settings (hot-applied: the director reads config live)", async () => {
     const res = await request(app)
       .post("/api/bot/settings")
@@ -402,6 +421,32 @@ describe("bot settings router", () => {
     expect(ok.status).toBe(200);
     expect(config.radio?.profiles?.mining?.name).toBe("mining");
     expect(config.radio?.clock?.wheel).toHaveLength(2);
+  });
+
+  it("accepts profile music.select.mood and rejects a non-string mood list", async () => {
+    const ok = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({
+        radio: {
+          profiles: {
+            focus: { name: "focus", music: { select: { mood: ["calm", "focus"], bpmMax: 110 } } },
+          },
+        },
+      });
+    expect(ok.status).toBe(200);
+    expect(config.radio?.profiles?.focus?.music?.select).toMatchObject({
+      mood: ["calm", "focus"],
+      bpmMax: 110,
+    });
+    const bad = await request(app)
+      .post("/api/bot/settings")
+      .set("Cookie", adminCookie)
+      .send({
+        radio: { profiles: { focus: { music: { select: { mood: [1, 2] } } } } },
+      });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe("VALIDATION_ERROR");
   });
 
   it("persists RAG substrate URLs (restart required to apply)", async () => {

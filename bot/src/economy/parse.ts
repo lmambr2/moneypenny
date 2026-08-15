@@ -32,10 +32,10 @@ export function parseEconomyArgs(args: string): EconomyFlags {
     const val = m[2]!.trim();
     if (key === "scu") {
       const n = Number(val);
-      if (!Number.isNaN(n)) scu = n;
+      if (Number.isFinite(n) && n > 0) scu = n;
     } else if (key === "qty") {
       const n = Number(val);
-      if (!Number.isNaN(n)) qty = n;
+      if (Number.isFinite(n) && n > 0) qty = n;
     } else if (key === "method" || key === "m") {
       method = val;
     }

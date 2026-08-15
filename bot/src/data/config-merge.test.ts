@@ -21,6 +21,7 @@ describe("mergeBotConfig (M-CFG-1)", () => {
     expect(merged.voice.enabled).toBe(true);
     expect(merged.voice.ttsBargeIn).toBe(false);
     expect(merged.voice.duckMusicVolume).toBe(defaults.voice.duckMusicVolume);
+    expect(merged.voice.karaokeMode).toBe(false);
     expect(merged.voice.watchword).toBe(defaults.voice.watchword);
   });
 

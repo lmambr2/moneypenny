@@ -1,7 +1,7 @@
 import type { Writable } from "node:stream";
 import type { ChannelFile } from "@moneypenny/ts6-client";
 import { describe, expect, it, vi } from "vitest";
-import { type FileDropDeps, scanDropChannel } from "./file-drop.js";
+import { type FileDropDeps, joinFilePath, scanDropChannel } from "./file-drop.js";
 
 function file(name: string, extra: Partial<ChannelFile> = {}): ChannelFile {
   return { name, size: 10n, datetime: 1000, type: 1, ...extra };
@@ -62,6 +62,21 @@ function makeDeps(opts: {
 
   return { deps, recorded, uploadSong, retrieval, doctrine, sendChannelMessage };
 }
+
+describe("joinFilePath", () => {
+  it("joins a file name under the channel dir", () => {
+    expect(joinFilePath("/", "intsum.md")).toBe("/intsum.md");
+    expect(joinFilePath("/intel", "intsum.md")).toBe("/intel/intsum.md");
+  });
+
+  it("rejects traversal and separator names (path-guard owner)", () => {
+    expect(joinFilePath("/", "..")).toBeNull();
+    expect(joinFilePath("/", "../secret.md")).toBeNull();
+    expect(joinFilePath("/intel", "..")).toBeNull();
+    expect(joinFilePath("/", "a/b.md")).toBeNull();
+    expect(joinFilePath("/", "")).toBeNull();
+  });
+});
 
 describe("scanDropChannel routing", () => {
   it("routes a .md into doctrine RAG (not the music library)", async () => {

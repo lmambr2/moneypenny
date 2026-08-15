@@ -3,11 +3,13 @@
  * Pure helpers for smoke tests and admin check API — no live TS required.
  */
 
+import { effectiveDuckVolume } from "./types.js";
 import { extractWatchwordCommand } from "./watchword.js";
 
 export interface UnderMusicConfig {
   duckMusicOnSpeech: boolean;
   duckMusicVolume: number;
+  karaokeMode: boolean;
   listenWindowMs: number;
   textWakeFallback: boolean;
   watchword: string;
@@ -26,31 +28,26 @@ export interface UnderMusicPlan {
 export function defaultUnderMusicConfig(partial?: Partial<UnderMusicConfig>): UnderMusicConfig {
   return {
     duckMusicOnSpeech: partial?.duckMusicOnSpeech !== false,
-    duckMusicVolume: clamp(
-      partial?.duckMusicVolume === undefined ||
-        partial.duckMusicVolume === 2 ||
-        partial.duckMusicVolume === 20 ||
-        partial.duckMusicVolume === 25
-        ? 15
-        : partial.duckMusicVolume,
-      0,
-      100,
-    ),
+    karaokeMode: partial?.karaokeMode === true,
+    duckMusicVolume: effectiveDuckVolume({
+      karaokeMode: partial?.karaokeMode === true,
+      duckMusicVolume: partial?.duckMusicVolume,
+    }),
     listenWindowMs: Math.max(15_000, partial?.listenWindowMs ?? 15_000),
     textWakeFallback: partial?.textWakeFallback !== false,
     watchword: (partial?.watchword ?? "moneypenny").toLowerCase(),
   };
 }
 
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
-}
-
 /** Operator-facing plan: duck + listen window + progressive text wake. */
 export function planUnderMusicCapture(cfg: UnderMusicConfig): UnderMusicPlan {
   const notes: string[] = [];
   if (cfg.duckMusicOnSpeech) {
-    notes.push(`Music ducks to volume ${cfg.duckMusicVolume} while listening.`);
+    notes.push(
+      cfg.karaokeMode
+        ? `Karaoke ON — music ducks to volume ${cfg.duckMusicVolume} while listening.`
+        : `Music ducks to volume ${cfg.duckMusicVolume} while listening.`,
+    );
   } else {
     notes.push("Duck is off — STT under DJ load will struggle.");
   }

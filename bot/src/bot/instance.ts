@@ -430,6 +430,7 @@ export class BotInstance extends EventEmitter {
         // start(null) fully stops (clears cfg + generation so in-flight fire cannot re-arm).
         this.relayScheduler.start(cfg);
       },
+      setKaraokeMode: (on) => this.setKaraokeMode(on),
     });
 
     this.roast = new RoastService({
@@ -1283,6 +1284,7 @@ export class BotInstance extends EventEmitter {
       defaultUnderMusicConfig({
         duckMusicOnSpeech: vc.duckMusicOnSpeech !== false,
         duckMusicVolume: vc.duckMusicVolume,
+        karaokeMode: vc.karaokeMode === true,
         listenWindowMs: vc.listenWindowMs,
         textWakeFallback: vc.textWakeFallback !== false,
         watchword: vc.watchword,
@@ -1328,6 +1330,12 @@ export class BotInstance extends EventEmitter {
     if (this.config.voice.enabled) {
       this.voice.enable();
     }
+  }
+
+  /** Runtime karaoke toggle — does not restart STT/TTS. */
+  setKaraokeMode(on: boolean): void {
+    this.config.voice = { ...defaultVoiceConfig(), ...this.config.voice, karaokeMode: on };
+    this.voice.setKaraokeMode(on);
   }
 
   getVoiceStatus() {

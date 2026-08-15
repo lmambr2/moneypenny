@@ -41,5 +41,6 @@ describe("cmdHelp", () => {
     expect(text).toContain("!moveall");
     expect(text).toContain("!ban");
     expect(text).toContain("!unban");
+    expect(text).toContain("!karaoke");
   });
 });

@@ -79,6 +79,11 @@ export interface VoiceConfig {
   duckMusicOnSpeech: boolean;
   /** Target player volume (0–100) while ducked for voice capture. */
   duckMusicVolume?: number;
+  /**
+   * Karaoke: keep music loud while listening. When on, VAD duck uses
+   * {@link KARAOKE_DUCK_VOLUME} instead of {@link duckMusicVolume}.
+   */
+  karaokeMode?: boolean;
   /** After watchword-only, accept a follow-up command without repeating the watchword (ms). */
   listenWindowMs: number;
   /** Max simultaneous passive KWS streams (sherpa CPU scales with open mics). */
@@ -106,10 +111,31 @@ export function defaultVoiceConfig(): VoiceConfig {
     duckMusicOnSpeech: true,
     // Soft duck target level while listening (lower = more ducking / quieter music).
     duckMusicVolume: 15,
+    karaokeMode: false,
     listenWindowMs: 15000,
     passiveKwsMaxSpeakers: 2,
     // Whisper sidecars have no KWS — text wake matching is required for "Moneypenny …".
     textWakeFallback: true,
     ttsBargeIn: true,
   };
+}
+
+/** Soft listen-duck target. Lower = quieter music / more ducking. */
+export const DEFAULT_DUCK_MUSIC_VOLUME = 15;
+
+/** Karaoke listen-duck target — music stays singable. */
+export const KARAOKE_DUCK_VOLUME = 80;
+
+/** Legacy product defaults 2 / 20 / 25 → current soft 15. */
+export function normalizeDuckMusicVolume(raw: number | undefined): number {
+  const duck =
+    raw === undefined || raw === 2 || raw === 20 || raw === 25 ? DEFAULT_DUCK_MUSIC_VOLUME : raw;
+  return Math.max(0, Math.min(100, duck));
+}
+
+/** Volume the player should duck to for STT, honoring karaoke on/off. */
+export function effectiveDuckVolume(
+  vc: Pick<VoiceConfig, "karaokeMode" | "duckMusicVolume">,
+): number {
+  return vc.karaokeMode ? KARAOKE_DUCK_VOLUME : normalizeDuckMusicVolume(vc.duckMusicVolume);
 }

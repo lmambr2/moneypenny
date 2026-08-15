@@ -17,7 +17,7 @@ export type LiveStatusSnapshot = {
     cuePending: boolean;
     nextBumperHint: string;
   } | null;
-  voice: { enabled: boolean; duckOnSpeech: boolean };
+  voice: { enabled: boolean; duckOnSpeech: boolean; karaokeMode: boolean };
   rag: { enabled: boolean };
   /** Human-readable station feedback (radio/voice/rag/queue). */
   feedback: string[];
@@ -63,6 +63,7 @@ export function buildLiveStatus(deps: LiveStatusDeps): LiveStatusSnapshot {
   const voice = {
     enabled: !!deps.config.voice?.enabled,
     duckOnSpeech: deps.config.voice?.duckMusicOnSpeech !== false,
+    karaokeMode: deps.config.voice?.karaokeMode === true,
   };
   const rag = { enabled: !!deps.config.ragEnabled };
   const feedback: string[] = [];
@@ -81,9 +82,11 @@ export function buildLiveStatus(deps: LiveStatusDeps): LiveStatusSnapshot {
   }
   if (voice.enabled) {
     feedback.push(
-      voice.duckOnSpeech
-        ? "Voice on (duck while listening)."
-        : "Voice on (duck off — STT under music may struggle).",
+      voice.karaokeMode
+        ? "Voice on (karaoke — music stays loud while listening)."
+        : voice.duckOnSpeech
+          ? "Voice on (duck while listening)."
+          : "Voice on (duck off — STT under music may struggle).",
     );
   } else {
     feedback.push("Voice loop off.");

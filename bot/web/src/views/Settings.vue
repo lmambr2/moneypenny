@@ -882,6 +882,24 @@
               bridge. Prefer short-track terms over “mix” / “hours”.
             </p>
           </div>
+          <div class="form-group" style="margin:0 0 8px">
+            <label
+              title="Auto-DJ tag filter. When set, restock prefers local tracks tagged with these moods before seed searches. Needs Library mood tags (manual or LLM Guess)."
+              >Auto-DJ moods</label
+            >
+            <textarea
+              v-model="editedRadioProfile.moodText"
+              class="input radio-profile-textarea"
+              rows="2"
+              placeholder="calm&#10;focus"
+            />
+            <p class="profile-toggle-hint" style="margin:4px 0 0">
+              One per line (or comma-separated). Common tags:
+              <code>calm</code>, <code>focus</code>, <code>energetic</code>, <code>dark</code>,
+              <code>bright</code>, <code>mellow</code>. Blank = no mood filter (seeds / playlists
+              only). Genre/BPM filters already in config are kept on Save.
+            </p>
+          </div>
           <div class="form-row" style="margin:0 0 8px; gap:12px; flex-wrap:wrap">
             <label
               class="profile-toggle"
@@ -988,9 +1006,9 @@
           </div>
 
           <p class="profile-toggle-hint" style="margin:0">
-            Advanced tag filters (<code>music.select</code>) and source weights stay in config if set —
-            this panel won’t wipe them. Editing seeds/topics merges on Save. Full topic rules:
-            <code>docs/radio.md</code> → Bumper topics.
+            Other tag filters (<code>genreAny</code>, BPM, energy) and source weights stay in config if
+            set — this panel won’t wipe them. Editing seeds/moods/topics merges on Save. Full topic
+            rules: <code>docs/radio.md</code> → Bumper topics.
           </p>
         </template>
       </div>
@@ -1562,6 +1580,13 @@
       </label>
       <label v-if="ai.voiceEnabled" class="profile-toggle" style="margin-top: 4px">
         <div class="profile-toggle-text">
+          <div class="profile-toggle-label">Karaoke mode</div>
+          <div class="profile-toggle-hint">On: music ducks only to 80 while listening so you can sing along. Off: uses the duck volume above (default 15). Also <code>!karaoke on</code> / <code>off</code>.</div>
+        </div>
+        <input type="checkbox" class="profile-toggle-switch" v-model="ai.voiceKaraokeMode" />
+      </label>
+      <label v-if="ai.voiceEnabled" class="profile-toggle" style="margin-top: 4px">
+        <div class="profile-toggle-text">
           <div class="profile-toggle-label">Speak replies (TTS)</div>
           <div class="profile-toggle-hint">When off, voice commands still work but replies go to chat only.</div>
         </div>
@@ -1793,6 +1818,12 @@ import AvatarUpload from '../components/AvatarUpload.vue';
 import CustomAvatarRow from '../components/CustomAvatarRow.vue';
 import { useSession } from '../composables/useSession.js';
 import { usePlayerStore } from '../stores/player.js';
+import {
+  emptyRadioProfileEdit,
+  profileFromApi,
+  profileToApi,
+  type RadioProfileEdit,
+} from '../utils/radio-profile-edit.js';
 
 const store = usePlayerStore();
 
@@ -2158,6 +2189,7 @@ const ai = reactive({
   voiceRequireWatchword: true,
   voiceDuckMusicOnSpeech: true,
   voiceDuckMusicVolume: 15,
+  voiceKaraokeMode: false,
   voiceListenWindowSec: 15,
   voiceRespondWithVoice: true,
   voiceTtsBargeIn: true,
@@ -2195,26 +2227,6 @@ const ai = reactive({
     memory: false,
   } as Record<string, boolean>,
 });
-
-/** Dashboard-editable slice of a RadioProfile (§8). Preserves unknown fields in `extra`. */
-interface RadioProfileEdit {
-  name: string;
-  seedQueriesText: string;
-  bumperTopicsText: string;
-  bumperTone: string;
-  shuffle: boolean;
-  /** When true, ACE-Step fill if pool empty and service available. */
-  aceStepAutoFill: boolean;
-  playlistRefsText: string;
-  /** Seed search sources (default local+youtube → ~33/66 mix). */
-  seedSourceLocal: boolean;
-  seedSourceYoutube: boolean;
-  seedSourceStream: boolean;
-  /** Target % of seed pool from non-local (default 66). */
-  seedExternalPct: number;
-  /** Original profile blob minus fields we edit — re-merged on save so select/relay/weights survive. */
-  extra: Record<string, unknown>;
-}
 
 const RADIO_SOURCE_OPTIONS = [
   {
@@ -2254,152 +2266,6 @@ const editedRadioProfile = computed(() =>
   ai.radioEditKey ? (ai.radioProfiles[ai.radioEditKey] ?? null) : null,
 );
 
-function linesToText(arr: unknown): string {
-  if (!Array.isArray(arr)) return '';
-  return arr.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).join('\n');
-}
-function textToLines(text: string): string[] {
-  return text
-    .split(/[\n,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-function playlistRefsToText(refs: unknown): string {
-  if (!Array.isArray(refs)) return '';
-  return refs
-    .map((r) => {
-      if (!r || typeof r !== 'object') return '';
-      const platform = String((r as { platform?: string }).platform ?? '').trim();
-      const ref = String((r as { ref?: string }).ref ?? '').trim();
-      if (!platform || !ref) return '';
-      return `${platform}:${ref}`;
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-function textToPlaylistRefs(
-  text: string,
-): { platform: 'local' | 'youtube' | 'spotify' | 'tidal'; ref: string }[] {
-  const allowed = new Set(['local', 'youtube', 'spotify', 'tidal']);
-  const out: { platform: 'local' | 'youtube' | 'spotify' | 'tidal'; ref: string }[] = [];
-  for (const line of text
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean)) {
-    const idx = line.indexOf(':');
-    if (idx <= 0) continue;
-    const platform = line.slice(0, idx).trim().toLowerCase();
-    const ref = line.slice(idx + 1).trim();
-    if (!allowed.has(platform) || !ref) continue;
-    out.push({ platform: platform as 'local' | 'youtube' | 'spotify' | 'tidal', ref });
-  }
-  return out;
-}
-
-function profileFromApi(key: string, raw: unknown): RadioProfileEdit {
-  const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const music =
-    p.music && typeof p.music === 'object' && !Array.isArray(p.music)
-      ? { ...(p.music as Record<string, unknown>) }
-      : {};
-  const bumper =
-    p.bumper && typeof p.bumper === 'object' && !Array.isArray(p.bumper)
-      ? { ...(p.bumper as Record<string, unknown>) }
-      : {};
-  // Strip fields we edit so they don't double-write; keep select/relay/weights/etc.
-  const {
-    seedQueries: _s,
-    playlistRefs: _pl,
-    shuffle: _sh,
-    aceStepAutoFill: _ace,
-    seedSources: _ss,
-    seedExternalRatio: _ser,
-    ...musicRest
-  } = music;
-  const { topics: _t, tone: _tone, ...bumperRest } = bumper;
-  const { name: _n, music: _m, bumper: _b, ...topRest } = p;
-  const sources = Array.isArray(music.seedSources)
-    ? (music.seedSources as string[])
-    : ['local', 'youtube'];
-  const extRatio =
-    typeof music.seedExternalRatio === 'number' && Number.isFinite(music.seedExternalRatio)
-      ? music.seedExternalRatio
-      : 2 / 3;
-  return {
-    name: typeof p.name === 'string' && p.name.trim() ? p.name : key,
-    seedQueriesText: linesToText(music.seedQueries),
-    bumperTopicsText: linesToText(bumper.topics),
-    bumperTone: typeof bumper.tone === 'string' ? bumper.tone : '',
-    shuffle: music.shuffle !== false,
-    aceStepAutoFill: music.aceStepAutoFill === true,
-    playlistRefsText: playlistRefsToText(music.playlistRefs),
-    seedSourceLocal: sources.includes('local'),
-    seedSourceYoutube: sources.includes('youtube'),
-    seedSourceStream: sources.includes('stream'),
-    seedExternalPct: Math.round(Math.min(1, Math.max(0, extRatio)) * 100),
-    extra: {
-      ...topRest,
-      ...(Object.keys(musicRest).length ? { music: musicRest } : {}),
-      ...(Object.keys(bumperRest).length ? { bumper: bumperRest } : {}),
-    },
-  };
-}
-
-function profileToApi(key: string, edit: RadioProfileEdit): Record<string, unknown> {
-  const seeds = textToLines(edit.seedQueriesText);
-  const topics = textToLines(edit.bumperTopicsText);
-  const refs = textToPlaylistRefs(edit.playlistRefsText);
-  const tone = edit.bumperTone.trim();
-  const extraMusic =
-    edit.extra.music && typeof edit.extra.music === 'object'
-      ? (edit.extra.music as Record<string, unknown>)
-      : {};
-  const extraBumper =
-    edit.extra.bumper && typeof edit.extra.bumper === 'object'
-      ? (edit.extra.bumper as Record<string, unknown>)
-      : {};
-  const { music: _em, bumper: _eb, ...topExtra } = edit.extra;
-  const music: Record<string, unknown> = {
-    ...extraMusic,
-    shuffle: edit.shuffle,
-  };
-  if (edit.aceStepAutoFill) music.aceStepAutoFill = true;
-  else delete music.aceStepAutoFill;
-  if (seeds.length) music.seedQueries = seeds;
-  else delete music.seedQueries;
-  if (refs.length) music.playlistRefs = refs;
-  else delete music.playlistRefs;
-  const seedSources: string[] = [];
-  if (edit.seedSourceLocal) seedSources.push('local');
-  if (edit.seedSourceYoutube) seedSources.push('youtube');
-  if (edit.seedSourceStream) seedSources.push('stream');
-  // Default when all unchecked: local+youtube (same as bot default).
-  music.seedSources = seedSources.length > 0 ? seedSources : ['local', 'youtube'];
-  // Sentinel must match the display rounding in profileFromApi: ⅔ shows as 67.
-  // An untouched profile must round-trip to "unset" so the bot default stays
-  // authoritative; an empty field means default too (Number('') is 0, which
-  // would otherwise pin a hard "no external").
-  const rawPct = edit.seedExternalPct as unknown;
-  const pct = Number(rawPct);
-  const defaultPct = Math.round((2 / 3) * 100);
-  if (rawPct === '' || rawPct === null || !Number.isFinite(pct) || pct === defaultPct) {
-    delete music.seedExternalRatio; // bot default ⅔
-  } else {
-    music.seedExternalRatio = Math.min(1, Math.max(0, pct / 100));
-  }
-  const bumper: Record<string, unknown> = { ...extraBumper };
-  if (topics.length) bumper.topics = topics;
-  else delete bumper.topics;
-  if (tone) bumper.tone = tone;
-  else delete bumper.tone;
-  return {
-    ...topExtra,
-    name: edit.name.trim() || key,
-    music,
-    ...(Object.keys(bumper).length ? { bumper } : {}),
-  };
-}
-
 function loadRadioProfilesFromApi(profiles: unknown) {
   const next: Record<string, RadioProfileEdit> = {};
   const src =
@@ -2416,7 +2282,11 @@ function loadRadioProfilesFromApi(profiles: unknown) {
     });
     next.focus = profileFromApi('focus', {
       name: 'focus',
-      music: { seedQueries: ['focus', 'ambient'], shuffle: true },
+      music: {
+        select: { mood: ['calm'], bpmMax: 110 },
+        seedQueries: ['focus', 'ambient'],
+        shuffle: true,
+      },
       bumper: { topics: ['ops', 'briefing'] },
     });
   } else {
@@ -2459,21 +2329,7 @@ function addRadioProfile() {
     window.alert(`Profile "${id}" already exists.`);
     return;
   }
-  ai.radioProfiles[id] = {
-    name: id,
-    seedQueriesText: '',
-    bumperTopicsText: '',
-    bumperTone: '',
-    shuffle: true,
-    aceStepAutoFill: false,
-    playlistRefsText: '',
-    seedSourceLocal: true,
-    seedSourceYoutube: true,
-    seedSourceStream: false,
-    seedExternalPct: 67, // Math.round(2/3 * 100) — must match profileFromApi display rounding
-
-    extra: {},
-  };
+  ai.radioProfiles[id] = emptyRadioProfileEdit(id);
   ai.radioEditKey = id;
 }
 
@@ -2673,6 +2529,7 @@ async function loadAiSettings() {
     ai.voiceWatchword = voice.watchword ?? 'moneypenny';
     ai.voiceRequireWatchword = voice.requireWatchword !== false;
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
+    ai.voiceKaraokeMode = voice.karaokeMode === true;
     // Legacy default was 2 (near-mute); show soft default so next Save fixes config.json.
     {
       const d = typeof voice.duckMusicVolume === 'number' ? voice.duckMusicVolume : 15;
@@ -3282,6 +3139,7 @@ async function saveAiSettings() {
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
         duckMusicVolume: Math.max(0, Math.min(100, Number(ai.voiceDuckMusicVolume) || 15)),
+        karaokeMode: !!ai.voiceKaraokeMode,
         listenWindowMs: Math.max(
           5000,
           Math.min(60_000, (Number(ai.voiceListenWindowSec) || 15) * 1000),

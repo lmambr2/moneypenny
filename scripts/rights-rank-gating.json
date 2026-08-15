@@ -4,7 +4,7 @@
     "playlist", "album", "prev", "next", "skip", "jump", "go", "pause", "resume",
     "artist", "ask", "test", "roast", "roastout", "roastin", "remember", "recall", "forget", "kg", "diary",
     "ships", "hangar",
-    "rate", "unrate", "selecttracks", "radio", "playnext", "pn", "chevron7",
+    "rate", "unrate", "selecttracks", "radio", "karaoke", "playnext", "pn", "chevron7",
     "mine", "refine", "craft", "econ", "trade", "workorder", "work-items", "workitems",
     "ops"
   ],

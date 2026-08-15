@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpRequestError } from "../util/http.js";
 import type { ChatCompletionResponse } from "./client.js";
 import { FallbackLlmClient, isRetryableLlmError } from "./fallback-client.js";
@@ -23,9 +23,17 @@ describe("isRetryableLlmError", () => {
   it("treats 503 as retryable", () => {
     expect(isRetryableLlmError(new HttpRequestError("HTTP 503", { status: 503 }))).toBe(true);
   });
+
+  it("treats 429 rate-limit as retryable so the fallback endpoint can take over", () => {
+    expect(isRetryableLlmError(new HttpRequestError("HTTP 429", { status: 429 }))).toBe(true);
+  });
 });
 
 describe("FallbackLlmClient", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("uses primary when it succeeds", async () => {
     const primary = { chat: vi.fn(async () => okResp("primary")) };
     const fallback = { chat: vi.fn(async () => okResp("fallback")) };
@@ -58,6 +66,35 @@ describe("FallbackLlmClient", () => {
     const out = await client.chat({ messages: [{ role: "user", content: "hi" }] });
     expect(out.choices[0].message.content).toBe("fallback");
     expect(client.usedFallbackLast()).toBe(true);
+  });
+
+  it("falls back when a real LlmClient primary returns HTTP 429", async () => {
+    const primaryUrl = "http://primary.example";
+    const fallbackUrl = "http://fallback.example";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.startsWith(primaryUrl)) {
+        return new Response("rate limited", { status: 429, statusText: "Too Many Requests" });
+      }
+      if (u.startsWith(fallbackUrl)) {
+        return new Response(JSON.stringify(okResp("from-fallback")), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected url ${u}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new FallbackLlmClient({
+      primary: { baseUrl: primaryUrl },
+      fallbackUrl,
+    });
+    const out = await client.chat({ messages: [{ role: "user", content: "hi" }] });
+    expect(out.choices[0].message.content).toBe("from-fallback");
+    expect(client.usedFallbackLast()).toBe(true);
+    expect(client.getLastRoute().route).toBe("fallback");
+    expect(fetchMock).toHaveBeenCalled();
   });
 });
 

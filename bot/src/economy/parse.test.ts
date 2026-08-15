@@ -21,4 +21,12 @@ describe("parseEconomyArgs", () => {
     expect(p.method).toBe("ferron");
     expect(p.scu).toBe(16);
   });
+
+  it("ignores non-positive / non-finite scu and qty", () => {
+    expect(parseEconomyArgs("quantanium scu:-5").scu).toBeUndefined();
+    expect(parseEconomyArgs("quantanium qty:0").qty).toBeUndefined();
+    expect(parseEconomyArgs("quantanium scu:NaN").scu).toBeUndefined();
+    expect(parseEconomyArgs("quantanium scu:32").scu).toBe(32);
+    expect(parseEconomyArgs("quantanium scu:-5").subject).toBe("quantanium");
+  });
 });

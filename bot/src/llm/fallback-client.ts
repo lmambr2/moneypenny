@@ -45,7 +45,7 @@ export function isRetryableLlmError(err: unknown): boolean {
     return true;
   }
   const status = httpStatus(err) ?? (isHttpRequestError(err) ? err.status : undefined);
-  return status === 502 || status === 503 || status === 504 || status === 408;
+  return status === 429 || status === 502 || status === 503 || status === 504 || status === 408;
 }
 
 /**

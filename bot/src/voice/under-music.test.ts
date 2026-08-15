@@ -45,4 +45,10 @@ describe("voice under music (V1/H4)", () => {
     expect(defaultUnderMusicConfig({ duckMusicVolume: 20 }).duckMusicVolume).toBe(15);
     expect(defaultUnderMusicConfig({ duckMusicVolume: 25 }).duckMusicVolume).toBe(15);
   });
+
+  it("karaoke mode plans a gentle duck of 80", () => {
+    const plan = planUnderMusicCapture(defaultUnderMusicConfig({ karaokeMode: true }));
+    expect(plan.duckLevel).toBe(80);
+    expect(plan.notes.some((n) => /karaoke/i.test(n))).toBe(true);
+  });
 });

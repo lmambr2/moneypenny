@@ -83,6 +83,8 @@ export const COMMAND_MANIFEST: readonly CommandSpec[] = [
   { name: "lyrics", kind: "delegated" },
   { name: "vote", kind: "delegated" },
   { name: "help", kind: "delegated" },
+  /** Keep music loud while listening (duck 80 instead of 15). */
+  { name: "karaoke", kind: "delegated" },
   { name: "chevron7", kind: "delegated", audio: true }, // easter egg: dials the SG-1 theme
   // Radio / DJ (docs/radio.md §12; sensitive subcommands carry radio.* tokens).
   { name: "radio", kind: "delegated" },

@@ -149,7 +149,8 @@ teardown**. Prefer a naming convention: `Flight Alpha`, `Idris-1`, etc.
 
 Moneypenny already ducks bot music volume when speech/STT runs
 (`duckMusicOnSpeech`, default **true**; soft target volume
-`duckMusicVolume`, default **15**). That path is the **music-path attenuation**
+`duckMusicVolume`, default **15**). Karaoke nights use `karaokeMode` /
+`!karaoke on` so the same duck only goes to **80**. That path is the **music-path attenuation**
 for the Music / Moneypenny channel.
 
 - **Do not turn ducking off** for ops sessions unless diagnosing STT.

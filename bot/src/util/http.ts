@@ -79,25 +79,18 @@ export type FetchJsonOptions = {
 
 /** GET/POST JSON; throws HttpRequestError on non-2xx or network failure. */
 export async function fetchJson<T = unknown>(url: string, opts: FetchJsonOptions = {}): Promise<T> {
-  const timeoutMs = opts.timeoutMs ?? 15_000;
-  try {
-    const res = await fetch(url, {
-      method: opts.method ?? (opts.body != null ? "POST" : "GET"),
-      headers: opts.headers,
-      body: opts.body,
-      signal: timeoutSignal(timeoutMs, opts.signal),
+  const res = await fetchWithTimeout(url, { ...opts, timeoutMs: opts.timeoutMs ?? 15_000 });
+  if (!res.ok) {
+    const body = await readErrorBody(res);
+    throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
+      status: res.status,
+      body,
     });
-    if (!res.ok) {
-      const body = await readErrorBody(res);
-      throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
-        status: res.status,
-        body,
-      });
-    }
-    if (res.status === 204) return undefined as T;
+  }
+  if (res.status === 204) return undefined as T;
+  try {
     return (await res.json()) as T;
   } catch (err) {
-    if (isHttpRequestError(err)) throw err;
     throw new HttpRequestError(errorMessage(err, "fetch failed"), { cause: err });
   }
 }
@@ -112,49 +105,31 @@ export type FetchBufferOptions = {
 
 /** Response as Buffer (arraybuffer). */
 export async function fetchBuffer(url: string, opts: FetchBufferOptions = {}): Promise<Buffer> {
-  const timeoutMs = opts.timeoutMs ?? 20_000;
-  try {
-    const res = await fetch(url, {
-      method: opts.method ?? (opts.body != null ? "POST" : "GET"),
-      headers: opts.headers,
-      body: opts.body,
-      signal: timeoutSignal(timeoutMs, opts.signal),
+  const res = await fetchWithTimeout(url, { ...opts, timeoutMs: opts.timeoutMs ?? 20_000 });
+  if (!res.ok) {
+    const body = await readErrorBody(res);
+    throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
+      status: res.status,
+      body,
     });
-    if (!res.ok) {
-      const body = await readErrorBody(res);
-      throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
-        status: res.status,
-        body,
-      });
-    }
-    const ab = await res.arrayBuffer();
-    return Buffer.from(ab);
-  } catch (err) {
-    if (isHttpRequestError(err)) throw err;
-    throw new HttpRequestError(errorMessage(err, "fetch failed"), { cause: err });
   }
+  const ab = await res.arrayBuffer();
+  return Buffer.from(ab);
 }
 
 /** DELETE/POST with no response body required. */
 export async function fetchVoid(url: string, opts: FetchJsonOptions = {}): Promise<void> {
-  const timeoutMs = opts.timeoutMs ?? 15_000;
-  try {
-    const res = await fetch(url, {
-      method: opts.method ?? "DELETE",
-      headers: opts.headers,
-      body: opts.body,
-      signal: timeoutSignal(timeoutMs, opts.signal),
+  const res = await fetchWithTimeout(url, {
+    ...opts,
+    method: opts.method ?? "DELETE",
+    timeoutMs: opts.timeoutMs ?? 15_000,
+  });
+  if (!res.ok) {
+    const body = await readErrorBody(res);
+    throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
+      status: res.status,
+      body,
     });
-    if (!res.ok) {
-      const body = await readErrorBody(res);
-      throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
-        status: res.status,
-        body,
-      });
-    }
-  } catch (err) {
-    if (isHttpRequestError(err)) throw err;
-    throw new HttpRequestError(errorMessage(err, "fetch failed"), { cause: err });
   }
 }
 

@@ -100,9 +100,18 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
-/** Join a TS file-repo dir path and an entry name (root is "/"). */
-export function joinFilePath(dir: string, name: string): string {
-  return dir === "/" ? `/${name}` : `${dir.replace(/\/+$/, "")}/${name}`;
+/**
+ * Join a TS file-repo dir path and an entry name (root is "/").
+ * Rejects empty names, `.` / `..`, and names that contain a separator so a
+ * hostile listing cannot walk out of the drop channel.
+ */
+export function joinFilePath(dir: string, name: string): string | null {
+  const n = String(name ?? "")
+    .replace(/\\/g, "/")
+    .trim();
+  if (!n || n === "." || n === "..") return null;
+  if (n.includes("/") || n.includes("\0")) return null;
+  return dir === "/" ? `/${n}` : `${dir.replace(/\/+$/, "")}/${n}`;
 }
 
 /** Download a channel file into a size-capped in-memory buffer, with a timeout. */
@@ -269,6 +278,7 @@ async function scanDirProtocol(
   const files: Array<{ filePath: string; file: ChannelFile }> = [];
   for (const e of entries) {
     const full = joinFilePath(dirPath, e.name);
+    if (!full) continue;
     if (e.type === 0) {
       if (depth < MAX_SUBDIR_DEPTH)
         await scanDirProtocol(deps, channelId, full, depth + 1, attempts);

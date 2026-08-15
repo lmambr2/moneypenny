@@ -32,6 +32,8 @@ describe("memory scopes (H3)", () => {
     expect(isBroadcastSafeSource("private room")).toBe(false);
     expect(isBroadcastSafeSource("org knowledge graph")).toBe(true);
     expect(isBroadcastSafeSource("org memory (intel)")).toBe(true);
+    // startsWith("org") used to allow "organic…" / other non-org labels.
+    expect(isBroadcastSafeSource("organic chemistry notes")).toBe(false);
   });
 
   it("filters mixed hits so private never becomes bumper material", () => {

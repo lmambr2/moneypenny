@@ -6,7 +6,34 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-08-14
+
+### Karaoke mode (listen duck 80 vs 15)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Simple on/off: Settings **Karaoke mode** or `!karaoke on` / `off`
+- On: VAD/STT duck target is **80** so music stays singable
+- Off: existing duck volume (default **15**)
+- Chat toggle is live (does not restart the voice pipeline); Settings Save persists
+
+### Settings: Auto-DJ mood filter on radio profiles
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Radio profile editor has an **Auto-DJ moods** field (`music.select.mood`)
+- Save merges moods with existing genre/BPM select keys (does not wipe them)
+- Settings API rejects a non-string `select.mood` list
+
 ## 2026-08-13
+
+### Cleanup / optimization pass (bot, voice, LLM, RAG, HTTP/MCP, economy, ingest, util)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- **ingest:** `joinFilePath` rejects `..` / separators so drop-channel listings cannot walk out of the channel
+- **MCP:** `buildPlayCommand` returns null for unknown platforms instead of a flagless local play
+- **economy:** `parseEconomyArgs` ignores non-positive / non-finite `scu` / `qty`
+- **LLM:** 429 is retryable so fallback can take over a rate-limited primary; `LlmClient.chat` rethrows `HttpRequestError` so status reaches the fallback (was wrapped as a bare `Error`)
+- **memory:** org broadcast guard no longer treats every `org*` string as org KG
+- **util/http:** `fetchJson` / `fetchBuffer` / `fetchVoid` share `fetchWithTimeout`; drop unused `zQueuePlayMode`
 
 ### Bug hunt + behavior-preserving refactor (control, music, radio, rights, HTTP)
 **Author: Grok (xAI), driven by Lane Ambrose.**

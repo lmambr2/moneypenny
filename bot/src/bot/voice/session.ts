@@ -13,6 +13,7 @@ import type { MusicProvider } from "../../music/provider.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
 import {
   defaultVoiceConfig,
+  effectiveDuckVolume,
   HttpSttClient,
   HttpTtsClient,
   isPlaybackControlReply,
@@ -125,6 +126,7 @@ export class VoiceSession {
   private captureDuckClientId: number | null = null;
   private duckMusicOnSpeech = true;
   private duckMusicVolume = 15;
+  private karaokeMode = false;
   /** Whisper has no KWS — duck on speech energy so text wake can hear over music. */
   private textWakeFallback = false;
   /** Min post-wake window — must cover beat-then-command cadence (≥ sherpa command window). */
@@ -272,11 +274,11 @@ export class VoiceSession {
     this.voiceDecoder = createOpusEncoder(1);
     this.duckMusicOnSpeech = vc.duckMusicOnSpeech !== false;
     this.ttsBargeIn = vc.ttsBargeIn !== false;
-    // Legacy defaults 2 / 20 / 25 → current soft 15 (more ducking under music).
-    const rawDuck = vc.duckMusicVolume;
-    const duck =
-      rawDuck === undefined || rawDuck === 2 || rawDuck === 20 || rawDuck === 25 ? 15 : rawDuck;
-    this.duckMusicVolume = Math.max(0, Math.min(100, duck));
+    this.karaokeMode = vc.karaokeMode === true;
+    this.duckMusicVolume = effectiveDuckVolume({
+      karaokeMode: false,
+      duckMusicVolume: vc.duckMusicVolume,
+    });
     this.textWakeFallback = vc.textWakeFallback ?? false;
     this.listenWindowMs = Math.max(
       vc.listenWindowMs ?? VoiceSession.MIN_LISTEN_WINDOW_MS,
@@ -344,7 +346,8 @@ export class VoiceSession {
         energyThreshold: this.segmenterOpts.energyThreshold,
         watchword: vc.requireWatchword ? vc.watchword : "(disabled)",
         duckMusicOnSpeech: this.duckMusicOnSpeech,
-        duckMusicVolume: this.duckMusicVolume,
+        duckMusicVolume: this.effectiveDuckLevel(),
+        karaokeMode: this.karaokeMode,
         passiveKwsMaxSpeakers: this.passiveKwsMaxSpeakers,
       },
       "Voice pipeline enabled (streaming STT)",
@@ -433,10 +436,34 @@ export class VoiceSession {
     this.releaseCaptureDuck();
     this.duckMusicOnSpeech = true;
     this.duckMusicVolume = 15;
+    this.karaokeMode = false;
     this.textWakeFallback = false;
     this.clearAllArmTimers();
     this.cleanup();
     this.deps.logger.info("Voice pipeline disabled");
+  }
+
+  /** Live karaoke on/off — does not restart the voice pipeline. */
+  setKaraokeMode(on: boolean): void {
+    this.karaokeMode = on;
+    if (this.deps.config.voice) {
+      this.deps.config.voice.karaokeMode = on;
+    }
+    if (!this.duckMusicOnSpeech) return;
+    if (!this.captureDuck || !this.deps.player.isSttDucked()) return;
+    const duckLevel = this.effectiveDuckLevel();
+    this.deps.player.duckForStt(duckLevel);
+    this.deps.logger.info(
+      { karaokeMode: on, duckLevel },
+      "Voice: karaoke mode changed — reapplied duck",
+    );
+  }
+
+  private effectiveDuckLevel(): number {
+    return effectiveDuckVolume({
+      karaokeMode: this.karaokeMode,
+      duckMusicVolume: this.duckMusicVolume,
+    });
   }
 
   /**
@@ -1273,13 +1300,14 @@ export class VoiceSession {
       );
     }
 
-    if (!this.deps.player.duckForStt(this.duckMusicVolume)) {
+    const duckLevel = this.effectiveDuckLevel();
+    if (!this.deps.player.duckForStt(duckLevel)) {
       this.deps.logger.warn(
         {
           clientId,
           state: this.deps.player.getState(),
           volume: this.deps.player.getVolume(),
-          duckLevel: this.duckMusicVolume,
+          duckLevel,
         },
         "Voice: failed to duck music on wake",
       );
@@ -1299,7 +1327,8 @@ export class VoiceSession {
         clientId,
         elapsed: this.captureDuck?.elapsed,
         userVolume: this.deps.player.getVolume(),
-        duckLevel: this.duckMusicVolume,
+        duckLevel,
+        karaokeMode: this.karaokeMode,
       },
       "Voice: ducked music on wake",
     );
