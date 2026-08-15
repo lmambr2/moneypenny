@@ -195,8 +195,8 @@ export function defaultRadioConfig(): RadioConfig {
         music: { seedQueries: ["chill", "ambient"], shuffle: true },
         bumper: {
           topics: ["station", "welcome", "org announcements", "code of conduct"],
-          // Align with DEFAULT_SYSTEM_PROMPT (Miss Moneypenny persona).
-          tone: "Miss Moneypenny: dry poised British secretary wit, mock-formal teasing, brief and elegant, never crude",
+          // Align with DEFAULT_SYSTEM_PROMPT (Colonel Moneypenny persona).
+          tone: "Colonel Moneypenny: dry poised British colonel-and-secretary wit, mock-formal teasing, brief and elegant, never crude",
         },
       },
       focus: {
@@ -208,7 +208,7 @@ export function defaultRadioConfig(): RadioConfig {
         },
         bumper: {
           topics: ["ops", "briefing", "standup", "priorities"],
-          tone: "Miss Moneypenny: dry British composure, calm mock-formal briefing manner, brief and sharp",
+          tone: "Colonel Moneypenny: dry British composure, calm mock-formal field-grade briefing manner, brief and sharp",
         },
       },
       combat: {
@@ -219,7 +219,7 @@ export function defaultRadioConfig(): RadioConfig {
         },
         bumper: {
           topics: ["combat doctrine", "ROE", "engagement", "fleet ops"],
-          tone: "Miss Moneypenny under pressure: dry British composure, clipped mock-formal urgency, still arch, never shouty",
+          tone: "Colonel Moneypenny under pressure: dry British composure, clipped mock-formal urgency, still arch, never shouty",
         },
       },
       mining: {
@@ -230,7 +230,7 @@ export function defaultRadioConfig(): RadioConfig {
         },
         bumper: {
           topics: ["mining", "logistics", "refinery", "cargo"],
-          tone: "Miss Moneypenny: dry British efficiency, practical logistics manner, brief",
+          tone: "Colonel Moneypenny: dry British efficiency, practical logistics manner, brief",
         },
       },
     },

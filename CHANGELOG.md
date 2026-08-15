@@ -8,6 +8,21 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-14
 
+### Persona: Colonel Moneypenny (field-grade + secretary)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Default system prompt: she is a **Colonel** of the org as well as the
+  Bond-secretary desk officer — chain of command, briefings, Chairman above
+- Radio profile tones and `!analyst` prompt aligned; still no parade-ground parody
+
+### Roast: log what people ask her, plus her reply
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `!ask` / `!analyst` / fuzzy `!…` questions and Moneypenny’s answer are one
+  roast quote (attributed to the human; opt-out still purges)
+- Voice ask/analyst turns included; skip/pause and “Now playing” are not
+- Grader scores the question *and* how arch her reply was
+
 ### Fix: spoken / poke `ask` and `analyst` answered "Try !help"
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

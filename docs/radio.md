@@ -459,7 +459,7 @@ theming.
 ```
 
 Starter **tones** mirror the chat persona (`DEFAULT_SYSTEM_PROMPT` in `bot/src/llm/tools.ts`):
-dry, poised British secretary wit — mock-formal, teasing, brief, never crude.
+Colonel Moneypenny — dry, poised British colonel-and-secretary wit; mock-formal, teasing, brief, never crude.
 
 | Profile field | Purpose |
 |---|---|

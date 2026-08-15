@@ -588,7 +588,7 @@
             <Icon icon="mdi:fire" class="setting-icon" /> Roast (community layer)
           </div>
           <div class="profile-toggle-hint">
-            Capture members' chat lines, AI cringe-grade them, auto-post a reel when enough people are present. Requires AI. <code>!roast</code> shows the reel; <code>!roastout</code> / <code>!roastin</code> leave or rejoin. See <code>docs/roast.md</code>.
+            Capture members' chat plus what they ask Moneypenny and her replies, AI cringe-grade them, auto-post a reel when enough people are present. Requires AI. <code>!roast</code> shows the reel; <code>!roastout</code> / <code>!roastin</code> leave or rejoin. See <code>docs/roast.md</code>.
           </div>
         </div>
         <input type="checkbox" class="profile-toggle-switch" v-model="ai.roastEnabled" />
@@ -996,11 +996,11 @@
                 v-model="editedRadioProfile.bumperTone"
                 class="input radio-profile-textarea"
                 rows="3"
-                placeholder="Miss Moneypenny: dry poised British secretary wit, mock-formal teasing, brief"
+                placeholder="Colonel Moneypenny: dry poised British colonel-and-secretary wit, mock-formal teasing, brief"
               />
               <p class="profile-toggle-hint" style="margin:4px 0 0">
-                Hint for doctrine/memory rewrites. Defaults match the chat persona (dry British MI6
-                secretary). Leave blank for a plain announcer voice.
+                Hint for doctrine/memory rewrites. Defaults match the chat persona (Colonel
+                Moneypenny — dry British field-grade + secretary). Leave blank for a plain announcer voice.
               </p>
             </div>
           </div>

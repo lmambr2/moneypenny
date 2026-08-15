@@ -104,6 +104,29 @@ export function looksLikeImageOrBinaryPayload(raw: string): boolean {
  * Strip TS BBCode / collapse whitespace; cap length for the grader.
  * Returns "" when the line is image/binary raw data (not roastable text).
  */
+/** Strip a chat prefix + ask/analyst verb so we store the question, not `!ask`. */
+export function roastQuestionFromInput(raw: string, prefix = "!"): string {
+  let t = sanitizeRoastCapture(raw, 280);
+  if (!t) return "";
+  if (prefix && t.startsWith(prefix)) t = t.slice(prefix.length).trim();
+  t = t.replace(/^(ask|analyst|agent|intsum|aar)\b[\s,:]*/i, "").trim();
+  return t;
+}
+
+export function formatRoastExchange(userName: string, question: string, reply: string): string {
+  return `${userName}: ${question}\nMoneypenny: ${reply}`;
+}
+
+/** Skip transport acks, usage, and the reel itself — those are not roastable. */
+export function isRoastableBotReply(reply: string): boolean {
+  const t = reply.replace(/\s+/g, " ").trim();
+  if (t.length < 8) return false;
+  if (/^🔥\s*Roast reel/i.test(t)) return false;
+  return !/^(usage:|unknown command|you don't have permission|the local llm is not|analyst delegation is not|analyst on it|drafting —|error:|now playing|paused|resumed|stopped|skipped|added |up next|volume set|nothing is playing|queue |already paused|already playing|nothing to resume)/i.test(
+    t,
+  );
+}
+
 export function sanitizeRoastCapture(raw: string, maxLen = 400): string {
   if (looksLikeImageOrBinaryPayload(raw)) return "";
 
@@ -147,10 +170,36 @@ export class RoastService {
     if (!text || text.length < 3) return;
     if (text.startsWith(this.deps.config.commandPrefix)) return;
     if (!msg.invokerUid) return;
+    this.recordQuote(msg.invokerUid, msg.invokerName || "someone", text);
+  }
+
+  /**
+   * Capture a user question to Moneypenny plus her reply (chat `!ask` / voice /
+   * fuzzy `!…`). Attributed to the human so opt-out still purges the pair.
+   */
+  captureExchange(opts: {
+    userUid?: string;
+    userName?: string;
+    question: string;
+    reply: string;
+  }): void {
+    if (!this.deps.config.roastEnabled) return;
+    const uid = opts.userUid?.trim();
+    if (!uid) return;
+    const question = sanitizeRoastCapture(opts.question, 280);
+    const reply = sanitizeRoastCapture(opts.reply, 280);
+    if (!question || question.length < 3) return;
+    if (!isRoastableBotReply(reply)) return;
+    const name = (opts.userName || "someone").trim() || "someone";
+    const text = formatRoastExchange(name, question, reply);
+    this.recordQuote(uid, name, text);
+  }
+
+  private recordQuote(userUid: string, userName: string, text: string): void {
     try {
-      if (this.deps.store.isOptedOut(msg.invokerUid)) return;
-      if (this.deps.store.hasRecentDuplicate(msg.invokerUid, text, ROAST_DEDUPE_WINDOW_MS)) return;
-      this.deps.store.add(msg.invokerUid, msg.invokerName || "someone", text);
+      if (this.deps.store.isOptedOut(userUid)) return;
+      if (this.deps.store.hasRecentDuplicate(userUid, text, ROAST_DEDUPE_WINDOW_MS)) return;
+      this.deps.store.add(userUid, userName, text);
     } catch (err) {
       this.deps.logger.debug({ err }, "Roast capture failed");
     }
@@ -237,8 +286,10 @@ export class RoastService {
     if (batch.length === 0) return;
     const system =
       "You are a ruthless but witty roast judge. Score how cringe or embarrassing " +
-      "a single chat line is, from 0 (forgettable) to 10 (maximally cringe). Reply " +
-      'with ONLY a JSON object: {"score": <integer 0-10>, "reason": "<short reason>"}.';
+      "a chat line — or a user/Moneypenny Q&A exchange — is, from 0 (forgettable) " +
+      "to 10 (maximally cringe). Include how dim the question is AND how arch or " +
+      "savage her reply is. Reply with ONLY a JSON object: " +
+      '{"score": <integer 0-10>, "reason": "<short reason>"}.';
     for (const q of batch) {
       try {
         // Legacy rows may still hold image/base64 pastes from before the filter.

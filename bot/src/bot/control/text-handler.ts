@@ -61,6 +61,7 @@ export class TextMessageHandler {
       allowedClassifications = this.deps.llm.classificationsFor(subject);
     }
 
+    let questionForRoast = "";
     const context: RouterContext = {
       bot: this.deps.bot,
       logger: this.deps.logger,
@@ -71,6 +72,7 @@ export class TextMessageHandler {
       allowedClassifications,
       message: msg,
       postFollowUp: async (text) => {
+        this.captureLlmRoast(msg, text, questionForRoast);
         await this.deps.tsClient.sendTextMessage(text);
       },
     };
@@ -81,10 +83,12 @@ export class TextMessageHandler {
       this.deps.config.commandPrefix,
       this.deps.config.commandAliases,
     );
+    questionForRoast = decision.llmIntent?.text?.trim() ?? "";
 
     try {
       const response = await this.deps.router.execute(decision, context);
       if (response) {
+        this.captureLlmRoast(msg, response, questionForRoast);
         await this.sendReply(response);
       } else if (decision.type === "deterministic" && decision.command) {
         this.deps.logger.warn(
@@ -100,6 +104,16 @@ export class TextMessageHandler {
         /* best-effort error reply */
       }
     }
+  }
+
+  private captureLlmRoast(msg: TS3TextMessage, reply: string, question: string): void {
+    if (!question) return;
+    this.deps.roast.captureExchange({
+      userUid: msg.invokerUid,
+      userName: msg.invokerName,
+      question,
+      reply,
+    });
   }
 
   /** Send channel reply with identical-text flood suppression. */

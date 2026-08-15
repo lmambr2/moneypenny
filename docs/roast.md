@@ -31,10 +31,14 @@ Voice (watchword): “Moneypenny roast”, “roastout”, “roastin”.
 
 ## How it works
 
-1. **Capture** — channel text (not PMs, not bot lines, not `!commands`).
-   BBCode/URLs stripped; short/spam-deduped; max ~400 chars.
+1. **Capture** — channel chat (not PMs, not `!commands` themselves) **and**
+   ask/analyst/intent exchanges: the question plus Moneypenny’s reply, as one
+   quote attributed to the human (`Alice: …` / `Moneypenny: …`). Voice ask
+   turns count too. Opt-out still purges the pair.
+   BBCode/URLs stripped; short/spam-deduped; max ~400 chars (exchanges ~280+280).
 2. **Grade** — idle poller batches ungraded lines through the LLM
-   (`{"score":0-10,"reason":"…"}`).
+   (`{"score":0-10,"reason":"…"}`). The judge scores the question *and* how
+   arch her reply was.
 3. **Auto reel** — when humans ≥ min present, enough lines ≥ min score, and
    cooldown elapsed → post reel and **consume** those quotes (next reel is fresh).
 4. **Manual** — `!roast` always shows the best remaining picks (or a status line).
@@ -59,7 +63,8 @@ Voice (watchword): “Moneypenny roast”, “roastout”, “roastin”.
 
 - Opt-out is immediate and purges stored lines for that TS uid.
 - Captured text is stored in the bot SQLite DB (`bot/data`).
-- No voice transcript capture in this MVP (text channel only).
+- Voice **ask / analyst / question** turns are captured as the same
+  question+reply pair (not raw STT of skip/pause).
 
 ---
 
@@ -69,5 +74,5 @@ Voice (watchword): “Moneypenny roast”, “roastout”, “roastin”.
 |---------|--------|
 | Never grades | LLM enabled + reachable; bot idle poller running |
 | Never auto-posts | Min people present; cooldown; enough scores ≥ min |
-| `!roast` empty | Chat more (non-command lines); wait for grade batch |
+| `!roast` empty | Chat more, or `!ask` her something; wait for grade batch |
 | Still captured after opt-out | Must use `!roastout` with a real TS uid (not guest) |

@@ -56,6 +56,15 @@ export interface VoicePipelineOptions {
    * Must arm pause suppress before TTS so trackEnd does not restore music.
    */
   preparePlaybackControlReply?: (reply: string) => void;
+  /** Spoken ask/analyst/intent — remember the question for a later follow-up post. */
+  onLlmIntent?: (turn: { userUid?: string; userName?: string; question: string }) => void;
+  /** Spoken ask/analyst/intent plus the immediate reply (roast log). */
+  onAskExchange?: (turn: {
+    userUid?: string;
+    userName?: string;
+    question: string;
+    reply: string;
+  }) => void;
 }
 
 /**
@@ -188,6 +197,13 @@ export class VoicePipeline {
 
     try {
       const decision = await this.opts.router.routeVoice(routeText, context, aliases);
+      if (decision.type === "llm" && decision.llmIntent?.text?.trim()) {
+        this.opts.onLlmIntent?.({
+          userUid: context.invokerUid,
+          userName: context.invokerName,
+          question: decision.llmIntent.text.trim(),
+        });
+      }
 
       if (voiceRouteNeedsPendingAck(decision, routeText, aliases)) {
         this.opts.markPlayInFlight?.(clientId, routeText);
@@ -196,6 +212,14 @@ export class VoicePipeline {
       }
 
       reply = await this.opts.router.execute(decision, context);
+      if (decision.type === "llm" && reply && decision.llmIntent?.text?.trim()) {
+        this.opts.onAskExchange?.({
+          userUid: context.invokerUid,
+          userName: context.invokerName,
+          question: decision.llmIntent.text.trim(),
+          reply,
+        });
+      }
 
       if (isPlaybackStartReply(reply) || isPlaybackControlReply(reply)) {
         this.opts.disarm?.(clientId);

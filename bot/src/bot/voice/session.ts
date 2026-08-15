@@ -63,6 +63,15 @@ export interface VoiceSessionDeps {
   onClientList: (
     clients: Array<{ id: number; uid: string; serverGroups: string[]; nickname: string }>,
   ) => void;
+  /** Optional — voice ask/analyst turns go into the roast log. */
+  roast?: {
+    captureExchange(opts: {
+      userUid?: string;
+      userName?: string;
+      question: string;
+      reply: string;
+    }): void;
+  };
 }
 
 /** Voice loop: inbound Opus → STT → ControlRouter → TTS (DESIGN §10). */
@@ -97,6 +106,9 @@ export class VoiceSession {
   private readonly silenceTailMs = 900;
   /** Wake phrase (set from voice config in enable()); used to strip wake-bleed from finals. */
   private watchword = "moneypenny";
+  /** Last spoken LLM question — used when analyst posts a follow-up later. */
+  private pendingVoiceRoast: { userUid?: string; userName?: string; question: string } | null =
+    null;
   private duckWatchdog: ReturnType<typeof setTimeout> | null = null;
   private readonly duckWatchdogMs = 18_000;
   /** After voice pause/stop, TTS trackEnd must not advance the music queue. */
@@ -320,6 +332,10 @@ export class VoiceSession {
       onTurn: ({ transcript, reply, speakerUid }) =>
         this.deps.logger.info({ transcript, reply, speakerUid }, "Voice turn"),
       preparePlaybackControlReply: (reply) => this.preparePlaybackControlReply(reply),
+      onLlmIntent: (turn) => {
+        this.pendingVoiceRoast = turn;
+      },
+      onAskExchange: (turn) => this.deps.roast?.captureExchange(turn),
     });
     this.cleanup();
     this.inboundPackets = 0;
@@ -1506,6 +1522,10 @@ export class VoiceSession {
         targetMode: 2,
       },
       postFollowUp: async (text) => {
+        const pending = this.pendingVoiceRoast;
+        if (pending?.question) {
+          this.deps.roast?.captureExchange({ ...pending, reply: text });
+        }
         await this.deps.tsClient.sendTextMessage(text);
       },
     };

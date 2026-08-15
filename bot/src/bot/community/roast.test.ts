@@ -3,11 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoastQuote } from "../../data/roast.js";
 import { RoastStore } from "../../data/roast.js";
 import {
+  formatRoastExchange,
   formatRoastReel,
+  isRoastableBotReply,
   looksLikeImageOrBinaryPayload,
   parseRoastGrade,
   RoastService,
   roastCooldownRemainingMs,
+  roastQuestionFromInput,
   sanitizeRoastCapture,
   selectReelQuotes,
 } from "./roast.js";
@@ -137,6 +140,62 @@ describe("RoastService", () => {
       message: "this is fine, right?",
     } as any);
     expect(store.ungradedCount()).toBe(1);
+  });
+
+  it("roastQuestionFromInput strips !ask / !analyst", () => {
+    expect(roastQuestionFromInput("!ask how do I refine quantanium")).toBe(
+      "how do I refine quantanium",
+    );
+    expect(roastQuestionFromInput("!analyst summarise the charter")).toBe("summarise the charter");
+    expect(roastQuestionFromInput("what is a jump point")).toBe("what is a jump point");
+  });
+
+  it("isRoastableBotReply rejects transport and usage", () => {
+    expect(isRoastableBotReply("Now playing: Africa - Toto")).toBe(false);
+    expect(isRoastableBotReply("Unknown command. Try !help.")).toBe(false);
+    expect(isRoastableBotReply("Analyst on it — I'll post the result here when ready.")).toBe(
+      false,
+    );
+    expect(isRoastableBotReply("A jump point is a quantum tunnel, darling. Try not to miss.")).toBe(
+      true,
+    );
+  });
+
+  it("captureExchange stores the question and her reply, skips opt-out", () => {
+    service.captureExchange({
+      userUid: "u-ask",
+      userName: "Alice",
+      question: "how do I refine quantanium",
+      reply: "Slowly, and preferably not next to the fuel tanks.",
+    });
+    expect(store.ungradedCount()).toBe(1);
+    expect(store.ungraded(1)[0]!.text).toBe(
+      formatRoastExchange(
+        "Alice",
+        "how do I refine quantanium",
+        "Slowly, and preferably not next to the fuel tanks.",
+      ),
+    );
+
+    service.handleOptOut("u-ask");
+    expect(store.ungradedCount()).toBe(0);
+    service.captureExchange({
+      userUid: "u-ask",
+      userName: "Alice",
+      question: "again?",
+      reply: "Still no, dear.",
+    });
+    expect(store.ungradedCount()).toBe(0);
+  });
+
+  it("captureExchange ignores Now playing replies", () => {
+    service.captureExchange({
+      userUid: "u2",
+      userName: "Bob",
+      question: "play africa",
+      reply: "Now playing: Africa - Toto",
+    });
+    expect(store.ungradedCount()).toBe(0);
   });
 
   it("opt-out then opt-in resumes capture", () => {

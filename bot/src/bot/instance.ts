@@ -650,6 +650,7 @@ export class BotInstance extends EventEmitter {
       getProviderFor: (p) => this.playback.getProviderFor(p),
       isConnected: () => this.connected,
       onClientList: () => {},
+      roast: this.roast,
     });
 
     this.routed = new RoutedCommandExecutor({

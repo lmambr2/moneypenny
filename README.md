@@ -60,7 +60,7 @@ TurboVec (vector store) stay on that host. See [docs/editions.md](./docs/edition
 - **Institutional knowledge graph** — `!kg` / `!diary` for temporal org facts (roster, roles, op history); injected into `!ask` when enabled.
 - **Org document workflows** — `!intsum` / `!aar` templated reports via the analyst delegate; Pandoc docx export from the Library.
 - **Org economy** — shopping lists: `!mine` / `!refine` (seed), `!craft` / `!workorder` / `!work-items` (sc-craft), `!trade` (sc-trade, token), `!econ prices` (UEX), wiki cache for `!ask`. Dashboard **`/economy`** (+ `/api/economy/*`) for the same surface. Unstable ores marked ⚠️. No scrapers. → **[docs/economy.md](./docs/economy.md)**
-- **Persona** — Miss Moneypenny: dry British MI6-secretary wit (configurable system prompt).
+- **Persona** — Colonel Moneypenny: Bond-secretary wit plus field-grade rank and trappings (configurable system prompt).
 
 **Community & ops**
 - **Roast** — captures chat lines, AI-grades them for cringe, auto-posts a "greatest hits" reel when enough people are present; opt out + purge with `!roastout`.
