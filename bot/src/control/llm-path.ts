@@ -2,6 +2,7 @@
  * LLM decision execution (PR-A4): ask / intent / delegate / workflow.
  * Extracted from ControlRouter so the router stays a thin orchestrator.
  */
+import { textForAnnouncement } from "../bot/speak-request.js";
 import {
   type AnalystRequest,
   appendAnalystSaveNotice,
@@ -42,6 +43,7 @@ export interface LlmPathDeps {
   clarify: ClarifyService;
   resolveMusicForCommand: ResolveMusicFn;
   executeDeterministic: ExecuteDeterministicFn;
+  speakAnnouncement?: (text: string) => Promise<boolean | void>;
 }
 
 /** Handle the LLM decision: Q&A for `ask`, tool-driven control for `intent`. */
@@ -54,11 +56,21 @@ export async function executeLlmPath(
     if (context.canRun && !context.canRun("ask")) {
       return "You don't have permission to use 'ask'.";
     }
-    if (!intent.text) return "Usage: !ask <question>";
-    return deps.llm.ask(intent.text, context.conversationId, {
+    if (!intent.text)
+      return "Usage: !ask [-s] <question>  (-s / --say / 'say it' speaks the answer)";
+    const reply = await deps.llm.ask(intent.text, context.conversationId, {
       allowedClassifications: context.allowedClassifications,
       userUid: context.invokerUid,
     });
+    if (intent.speak && reply && deps.speakAnnouncement && !context.fromVoice) {
+      const spoken = textForAnnouncement(reply);
+      if (spoken) {
+        void deps.speakAnnouncement(spoken).catch((err) => {
+          deps.logger.warn({ err }, "Ask TTS failed");
+        });
+      }
+    }
+    return reply;
   }
 
   if (intent.mode === "delegate") {

@@ -459,6 +459,7 @@ export class BotInstance extends EventEmitter {
       llm: () => this.llm.getModule(),
       tsClient: this.tsClient,
       logger: this.logger,
+      speak: (text) => this.voice.speakAnnouncement(text),
     });
 
     this.memory = new MemoryService({
@@ -685,6 +686,7 @@ export class BotInstance extends EventEmitter {
     if (this.config.voice?.enabled) {
       this.voice.enable();
     }
+    this.controlRouter.setSpeakAnnouncement((text) => this.voice.speakAnnouncement(text));
 
     registerBotCommandHandlers(this.controlRouter, {
       commands: this.commands,

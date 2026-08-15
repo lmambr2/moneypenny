@@ -55,6 +55,21 @@ export function formatRoastReel(quotes: RoastQuote[]): string | null {
   return `🔥 Roast reel — today's greatest hits 🔥\n${lines.join("\n")}`;
 }
 
+const ROAST_SPOKEN_ORDINAL = ["First", "Next", "Then", "Also", "Finally"] as const;
+
+/** Piper-friendly reel — no emoji, numbered lists, or markdown. */
+export function formatRoastReelSpoken(quotes: RoastQuote[]): string | null {
+  if (quotes.length === 0) return null;
+  const bits = quotes.map((q, i) => {
+    const n = ROAST_SPOKEN_ORDINAL[i] ?? "Also";
+    const score = q.score != null ? `${q.score} out of 10` : "ungraded";
+    const text = q.text.replace(/\s+/g, " ").trim();
+    const reason = q.reason?.trim() ? ` Judge says: ${q.reason.trim()}` : "";
+    return `${n}, ${q.userName}, ${score}: ${text}.${reason}`;
+  });
+  return `Roast reel. Today's greatest hits. ${bits.join(" ")}`;
+}
+
 export function roastCooldownRemainingMs(lastRoastAt: number, cooldownMinutes: number): number {
   const cooldownMs = cooldownMinutes * 60_000;
   return Math.max(0, cooldownMs - (Date.now() - lastRoastAt));
@@ -151,6 +166,8 @@ export interface RoastServiceDeps {
   llm: () => LlmModule | null;
   tsClient: Pick<TS3Client, "sendTextMessage" | "getClientId">;
   logger: Logger;
+  /** Channel TTS (voice session parks/restores music). Fail-open. */
+  speak?: (text: string) => Promise<boolean | void>;
 }
 
 /** Roast capture, LLM grading, and compilation reel (ROADMAP Phase 8). */
@@ -232,10 +249,18 @@ export class RoastService {
     if (!this.deps.config.roastEnabled) {
       return "The roast is switched off. An admin can enable it in Settings.";
     }
-    const reel = this.buildReel();
-    if (reel) return reel;
-
     const minScore = this.deps.config.roastMinScore ?? 4;
+    const picks = selectReelQuotes(this.deps.store.top(40), {
+      limit: ROAST_REEL_SIZE,
+      minScore,
+      maxPerUser: ROAST_MAX_PER_USER,
+    });
+    const reel = formatRoastReel(picks);
+    if (reel) {
+      this.queueSpeak(picks);
+      return reel;
+    }
+
     const stats = this.deps.store.stats(minScore);
     const pending = stats.ungraded;
     if (pending > 0) {
@@ -338,5 +363,14 @@ export class RoastService {
     this.lastRoastAt = Date.now();
     this.deps.store.setLastRoastAt(this.lastRoastAt);
     this.deps.store.removeByIds(picks.map((q) => q.id));
+    this.queueSpeak(picks);
+  }
+
+  private queueSpeak(quotes: RoastQuote[]): void {
+    const spoken = formatRoastReelSpoken(quotes);
+    if (!spoken || !this.deps.speak) return;
+    void this.deps.speak(spoken).catch((err) => {
+      this.deps.logger.debug({ err }, "Roast TTS failed");
+    });
   }
 }

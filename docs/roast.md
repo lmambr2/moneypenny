@@ -21,7 +21,7 @@ MemPalace required).
 
 | Command | Effect |
 |---------|--------|
-| `!roast` | Show current reel, or status (queue / cooldown) |
+| `!roast` | Show current reel (also spoken on-channel), or status (queue / cooldown) |
 | `!roastout` | Opt out + purge your captured lines |
 | `!roastin` | Opt back in (history stays purged) |
 
@@ -42,6 +42,8 @@ Voice (watchword): “Moneypenny roast”, “roastout”, “roastin”.
 3. **Auto reel** — when humans ≥ min present, enough lines ≥ min score, and
    cooldown elapsed → post reel and **consume** those quotes (next reel is fresh).
 4. **Manual** — `!roast` always shows the best remaining picks (or a status line).
+5. **Spoken** — a real reel (auto or `!roast`) is also read on-channel via Piper.
+   Status lines stay text-only. Music parks for the read and comes back.
 
 ---
 

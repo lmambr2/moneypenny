@@ -128,6 +128,7 @@ export class VoiceSession {
   private savedMusic: { song: QueuedSong; elapsed: number } | null = null;
   /** S-OC1 — serial TTS jobs; barge-in only while this marks active TTS. */
   private speechQueue = new SpeechQueue();
+  private tts: TtsProvider | null = null;
   private ttsBargeIn = true;
   /** True while bot TTS/ack is playing via createOutput (not pure music). */
   private ttsPlaybackActive = false;
@@ -281,6 +282,7 @@ export class VoiceSession {
     const tts: TtsProvider | undefined = vc.ttsUrl
       ? new HttpTtsClient({ url: vc.ttsUrl, voice: vc.ttsVoice, logger: this.deps.logger })
       : undefined;
+    this.tts = tts ?? null;
     const output: VoiceOutput | undefined = tts ? this.createOutput() : undefined;
 
     this.voiceDecoder = createOpusEncoder(1);
@@ -446,6 +448,7 @@ export class VoiceSession {
       this.voiceHandler = null;
     }
     this.pipeline = null;
+    this.tts = null;
     this.sttClient = null;
     this.voiceDecoder = null;
     this.segmenterOpts = null;
@@ -457,6 +460,34 @@ export class VoiceSession {
     this.clearAllArmTimers();
     this.cleanup();
     this.deps.logger.info("Voice pipeline disabled");
+  }
+
+  /**
+   * Speak a line on the music player (parks/restores the current track).
+   * Works with voice off as long as ttsUrl is configured.
+   */
+  async speakAnnouncement(text: string): Promise<boolean> {
+    const clean = text.trim();
+    if (!clean || !this.deps.isConnected()) return false;
+    const tts = this.tts ?? this.ttsFromConfig();
+    if (!tts) {
+      this.deps.logger.debug("Announcement skipped — no TTS URL");
+      return false;
+    }
+    try {
+      const { audio, format } = await tts.synthesize(clean);
+      await this.createOutput().speak(audio, format);
+      return true;
+    } catch (err) {
+      this.deps.logger.warn({ err }, "Announcement TTS failed");
+      return false;
+    }
+  }
+
+  private ttsFromConfig(): TtsProvider | null {
+    const vc = { ...defaultVoiceConfig(), ...this.deps.config.voice };
+    if (!vc.ttsUrl) return null;
+    return new HttpTtsClient({ url: vc.ttsUrl, voice: vc.ttsVoice, logger: this.deps.logger });
   }
 
   /** Live karaoke on/off — does not restart the voice pipeline. */
@@ -1513,6 +1544,7 @@ export class VoiceSession {
       allowedClassifications: allowedClassificationsFor(subject, engine),
       invokerUid: subject.uid,
       invokerName: subject.nickname,
+      fromVoice: true,
       message: {
         invokerName: subject.nickname ?? "",
         invokerId: String(u.speakerClientId),

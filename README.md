@@ -106,10 +106,10 @@ Chat commands (default prefix `!`):
 | `!prev` `!pause` `!resume` `!stop` | Transport |
 | `!queue` / `!list` · `!now` · `!clear` · `!remove <n>` · `!vol` · `!mode` | Queue / playback control |
 | `!playlist` `!album` `!artist` `!lyrics` `!vote` | Library / misc |
-| `!ask <question>` | Ask the fast AI (grounded in doctrine + your memory, if enabled) |
+| `!ask [-s] <question>` | Fast AI; `-s` / `--say` / trailing “say it” speaks the answer |
 | `!analyst <task>` · `!agent <task>` | Heavy analysis (async ack + posted result; admin/`@analyst` by default) |
 | `!remember <fact>` · `!recall` | Per-user memory |
-| `!roast` · `!roastout` | Show the roast reel · opt out + purge |
+| `!roast` · `!roastout` | Show (and speak) the roast reel · opt out + purge |
 | `!radio [on\|off\|status]` | Autonomous DJ — bumpers between tracks ([docs](docs/radio.md)); `on/off` admin |
 | `!radio ops` · `bumper` · `say` · `prewarm` · `skipbumper` · `pin` · `gen` | Station programming (`@dj` + admin). `skipbumper` skips the **bumper** (not the track); bare `!skip` advances music |
 | `!selecttracks <json>` | Tag-driven local track selection (normally via the `select_tracks` LLM tool) |

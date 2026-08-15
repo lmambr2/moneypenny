@@ -126,6 +126,7 @@ For a planned listen-only delegate bot (Intercom), see [`docs/intercom.md`](./in
 - **Listen window** ≥ 15s so “Moneypenny” … “pause” works without re-saying the watchword.
 - Prefer short transport verbs: pause / skip / clear / next (no synonym maps).
 - Memory / roast: “Moneypenny, remember I like jazz” · “Moneypenny, roast”.
+- Typed `!ask` is text-only unless you request speech: `!ask -s …` / `!ask --say …` / “say it”. Roast reels are always spoken.
 
 ## Remaining / hardware
 

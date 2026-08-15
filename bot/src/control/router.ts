@@ -1,6 +1,7 @@
 import type { TS3TextMessage } from "@moneypenny/ts6-client";
 import { isKnownCommand, type ParsedCommand, parseCommand } from "../bot/commands.js";
 import type { BotInstance } from "../bot/instance.js";
+import { parseSpokenAskRequest } from "../bot/speak-request.js";
 import type { WorkflowKind, WorkflowRequest } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
@@ -107,6 +108,8 @@ export interface RouterContext {
   // rank-gating). Built from the rights engine; passed into `!ask` so classified
   // chunks are filtered out for unauthorized members.
   allowedClassifications?: string[];
+  /** Voice pipeline already TTS's the reply — skip a second announcement. */
+  fromVoice?: boolean;
 }
 
 /** Structured invoker identity for router logs (text chat / web context). */
@@ -238,6 +241,8 @@ export interface LlmIntent {
   workflowFlags?: Set<string>;
   /** Present when mode === "delegate" (`!analyst` / `!agent`). */
   delegateFlags?: Set<string>;
+  /** Chat `!ask -s` / "say it" — speak the answer. Voice already TTS's replies. */
+  speak?: boolean;
 }
 
 export interface RouterDecision {
@@ -275,7 +280,15 @@ export function normalizeVoiceTranscript(transcript: string): string {
  */
 export function llmDecisionForCommand(command: ParsedCommand): RouterDecision | null {
   if (command.name === "ask") {
-    return { type: "llm", llmIntent: { mode: "ask", text: command.args } };
+    const parsed = parseSpokenAskRequest(command.args, command.flags);
+    return {
+      type: "llm",
+      llmIntent: {
+        mode: "ask",
+        text: parsed.text,
+        ...(parsed.speak ? { speak: true } : {}),
+      },
+    };
   }
   if (command.name === "analyst" || command.name === "agent") {
     return {
@@ -304,6 +317,8 @@ export class ControlRouter {
   private llm?: LlmAssist;
   /** PR-A4: injectable clarify-once (default in-memory). */
   private clarify: ClarifyService;
+  /** Channel TTS for chat `!ask -s`. Voice path already speaks. */
+  private speakAnnouncement?: (text: string) => Promise<boolean | void>;
 
   constructor(logger: Logger, llm?: LlmAssist, clarify?: ClarifyService) {
     this.logger = logger.child({ component: "control-router" });
@@ -314,6 +329,10 @@ export class ControlRouter {
   /** Attach (or replace) the LLM module after construction. */
   setLlm(llm: LlmAssist | undefined) {
     this.llm = llm;
+  }
+
+  setSpeakAnnouncement(fn: ((text: string) => Promise<boolean | void>) | undefined) {
+    this.speakAnnouncement = fn;
   }
 
   setClarifyOnceEnabled(enabled: boolean): void {
@@ -521,6 +540,7 @@ export class ControlRouter {
       clarify: this.clarify,
       resolveMusicForCommand: (cmd, ctx) => this.resolveMusicForCommand(cmd, ctx),
       executeDeterministic: (d, ctx) => this.executeDeterministic(d, ctx),
+      speakAnnouncement: this.speakAnnouncement,
     });
   }
 }

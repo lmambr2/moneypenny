@@ -8,6 +8,14 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-14
 
+### Spoken roasts; spoken !ask on request
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Auto and `!roast` reels are read on-channel (Piper). Status lines stay text.
+- `!ask` stays text unless you ask her to say it: `-s`, `--say`, `--speak`,
+  leading “say …”, or trailing “say it” / “out loud”
+- Voice `!ask` already spoke; a second announcement is skipped there
+
 ### Karaoke: typos and no queue wipe
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

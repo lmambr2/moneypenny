@@ -79,6 +79,16 @@ describe("Command Parser", () => {
     expect(result!.args).toBe("how do I refine");
   });
 
+  it("maps --say / --speak to the s flag for spoken !ask", () => {
+    const say = parseCommand("!ask --say what is a jump point", "!");
+    expect(say!.name).toBe("ask");
+    expect(say!.flags.has("s")).toBe(true);
+    expect(say!.args).toBe("what is a jump point");
+    const speak = parseCommand("!ask --speak how do I refine", "!");
+    expect(speak!.flags.has("s")).toBe(true);
+    expect(speak!.args).toBe("how do I refine");
+  });
+
   it("recognizes the chevron7 easter egg as a known command", () => {
     // Must route deterministically (not fall through to LLM fuzzy intent).
     const result = parseCommand("!chevron7", "!");

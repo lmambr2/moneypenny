@@ -222,6 +222,44 @@ describe("ControlRouter — LLM routing", () => {
     expect(out).toBe("42");
   });
 
+  it("speaks !ask only when requested, and not on the voice path", async () => {
+    const llm: LlmAssist = {
+      ask: vi.fn().mockResolvedValue("A jump point is a tunnel."),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn(),
+    };
+    const speak = vi.fn(async () => true);
+    const router = new ControlRouter(fakeLogger(), llm);
+    router.setSpeakAnnouncement(speak);
+
+    const silent = await router.route("!ask what is a jump point", makeContext(fakeBot()), "!");
+    await router.execute(silent, makeContext(fakeBot()));
+    expect(speak).not.toHaveBeenCalled();
+
+    const flagged = await router.route(
+      "!ask --say what is a jump point",
+      makeContext(fakeBot()),
+      "!",
+    );
+    expect(flagged.llmIntent).toMatchObject({
+      mode: "ask",
+      text: "what is a jump point",
+      speak: true,
+    });
+    await router.execute(flagged, makeContext(fakeBot()));
+    expect(speak).toHaveBeenCalledTimes(1);
+    expect(speak.mock.calls[0]![0]).toContain("jump point");
+
+    speak.mockClear();
+    const voiced = await router.routeVoice(
+      "ask say it what is a jump point",
+      makeContext(fakeBot()),
+    );
+    expect(voiced.llmIntent?.speak).toBe(true);
+    await router.execute(voiced, { ...makeContext(fakeBot()), fromVoice: true });
+    expect(speak).not.toHaveBeenCalled();
+  });
+
   it("routes unrecognized prefixed input to fuzzy intent (prefix stripped)", async () => {
     const router = new ControlRouter(fakeLogger(), {
       ask: vi.fn(),

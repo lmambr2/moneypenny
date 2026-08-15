@@ -5,6 +5,7 @@ import { RoastStore } from "../../data/roast.js";
 import {
   formatRoastExchange,
   formatRoastReel,
+  formatRoastReelSpoken,
   isRoastableBotReply,
   looksLikeImageOrBinaryPayload,
   parseRoastGrade,
@@ -42,10 +43,32 @@ describe("selectReelQuotes", () => {
   });
 });
 
+describe("formatRoastReelSpoken", () => {
+  it("reads the reel without emoji or markdown", () => {
+    const spoken = formatRoastReelSpoken([
+      {
+        id: 1,
+        userUid: "a",
+        userName: "Alice",
+        text: "I thought the hangar was a bar",
+        createdAt: 1,
+        score: 9,
+        reason: "dim and proud",
+      },
+    ]);
+    expect(spoken).toContain("Roast reel");
+    expect(spoken).toContain("Alice");
+    expect(spoken).toContain("9 out of 10");
+    expect(spoken).toContain("dim and proud");
+    expect(spoken).not.toContain("🔥");
+  });
+});
+
 describe("RoastService", () => {
   let store: RoastStore;
   let service: RoastService;
   const sendTextMessage = vi.fn(async () => {});
+  const speak = vi.fn(async () => true);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,6 +84,7 @@ describe("RoastService", () => {
       llm: () => null,
       tsClient: { sendTextMessage, getClientId: () => 42 } as any,
       logger: console as any,
+      speak,
     });
   });
 
@@ -92,8 +116,36 @@ describe("RoastService", () => {
 
     await service.runTick(3);
     expect(sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(speak).toHaveBeenCalledTimes(1);
+    expect(speak.mock.calls[0]![0]).toMatch(/Roast reel/i);
     expect(formatRoastReel(store.top(10))).toBeNull();
     expect(store.gradedCount(4)).toBe(0);
+  });
+
+  it("speaks a manual !roast reel but not a status line", async () => {
+    store.add("u1", "Alice", "cringe line");
+    store.setGrade(1, 9, "wow");
+    const reel = await service.handleCommand();
+    expect(reel).toMatch(/🔥/);
+    expect(speak).toHaveBeenCalledTimes(1);
+
+    speak.mockClear();
+    const empty = new RoastService({
+      store: new RoastStore(new Database(":memory:")),
+      config: {
+        roastEnabled: true,
+        roastMinPresent: 2,
+        roastCooldownMinutes: 60,
+        roastMinScore: 4,
+      } as any,
+      llm: () => null,
+      tsClient: { sendTextMessage, getClientId: () => 42 } as any,
+      logger: console as any,
+      speak,
+    });
+    const status = await empty.handleCommand();
+    expect(status).not.toMatch(/🔥/);
+    expect(speak).not.toHaveBeenCalled();
   });
 
   it("sanitizeRoastCapture strips BBCode and URLs", () => {

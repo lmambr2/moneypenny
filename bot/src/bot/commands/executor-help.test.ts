@@ -25,6 +25,7 @@ describe("cmdHelp", () => {
     });
 
     expect(text).toContain("!ask");
+    expect(text).toMatch(/-s\|--say/);
     expect(text).toContain("!analyst");
     expect(text).toContain("!remember");
     expect(text).toContain("!recall");

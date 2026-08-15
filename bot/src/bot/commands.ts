@@ -214,10 +214,13 @@ export function parseCommand(
   const argParts: string[] = [];
 
   for (let i = 1; i < parts.length; i++) {
-    if (parts[i].startsWith("-") && parts[i].length === 2 && /[a-zA-Z]/.test(parts[i][1])) {
-      flags.add(parts[i][1].toLowerCase());
+    const part = parts[i];
+    if (part === "--say" || part === "--speak") {
+      flags.add("s");
+    } else if (part.startsWith("-") && part.length === 2 && /[a-zA-Z]/.test(part[1])) {
+      flags.add(part[1].toLowerCase());
     } else {
-      argParts.push(parts[i]);
+      argParts.push(part);
     }
   }
 
