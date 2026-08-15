@@ -3,6 +3,15 @@ import { errorMessage } from "../util/error.js";
 import { fetchJson } from "../util/http.js";
 import { DEFAULT_CHAT_MODEL } from "./models.js";
 
+/**
+ * Output caps for the workstation GPU (32GB). These are generation limits,
+ * not context — raise them when briefings get cut off mid-sentence.
+ */
+export const LLM_DEFAULT_MAX_TOKENS = 8192;
+export const LLM_ASK_MAX_TOKENS = 16_384;
+export const LLM_INTENT_MAX_TOKENS = 8192;
+export const LLM_DELEGATE_MAX_TOKENS = 16_384;
+
 export interface LlmClientOptions {
   baseUrl?: string; // RKLLama OpenAI-compatible endpoint, e.g. http://localhost:8080
   model?: string;
@@ -144,7 +153,7 @@ export class LlmClient {
       tools: req.tools,
       tool_choice: req.tool_choice ?? "auto",
       temperature: req.temperature ?? 0.2,
-      max_tokens: req.max_tokens ?? 1024,
+      max_tokens: req.max_tokens ?? LLM_DEFAULT_MAX_TOKENS,
       stream: false,
       // ollama extension (ignored by other OpenAI servers): keep the model
       // resident for 2h so a !ask after a lull doesn't pay the cold-load tax.

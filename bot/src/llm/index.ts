@@ -13,7 +13,7 @@ import {
   type MemoryBudgets,
 } from "../memory/turn-context.js";
 import { buildRevisePrompt, type ClaimCheckResult, runClaimCheck } from "../rag/claim-check.js";
-import { type ChatMessage, extractAssistantText, LlmClient } from "./client.js";
+import { type ChatMessage, extractAssistantText, LLM_ASK_MAX_TOKENS, LlmClient } from "./client.js";
 import { ANALYST_SYSTEM_PROMPT, type DelegateClient } from "./delegate.js";
 import { FallbackLlmClient, type LlmRoute } from "./fallback-client.js";
 import { ConversationStore, type HistoryEntry } from "./history.js";
@@ -275,8 +275,7 @@ export class LlmModule {
         tools: undefined,
         tool_choice: "none",
         temperature: this.temperature,
-        // Doctrine / org answers need room; tool path stays short (tools.ts).
-        max_tokens: 2048,
+        max_tokens: LLM_ASK_MAX_TOKENS,
       });
       const msg = resp.choices?.[0]?.message;
       // Gemma/Ollama often leave content empty and put the answer in reasoning —

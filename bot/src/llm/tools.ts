@@ -1,4 +1,4 @@
-import type { ChatCompletionRequest, ChatTool } from "./client.js";
+import { type ChatCompletionRequest, type ChatTool, LLM_INTENT_MAX_TOKENS } from "./client.js";
 import { DELEGATE_TOOL_NAME } from "./delegate.js";
 
 /** DESIGN §R4 — move another TS client to a channel (admin-gated at execution). */
@@ -272,6 +272,6 @@ export function buildToolRequest(
     tools,
     tool_choice: "auto",
     temperature: 0.1,
-    max_tokens: 400,
+    max_tokens: LLM_INTENT_MAX_TOKENS,
   };
 }

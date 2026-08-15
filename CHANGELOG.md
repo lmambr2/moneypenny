@@ -8,6 +8,12 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-14
 
+### LLM: much higher output token caps
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `!ask` 16k, intent / default 8k, `!analyst` 16k (was 2k / 400 / 1k / 4k)
+- Workstation GPU can finish long briefings instead of stopping mid-sentence
+
 ### Persona: Colonel Moneypenny (field-grade + secretary)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

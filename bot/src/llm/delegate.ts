@@ -1,6 +1,11 @@
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
-import { type ChatMessage, extractAssistantText, LlmClient } from "./client.js";
+import {
+  type ChatMessage,
+  extractAssistantText,
+  LLM_DELEGATE_MAX_TOKENS,
+  LlmClient,
+} from "./client.js";
 import { probeLlmEndpoint } from "./probe.js";
 
 export const DELEGATE_TOOL_NAME = "delegate_to_agent" as const;
@@ -86,7 +91,7 @@ export class DelegateClient {
         tools: undefined,
         tool_choice: "none",
         temperature,
-        max_tokens: 4096,
+        max_tokens: LLM_DELEGATE_MAX_TOKENS,
       });
       const msg = resp.choices?.[0]?.message;
       if (!msg) return "";
