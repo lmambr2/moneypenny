@@ -10,6 +10,7 @@ import {
   classifyStall,
   cleanupTempDir,
   MIN_STALL_GRACE_SEC,
+  STARTUP_STALL_SEC,
 } from "./player.js";
 
 const silentLogger = {
@@ -120,16 +121,40 @@ describe("classifyStall (audit A1)", () => {
     ).toBe("continue");
   });
 
-  // The regression: a stream that connects then hangs before emitting ANY PCM.
-  // Decoded elapsed stays pinned at 0, so a decoded-time guard could never fire
-  // and the frame loop would spin forever on dead air.
-  it("ends a track that stalls before decoding a single frame", () => {
+  // yt-dlp / first-byte often takes >10s. Killing at the mid-track window
+  // skips !add YouTube tracks that have not produced PCM yet.
+  it("does not skip a track still waiting for the first PCM at 10s", () => {
     expect(
       classifyStall({
         ...base,
         emptyFrameAttempts: MID_TRACK,
-        isNearEnd: false, // never true — decoded position never advances
-        wallElapsedSec: 10, // but wall clock kept moving
+        isNearEnd: false,
+        wallElapsedSec: 10,
+        hasDecodedAudio: false,
+      }),
+    ).toBe("continue");
+  });
+
+  it("ends a track that never decodes a frame after the startup window", () => {
+    expect(
+      classifyStall({
+        ...base,
+        emptyFrameAttempts: MID_TRACK,
+        isNearEnd: false,
+        wallElapsedSec: STARTUP_STALL_SEC,
+        hasDecodedAudio: false,
+      }),
+    ).toBe("mid_track_stall");
+  });
+
+  it("ends a mid-track hang once audio had started", () => {
+    expect(
+      classifyStall({
+        ...base,
+        emptyFrameAttempts: MID_TRACK,
+        isNearEnd: false,
+        wallElapsedSec: 10,
+        hasDecodedAudio: true,
       }),
     ).toBe("mid_track_stall");
   });
@@ -141,6 +166,7 @@ describe("classifyStall (audit A1)", () => {
         emptyFrameAttempts: MID_TRACK,
         isNearEnd: false,
         wallElapsedSec: MIN_STALL_GRACE_SEC - 0.1,
+        hasDecodedAudio: true,
       }),
     ).toBe("continue");
   });

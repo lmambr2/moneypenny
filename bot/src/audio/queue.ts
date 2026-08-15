@@ -249,7 +249,9 @@ export class PlayQueue {
           }
         }
 
-        const nextIndex = unplayed[Math.floor(Math.random() * unplayed.length)];
+        const preferUser = unplayed.filter((i) => !isRadioFill(this.songs[i]!));
+        const bag = preferUser.length > 0 ? preferUser : unplayed;
+        const nextIndex = bag[Math.floor(Math.random() * bag.length)];
         this.pushHistory(this.currentIndex);
         this.currentIndex = nextIndex;
         this.playedIndices.add(nextIndex);

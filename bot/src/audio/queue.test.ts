@@ -35,6 +35,16 @@ describe("PlayQueue", () => {
     expect(queue.list()[1].name).toBe("Song B");
   });
 
+  it("RandomLoop next prefers unplayed user adds over radio fill", () => {
+    queue.setMode(PlayMode.RandomLoop);
+    queue.add({ ...makeSong("now"), source: "radio" });
+    queue.play();
+    queue.add({ ...makeSong("r1"), source: "radio" });
+    queue.add({ ...makeSong("r2"), source: "radio" });
+    queue.add({ ...makeSong("user1"), source: "user" });
+    expect(queue.next()?.id).toBe("user1");
+  });
+
   it("user add jumps ahead of radio fill tracks", () => {
     queue.add({ ...makeSong("now"), source: "radio" });
     queue.play();

@@ -127,10 +127,17 @@ export interface StallCheckInput {
    * spins forever on dead air (audit A1).
    */
   wallElapsedSec: number;
+  /** True once at least one PCM frame was decoded this play(). */
+  hasDecodedAudio?: boolean;
 }
 
-/** Grace period before the absolute stall guard can fire, in wall-clock seconds. */
+/** Grace period before a mid-track stall can fire (after audio has started). */
 export const MIN_STALL_GRACE_SEC = 2;
+/**
+ * yt-dlp / first-byte often takes longer than the mid-track 10s window.
+ * Ending a play that never got PCM at 10s skips !add YouTube tracks.
+ */
+export const STARTUP_STALL_SEC = 45;
 
 /**
  * Decide whether a track with a starved PCM buffer should be ended.
@@ -145,10 +152,12 @@ export function classifyStall(input: StallCheckInput): StallVerdict {
   if (input.emptyFrameAttempts >= input.nearEndAttempts && input.isNearEnd) {
     return "near_end_stall";
   }
-  if (
-    input.emptyFrameAttempts >= input.midTrackAttempts &&
-    input.wallElapsedSec >= MIN_STALL_GRACE_SEC
-  ) {
+  if (input.emptyFrameAttempts < input.midTrackAttempts) return "continue";
+  const gotAudio = input.hasDecodedAudio === true;
+  if (gotAudio && input.wallElapsedSec >= MIN_STALL_GRACE_SEC) {
+    return "mid_track_stall";
+  }
+  if (!gotAudio && input.wallElapsedSec >= STARTUP_STALL_SEC) {
     return "mid_track_stall";
   }
   return "continue";
@@ -473,6 +482,7 @@ export class AudioPlayer extends EventEmitter {
           midTrackAttempts: AudioPlayer.MAX_MIDTRACK_STALL_ATTEMPTS,
           isNearEnd,
           wallElapsedSec: this.playStartedAtMs > 0 ? (Date.now() - this.playStartedAtMs) / 1000 : 0,
+          hasDecodedAudio: this.framesPlayed > 0,
         });
 
         if (verdict !== "continue") {
