@@ -248,7 +248,7 @@ describe("ControlRouter — LLM routing", () => {
     });
     await router.execute(flagged, makeContext(fakeBot()));
     expect(speak).toHaveBeenCalledTimes(1);
-    expect(speak.mock.calls[0]![0]).toContain("jump point");
+    expect(speak).toHaveBeenCalledWith(expect.stringContaining("jump point"));
 
     speak.mockClear();
     const voiced = await router.routeVoice(

@@ -117,7 +117,7 @@ describe("RoastService", () => {
     await service.runTick(3);
     expect(sendTextMessage).toHaveBeenCalledTimes(1);
     expect(speak).toHaveBeenCalledTimes(1);
-    expect(speak.mock.calls[0]![0]).toMatch(/Roast reel/i);
+    expect(speak).toHaveBeenCalledWith(expect.stringMatching(/Roast reel/i));
     expect(formatRoastReel(store.top(10))).toBeNull();
     expect(store.gradedCount(4)).toBe(0);
   });
