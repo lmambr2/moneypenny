@@ -542,6 +542,37 @@ describe("ControlRouter — voice routing", () => {
     expect(resolve).toHaveBeenCalledWith("bohemian rhapsody");
   });
 
+  it("routes spoken ask/analyst to the LLM paths (not deterministic !help)", async () => {
+    const llm: LlmAssist = {
+      ask: vi.fn().mockResolvedValue("jump point is …"),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn().mockResolvedValue("brief"),
+    };
+    const router = new ControlRouter(fakeLogger(), llm);
+
+    const ask = await router.routeVoice("ask what is a jump point", makeContext(fakeBot()));
+    expect(ask).toEqual({
+      type: "llm",
+      llmIntent: { mode: "ask", text: "what is a jump point" },
+    });
+    expect(await router.execute(ask, makeContext(fakeBot()))).toBe("jump point is …");
+    expect(llm.ask).toHaveBeenCalled();
+    expect(llm.chatForIntent).not.toHaveBeenCalled();
+
+    const prefixed = await router.routeVoice("!ask same question", makeContext(fakeBot()));
+    expect(prefixed.llmIntent).toEqual({ mode: "ask", text: "same question" });
+
+    const analyst = await router.routeVoice(
+      "analyst summarise recruitment doctrine",
+      makeContext(fakeBot()),
+    );
+    expect(analyst.llmIntent).toEqual({
+      mode: "delegate",
+      text: "summarise recruitment doctrine",
+      delegateFlags: new Set(),
+    });
+  });
+
   it("routes unknown speech to the LLM intent path (covers fuzzy music + Q&A)", async () => {
     const router = new ControlRouter(fakeLogger(), {
       ask: vi.fn(),

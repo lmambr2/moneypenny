@@ -8,6 +8,16 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-14
 
+### Fix: spoken / poke `ask` and `analyst` answered "Try !help"
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Chat `!ask` / `!analyst` already went to the LLM. Voice and poke used
+  `routeVoice`, which treated those names as deterministic commands with no
+  handler → `Unknown command. Try !help`
+- Shared LLM decision helper; strip an optional leading `!` so poke `!ask …`
+  is ask, not a fake command named `!ask`
+- `! ask …` and `!ask,` now parse as `ask`
+
 ### Karaoke mode (listen duck 80 vs 15)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

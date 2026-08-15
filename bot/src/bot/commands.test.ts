@@ -60,6 +60,18 @@ describe("Command Parser", () => {
     expect(result!.args).toBe("3");
   });
 
+  it("trims space after the prefix so '! ask …' is ask", () => {
+    const result = parseCommand("! ask what is a jump point", "!");
+    expect(result!.name).toBe("ask");
+    expect(result!.args).toBe("what is a jump point");
+  });
+
+  it("strips trailing punctuation on the command name", () => {
+    const result = parseCommand("!ask, how do I refine", "!");
+    expect(result!.name).toBe("ask");
+    expect(result!.args).toBe("how do I refine");
+  });
+
   it("recognizes the chevron7 easter egg as a known command", () => {
     // Must route deterministically (not fall through to LLM fuzzy intent).
     const result = parseCommand("!chevron7", "!");

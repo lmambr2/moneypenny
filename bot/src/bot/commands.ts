@@ -183,11 +183,12 @@ export function parseCommand(
   const trimmed = message.trim();
   if (!trimmed.startsWith(prefix)) return null;
 
-  const withoutPrefix = trimmed.slice(prefix.length);
+  const withoutPrefix = trimmed.slice(prefix.length).trim();
   if (!withoutPrefix) return null;
 
-  const parts = withoutPrefix.split(/\s+/);
-  let name = parts[0].toLowerCase();
+  const parts = withoutPrefix.split(/\s+/).filter(Boolean);
+  let name = parts[0].toLowerCase().replace(/[.,!?;:]+$/u, "");
+  if (!name) return null;
 
   if (aliases[name]) {
     name = aliases[name];

@@ -267,6 +267,36 @@ export function normalizeVoiceTranscript(transcript: string): string {
     .trim();
 }
 
+/**
+ * ask / analyst / agent / intsum / aar are known commands (COMMAND_MANIFEST
+ * kind "router") but have no CommandRegistry handler — chat `route()` must
+ * send them to the LLM. Voice and poke share this helper so spoken/poked
+ * "ask …" does not fall through to "Unknown command. Try !help".
+ */
+export function llmDecisionForCommand(command: ParsedCommand): RouterDecision | null {
+  if (command.name === "ask") {
+    return { type: "llm", llmIntent: { mode: "ask", text: command.args } };
+  }
+  if (command.name === "analyst" || command.name === "agent") {
+    return {
+      type: "llm",
+      llmIntent: { mode: "delegate", text: command.args, delegateFlags: command.flags },
+    };
+  }
+  if (command.name === "intsum" || command.name === "aar") {
+    return {
+      type: "llm",
+      llmIntent: {
+        mode: "workflow",
+        text: command.args,
+        workflowKind: command.name,
+        workflowFlags: command.flags,
+      },
+    };
+  }
+  return null;
+}
+
 export class ControlRouter {
   private logger: Logger;
   /** PR-A1+: handlers + middleware pipeline. */
@@ -327,31 +357,8 @@ export class ControlRouter {
       return { type: "unknown" };
     }
 
-    // `!ask <question>` → LLM Q&A path (no tools).
-    if (command.name === "ask") {
-      return { type: "llm", llmIntent: { mode: "ask", text: command.args } };
-    }
-
-    // `!analyst` / `!agent` → heavy delegate path (DESIGN §R1).
-    if (command.name === "analyst" || command.name === "agent") {
-      return {
-        type: "llm",
-        llmIntent: { mode: "delegate", text: command.args, delegateFlags: command.flags },
-      };
-    }
-
-    // `!intsum` / `!aar` → templated org docs (DESIGN §R3).
-    if (command.name === "intsum" || command.name === "aar") {
-      return {
-        type: "llm",
-        llmIntent: {
-          mode: "workflow",
-          text: command.args,
-          workflowKind: command.name,
-          workflowFlags: command.flags,
-        },
-      };
-    }
+    const llm = llmDecisionForCommand(command);
+    if (llm) return llm;
 
     // Known command → deterministic dispatch (the fast, reliable path).
     if (isKnownCommand(command.name)) {
@@ -389,14 +396,16 @@ export class ControlRouter {
     context: RouterContext,
     aliases: Record<string, string> = {},
   ): Promise<RouterDecision> {
-    const text = normalizeVoiceTranscript(transcript);
+    // Poke (and some STT) include the chat prefix; strip so "!ask …" is ask,
+    // not a fake command named "!ask" after we re-prefix below.
+    const text = normalizeVoiceTranscript(transcript).replace(/^!+/, "").trim();
     if (!text) return { type: "unknown" };
 
     // Parse as if prefixed so flag/alias handling is shared with the chat path.
     const command = parseCommand(`!${text}`, "!", aliases);
-    if (command) {
-      command.name = command.name.replace(/[.,!?;:]+$/u, "");
-    }
+    const llm = command ? llmDecisionForCommand(command) : null;
+    if (llm) return llm;
+
     if (command && isKnownCommand(command.name)) {
       // STT often hears "play" without the title on a partial route — fall back
       // to the LLM so "play bohemian rhapsody" isn't executed as bare !play.
