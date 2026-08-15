@@ -122,7 +122,7 @@ run `!ask` — first reply should be seconds, not a minute.
 |---------------------|--------|
 | **&lt; ~20 GB** | 12B only. Do not enable analyst 31B (or use a second machine). |
 | **~20–24 GB** | Enable 31B only if you accept Ollama **swapping** (12B unloads during `!analyst`). |
-| **≥ ~28–32 GB** | Safe to enable both resident if you want zero swap (optional). |
+| **≥ ~48 GB** | Optional concurrent 12B+31B. A 32 GB card is **not** enough once Whisper and amdgpu HMM are in the picture. |
 
 In the web UI: **Settings → AI → “Enable heavy analyst model (31B)”** (off by default).
 That toggle writes `llmDelegateUrl` / `llmDelegateModel`; when off, both are cleared

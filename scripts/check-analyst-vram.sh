@@ -35,9 +35,10 @@ if [ "$MB" -eq 0 ] && [ -r /sys/class/drm/card0/device/mem_info_vram_total ]; th
 fi
 
 GB=$((MB / 1024))
-# Q4 ballpark: 12B ~8GB, 31B ~18GB, both ~26GB+ overhead
+# Q4 ballpark: 12B ~8GB, 31B ~18–21GB @ 32k ctx. 32GB VRAM is NOT enough
+# for both resident plus Whisper — amdgpu HMM pins ~18–23GB host RAM and OOMs.
 RECOMMEND="12b-only"
-if [ "$MB" -ge 28000 ]; then
+if [ "$MB" -ge 48000 ]; then
   RECOMMEND="both-resident-ok"
 elif [ "$MB" -ge 20000 ]; then
   RECOMMEND="31b-with-swap"

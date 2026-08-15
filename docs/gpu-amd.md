@@ -77,7 +77,7 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml \
 |------------------|--------|
 | &lt; 20 GB | 12B only |
 | 20–24 GB | 31B only with swap (`OLLAMA_MAX_LOADED_MODELS=1`) |
-| ≥ ~28–32 GB | optional concurrent |
+| ≥ ~48 GB | optional concurrent (32 GB + Whisper OOMs) |
 
 ```bash
 ./scripts/check-analyst-vram.sh
