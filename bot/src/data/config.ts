@@ -260,7 +260,14 @@ export function getDefaultConfig(): BotConfig {
     theme: "dark",
     commandPrefix: "!",
     // n→skip (bare advance). Jump/start a title: !jump / !go. pn is a real command.
-    commandAliases: { p: "play", s: "skip", n: "skip" },
+    commandAliases: {
+      p: "play",
+      s: "skip",
+      n: "skip",
+      karyoke: "karaoke",
+      kareoke: "karaoke",
+      karoke: "karaoke",
+    },
     pokeCommandsEnabled: true,
     pokeCommandsPerMinute: 12,
     adminPassword: "",

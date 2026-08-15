@@ -175,6 +175,20 @@ export function isKnownCommand(commandName: string): boolean {
   return PUBLIC_COMMANDS.has(commandName) || ADMIN_COMMANDS.has(commandName);
 }
 
+/** Common karaoke misspellings — `!karyoke` must not fall through to LLM stop/clear. */
+export const KARAOKE_ALIASES: Readonly<Record<string, string>> = {
+  karyoke: "karaoke",
+  kareoke: "karaoke",
+  karaok: "karaoke",
+  karaokee: "karaoke",
+  karaokay: "karaoke",
+  karaokey: "karaoke",
+  carryoke: "karaoke",
+  carioke: "karaoke",
+  karoke: "karaoke",
+  karaoake: "karaoke",
+};
+
 export function parseCommand(
   message: string,
   prefix: string,
@@ -192,6 +206,8 @@ export function parseCommand(
 
   if (aliases[name]) {
     name = aliases[name];
+  } else if (KARAOKE_ALIASES[name]) {
+    name = KARAOKE_ALIASES[name]!;
   }
 
   const flags = new Set<string>();

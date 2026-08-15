@@ -86,6 +86,26 @@ import { RightsRuntime } from "./rights/runtime.js";
 import { allowedClassificationsFor } from "./rights/subject.js";
 import { VoiceSession } from "./voice/session.js";
 
+/** Fields that require tearing down STT/TTS. Karaoke / duck can hot-apply. */
+function voiceRestartRequired(prev: VoiceConfig, next: VoiceConfig): boolean {
+  const keys = [
+    "enabled",
+    "sttUrl",
+    "ttsUrl",
+    "ttsVoice",
+    "watchword",
+    "requireWatchword",
+    "listenWindowMs",
+    "energyThreshold",
+    "textWakeFallback",
+    "passiveKwsMaxSpeakers",
+    "respondWithVoice",
+    "ttsBargeIn",
+    "duckMusicOnSpeech",
+  ] as const;
+  return keys.some((k) => prev[k] !== next[k]);
+}
+
 export interface BotInstanceOptions {
   id: string;
   name: string;
@@ -1326,9 +1346,19 @@ export class BotInstance extends EventEmitter {
   }
 
   updateVoice(voice: Partial<VoiceConfig>): void {
-    this.config.voice = { ...defaultVoiceConfig(), ...this.config.voice, ...voice };
+    const prev = { ...defaultVoiceConfig(), ...this.config.voice };
+    const next = { ...prev, ...voice };
+    this.config.voice = next;
+    // Settings Save sends the whole voice object. Restarting the pipeline
+    // just to flip karaoke/duck would drop STT and can look like a stop.
+    if (!voiceRestartRequired(prev, next)) {
+      if (prev.karaokeMode !== next.karaokeMode) {
+        this.voice.setKaraokeMode(!!next.karaokeMode);
+      }
+      return;
+    }
     this.voice.disable();
-    if (this.config.voice.enabled) {
+    if (next.enabled) {
       this.voice.enable();
     }
   }

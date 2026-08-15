@@ -60,6 +60,13 @@ describe("Command Parser", () => {
     expect(result!.args).toBe("3");
   });
 
+  it("maps karaoke typos to karaoke so they do not hit LLM intent", () => {
+    expect(parseCommand("!karyoke on", "!")!.name).toBe("karaoke");
+    expect(parseCommand("!kareoke off", "!")!.name).toBe("karaoke");
+    expect(parseCommand("!karoke", "!")!.name).toBe("karaoke");
+    expect(parseCommand("!karyoke on", "!")!.args).toBe("on");
+  });
+
   it("trims space after the prefix so '! ask …' is ask", () => {
     const result = parseCommand("! ask what is a jump point", "!");
     expect(result!.name).toBe("ask");

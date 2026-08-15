@@ -8,6 +8,22 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-14
 
+### Karaoke: typos and no queue wipe
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `!karyoke` / `!kareoke` / `!karoke` map to `!karaoke` (typos used to hit LLM
+  intent, which called **stop** and cleared the queue)
+- Settings karaoke-only save no longer restarts the voice pipeline
+
+### Fix: !add tracks skipped before they start
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Stall watchdog waited only ~10s for first PCM — yt-dlp often needs longer,
+  so added YouTube songs ended at elapsed 0 and looked skipped
+- Startup (no audio yet) now waits 45s; mid-track hang after audio started is
+  still 10s
+- RandomLoop `next()` prefers unplayed human `!add` tracks over radio fill
+
 ### LLM: much higher output token caps
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

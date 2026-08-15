@@ -830,7 +830,7 @@ export class CommandExecutor {
       `${p}playlist <name|id> · ${p}album <id> · ${p}artist <name> · ${p}lyrics · ${p}vote`,
       `${p}test — Demo track (local copy if saved, else ${DEFAULT_DEMO_VIDEO_URL})`,
       `${p}radio [on|off|status|ops|bumper|say|skipbumper|pin|prewarm|gen] — Auto-DJ`,
-      `${p}karaoke [on|off] — Keep music loud while listening (duck 80 instead of 15)`,
+      `${p}karaoke [on|off] — Keep music loud while listening (duck 80 instead of 15; karyoke/kareoke work)`,
       `${p}rate <1-5> [song] · ${p}unrate — Rate the current (or a searched) track`,
       "",
       "AI & knowledge (needs LLM / RAG enabled in Settings)",

@@ -45,6 +45,12 @@ describe("CommandExecutor !karaoke", () => {
     expect(setKaraokeMode).toHaveBeenCalledWith(false);
   });
 
+  it("accepts the karyoke typo via parseCommand name karaoke", async () => {
+    const { exec, setKaraokeMode } = executor();
+    await expect(exec.execute(cmd("karaoke", "on"))).resolves.toMatch(/karaoke on/i);
+    expect(setKaraokeMode).toHaveBeenCalledWith(true);
+  });
+
   it("rejects unknown subcommands", async () => {
     const { exec, setKaraokeMode } = executor();
     await expect(exec.execute(cmd("karaoke", "maybe"))).resolves.toMatch(/usage/i);
