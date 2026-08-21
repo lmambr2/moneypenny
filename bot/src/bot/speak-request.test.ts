@@ -48,6 +48,15 @@ describe("textForAnnouncement", () => {
     expect(textForAnnouncement("**Hello** see https://x.com/y world")).toBe("Hello see world");
   });
 
+  it("does not speak the sources footer", () => {
+    expect(
+      textForAnnouncement("Dock at Port A.\n\n📎 Sources: combat-doctrine.md, hangar-sop.md"),
+    ).toBe("Dock at Port A.");
+    expect(textForAnnouncement("Dock at Port A. 📎 Sources: combat-doctrine.md")).toBe(
+      "Dock at Port A.",
+    );
+  });
+
   it("caps long answers at a sentence", () => {
     const long = `${"Word. ".repeat(80)}Finale that never ends ${"x".repeat(200)}`;
     const out = textForAnnouncement(long, 80);

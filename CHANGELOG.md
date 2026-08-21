@@ -8,6 +8,12 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-20
 
+### TTS: do not read the Sources footer
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Spoken `!ask` and voice replies strip `📎 Sources: …` before Piper
+- Chat still shows the citation list
+
 ### YouTube playback: yt-dlp 2026.08.19 + nightly self-update
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

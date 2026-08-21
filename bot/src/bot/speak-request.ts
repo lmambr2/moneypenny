@@ -29,10 +29,19 @@ export function parseSpokenAskRequest(
   return { text, speak };
 }
 
+/** Drop the RAG citation footer so Piper does not read filename lists. */
+export function stripSourcesForSpeech(raw: string): string {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{1,2}📎\s*Sources:.*$/is, "")
+    .replace(/\s*📎\s*Sources:.*$/is, "")
+    .replace(/\n{1,2}Sources:\s+\S.*$/is, "")
+    .trim();
+}
+
 /** Flatten markdown/URLs and cap length for Piper. */
 export function textForAnnouncement(raw: string, max = MAX_ANNOUNCE_CHARS): string {
-  const t = raw
-    .replace(/\r\n/g, "\n")
+  const t = stripSourcesForSpeech(raw)
     .replace(/[*_`#]+/g, "")
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\s+/g, " ")

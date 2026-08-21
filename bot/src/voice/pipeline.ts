@@ -1,3 +1,4 @@
+import { textForAnnouncement } from "../bot/speak-request.js";
 import type { ControlRouter, RouterContext } from "../control/router.js";
 import type { Logger } from "../logger.js";
 import { isMusicSearchRouteText, voiceRouteNeedsPendingAck } from "./music-command.js";
@@ -253,15 +254,15 @@ export class VoicePipeline {
 
     let ttsBytes = pendingAckBytes;
     const shouldSpeak = opts.speak !== false;
+    const ttsText = reply ? (voiceSpokenAck(reply) ?? textForAnnouncement(reply)) : "";
     const speakReply =
-      reply &&
+      !!ttsText &&
       this.opts.respondWithVoice &&
       this.opts.tts &&
-      shouldSpeakVoiceReply(reply) &&
+      shouldSpeakVoiceReply(ttsText) &&
       (shouldSpeak ? this.opts.output : true);
 
-    if (speakReply && reply && this.opts.tts) {
-      const ttsText = voiceSpokenAck(reply) ?? reply;
+    if (speakReply && this.opts.tts) {
       try {
         const { audio, format } = await this.opts.tts.synthesize(ttsText);
         ttsBytes += audio.length;
@@ -271,7 +272,7 @@ export class VoicePipeline {
       } catch (err) {
         this.logger?.warn({ err }, "Voice: TTS/playback failed");
       }
-    } else if (reply && this.opts.respondWithVoice && !shouldSpeakVoiceReply(reply)) {
+    } else if (reply && this.opts.respondWithVoice && !shouldSpeakVoiceReply(ttsText || reply)) {
       this.logger?.info(
         { chars: reply.length, playback: reply.length <= 40 },
         "Voice: skipping TTS for this reply",
