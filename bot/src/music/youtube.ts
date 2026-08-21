@@ -225,15 +225,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 function findYtDlp(): string {
   const exe = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
   const candidates = [
+    process.env.YTDLP_BIN,
+    join("/app/data/bin", exe),
     join(__dirname, "..", "..", "bin", exe),
     join(__dirname, "..", "..", "bin", "yt-dlp"),
     exe,
-  ];
+  ].filter((c): c is string => !!c);
   for (const c of candidates) {
     // Absolute/relative paths: only return if the file exists.
     // Bare names: return and let execFile resolve via PATH.
-    const isBinPath = c.includes(join("bin", "yt-dlp"));
-    if (!isBinPath || existsSync(c)) return c;
+    const isBare = !c.includes("/") && !c.includes("\\");
+    if (isBare || existsSync(c)) return c;
   }
   return exe;
 }

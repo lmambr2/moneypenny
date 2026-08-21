@@ -115,12 +115,16 @@ RUN rm -rf /usr/local/lib/node_modules/npm \
     /usr/local/lib/node_modules/corepack \
     /usr/local/bin/corepack 2>/dev/null || true
 
-# Runtime media tools. yt-dlp is installed via pip; ffmpeg from apt.
+# Runtime media tools. yt-dlp binary (not pip): YouTube killed android_vr on
+# 2026-08-17; stable 2026.07.04 still uses it and 403s. 2026.08.19+ uses visionos.
 # aubio-tools: BPM detection for the radio analyzer sidecar (docs/radio.md §9.5).
 # libopus0: runtime shared lib for @moneypenny/audio-native (PR-B4) — required.
+ARG YTDLP_VERSION=2026.08.19
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg python3 python3-pip ca-certificates pandoc aubio-tools libfftw3-double3 libopus0 \
-    && pip3 install --no-cache-dir --break-system-packages yt-dlp \
+    ffmpeg python3 python3-pip ca-certificates curl pandoc aubio-tools libfftw3-double3 libopus0 \
+    && curl -fsSL -o /usr/local/bin/yt-dlp \
+      "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" \
+    && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=analyzer /usr/local/bin/keyfinder-cli /usr/local/bin/keyfinder-cli
 COPY --from=analyzer /usr/local/lib /usr/local/lib

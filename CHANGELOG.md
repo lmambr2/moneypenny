@@ -6,6 +6,16 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-08-20
+
+### YouTube playback: ship yt-dlp 2026.08.19 (visionos)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- YouTube killed the `android_vr` client on 2026-08-17; stable `2026.07.04`
+  still uses it, so `!play` resolved then ffmpeg 403'd (exit 8)
+- Image now installs the `2026.08.19` yt-dlp binary (visionos). Also looks at
+  `/app/data/bin/yt-dlp` for a hotswap without a rebuild
+
 ## 2026-08-14
 
 ### Spoken roasts; spoken !ask on request
