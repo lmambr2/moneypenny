@@ -151,6 +151,8 @@ COPY --from=build --chown=moneypenny:moneypenny /app/packages ./packages
 COPY --from=build --chown=moneypenny:moneypenny /app/dist ./dist
 COPY --from=build --chown=moneypenny:moneypenny /app/web/dist ./web/dist
 COPY --chown=moneypenny:moneypenny package.json ./
+COPY docker-entrypoint.sh /usr/local/bin/moneypenny-entrypoint
+RUN chmod a+rx /usr/local/bin/moneypenny-entrypoint
 
 # /app/data holds the SQLite DB, logs, avatars, and config.json — must be
 # writable by the non-root user. Lock it down (secrets at rest, §11).
@@ -163,4 +165,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:'+(process.env.WEB_PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+ENTRYPOINT ["/usr/local/bin/moneypenny-entrypoint"]
 CMD ["node", "dist/index.js"]

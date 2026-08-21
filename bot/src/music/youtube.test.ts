@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DEMO_VIDEO_ID,
   DEFAULT_DEMO_VIDEO_URL,
+  findYtDlp,
   isYoutubeFullAlbumTitle,
   isYoutubeLivestreamRadioTitle,
   isYoutubeTooLong,
@@ -129,6 +130,44 @@ const hasYtDlp = (() => {
     return false;
   }
 })();
+
+describe("findYtDlp", () => {
+  it("honours YTDLP_BIN when the file is a real zipapp", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "ytdlp-"));
+    const bin = join(dir, "yt-dlp");
+    writeFileSync(bin, "x".repeat(120_000));
+    const prev = process.env.YTDLP_BIN;
+    process.env.YTDLP_BIN = bin;
+    try {
+      expect(findYtDlp()).toBe(bin);
+    } finally {
+      if (prev === undefined) delete process.env.YTDLP_BIN;
+      else process.env.YTDLP_BIN = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips tiny pip stubs", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "ytdlp-"));
+    const stub = join(dir, "yt-dlp");
+    writeFileSync(stub, "#!/usr/bin/python3\n");
+    const prev = process.env.YTDLP_BIN;
+    process.env.YTDLP_BIN = stub;
+    try {
+      expect(findYtDlp()).not.toBe(stub);
+    } finally {
+      if (prev === undefined) delete process.env.YTDLP_BIN;
+      else process.env.YTDLP_BIN = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("YouTubeProvider — default unit test / startup video", () => {
   const provider = new YouTubeProvider();

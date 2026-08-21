@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -221,21 +221,28 @@ export function shouldBlockYoutubeSong(opts: {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** Resolve the yt-dlp binary path. Checks the project bin/ dir first, then PATH. */
-function findYtDlp(): string {
+/** Zipapp is ~3MB; pip stubs are a few hundred bytes and still 403 on YouTube. */
+function isUsableYtDlpBinary(path: string): boolean {
+  try {
+    const st = statSync(path);
+    return st.isFile() && st.size >= 100_000;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve the yt-dlp binary. Writable data-dir copy wins so nightly -U sticks. */
+export function findYtDlp(): string {
   const exe = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
   const candidates = [
     process.env.YTDLP_BIN,
     join("/app/data/bin", exe),
+    "/usr/local/bin/yt-dlp",
     join(__dirname, "..", "..", "bin", exe),
     join(__dirname, "..", "..", "bin", "yt-dlp"),
-    exe,
   ].filter((c): c is string => !!c);
   for (const c of candidates) {
-    // Absolute/relative paths: only return if the file exists.
-    // Bare names: return and let execFile resolve via PATH.
-    const isBare = !c.includes("/") && !c.includes("\\");
-    if (isBare || existsSync(c)) return c;
+    if (isUsableYtDlpBinary(c)) return c;
   }
   return exe;
 }
@@ -281,7 +288,8 @@ async function runYtDlp(args: string[], timeoutMs = 30_000): Promise<string> {
   if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
     // yt-dlp respects these env vars natively
   }
-  const { stdout } = await execFileAsync(binary, args, {
+  const prefixed = args.includes("--js-runtimes") ? args : ["--js-runtimes", "node", ...args];
+  const { stdout } = await execFileAsync(binary, prefixed, {
     timeout: timeoutMs,
     env,
     maxBuffer: 10 * 1024 * 1024,

@@ -8,13 +8,15 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-20
 
-### YouTube playback: ship yt-dlp 2026.08.19 (visionos)
+### YouTube playback: yt-dlp 2026.08.19 + nightly self-update
 **Author: Grok (xAI), driven by Lane Ambrose.**
 
 - YouTube killed the `android_vr` client on 2026-08-17; stable `2026.07.04`
   still uses it, so `!play` resolved then ffmpeg 403'd (exit 8)
-- Image now installs the `2026.08.19` yt-dlp binary (visionos). Also looks at
-  `/app/data/bin/yt-dlp` for a hotswap without a rebuild
+- Image ships the `2026.08.19` zipapp (visionos). On start, copy it to
+  `/app/data/bin/yt-dlp` and `--update-to nightly` (fail-open)
+- Bot prefers that writable binary so extractor fixes land without a rebuild
+- Host timer `scripts/update-yt-dlp.sh` refreshes the same file while running
 
 ## 2026-08-14
 
