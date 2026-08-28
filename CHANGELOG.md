@@ -8,6 +8,16 @@ assistant** authored each batch of work, since not every commit carries a
 
 ## 2026-08-27
 
+### Major/pin bumps
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Biome 2.5.7 → 2.5.11 (schema + format/import-sort)
+- `@types/better-sqlite3` 7 → 9
+- `@napi-rs/cli` 2 → 3; Rust `napi` / `napi-derive` 3 (`napi-build` stays 2 —
+  no v3 on crates.io). Native Opus addon rebuilt.
+- Web TypeScript stays 6: `vue-tsc` still needs `typescript/lib/tsc`, which
+  TS 7 does not export
+
 ### npm lockfile refresh (semver-wanted)
 **Author: Grok (xAI), driven by Lane Ambrose.**
 

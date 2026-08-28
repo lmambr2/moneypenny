@@ -8,7 +8,7 @@ This file guides AI coding assistants working in this repo. Follow it unless the
 
 **Lint/format:** [Biome](https://biomejs.dev/) — `cd bot && npm run lint` / `lint:fix`. Config `bot/biome.json`. Wired into `scripts/deploy-preflight.sh` and full `scripts/ci-validate.sh`. **Does not replace `tsc` or vitest.** See [docs/linting.md](./docs/linting.md).
 
-**TypeScript:** bot + `@moneypenny/ts6-client` use **TypeScript 6** (`^6.0.2`). The Vue SPA (`bot/web`) stays on **TypeScript 5.8** until `vue-tsc` supports TS 6 — do not blindly unify those pins.
+**TypeScript:** bot + `@moneypenny/ts6-client` use **TypeScript 7**. The Vue SPA (`bot/web`) stays on **TypeScript 6** until `vue-tsc` supports TS 7 (TS 7 ships no programmatic API) — do not blindly unify those pins.
 
 ---
 

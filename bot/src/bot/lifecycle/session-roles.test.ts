@@ -11,9 +11,7 @@ import {
 
 describe("normalizeSessionGroupIds", () => {
   it("keeps unique positive ints", () => {
-    expect(normalizeSessionGroupIds([201, "202", 201, 0, -1, "x", 203.7])).toEqual([
-      201, 202, 203,
-    ]);
+    expect(normalizeSessionGroupIds([201, "202", 201, 0, -1, "x", 203.7])).toEqual([201, 202, 203]);
   });
   it("empty on garbage", () => {
     expect(normalizeSessionGroupIds(null)).toEqual([]);
@@ -38,10 +36,7 @@ describe("permanentRankIdsFromRights", () => {
   it("collects rule serverGroups + adminGroups", () => {
     const ids = permanentRankIdsFromRights(
       {
-        rules: [
-          { match: { serverGroups: ["100", "101"] } },
-          { match: { serverGroups: ["106"] } },
-        ],
+        rules: [{ match: { serverGroups: ["100", "101"] } }, { match: { serverGroups: ["106"] } }],
       },
       [107, "108"],
     );
@@ -52,11 +47,7 @@ describe("permanentRankIdsFromRights", () => {
 describe("parseServerGroupClientDbIds", () => {
   it("parses array of cldbid rows", () => {
     expect(
-      parseServerGroupClientDbIds([
-        { cldbid: "10" },
-        { cldbid: 11 },
-        { client_database_id: 12 },
-      ]),
+      parseServerGroupClientDbIds([{ cldbid: "10" }, { cldbid: 11 }, { client_database_id: 12 }]),
     ).toEqual([10, 11, 12]);
   });
   it("parses wrapped body", () => {
@@ -197,9 +188,7 @@ describe("SessionRolesService", () => {
   });
 
   it("auto-clear fires after grace when server empty", async () => {
-    const serverGroupClientList = vi
-      .fn()
-      .mockResolvedValue({ status: 200, body: [{ cldbid: 1 }] });
+    const serverGroupClientList = vi.fn().mockResolvedValue({ status: 200, body: [{ cldbid: 1 }] });
     const serverGroupDelClient = vi.fn().mockResolvedValue({ status: 200, body: {} });
     const s = makeService({
       groupIds: [201],

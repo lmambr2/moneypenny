@@ -62,6 +62,13 @@ export { isUnderBumperDir, type LastPlayedBumper, pinBumperToPool } from "./pin.
 export { PrerecordedPool, type PrerecordedPoolDeps } from "./prerecorded.js";
 export { orderKeysByRatingWeight, type RatingWeightOpts } from "./rating-weight.js";
 export {
+  type RelayConfig,
+  RelayScheduler,
+  type RelaySchedulerDeps,
+  relaySongFromUrl,
+  resolveRelayFromProfile,
+} from "./relay.js";
+export {
   applySmartRotation,
   DEFAULT_ENERGY_BIAS,
   DEFAULT_SEPARATION,
@@ -74,13 +81,6 @@ export {
   type SmartRotationOpts,
   type SmartRotationTrackMeta,
 } from "./smart-rotation.js";
-export {
-  type RelayConfig,
-  RelayScheduler,
-  type RelaySchedulerDeps,
-  relaySongFromUrl,
-  resolveRelayFromProfile,
-} from "./relay.js";
 export { SpeechSink, type SpeechSinkDeps } from "./speech.js";
 export { type TagSource, TagStore, type TrackTags } from "./tag-store.js";
 export {

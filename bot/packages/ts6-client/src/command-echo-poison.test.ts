@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  isCommandEchoPoison,
-  sanitizeOutboundCommandPrefix,
-} from "./client.js";
+import { isCommandEchoPoison, sanitizeOutboundCommandPrefix } from "./client.js";
 
 describe("isCommandEchoPoison", () => {
   it("flags the historical skip usage flood string", () => {

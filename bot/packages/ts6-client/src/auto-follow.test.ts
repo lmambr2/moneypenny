@@ -45,15 +45,14 @@ describe("pickBusiestChannel", () => {
   });
 
   it("stays put when nobody is anywhere else", () => {
-    expect(pickBusiestChannel([c(BOT, LOBBY)], { selfClientId: BOT, currentChannelId: LOBBY }))
-      .toBeNull();
+    expect(
+      pickBusiestChannel([c(BOT, LOBBY)], { selfClientId: BOT, currentChannelId: LOBBY }),
+    ).toBeNull();
   });
 
   it("never suggests the channel it is already in", () => {
     const all = [c(2, LOBBY), c(3, LOBBY), c(BOT, LOBBY)];
-    expect(
-      pickBusiestChannel(all, { selfClientId: BOT, currentChannelId: LOBBY }),
-    ).toBeNull();
+    expect(pickBusiestChannel(all, { selfClientId: BOT, currentChannelId: LOBBY })).toBeNull();
   });
 
   // The whole point of AFK is that nobody there wants a DJ.
@@ -85,9 +84,9 @@ describe("pickBusiestChannel", () => {
     const pick = () => pickBusiestChannel(all, { selfClientId: BOT, currentChannelId: 5n });
     expect(pick()).toBe(LOBBY);
     expect(pick()).toBe(LOBBY);
-    expect(pickBusiestChannel([...all].reverse(), { selfClientId: BOT, currentChannelId: 5n })).toBe(
-      LOBBY,
-    );
+    expect(
+      pickBusiestChannel([...all].reverse(), { selfClientId: BOT, currentChannelId: 5n }),
+    ).toBe(LOBBY);
   });
 
   it("ignores serverquery sessions when choosing", () => {

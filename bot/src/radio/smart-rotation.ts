@@ -9,7 +9,7 @@
  * and radio-on with everything off matches prior ordering minus RNG.
  */
 
-import { orderKeysHarmonically, type HarmonicTrackMeta } from "./harmonic.js";
+import { type HarmonicTrackMeta, orderKeysHarmonically } from "./harmonic.js";
 import { orderKeysByRatingWeight, type RatingWeightOpts } from "./rating-weight.js";
 
 /** Artist / album spacing windows over the recent programmed queue. */

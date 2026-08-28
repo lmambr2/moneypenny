@@ -1,11 +1,11 @@
 import { dirname } from "node:path";
 import { Router } from "express";
+import { clampMusicOpusBitrateKbps } from "../../audio/encoder.js";
 import type { BotManager } from "../../bot/manager.js";
 import { parseBotScope } from "../../bot/scope.js";
 import type { AuditStore } from "../../data/audit.js";
 import type { AvatarStore } from "../../data/avatars.js";
 import { redactBotInstanceSecrets } from "../../data/bot-secrets.js";
-import { clampMusicOpusBitrateKbps } from "../../audio/encoder.js";
 import type { BotConfig } from "../../data/config.js";
 import { saveConfig } from "../../data/config.js";
 import type { BotDatabase } from "../../data/database.js";

@@ -208,7 +208,10 @@ export class SessionRolesService {
     }
     if (sub === "clear" || sub === "end" || sub === "reset") {
       const dry =
-        parts.includes("dry") || parts.includes("dryrun") || parts.includes("--dry") || parts.includes("-n");
+        parts.includes("dry") ||
+        parts.includes("dryrun") ||
+        parts.includes("--dry") ||
+        parts.includes("-n");
       return this.clear({ dryRun: dry });
     }
     return SessionRolesService.USAGE;
@@ -353,7 +356,9 @@ export class SessionRolesService {
   private normalizeCfg(raw: SessionRolesConfig): SessionRolesConfig {
     return {
       groupIds: normalizeSessionGroupIds(raw.groupIds),
-      namePrefix: (raw.namePrefix || DEFAULT_SESSION_ROLE_NAME_PREFIX).trim() || DEFAULT_SESSION_ROLE_NAME_PREFIX,
+      namePrefix:
+        (raw.namePrefix || DEFAULT_SESSION_ROLE_NAME_PREFIX).trim() ||
+        DEFAULT_SESSION_ROLE_NAME_PREFIX,
       autoClearOnEmpty: !!raw.autoClearOnEmpty,
       clearGraceMinutes:
         typeof raw.clearGraceMinutes === "number" && raw.clearGraceMinutes >= 0

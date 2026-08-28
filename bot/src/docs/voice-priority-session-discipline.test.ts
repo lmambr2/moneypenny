@@ -103,13 +103,7 @@ describe("permanent-rank rights template vs session roles", () => {
   it("does not map rights solely from session-role name strings", () => {
     // Session roles are human labels; the shipped template uses numeric placeholder
     // permanent-rank group IDs only (e.g. "100".."114"), never Flight Lead etc.
-    const sessionLabels = [
-      "Flight Lead",
-      "Gunner",
-      "Wingman",
-      "WSO",
-      "Session /",
-    ];
+    const sessionLabels = ["Flight Lead", "Gunner", "Wingman", "WSO", "Session /"];
     for (const label of sessionLabels) {
       expect(templateText, `session label leaked into rights template: ${label}`).not.toContain(
         label,
@@ -129,7 +123,9 @@ describe("permanent-rank rights template vs session roles", () => {
 
   it("still includes permanent-rank style rule names (guest/cadet/…)", () => {
     const names = (template.rules as Array<{ name?: string }>).map((r) => r.name ?? "");
-    expect(names).toEqual(expect.arrayContaining(["guest", "cadet", "command-staff", "server-admin"]));
+    expect(names).toEqual(
+      expect.arrayContaining(["guest", "cadet", "command-staff", "server-admin"]),
+    );
   });
 });
 
