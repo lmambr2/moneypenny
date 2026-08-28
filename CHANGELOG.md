@@ -6,6 +6,16 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-08-27
+
+### npm lockfile refresh (semver-wanted)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `npm update` in bot + web: music-metadata, swagger-ui-dist, vue 3.5.42,
+  vue-router 5.3, vite 8.2.2, vitest 4.1.11, tsx, types/node, etc.
+- Left majors alone (biome pin, napi-rs/cli 2, web TypeScript 6)
+- allowScripts: esbuild@0.28.2
+
 ## 2026-08-20
 
 ### TTS: do not read the Sources footer
