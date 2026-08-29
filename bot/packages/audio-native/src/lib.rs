@@ -1,9 +1,15 @@
 #![deny(clippy::all)]
 
+mod opus_packet;
+mod pcm;
+mod voice_frame;
+
 use audiopus::coder::{Decoder as OpusDecoder, Encoder as OpusEncoder};
 use audiopus::{Application, Bitrate, Channels, SampleRate};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+
+use crate::opus_packet::{split_opus_frames, OPUS_DTX_MAX_BYTES};
 
 fn map_channels(channels: u32) -> Result<Channels> {
   match channels {
@@ -35,6 +41,15 @@ pub struct NativeOpus {
   decoder: OpusDecoder,
   channels: u32,
   frame_size: usize,
+}
+
+#[napi(object)]
+pub struct VoiceDecodeResult {
+  pub ok: bool,
+  /// Empty on success; `empty` | `dtx` | `corrupt` on failure.
+  pub reason: String,
+  pub pcm: Buffer,
+  pub frames: u32,
 }
 
 #[napi]
@@ -79,7 +94,7 @@ impl NativeOpus {
   /// Encode interleaved s16le PCM to a single Opus packet.
   #[napi]
   pub fn encode(&mut self, pcm: Buffer) -> Result<Buffer> {
-    let samples: &[i16] = bytemuck_i16(pcm.as_ref())?;
+    let samples: &[i16] = crate::pcm::samples_i16(pcm.as_ref())?;
     let mut out = vec![0u8; 4000];
     let n = self
       .encoder
@@ -91,49 +106,73 @@ impl NativeOpus {
   /// Decode one Opus packet to interleaved s16le PCM.
   #[napi]
   pub fn decode(&mut self, opus: Buffer) -> Result<Buffer> {
+    self.decode_bytes(opus.as_ref())
+  }
+
+  fn decode_bytes(&mut self, opus: &[u8]) -> Result<Buffer> {
     let max_samples = self.frame_size * 6; // allow multi-frame slack
     let mut pcm = vec![0i16; max_samples];
     let n = self
       .decoder
-      .decode(Some(opus.as_ref()), &mut pcm, false)
+      .decode(Some(opus), &mut pcm, false)
       .map_err(|e| Error::from_reason(format!("opus decode: {e:?}")))?;
     let bytes = n * self.channels as usize * 2;
-    let raw = unsafe {
-      std::slice::from_raw_parts(pcm.as_ptr() as *const u8, bytes)
-    };
+    let raw = unsafe { std::slice::from_raw_parts(pcm.as_ptr() as *const u8, bytes) };
     Ok(Buffer::from(raw.to_vec()))
   }
-}
 
-fn bytemuck_i16(bytes: &[u8]) -> Result<&[i16]> {
-  if !bytes.len().is_multiple_of(2) {
-    return Err(Error::from_reason("PCM length must be even (s16le)"));
+  /// Decode a TeamSpeak voice payload: try whole packet, then per-frame split.
+  /// Never skip on size alone — tiny encoded silence is valid; DTX only after fail.
+  #[napi]
+  pub fn decode_voice(&mut self, packet: Buffer) -> Result<VoiceDecodeResult> {
+    if packet.is_empty() {
+      return Ok(VoiceDecodeResult {
+        ok: false,
+        reason: "empty".into(),
+        pcm: Buffer::from(Vec::<u8>::new()),
+        frames: 0,
+      });
+    }
+    if let Ok(pcm) = self.decode_bytes(packet.as_ref()) {
+      return Ok(VoiceDecodeResult {
+        ok: true,
+        reason: String::new(),
+        pcm,
+        frames: 1,
+      });
+    }
+    if let Some(frames) = split_opus_frames(packet.as_ref()) {
+      if frames.len() > 1 {
+        let mut parts: Vec<u8> = Vec::new();
+        let mut n = 0u32;
+        for frame in &frames {
+          if let Ok(pcm) = self.decode_bytes(frame) {
+            parts.extend_from_slice(pcm.as_ref());
+            n += 1;
+          }
+        }
+        if n > 0 {
+          return Ok(VoiceDecodeResult {
+            ok: true,
+            reason: String::new(),
+            pcm: Buffer::from(parts),
+            frames: n,
+          });
+        }
+      }
+    }
+    let reason = if packet.len() as u32 <= OPUS_DTX_MAX_BYTES {
+      "dtx"
+    } else {
+      "corrupt"
+    };
+    Ok(VoiceDecodeResult {
+      ok: false,
+      reason: reason.into(),
+      pcm: Buffer::from(Vec::<u8>::new()),
+      frames: 0,
+    })
   }
-  let ptr = bytes.as_ptr() as *const i16;
-  let len = bytes.len() / 2;
-  Ok(unsafe { std::slice::from_raw_parts(ptr, len) })
-}
-
-/// RMS energy of interleaved s16le PCM (0..32768 scale). Used for energy VAD.
-#[napi]
-pub fn pcm_rms(pcm: Buffer) -> Result<f64> {
-  let samples: &[i16] = bytemuck_i16(pcm.as_ref())?;
-  if samples.is_empty() {
-    return Ok(0.0);
-  }
-  let mut sum_sq: f64 = 0.0;
-  for &s in samples {
-    let v = f64::from(s);
-    sum_sq += v * v;
-  }
-  Ok((sum_sq / samples.len() as f64).sqrt())
-}
-
-/// True when RMS is at or above the speech threshold (default 500 matches TS SilenceSegmenter).
-#[napi]
-pub fn is_speech_frame(pcm: Buffer, energy_threshold: f64) -> Result<bool> {
-  let rms = pcm_rms(pcm)?;
-  Ok(rms >= energy_threshold)
 }
 
 /// Package probe for loaders / health checks.
