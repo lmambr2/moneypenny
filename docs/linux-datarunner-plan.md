@@ -1,8 +1,8 @@
 # Linux-native Star Citizen datarunner — plan
 
-**Status:** MVP implemented under `tools/datarunner/` (Python 3.11+) plus
-Moneypenny ingest on `POST /api/economy/ingest/terminal-snapshot`.
-**Does not** live in the bot image. Economy audit:
+**Status:** Rust CLI at `tools/datarunner/` plus Moneypenny ingest on
+`POST /api/economy/ingest/terminal-snapshot`. **Does not** live in the bot
+image. Economy audit:
 [economy-audit.md](./economy-audit.md). Ecosystem:
 [sc-economy-tooling.md](./sc-economy-tooling.md).
 
@@ -33,18 +33,19 @@ WPF, no `.exe` requirement. No scrapers.
 
 ---
 
-## Language: Python 3.11+ (not Rust, not in-bot TypeScript)
+## Language: Rust (CLI on the gaming PC, not in the bot image)
 
-Rust would make a fine static binary, but it is **not** the smallest stack
-here:
+The station stays TypeScript. This runner is a **small Linux binary** (watch +
+OCR + HTTP), which is a good Rust fit: one artifact, no venv, `notify` for
+inotify. OCR still shells out to Tesseract (and optional `rapidocr` on PATH).
 
 | Option | Why not / why |
 |--------|----------------|
 | **TypeScript in the bot** | Pulls Tesseract/ONNX into the TeamSpeak image. Forbidden by “OCR opt-in”. |
-| **Rust CLI** | Repo already has Cargo for `audio-native`, but OCR is subprocess+ONNX anyway; more glue than Python for GPU extras. |
-| **Python 3.11+** | Matches existing sidecars (`services/*/server.py`). Stdlib HTTP + optional extras. `watchdog` for inotify. GPU OCR extras install **on the gaming PC only**. |
+| **Python 3.11+** | Fine for sidecars; extra venv on the gaming PC. Replaced by this crate. |
+| **Rust CLI** | `tools/datarunner` — `cargo build --release` → `datarunner`. |
 
-Package: `tools/datarunner/` — `python -m datarunner watch --dir … --dest moneypenny`.
+Package: `tools/datarunner/` — `datarunner watch --dir … --dest moneypenny`.
 
 ---
 
@@ -57,15 +58,13 @@ container never installs these.
 | Backend | Device | How | Extra install |
 |---------|--------|-----|----------------|
 | **tesseract** (default) | CPU | `tesseract` CLI | distro package `tesseract` |
-| **rapidocr + onnxruntime-gpu** | NVIDIA CUDA | ONNX EP `CUDAExecutionProvider` | `pip install -e '.[ocr-cuda]'` |
-| **rapidocr + onnxruntime-rocm** | AMD ROCm | ONNX EP `ROCMExecutionProvider` | `pip install -e '.[ocr-rocm]'` |
-| **rapidocr + onnxruntime-openvino** | Intel iGPU / Arc | OpenVINO EP | `pip install -e '.[ocr-intel]'` |
+| **rapidocr CLI** (optional) | NVIDIA / AMD / Intel | If `rapidocr` is on `PATH` | optional; else Tesseract |
 
 Selection (`OCR_DEVICE=auto|cpu|cuda|rocm|openvino|intel`):
 
-1. If `cpu` → Tesseract (or ONNX CPU if RapidOCR is installed and Tesseract is missing).
-2. If `auto` → detect NVIDIA (`nvidia-smi` / `/dev/nvidia0`), AMD (`/dev/kfd` or `rocminfo`), Intel (`i915`/`xe` DRM) and pick the matching extra **if importable**.
-3. On any GPU init failure → log and use Tesseract.
+1. If `cpu` → Tesseract.
+2. If `auto` → detect NVIDIA (`nvidia-smi` / `/dev/nvidia0`), AMD (`/dev/kfd` or `rocminfo`), Intel (`i915`/`xe` DRM) and try `rapidocr` on `PATH`.
+3. On any GPU / RapidOCR failure → log and use Tesseract.
 
 We do **not** vendor PaddleOCR-GPU wheels or PyTorch EasyOCR (huge). RapidOCR
 ONNX models stay on the gaming PC.
@@ -118,7 +117,7 @@ unless we later map them to `GET/POST` fuel endpoints.
    `drive_c/Program Files/Roberts Space Industries/StarCitizen/{LIVE,PTU}/*creenShots*`
 3. `~/Games/star-citizen/…` (LUG wiki default)
 
-Watch **ScreenShots** and **Screenshots**. Inotify via `watchdog`.
+Watch **ScreenShots** and **Screenshots**. Inotify via `notify` (Rust).
 
 ---
 
