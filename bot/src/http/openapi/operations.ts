@@ -250,7 +250,35 @@ export const API_OPERATIONS: ApiOperation[] = [
   op("post", "/api/economy/trade/itinerary", "Trade itinerary", ["economy"], "session"),
   op("post", "/api/economy/trade/circuit", "Trade circuit", ["economy"], "session"),
   op("get", "/api/economy/cache", "Economy cache status", ["economy"], "session"),
-  op("post", "/api/economy/cache/refresh", "Refresh economy cache", ["economy"], "session"),
+  op("post", "/api/economy/cache/refresh", "Refresh economy cache", ["economy"], "admin"),
+  op(
+    "post",
+    "/api/economy/ingest/terminal-snapshot",
+    "Ingest a terminal price snapshot",
+    ["economy"],
+    "admin",
+  ),
+  op(
+    "get",
+    "/api/economy/ingest/snapshots",
+    "List ingested terminal snapshots",
+    ["economy"],
+    "session",
+  ),
+  op(
+    "post",
+    "/api/economy/ingest/snapshots/{id}/accept",
+    "Accept a terminal snapshot",
+    ["economy"],
+    "admin",
+  ),
+  op(
+    "post",
+    "/api/economy/ingest/snapshots/{id}/reject",
+    "Reject a terminal snapshot",
+    ["economy"],
+    "admin",
+  ),
 
   // ── Users / audit (admin) ────────────────────────────────────────────────
   op("get", "/api/users", "List users", ["users"], "admin"),

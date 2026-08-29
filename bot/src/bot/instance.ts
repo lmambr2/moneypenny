@@ -18,6 +18,7 @@ import { UserShipsStore } from "../data/user-ships.js";
 import type { WorkflowKind } from "../docs/workflow.js";
 import { startEconomyCacheScheduler } from "../economy/cache/refresh.js";
 import { initEconomyDiskCache } from "../economy/cache/store.js";
+import { initIngestStore } from "../economy/ingest.js";
 import { getScTradeClient } from "../economy/sc-trade.js";
 import { initWorkOrderStore } from "../economy/work-orders.js";
 import type { Logger } from "../logger.js";
@@ -501,6 +502,7 @@ export class BotInstance extends EventEmitter {
       initEconomyDiskCache({ db: this.database.db, dataDir });
       startEconomyCacheScheduler({ logger: this.logger });
       initWorkOrderStore(this.database.db);
+      initIngestStore(this.database.db);
     } catch (err) {
       this.logger.warn({ err }, "economy disk cache / work orders init skipped");
     }

@@ -1,6 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { SessionStore } from "../../data/sessions.js";
 import { SESSION_TTL_MS } from "../../data/sessions.js";
+import { tryEconomyIngestBearer } from "../auth/bearer.js";
 import {
   extractSessionToken,
   SESSION_COOKIE_NAME,
@@ -15,6 +16,10 @@ declare module "express-serve-static-core" {
 
 export function createRequireAuth(sessions: SessionStore): RequestHandler {
   return function requireAuth(req: Request, res: Response, next: NextFunction) {
+    if (tryEconomyIngestBearer(req)) {
+      next();
+      return;
+    }
     const result = validateSessionFromHeaders(req.headers.cookie, sessions);
     if (!result) {
       res.clearCookie(SESSION_COOKIE_NAME, { path: "/" });

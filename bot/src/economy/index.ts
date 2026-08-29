@@ -5,6 +5,7 @@ export * from "./catalog.js";
 export * from "./context.js";
 export * from "./format.js";
 export * from "./fuzzy.js";
+export * from "./ingest.js";
 export * from "./material-flags.js";
 export * from "./orders.js";
 export * from "./parse.js";

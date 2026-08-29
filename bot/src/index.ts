@@ -10,6 +10,7 @@ import { DoctrineStore } from "./data/doctrine.js";
 import { FileDropStore } from "./data/file-drop.js";
 import { startEconomyCacheScheduler } from "./economy/cache/refresh.js";
 import { initEconomyDiskCache } from "./economy/cache/store.js";
+import { initIngestStore } from "./economy/ingest.js";
 import { initWorkOrderStore } from "./economy/work-orders.js";
 import { createWebServer } from "./http/index.js";
 import { warmLlmModels } from "./llm/warmup.js";
@@ -103,6 +104,7 @@ async function main() {
     initEconomyDiskCache({ db: db.db, dataDir });
     startEconomyCacheScheduler({ logger });
     initWorkOrderStore(db.db);
+    initIngestStore(db.db);
   } catch (err) {
     logger.warn({ err }, "economy init at boot skipped");
   }

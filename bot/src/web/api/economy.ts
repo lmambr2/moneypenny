@@ -21,6 +21,13 @@ import {
   REFINE_METHODS,
 } from "../../economy/catalog.js";
 import { fuzzyRank } from "../../economy/fuzzy.js";
+import {
+  getIngestStore,
+  type IngestStore,
+  IngestValidationError,
+  parseTerminalSnapshot,
+  serializeSnapshot,
+} from "../../economy/ingest.js";
 import { isUnstableMaterial } from "../../economy/material-flags.js";
 import { buildMineOrder, buildRefineOrder, isOrderError } from "../../economy/orders.js";
 import { blueprintToBom, getScCraftClient, type ScCraftClient } from "../../economy/sc-craft.js";
@@ -47,6 +54,7 @@ export interface EconomyApiDeps {
   scCraft?: ScCraftClient;
   scTrade?: ScTradeClient;
   uex?: UexClient;
+  ingest?: IngestStore | null;
   logger?: Logger;
   /** Audit trail for destructive/expensive ops (clear-all, cache refresh). */
   audit?: AuditStore;
@@ -81,6 +89,11 @@ function parseLocFilters(raw: unknown): string[] | undefined {
 function storeOrNull(deps: EconomyApiDeps): WorkOrderStore | null {
   if (deps.store !== undefined) return deps.store;
   return getWorkOrderStore();
+}
+
+function ingestOrNull(deps: EconomyApiDeps): IngestStore | null {
+  if (deps.ingest !== undefined) return deps.ingest;
+  return getIngestStore();
 }
 
 function serializeOrder(o: {
@@ -182,6 +195,10 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
         available: !!store,
         open: store?.list().length ?? 0,
         maxOpen: MAX_OPEN_WORK_ORDERS,
+      },
+      ingest: {
+        available: !!ingestOrNull(deps),
+        accepted: ingestOrNull(deps)?.list({ status: "accepted", limit: 200 }).length ?? 0,
       },
       oreCount: ORES.length,
       methodCount: REFINE_METHODS.length,
@@ -456,7 +473,8 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
       return;
     }
     const client = uex();
-    if (!client.isEnabled()) {
+    const hasLocal = ingestOrNull(deps)?.hasAccepted() ?? false;
+    if (!client.isEnabled() && !hasLocal) {
       res.status(503).json({ error: "UEX disabled (ECONOMY_UEX=0)" });
       return;
     }
@@ -472,6 +490,7 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
           name: snap.commodity.name,
           code: snap.commodity.code,
         },
+        source: snap.source ?? "uex",
         sell: snap.sell,
         buy: snap.buy,
         matchCount: snap.matches.length,
@@ -894,6 +913,94 @@ export function createEconomyRouter(deps: EconomyApiDeps = {}): Router {
       deps.logger?.warn({ err }, "economy cache refresh via API failed");
       res.status(500).json({ error: "refresh failed" });
     }
+  });
+
+  // ── Terminal snapshot ingest (Linux datarunner) ─────────────────────────
+  router.post("/ingest/terminal-snapshot", mutateLimit, (req, res) => {
+    const ingest = ingestOrNull(deps);
+    if (!ingest) {
+      res.status(503).json({ error: "Ingest store unavailable (bot DB not ready)" });
+      return;
+    }
+    if (req.user?.role !== "admin") {
+      res.status(403).json({ error: "admin required" });
+      return;
+    }
+    try {
+      const parsed = parseTerminalSnapshot(req.body);
+      const createdBy =
+        typeof req.user?.username === "string" ? req.user.username.slice(0, 120) : null;
+      const row = ingest.add(parsed, { createdBy, status: "accepted" });
+      deps.audit?.record({
+        actorId: req.user?.id ?? null,
+        actorUsername: req.user?.username ?? null,
+        targetUserId: null,
+        targetUsername: `${row.type}#${row.idTerminal}`,
+        action: "economy.ingest_snapshot",
+      });
+      res.status(201).json({ snapshot: serializeSnapshot(row) });
+    } catch (err) {
+      if (err instanceof IngestValidationError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      deps.logger?.warn({ err }, "economy ingest failed");
+      res.status(500).json({ error: "ingest failed" });
+    }
+  });
+
+  router.get("/ingest/snapshots", (req, res) => {
+    const ingest = ingestOrNull(deps);
+    if (!ingest) {
+      res.status(503).json({ error: "Ingest store unavailable (bot DB not ready)" });
+      return;
+    }
+    const statusRaw = str(req.query.status, 16);
+    const status =
+      statusRaw === "pending" || statusRaw === "accepted" || statusRaw === "rejected"
+        ? statusRaw
+        : undefined;
+    const limit = clampInt(req.query.limit, 1, 200, 50);
+    const snapshots = ingest.list({ status, limit }).map(serializeSnapshot);
+    res.json({ snapshots, count: snapshots.length });
+  });
+
+  router.post("/ingest/snapshots/:id/accept", requireAdmin, mutateLimit, (req, res) => {
+    const ingest = ingestOrNull(deps);
+    if (!ingest) {
+      res.status(503).json({ error: "Ingest store unavailable (bot DB not ready)" });
+      return;
+    }
+    const id = clampInt(req.params.id, 1, 1_000_000_000, 0);
+    if (!id) {
+      res.status(400).json({ error: "invalid id" });
+      return;
+    }
+    const row = ingest.setStatus(id, "accepted");
+    if (!row) {
+      res.status(404).json({ error: `No snapshot #${id}` });
+      return;
+    }
+    res.json({ snapshot: serializeSnapshot(row) });
+  });
+
+  router.post("/ingest/snapshots/:id/reject", requireAdmin, mutateLimit, (req, res) => {
+    const ingest = ingestOrNull(deps);
+    if (!ingest) {
+      res.status(503).json({ error: "Ingest store unavailable (bot DB not ready)" });
+      return;
+    }
+    const id = clampInt(req.params.id, 1, 1_000_000_000, 0);
+    if (!id) {
+      res.status(400).json({ error: "invalid id" });
+      return;
+    }
+    const row = ingest.setStatus(id, "rejected");
+    if (!row) {
+      res.status(404).json({ error: `No snapshot #${id}` });
+      return;
+    }
+    res.json({ snapshot: serializeSnapshot(row) });
   });
 
   return router;

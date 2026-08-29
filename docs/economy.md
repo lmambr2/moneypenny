@@ -297,6 +297,13 @@ Network-proxy routes are rate-limited; see [security-audit-economy-2026-07-09.md
 | POST | `/trade/circuit` | `{ id, ship, invest, … }` loop from a route id |
 | GET | `/cache` | Disk cache stats (`rootLabel` only — no absolute path) |
 | POST | `/cache/refresh` | Warm catalogs — **admin only** + single-flight |
+| POST | `/ingest/terminal-snapshot` | Linux datarunner JSON — **admin session or `ECONOMY_INGEST_TOKEN` Bearer** |
+| GET | `/ingest/snapshots` | List snapshots |
+| POST | `/ingest/snapshots/:id/accept` | Re-accept (admin) |
+| POST | `/ingest/snapshots/:id/reject` | Drop from local cache (admin) |
+
+Local snapshots that are **newer than the UEX cache** win on `!econ prices` /
+`GET /prices`. UEX remains fallback. Linux runner: [linux-datarunner-plan.md](./linux-datarunner-plan.md).
 
 **Clear policy:** web `DELETE /workorders` and TS `!workorder clear` both require **admin**
 (`workorder.clear` rights token on TS; session admin on web).

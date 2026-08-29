@@ -161,8 +161,8 @@ async function handleEcon(
       return formatCacheStatus();
     }
     case "refresh": {
-      const { refreshEconomyCatalogs, formatCacheStatus } = await import("./cache/refresh.js");
-      const report = await refreshEconomyCatalogs();
+      const { runEconomyCacheRefresh, formatCacheStatus } = await import("./cache/refresh.js");
+      const report = await runEconomyCacheRefresh();
       const lines = report.results.map(
         (r) => `  ${r.ok ? "✓" : "○"} ${r.source}/${r.key}: ${r.detail}`,
       );
@@ -219,10 +219,10 @@ async function lookupPrices(query: string, prefix: string, uex: UexClient): Prom
       `Example: ${prefix}econ prices bexalite`
     );
   }
-  if (!uex.isEnabled()) {
-    return "UEX prices are disabled (ECONOMY_UEX=0). Seed catalog still works via !mine/!refine/!craft.";
-  }
   const snap = await uex.lookupPrice(query);
+  if (!snap && !uex.isEnabled()) {
+    return "UEX prices are disabled (ECONOMY_UEX=0) and no local terminal snapshots are loaded. Seed catalog still works via !mine/!refine/!craft.";
+  }
   if (!snap) {
     return (
       `No UEX commodity match for "${query}" (or UEX unreachable). ` +

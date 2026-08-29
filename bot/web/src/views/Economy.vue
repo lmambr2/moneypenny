@@ -390,6 +390,7 @@
           <p>
             Sell avg: <strong>{{ fmtMoney(priceResult.sell) }}</strong>
             · Buy avg: <strong>{{ fmtMoney(priceResult.buy) }}</strong>
+            <span v-if="priceResult.source" class="meta"> · {{ priceResult.source }}</span>
           </p>
           <p v-if="priceResult.supply" class="meta">
             Supply
@@ -530,6 +531,50 @@
         </div>
       </div>
     </section>
+
+    <!-- ── Snapshots (datarunner ingest) ──────────────────────────────── -->
+    <section v-if="tab === 'snapshots'" class="panel">
+      <div class="card">
+        <div class="card-head">
+          <h2>Inbound terminal snapshots</h2>
+          <button class="btn ghost" :disabled="busy" type="button" @click="loadSnapshots">Reload</button>
+        </div>
+        <p class="hint">
+          Linux datarunner POSTs to <code>/api/economy/ingest/terminal-snapshot</code>. Accepted
+          rows beat UEX in <code>!econ prices</code> when newer. Reject drops them from the local cache.
+        </p>
+        <p v-if="!snapshots.length" class="muted">No snapshots yet.</p>
+        <ul v-else class="order-list">
+          <li v-for="s in snapshots" :key="s.id" class="order-row">
+            <div class="order-main">
+              <strong>#{{ s.id }} {{ s.terminal_name || 'terminal #' + s.id_terminal }}</strong>
+              <span class="meta">
+                {{ s.type }} · {{ s.environment }} · {{ s.status }} · {{ s.prices?.length || 0 }}
+                rows · v{{ s.game_version }}
+              </span>
+            </div>
+            <div v-if="isAdmin" class="row form">
+              <button
+                class="btn ghost"
+                :disabled="busy || s.status === 'accepted'"
+                type="button"
+                @click="setSnapshotStatus(s.id, 'accept')"
+              >
+                Accept
+              </button>
+              <button
+                class="btn danger ghost"
+                :disabled="busy || s.status === 'rejected'"
+                type="button"
+                @click="setSnapshotStatus(s.id, 'reject')"
+              >
+                Reject
+              </button>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -538,7 +583,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../api/axios.js';
 import { useSession } from '../composables/useSession.js';
 
-type TabId = 'work' | 'mine' | 'craft' | 'trade' | 'prices' | 'catalog' | 'cache';
+type TabId = 'work' | 'mine' | 'craft' | 'trade' | 'prices' | 'catalog' | 'cache' | 'snapshots';
 
 const session = useSession();
 const isAdmin = computed(() => session.currentUser.value?.role === 'admin');
@@ -551,6 +596,7 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'prices', label: 'Prices' },
   { id: 'catalog', label: 'Catalog' },
   { id: 'cache', label: 'Cache' },
+  { id: 'snapshots', label: 'Snapshots' },
 ];
 
 const tab = ref<TabId>('work');
@@ -714,6 +760,7 @@ const uexCommoditiesLoading = ref(false);
 const uexCommoditiesErr = ref('');
 const priceResult = ref<{
   commodity: { name: string };
+  source?: string;
   sell: number | null;
   buy: number | null;
   matches: Array<{
@@ -741,6 +788,19 @@ const cache = ref<{
     results: Array<{ source: string; key: string; ok: boolean; detail: string }>;
   } | null;
 } | null>(null);
+
+const snapshots = ref<
+  Array<{
+    id: number;
+    terminal_name: string | null;
+    id_terminal: number;
+    type: string;
+    environment: string;
+    status: string;
+    game_version: string;
+    prices: unknown[];
+  }>
+>([]);
 
 function fmtAmt(n: number): string {
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
@@ -1082,8 +1142,32 @@ async function refreshCache() {
   }
 }
 
+async function loadSnapshots() {
+  try {
+    const res = await api.get('/api/economy/ingest/snapshots');
+    snapshots.value = res.data.snapshots ?? [];
+  } catch (e) {
+    err.value = apiErr(e);
+  }
+}
+
+async function setSnapshotStatus(id: number, action: 'accept' | 'reject') {
+  busy.value = true;
+  err.value = '';
+  try {
+    await api.post(`/api/economy/ingest/snapshots/${id}/${action}`);
+    msg.value = `Snapshot #${id} ${action}ed`;
+    await loadSnapshots();
+  } catch (e) {
+    err.value = apiErr(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
 watch(tab, (t) => {
   if (t === 'prices') void loadUexCommodities();
+  if (t === 'snapshots') void loadSnapshots();
 });
 
 onMounted(reloadAll);

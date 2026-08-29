@@ -8,11 +8,17 @@ import { type BotDatabase, createDatabase } from "../../data/database.js";
 import { createSessionStore } from "../../data/sessions.js";
 import { createUserStore } from "../../data/users.js";
 import {
+  type IngestStore,
+  initIngestStore,
+  parseTerminalSnapshot,
+  setIngestStoreForTests,
+} from "../../economy/ingest.js";
+import {
   type ScCraftBlueprint,
   type ScCraftClient,
   setScCraftClientForTests,
 } from "../../economy/sc-craft.js";
-import { setUexClientForTests, type UexClient } from "../../economy/uex.js";
+import { setUexClientForTests, UexClient } from "../../economy/uex.js";
 import {
   initWorkOrderStore,
   setWorkOrderStoreForTests,
@@ -79,6 +85,7 @@ describe("economy router", () => {
   let app: express.Express;
   let cookie: string;
   let store: WorkOrderStore;
+  let ingest: IngestStore;
   let sqlite: Database.Database;
   let audit: ReturnType<typeof createAuditStore>;
 
@@ -86,6 +93,7 @@ describe("economy router", () => {
     botDb = createDatabase(":memory:");
     sqlite = new Database(":memory:");
     store = initWorkOrderStore(sqlite);
+    ingest = initIngestStore(sqlite);
     audit = createAuditStore(botDb.db);
     const users = createUserStore(botDb.db);
     const sessions = createSessionStore(botDb.db);
@@ -113,6 +121,7 @@ describe("economy router", () => {
       "/api/economy",
       createEconomyRouter({
         store,
+        ingest,
         scCraft: mockCraft(bp),
         uex: mockUex(),
         audit,
@@ -127,6 +136,7 @@ describe("economy router", () => {
 
   afterEach(() => {
     setWorkOrderStoreForTests(null);
+    setIngestStoreForTests(null);
     setScCraftClientForTests(null);
     setUexClientForTests(null);
     sqlite.close();
@@ -258,5 +268,102 @@ describe("economy router", () => {
     expect(clear?.actorUsername).toBe("alice");
     expect(clear?.targetUsername).toBe("1 orders");
     expect(entries.some((e) => e.action === "economy.cache_refresh")).toBe(true);
+  });
+
+  const snapBody = {
+    source: "datarunner",
+    game_version: "4.10.0",
+    environment: "LIVE",
+    id_terminal: 89,
+    terminal_name: "Area 18 TDD",
+    type: "commodity",
+    prices: [
+      {
+        id_commodity: 1,
+        name: "Agricium",
+        price_buy: 4000,
+        price_sell: 12100,
+        scu_sell: 40,
+        status_sell: 3,
+      },
+    ],
+    captured_at: Date.now() + 120_000,
+  };
+
+  it("ingests a terminal snapshot for admin and lists it", async () => {
+    const created = await request(app)
+      .post("/api/economy/ingest/terminal-snapshot")
+      .set("Cookie", cookie)
+      .send(snapBody);
+    expect(created.status).toBe(201);
+    expect(created.body.snapshot.id_terminal).toBe(89);
+    expect(created.body.snapshot.status).toBe("accepted");
+
+    const list = await request(app).get("/api/economy/ingest/snapshots").set("Cookie", cookie);
+    expect(list.status).toBe(200);
+    expect(list.body.count).toBe(1);
+  });
+
+  it("rejects ingest from a member session", async () => {
+    const users = createUserStore(botDb.db);
+    const sessions = createSessionStore(botDb.db);
+    const bob = await users.createUser("bob-ingest", "pw-bobbbbb", "member");
+    const bobCookie = `${SESSION_COOKIE_NAME}=${sessions.createSession(bob.id).token}`;
+    const denied = await request(app)
+      .post("/api/economy/ingest/terminal-snapshot")
+      .set("Cookie", bobCookie)
+      .send(snapBody);
+    expect(denied.status).toBe(403);
+  });
+
+  it("rejects unauthenticated ingest", async () => {
+    const res = await request(app).post("/api/economy/ingest/terminal-snapshot").send(snapBody);
+    expect(res.status).toBe(401);
+  });
+
+  it("validates ingest bodies", async () => {
+    const res = await request(app)
+      .post("/api/economy/ingest/terminal-snapshot")
+      .set("Cookie", cookie)
+      .send({ type: "commodity" });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts ingest with ECONOMY_INGEST_TOKEN bearer", async () => {
+    const prev = process.env.ECONOMY_INGEST_TOKEN;
+    process.env.ECONOMY_INGEST_TOKEN = "test-ingest-token-please";
+    try {
+      const res = await request(app)
+        .post("/api/economy/ingest/terminal-snapshot")
+        .set("Authorization", "Bearer test-ingest-token-please")
+        .send(snapBody);
+      expect(res.status).toBe(201);
+      expect(res.body.snapshot.created_by).toBe("datarunner");
+    } finally {
+      if (prev === undefined) delete process.env.ECONOMY_INGEST_TOKEN;
+      else process.env.ECONOMY_INGEST_TOKEN = prev;
+    }
+  });
+
+  it("GET /prices uses a fresher local snapshot over UEX", async () => {
+    ingest.add(parseTerminalSnapshot(snapBody));
+    const uex = new UexClient({
+      enabled: true,
+      fetchCommodities: async () => [
+        { id: 1, name: "Agricium", code: "AGRI", is_raw: 0, price_sell: 9000, price_buy: 5000 },
+      ],
+      fetchTerminalPrices: async () => [],
+    });
+    setUexClientForTests(uex);
+    const priced = express();
+    priced.use(express.json());
+    priced.use(cookieParser());
+    const sessions = createSessionStore(botDb.db);
+    priced.use("/api", createRequireAuth(sessions));
+    priced.use("/api/economy", createEconomyRouter({ ingest, uex, audit }));
+    const res = await request(priced).get("/api/economy/prices?q=Agricium").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe("local");
+    expect(res.body.sell).toBe(12100);
   });
 });
