@@ -8,6 +8,7 @@ export {
   MIN_PCM_BOOST_PEAK,
   normalizePcmForStt,
   peakAmplitude16,
+  prepareVoicePcm,
   STT_CLIP_PEAK,
   STT_TARGET_PEAK,
 } from "./pcm.js";

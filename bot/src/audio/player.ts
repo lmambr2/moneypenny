@@ -9,6 +9,7 @@ import {
   MUSIC_OPUS_BITRATE_KBPS_DEFAULT,
   PCM_FRAME_BYTES,
 } from "./encoder.js";
+import { loadNativeAudio } from "./native.js";
 
 /** Global PID tracker — prevents processes from being orphaned when class instances are swapped. */
 const globalActivePids = new Set<number>();
@@ -589,6 +590,20 @@ export class AudioPlayer extends EventEmitter {
 
   private applyVolume(pcm: Buffer): Buffer {
     const floor = this.playVolumeFloor ?? 0;
+    const native = loadNativeAudio();
+    if (native) {
+      try {
+        return native.pcmApplyPlaybackGain(
+          pcm,
+          this.volume,
+          this.sttDuckActive,
+          this.sttDuckLevel,
+          floor,
+        );
+      } catch {
+        /* JS fallback */
+      }
+    }
     const base = Math.max(this.volume, floor);
     // The courtesy duck (duckMusicOnSpeech) lowers MUSIC while members talk —
     // but a floored playback IS the bot talking (radio bumper/liner), and the

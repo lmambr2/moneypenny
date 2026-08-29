@@ -16,7 +16,28 @@ export declare class NativeOpus {
   encode(pcm: Buffer): Buffer
   /** Decode one Opus packet to interleaved s16le PCM. */
   decode(opus: Buffer): Buffer
+  /**
+   * Decode a TeamSpeak voice payload: try whole packet, then per-frame split.
+   * Never skip on size alone — tiny encoded silence is valid; DTX only after fail.
+   */
+  decodeVoice(packet: Buffer): VoiceDecodeResult
 }
+
+/**
+ * One-shot inbound voice PCM helper (peak / RMS / clip / STT normalize).
+ *
+ * Thresholds match `voice/pcm.ts` + `VoiceSession.MIN_SPEECH_PEAK`.
+ */
+export declare class NativeVoiceFrame {
+  constructor()
+  inspect(pcm: Buffer): VoiceFrameAnalysis
+  /** Normalize for STT; uses one peak scan (same as passing `knownPeak` in TS). */
+  prepareStt(pcm: Buffer): Buffer
+  /** Inspect + STT prep without a second peak walk. */
+  process(pcm: Buffer): VoiceFrameProcessed
+}
+
+export declare function isDtxSizedPacket(packet: Buffer): boolean
 
 /** True when RMS is at or above the speech threshold (default 500 matches TS SilenceSegmenter). */
 export declare function isSpeechFrame(pcm: Buffer, energyThreshold: number): boolean
@@ -24,5 +45,55 @@ export declare function isSpeechFrame(pcm: Buffer, energyThreshold: number): boo
 /** Package probe for loaders / health checks. */
 export declare function nativeAudioBackend(): string
 
-/** RMS energy of interleaved s16le PCM (0..32768 scale). Used for energy VAD. */
+/** Prepare TeamSpeak-decoded PCM for STT (same rules as `voice/pcm.ts`). */
+export declare function normalizePcmForStt(pcm: Buffer, targetPeak: number, maxGain: number, minBoostPeak: number): Buffer
+
+/**
+ * Apply the AudioPlayer volume curve (slider 0–100, optional STT duck, speech floor).
+ *
+ * `factor = effective/100 * 0.2`. Duck, when active, uses `max(duck_level, floor)`;
+ * otherwise `max(volume_pct, floor)`. Floor beats duck so radio bumpers stay audible.
+ */
+export declare function pcmApplyPlaybackGain(pcm: Buffer, volumePct: number, duckActive: boolean, duckLevel: number, floorPct: number): Buffer
+
+/**
+ * Mix two s16le buffers: `clamp(a*gain_a + b*gain_b)`. Length is max(a,b); the
+ * shorter side is treated as zeros past its end.
+ */
+export declare function pcmMix(a: Buffer, gainA: number, b: Buffer, gainB: number): Buffer
+
+/** Peak absolute amplitude of interleaved s16le PCM (0..32768). */
+export declare function pcmPeak(pcm: Buffer): number
+
+/** RMS energy of interleaved s16le PCM (0..32768 scale). */
 export declare function pcmRms(pcm: Buffer): number
+
+/** Scale s16le PCM by gain with hard int16 clamp. */
+export declare function pcmScale(pcm: Buffer, gain: number): Buffer
+
+/** Split a multi-frame Opus packet. Empty array means invalid layout. */
+export declare function splitOpusPacket(packet: Buffer): Array<Buffer>
+
+export interface VoiceDecodeResult {
+  ok: boolean
+  /** Empty on success; `empty` | `dtx` | `corrupt` on failure. */
+  reason: string
+  pcm: Buffer
+  frames: number
+}
+
+export interface VoiceFrameAnalysis {
+  peak: number
+  rms: number
+  speech: boolean
+  clipped: boolean
+}
+
+export interface VoiceFrameProcessed {
+  peak: number
+  rawPeak: number
+  rms: number
+  speech: boolean
+  clipped: boolean
+  pcmForStt: Buffer
+}

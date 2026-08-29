@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 
-export type EconomyCacheSource = "uex" | "sc-craft" | "sc-trade" | "sc-wiki" | "meta";
+export type EconomyCacheSource = "uex" | "sc-craft" | "sc-trade" | "sc-wiki" | "local" | "meta";
 
 export interface EconomyCacheRecord<T = unknown> {
   source: EconomyCacheSource;
@@ -64,7 +64,7 @@ export function cacheRootLabel(root: string): string {
 /** Soft cap — oldest rows pruned after set. Override via ECONOMY_CACHE_MAX_ROWS. */
 const DEFAULT_MAX_ROWS = 2_000;
 
-const SOURCES: EconomyCacheSource[] = ["uex", "sc-craft", "sc-trade", "sc-wiki", "meta"];
+const SOURCES: EconomyCacheSource[] = ["uex", "sc-craft", "sc-trade", "sc-wiki", "local", "meta"];
 
 function maxRows(): number {
   const n = parseInt(process.env.ECONOMY_CACHE_MAX_ROWS || "", 10);

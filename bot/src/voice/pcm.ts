@@ -1,3 +1,5 @@
+import { loadNativeAudio, type VoiceFrameProcessed } from "../audio/native.js";
+
 /** Opus DTX / comfort-noise frames — boosting these drowns out real speech in STT. */
 export const MIN_PCM_BOOST_PEAK = 80;
 
@@ -9,6 +11,14 @@ export const STT_CLIP_PEAK = 24_000;
 
 /** Peak absolute amplitude of 16-bit LE PCM (0..32768). Uses Int16Array when aligned. */
 export function peakAmplitude16(pcm: Buffer): number {
+  const native = loadNativeAudio();
+  if (native) {
+    try {
+      return native.pcmPeak(pcm);
+    } catch {
+      /* JS fallback */
+    }
+  }
   let peak = 0;
   if (pcm.byteOffset % 2 === 0 && pcm.length % 2 === 0) {
     const samples = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length / 2);
@@ -67,12 +77,29 @@ export function normalizePcmForStt(
   minBoostPeak = MIN_PCM_BOOST_PEAK,
   knownPeak?: number,
 ): Buffer {
+  const native = loadNativeAudio();
+  if (native && knownPeak === undefined) {
+    try {
+      return native.normalizePcmForStt(pcm, targetPeak, maxGain, minBoostPeak);
+    } catch {
+      /* JS fallback */
+    }
+  }
+  return jsNormalizePcmForStt(pcm, targetPeak, maxGain, minBoostPeak, knownPeak);
+}
+
+function jsNormalizePcmForStt(
+  pcm: Buffer,
+  targetPeak: number,
+  maxGain: number,
+  minBoostPeak: number,
+  knownPeak?: number,
+): Buffer {
   const peak = knownPeak ?? peakAmplitude16(pcm);
   if (peak < minBoostPeak) return pcm;
 
   let gain: number;
   if (peak >= STT_CLIP_PEAK) {
-    // Hot/clipped mic — attenuate aggressively; never boost distorted frames.
     gain = (targetPeak * 0.65) / peak;
   } else if (peak > targetPeak) {
     gain = targetPeak / peak;
@@ -82,4 +109,29 @@ export function normalizePcmForStt(
 
   if (gain >= 0.98 && gain <= 1.02) return pcm;
   return scalePcm16(pcm, gain);
+}
+
+/**
+ * One-pass inbound voice PCM: peak, clip, STT normalize.
+ * Prefers NativeVoiceFrame when the addon is built.
+ */
+export function prepareVoicePcm(pcm: Buffer): VoiceFrameProcessed {
+  const native = loadNativeAudio();
+  if (native) {
+    try {
+      return new native.NativeVoiceFrame().process(pcm);
+    } catch {
+      /* JS fallback */
+    }
+  }
+  const rawPeak = peakAmplitude16(pcm);
+  const pcmForStt = jsNormalizePcmForStt(pcm, STT_TARGET_PEAK, 120, MIN_PCM_BOOST_PEAK, rawPeak);
+  return {
+    peak: rawPeak < MIN_PCM_BOOST_PEAK ? rawPeak : peakAmplitude16(pcmForStt),
+    rawPeak,
+    rms: 0,
+    speech: rawPeak >= MIN_PCM_BOOST_PEAK,
+    clipped: rawPeak >= 30_000,
+    pcmForStt,
+  };
 }

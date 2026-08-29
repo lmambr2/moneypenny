@@ -1,3 +1,5 @@
+import { loadNativeAudio } from "./native.js";
+
 /** Opus DTX / comfort-noise frames from TeamSpeak are tiny and not decodable. */
 export const OPUS_DTX_MAX_BYTES = 12;
 
@@ -25,6 +27,16 @@ function parseSize(data: Buffer, offset: number): { size: number; bytes: number 
  */
 export function splitOpusPacket(packet: Buffer): Buffer[] | null {
   if (packet.length === 0) return null;
+  const native = loadNativeAudio();
+  if (native) {
+    try {
+      const frames = native.splitOpusPacket(packet);
+      if (frames.length === 0) return null;
+      return frames;
+    } catch {
+      /* JS fallback */
+    }
+  }
 
   const toc = packet[0]!;
   const mode = toc & 0x03;

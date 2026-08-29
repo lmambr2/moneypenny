@@ -27,13 +27,7 @@ import {
   voiceReplyClearsSavedMusic,
 } from "../../voice/index.js";
 import { isMusicSearchRouteText } from "../../voice/music-command.js";
-import {
-  isPcmClipped,
-  MIN_PCM_BOOST_PEAK,
-  normalizePcmForStt,
-  peakAmplitude16,
-  STT_TARGET_PEAK,
-} from "../../voice/pcm.js";
+import { MIN_PCM_BOOST_PEAK, prepareVoicePcm } from "../../voice/pcm.js";
 import { probeHttpStt, probeHttpTts } from "../../voice/probe.js";
 import {
   extractCommandSegment,
@@ -724,8 +718,9 @@ export class VoiceSession {
     if (decoded.frames > 1) this.multiFrameRecoveries++;
     const pcm = decoded.pcm;
     this.decodedFrames += decoded.frames;
-    const rawPeak = peakAmplitude16(pcm);
-    if (isPcmClipped(pcm)) {
+    const prep = prepareVoicePcm(pcm);
+    const rawPeak = prep.rawPeak;
+    if (prep.clipped) {
       this.attenuatedClipped++;
       if (this.attenuatedClipped <= 5 || this.attenuatedClipped % 100 === 0) {
         this.deps.logger.warn(
@@ -734,7 +729,7 @@ export class VoiceSession {
         );
       }
     }
-    const isSpeech = rawPeak >= VoiceSession.MIN_SPEECH_PEAK;
+    const isSpeech = prep.speech;
     // S-OC1: user speech interrupts bot TTS only (not pure program music).
     if (isSpeech) this.maybeBargeInOnSpeech(rawPeak);
 
@@ -894,9 +889,10 @@ export class VoiceSession {
 
     const pcm = Buffer.concat(buf.chunks);
     buf.chunks = [];
-    const rawPeak = peakAmplitude16(pcm);
+    const prep = prepareVoicePcm(pcm);
+    const rawPeak = prep.rawPeak;
 
-    if (rawPeak < VoiceSession.MIN_SPEECH_PEAK) {
+    if (!prep.speech) {
       return;
     }
 
@@ -909,15 +905,8 @@ export class VoiceSession {
       return;
     }
 
-    const rawPeakForNorm = peakAmplitude16(pcm);
-    const pcmForStt = normalizePcmForStt(
-      pcm,
-      STT_TARGET_PEAK,
-      120,
-      MIN_PCM_BOOST_PEAK,
-      rawPeakForNorm,
-    );
-    const peak = rawPeakForNorm < MIN_PCM_BOOST_PEAK ? rawPeakForNorm : peakAmplitude16(pcmForStt);
+    const pcmForStt = prep.pcmForStt;
+    const peak = prep.peak;
     buf.utterancePeak = Math.max(buf.utterancePeak, peak);
 
     const out = await this.sttClient.feedStream(clientId, pcmForStt, 48_000, channels);

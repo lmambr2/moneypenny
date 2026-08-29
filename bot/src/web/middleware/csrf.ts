@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { isBearerOnlyRequest } from "../auth/bearer.js";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -11,6 +12,11 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  */
 export function csrfOriginCheck(req: Request, res: Response, next: NextFunction): void {
   if (SAFE_METHODS.has(req.method)) {
+    next();
+    return;
+  }
+  // CSRF is a cookie attack. Machine clients (datarunner) send Bearer and no session cookie.
+  if (isBearerOnlyRequest(req)) {
     next();
     return;
   }

@@ -1,7 +1,7 @@
 {
   "name": "@moneypenny/audio-native",
   "version": "0.1.0",
-  "description": "Rust N-API Opus encoder/decoder + energy VAD (PR-B4)",
+  "description": "Rust N-API Opus, PCM mix/duck, and inbound voice-frame helper",
   "main": "./index.cjs",
   "types": "./index.d.ts",
   "napi": {

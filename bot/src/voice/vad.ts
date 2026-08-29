@@ -12,9 +12,7 @@
  * PR-B4: RMS prefers Rust N-API `@moneypenny/audio-native` when built.
  */
 
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
+import { loadNativeAudio } from "../audio/native.js";
 
 export interface SegmenterOptions {
   sampleRate: number;
@@ -99,26 +97,12 @@ export async function createVadSegmenterAsync(opts: CreateVadOptions): Promise<V
   return new SilenceSegmenter(opts);
 }
 
-let nativeRms: ((pcm: Buffer) => number) | null | undefined;
-
-function loadNativeRms(): ((pcm: Buffer) => number) | null {
-  if (nativeRms !== undefined) return nativeRms;
-  try {
-    const mod = require("@moneypenny/audio-native") as { pcmRms: (pcm: Buffer) => number };
-    nativeRms = mod.pcmRms;
-    return nativeRms;
-  } catch {
-    nativeRms = null;
-    return null;
-  }
-}
-
 /** RMS of s16le PCM. Prefers Rust N-API (PR-B4) when available. */
 export function rms16(pcm: Buffer): number {
-  const native = loadNativeRms();
+  const native = loadNativeAudio();
   if (native) {
     try {
-      return native(pcm);
+      return native.pcmRms(pcm);
     } catch {
       // fall through
     }

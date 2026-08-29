@@ -75,4 +75,17 @@ describe("csrfOriginCheck middleware", () => {
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ error: "bad origin" });
   });
+
+  it("allows POST with Bearer and no session cookie (datarunner)", async () => {
+    const res = await request(app).post("/").set("Authorization", "Bearer ingest-token");
+    expect(res.status).toBe(200);
+  });
+
+  it("still requires Origin when a session cookie is present with Bearer", async () => {
+    const res = await request(app)
+      .post("/")
+      .set("Authorization", "Bearer ingest-token")
+      .set("Cookie", "moneypenny_session=abc");
+    expect(res.status).toBe(403);
+  });
 });

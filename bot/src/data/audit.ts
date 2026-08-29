@@ -14,6 +14,7 @@ export type AuditAction =
   | "moderation.kick"
   | "economy.workorders_clear"
   | "economy.cache_refresh"
+  | "economy.ingest_snapshot"
   /** MCP tool succeeded (tool name in targetUsername, bot id in targetUserId). */
   | "mcp.tool"
   /** MCP tool blocked by profile / rights. */

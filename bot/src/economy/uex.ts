@@ -15,8 +15,10 @@ import type { Logger } from "../logger.js";
 import { fetchJson, withQuery } from "../util/http.js";
 import { type EconomyDiskCache, getEconomyDiskCache } from "./cache/store.js";
 import { fuzzyBestMatch, fuzzyScore } from "./fuzzy.js";
+import { getIngestStore, type LocalPriceOverlay } from "./ingest.js";
 
-const DEFAULT_BASE = "https://api.uexcorp.space";
+/** Canonical 2026 host; override with UEX_API_BASE. `.space` still answers. */
+const DEFAULT_BASE = "https://api.uexcorp.uk";
 /** Org planning, not arb — SC major patches ~monthly. */
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 /** Terminal prices — same long TTL; refresh manually after patches. */
@@ -92,6 +94,8 @@ export interface UexPriceSnapshot {
   attribution: string;
   /** Optional terminal supply enrichment (fail-open if prices endpoint empty). */
   supply?: UexSupplyHint | null;
+  /** `local` when an org snapshot is fresher than the UEX cache. */
+  source?: "uex" | "local";
 }
 
 export interface UexClientOptions {
@@ -151,7 +155,7 @@ export class UexClient {
       (parseInt(process.env.UEX_PRICES_CACHE_TTL_MS || "", 10) || DEFAULT_PRICES_TTL_MS);
     this.timeoutMs =
       opts.timeoutMs ?? (parseInt(process.env.UEX_TIMEOUT_MS || "", 10) || DEFAULT_TIMEOUT_MS);
-    this.apiKey = opts.apiKey ?? process.env.UEX_API_KEY ?? undefined;
+    this.apiKey = opts.apiKey ?? process.env.UEX_API_KEY ?? process.env.UEX_API_TOKEN ?? undefined;
     this.logger = opts.logger;
     this.disk = opts.disk ?? getEconomyDiskCache();
     this.fetchCommodities = opts.fetchCommodities;
@@ -372,12 +376,16 @@ export class UexClient {
    * Resolve price snapshot for an ore/commodity name.
    * Matches both "Bexalite" and "Bexalite (Raw)" etc. (+ E-FUZZY fallback).
    * Enriches with terminal supply when prices endpoint is available (E-UEX-SUP).
+   * Local datarunner snapshots win when their captured_at is newer than UEX cache.
    */
   async lookupPrice(query: string): Promise<UexPriceSnapshot | null> {
+    const local = getIngestStore()?.lookupOverlay(query) ?? null;
     const list = await this.getCommodities();
-    if (!list) return null;
+    if (!list) {
+      return local ? this.snapshotFromLocal(local) : null;
+    }
     const q = norm(query);
-    if (!q) return null;
+    if (!q) return local ? this.snapshotFromLocal(local) : null;
 
     let matches = list.filter((c) => {
       const n = norm(c.name || "");
@@ -406,7 +414,9 @@ export class UexClient {
         if (matches.length === 0) matches = [fuzzyHit];
       }
     }
-    if (matches.length === 0) return null;
+    if (matches.length === 0) {
+      return local ? this.snapshotFromLocal(local) : null;
+    }
 
     // Prefer refined (is_raw=0) sell prices for "what is X worth", but keep raw rows.
     const refined = matches.filter((m) => !m.is_raw);
@@ -433,6 +443,12 @@ export class UexClient {
       supply = null;
     }
 
+    const termAt = this.terminalCache.get(primary.id)?.at ?? 0;
+    const uexFetchedAt = termAt || this.cache?.at || 0;
+    if (local && local.capturedAt >= uexFetchedAt) {
+      return this.snapshotFromLocal(local, primary, matches);
+    }
+
     return {
       commodity: primary,
       sell: bestSell,
@@ -441,6 +457,29 @@ export class UexClient {
       fetchedAt: this.cache?.at ?? Date.now(),
       attribution: UEX_ATTRIBUTION,
       supply,
+      source: "uex",
+    };
+  }
+
+  private snapshotFromLocal(
+    local: LocalPriceOverlay,
+    commodity?: UexCommodity,
+    matches?: UexCommodity[],
+  ): UexPriceSnapshot {
+    const c: UexCommodity = commodity ?? {
+      id: local.commodityId ?? 0,
+      name: local.name,
+      code: local.code,
+    };
+    return {
+      commodity: c,
+      sell: local.sell,
+      buy: local.buy,
+      matches: matches ?? [c],
+      fetchedAt: local.capturedAt,
+      attribution: local.attribution,
+      supply: local.rows.length > 0 ? this.buildSupplyHint(local.rows) : null,
+      source: "local",
     };
   }
 }

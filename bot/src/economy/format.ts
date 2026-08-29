@@ -360,7 +360,9 @@ export function formatPriceSnapshot(snap: UexPriceSnapshot, query: string): stri
       : `Supply${pct} (${supply.sampleSize} terminals sampled)`;
   }
   return [
-    `💰 UEX price — ${snap.commodity.name} (query: ${query})`,
+    snap.source === "local"
+      ? `💰 Local snapshot — ${snap.commodity.name} (query: ${query})`
+      : `💰 UEX price — ${snap.commodity.name} (query: ${query})`,
     `${sell} · ${buy}`,
     supplyLine,
     flagLine,
