@@ -1,6 +1,4 @@
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
+import { loadNativeAudio, type VoiceDecodeResult } from "./native.js";
 
 const SAMPLE_RATE = 48000;
 const CHANNELS = 2;
@@ -16,15 +14,14 @@ export interface Encoder {
    * Optional — older native builds without setBitrateBps no-op safely.
    */
   setBitrate?(bps: number): void;
+  /**
+   * Native inbound voice-packet decode (whole then per-frame split).
+   * Optional — JS `decodeVoiceOpusPacket` is the fallback.
+   */
+  decodeVoice?(packet: Buffer): VoiceDecodeResult;
   /** Which backend produced this encoder. Only the Rust N-API addon remains. */
   backend?: "native";
 }
-
-type NativeOpusInstance = {
-  encode(pcm: Buffer): Buffer;
-  decode(opus: Buffer): Buffer;
-  setBitrateBps?(bps: number): void;
-};
 
 /** Music stream bitrate bounds (kbps). 0 = Auto. */
 export const MUSIC_OPUS_BITRATE_KBPS_MIN = 24;
@@ -47,24 +44,8 @@ export function clampMusicOpusBitrateKbps(kbps: unknown): number {
   );
 }
 
-type NativeMod = {
-  NativeOpus: new (sampleRate: number, channels: number) => NativeOpusInstance;
-};
-
-let nativeTried = false;
-let NativeOpusCtor: NativeMod["NativeOpus"] | null = null;
-
-function tryLoadNative(): NativeMod["NativeOpus"] | null {
-  if (nativeTried) return NativeOpusCtor;
-  nativeTried = true;
-  try {
-    const mod = require("@moneypenny/audio-native") as NativeMod;
-    NativeOpusCtor = mod.NativeOpus;
-    return NativeOpusCtor;
-  } catch {
-    NativeOpusCtor = null;
-    return null;
-  }
+function nativeCtor() {
+  return loadNativeAudio()?.NativeOpus ?? null;
 }
 
 /**
@@ -82,7 +63,7 @@ function tryLoadNative(): NativeMod["NativeOpus"] | null {
  * container that starts fine and then cannot emit audio.
  */
 export function createOpusEncoder(channels: number = CHANNELS): Encoder {
-  const Ctor = tryLoadNative();
+  const Ctor = nativeCtor();
   if (!Ctor) {
     throw new Error(
       "@moneypenny/audio-native failed to load — no Opus codec available. " +
@@ -91,7 +72,7 @@ export function createOpusEncoder(channels: number = CHANNELS): Encoder {
     );
   }
   const native = new Ctor(SAMPLE_RATE, channels);
-  return {
+  const encoder: Encoder = {
     backend: "native",
     setBitrate(bps: number): void {
       if (typeof native.setBitrateBps !== "function") return;
@@ -106,10 +87,14 @@ export function createOpusEncoder(channels: number = CHANNELS): Encoder {
       return native.decode(opusData);
     },
   };
+  if (typeof native.decodeVoice === "function") {
+    encoder.decodeVoice = (packet) => native.decodeVoice!(packet);
+  }
+  return encoder;
 }
 
 /** Diagnostics for tests / health. */
 export function opusBackendAvailable(): { native: boolean; active: "native" | "unavailable" } {
-  const native = tryLoadNative() !== null;
+  const native = nativeCtor() !== null;
   return { native, active: native ? "native" : "unavailable" };
 }

@@ -29,6 +29,16 @@ function isDtxSizedFailure(packet: Buffer): boolean {
 export function decodeVoiceOpusPacket(encoder: Encoder, packet: Buffer): VoiceOpusDecodeResult {
   if (packet.length === 0) return { ok: false, reason: "empty" };
 
+  if (typeof encoder.decodeVoice === "function") {
+    const native = encoder.decodeVoice(packet);
+    if (native.ok) {
+      return { ok: true, pcm: native.pcm, frames: native.frames };
+    }
+    if (native.reason === "empty" || native.reason === "dtx" || native.reason === "corrupt") {
+      return { ok: false, reason: native.reason };
+    }
+  }
+
   const whole = tryDecode(encoder, packet);
   if (whole) return { ok: true, pcm: whole, frames: 1 };
 
