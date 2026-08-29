@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moneypenny-datarunner"
+version = "0.1.0"
+description = "Linux-native Star Citizen terminal datarunner for Moneypenny / UEX"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Moneypenny" }]
+dependencies = [
+  "watchdog>=4.0",
+]
+
+[project.optional-dependencies]
+# GPU OCR sits on top of CPU Tesseract. Install on the gaming PC only.
+ocr-cuda = ["rapidocr>=2.0", "onnxruntime-gpu>=1.17"]
+ocr-rocm = ["rapidocr>=2.0", "onnxruntime-rocm>=1.17"]
+ocr-intel = ["rapidocr>=2.0", "onnxruntime-openvino>=1.17"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+datarunner = "datarunner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["datarunner*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
