@@ -223,6 +223,7 @@ describe("VoicePipeline", () => {
     const turn = await pipeline.handleUtterance(utterance());
     expect(llm.chatForIntent).toHaveBeenCalledWith("what's up", undefined, {
       moveClientEnabled: true,
+      spoken: true,
     });
     expect(turn.reply).toBe("Not much.");
   });

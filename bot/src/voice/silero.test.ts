@@ -64,7 +64,7 @@ describe("SileroSegmenter without a model", () => {
 });
 
 describe("createVadSegmenterAsync", () => {
-  it("returns the energy segmenter by default", async () => {
+  it("defaults to silero and falls back to energy without a model", async () => {
     const seg = await createVadSegmenterAsync({ sampleRate: 48_000 });
     expect(seg).toBeInstanceOf(SilenceSegmenter);
   });

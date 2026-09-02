@@ -61,6 +61,10 @@ export async function executeLlmPath(
     const reply = await deps.llm.ask(intent.text, context.conversationId, {
       allowedClassifications: context.allowedClassifications,
       userUid: context.invokerUid,
+      ...(context.fromVoice ? { fromVoice: true } : {}),
+      ...(context.fromVoice && context.onSpokenSentence
+        ? { onSentence: context.onSpokenSentence }
+        : {}),
     });
     if (intent.speak && reply && deps.speakAnnouncement && !context.fromVoice) {
       const spoken = textForAnnouncement(reply);
@@ -118,6 +122,10 @@ async function executeIntent(
   const moveClientEnabled = !context.canRun || context.canRun("moveclient");
   const result = await deps.llm.chatForIntent(text, context.conversationId, {
     moveClientEnabled,
+    ...(context.fromVoice ? { spoken: true } : {}),
+    ...(context.fromVoice && context.onSpokenSentence
+      ? { onSentence: context.onSpokenSentence }
+      : {}),
   });
   const toolCalls = result.toolCalls ?? [];
 
@@ -125,18 +133,21 @@ async function executeIntent(
     return result.content;
   }
 
-  try {
-    const pendingKey = clarifyPendingKey(
-      context.conversationId,
-      context.invokerUid,
-      context.invokerName,
-    );
-    const decision = deps.clarify.evaluate(pendingKey, toolCalls);
-    if (decision.action === "clarify") {
-      return decision.question;
+  // Clarify-once is !ask / typed intent only — never on wake-word commands.
+  if (!context.fromVoice) {
+    try {
+      const pendingKey = clarifyPendingKey(
+        context.conversationId,
+        context.invokerUid,
+        context.invokerName,
+      );
+      const decision = deps.clarify.evaluate(pendingKey, toolCalls);
+      if (decision.action === "clarify") {
+        return decision.question;
+      }
+    } catch {
+      /* fail-open */
     }
-  } catch {
-    /* fail-open */
   }
 
   const outputs: string[] = [];

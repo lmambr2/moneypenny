@@ -5,6 +5,7 @@ import { parseSpokenAskRequest } from "../bot/speak-request.js";
 import type { WorkflowKind, WorkflowRequest } from "../docs/workflow.js";
 import type { Logger } from "../logger.js";
 import type { Playlist, Song } from "../music/provider.js";
+import { matchVoiceMediaCommand } from "../voice/media-router.js";
 import { type ClarifyService, MemoryClarifyService } from "./clarify-service.js";
 import { applyDeterministicGates } from "./deterministic-gates.js";
 import { executeLlmPath, llmUnavailableMessage } from "./llm-path.js";
@@ -37,13 +38,22 @@ export interface LlmAssist {
   ask(
     question: string,
     conversationId?: string,
-    ctx?: { allowedClassifications?: string[]; userUid?: string },
+    ctx?: {
+      allowedClassifications?: string[];
+      userUid?: string;
+      fromVoice?: boolean;
+      onSentence?: (sentence: string) => Promise<void>;
+    },
   ): Promise<string>;
   /** Fuzzy music intent — may return tool calls to drive playback. */
   chatForIntent(
     userMessage: string,
     conversationId?: string,
-    opts?: { moveClientEnabled?: boolean },
+    opts?: {
+      moveClientEnabled?: boolean;
+      spoken?: boolean;
+      onSentence?: (sentence: string) => Promise<void>;
+    },
   ): Promise<{
     content: string | null;
     toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>;
@@ -110,6 +120,8 @@ export interface RouterContext {
   allowedClassifications?: string[];
   /** Voice pipeline already TTS's the reply — skip a second announcement. */
   fromVoice?: boolean;
+  /** Stream spoken sentences to TTS while the 12B is still generating. */
+  onSpokenSentence?: (sentence: string) => Promise<void>;
 }
 
 /** Structured invoker identity for router logs (text chat / web context). */
@@ -420,8 +432,15 @@ export class ControlRouter {
     const text = normalizeVoiceTranscript(transcript).replace(/^!+/, "").trim();
     if (!text) return { type: "unknown" };
 
+    // Skip-LLM router: play/pause/skip/volume/stop/next never touch the 12B.
+    const media = matchVoiceMediaCommand(text, aliases);
+    if (media && media.name !== "play") {
+      this.logger.debug({ command: media.name }, "Voice: skip-LLM media verb");
+      return { type: "deterministic", command: media };
+    }
+
     // Parse as if prefixed so flag/alias handling is shared with the chat path.
-    const command = parseCommand(`!${text}`, "!", aliases);
+    const command = media ?? parseCommand(`!${text}`, "!", aliases);
     const llm = command ? llmDecisionForCommand(command) : null;
     if (llm) return llm;
 

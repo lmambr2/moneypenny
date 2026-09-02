@@ -8,13 +8,19 @@
 services:
   ollama:
     image: ollama/ollama:rocm
+    # GPU 1 only. Do not pass every /dev/dri node — GPU 0 is the desk/game card.
     devices:
       - /dev/kfd
-      - /dev/dri
+      - ${PENNY_RENDER_NODE:-/dev/dri/renderD128}:/dev/dri/renderD128
     group_add:
       - "${RENDER_GID:-992}"
       - "${VIDEO_GID:-44}"
     environment:
       - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
       - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
-    # Keep 12B resident; enable 2 only after check-analyst-vram.sh says both-ok
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
+      - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-8192}
+      - OLLAMA_FLASH_ATTENTION=${OLLAMA_FLASH_ATTENTION:-1}
+      - HIP_VISIBLE_DEVICES=0
+      - GGML_VK_VISIBLE_DEVICES=0
+    # Prefer host ollama-penny.service (docs/gpu-amd.md) over this container.

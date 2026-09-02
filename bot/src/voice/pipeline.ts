@@ -1,6 +1,7 @@
 import { textForAnnouncement } from "../bot/speak-request.js";
 import type { ControlRouter, RouterContext } from "../control/router.js";
 import type { Logger } from "../logger.js";
+import { TtsAckCache } from "./ack-cache.js";
 import { isMusicSearchRouteText, voiceRouteNeedsPendingAck } from "./music-command.js";
 import {
   isPlaybackControlReply,
@@ -10,6 +11,7 @@ import {
   voiceReplyClearsSavedMusic,
   voiceSpokenAck,
 } from "./playback-reply.js";
+import { splitSpokenSentences, textToSpoken } from "./speak-clean.js";
 import type { SttProvider, TtsProvider, Utterance, VoiceOutput } from "./types.js";
 import {
   extractWatchwordCommand,
@@ -77,10 +79,18 @@ export interface VoicePipelineOptions {
 export class VoicePipeline {
   private opts: VoicePipelineOptions;
   private logger?: Logger;
+  private ackCache = new TtsAckCache();
 
   constructor(opts: VoicePipelineOptions) {
     this.opts = opts;
     this.logger = opts.logger;
+    this.ackCache = new TtsAckCache({ logger: opts.logger });
+    if (opts.tts && opts.respondWithVoice) {
+      this.ackCache.attach(opts.tts);
+      void this.ackCache.warm(opts.tts).catch((err) => {
+        this.logger?.warn({ err }, "Voice: ack cache warm failed");
+      });
+    }
   }
 
   /**
@@ -192,9 +202,19 @@ export class VoicePipeline {
     }
 
     const context = await this.opts.buildContext(utterance);
+    context.fromVoice = true;
     let reply: string | null = null;
     let markedInFlight = false;
     let pendingAckBytes = 0;
+    let streamedTtsBytes = 0;
+
+    const shouldSpeak = opts.speak !== false;
+    if (this.opts.respondWithVoice && this.opts.tts && this.opts.output && shouldSpeak) {
+      context.onSpokenSentence = async (sentence: string) => {
+        const bytes = await this.speakSentence(sentence, opts.speak);
+        streamedTtsBytes += bytes;
+      };
+    }
 
     try {
       const decision = await this.opts.router.routeVoice(routeText, context, aliases);
@@ -252,8 +272,7 @@ export class VoicePipeline {
 
     this.opts.onTurn?.({ transcript: trimmed, reply, speakerUid: utterance.speakerUid });
 
-    let ttsBytes = pendingAckBytes;
-    const shouldSpeak = opts.speak !== false;
+    let ttsBytes = pendingAckBytes + streamedTtsBytes;
     const ttsText = reply ? (voiceSpokenAck(reply) ?? textForAnnouncement(reply)) : "";
     const speakReply =
       !!ttsText &&
@@ -262,13 +281,14 @@ export class VoicePipeline {
       shouldSpeakVoiceReply(ttsText) &&
       (shouldSpeak ? this.opts.output : true);
 
+    // Streamed sentences already played — don't re-speak the whole reply.
+    if (streamedTtsBytes > 0) {
+      return { reply, ttsBytes, watchwordOnly };
+    }
+
     if (speakReply && this.opts.tts) {
       try {
-        const { audio, format } = await this.opts.tts.synthesize(ttsText);
-        ttsBytes += audio.length;
-        if (shouldSpeak && this.opts.output) {
-          await this.opts.output.speak(audio, format);
-        }
+        ttsBytes += await this.speakReplyChunks(ttsText, shouldSpeak);
       } catch (err) {
         this.logger?.warn({ err }, "Voice: TTS/playback failed");
       }
@@ -287,12 +307,42 @@ export class VoicePipeline {
       return 0;
     }
     try {
-      const { audio, format } = await this.opts.tts.synthesize(text);
-      await this.opts.output.speak(audio, format);
-      return audio.length;
+      const cached = await this.ackCache.speakOrSynthesize(text);
+      if (!cached) return 0;
+      await this.opts.output.speak(cached.audio, cached.format);
+      return cached.audio.length;
     } catch (err) {
       this.logger?.warn({ err, text }, "Voice: instant ack TTS failed");
       return 0;
     }
+  }
+
+  private async speakSentence(sentence: string, speak?: boolean): Promise<number> {
+    if (!this.opts.respondWithVoice || !this.opts.tts || speak === false) return 0;
+    const spoken = textToSpoken(sentence);
+    if (!spoken) return 0;
+    try {
+      const { audio, format } = await this.opts.tts.synthesize(spoken);
+      if (this.opts.output) await this.opts.output.speak(audio, format);
+      return audio.length;
+    } catch (err) {
+      this.logger?.warn({ err, sentence: spoken }, "Voice: sentence TTS failed");
+      return 0;
+    }
+  }
+
+  /** Sentence-chunk TTS so the first line plays before Piper finishes the rest. */
+  private async speakReplyChunks(text: string, shouldSpeak: boolean): Promise<number> {
+    if (!this.opts.tts) return 0;
+    const ack = voiceSpokenAck(text);
+    const chunks = ack ? [ack] : splitSpokenSentences(text);
+    let bytes = 0;
+    for (const chunk of chunks) {
+      const cached = ack ? await this.ackCache.speakOrSynthesize(chunk) : null;
+      const { audio, format } = cached ?? (await this.opts.tts.synthesize(chunk));
+      bytes += audio.length;
+      if (shouldSpeak && this.opts.output) await this.opts.output.speak(audio, format);
+    }
+    return bytes;
   }
 }

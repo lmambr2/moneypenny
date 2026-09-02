@@ -16,7 +16,7 @@ usage() {
 Usage: ./scripts/download-whisper-ggml.sh [--dir DIR] [MODEL ...]
 
 Models: tiny base small medium large-v3 large-v3-turbo
-Default model: small
+Default model: large-v3-turbo
 Default dir:   ./models/whisper-cpp  (or $STT_MODELS_DIR)
 
 After download, point compose volume whisper-models at this dir, or:
@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ ${#MODELS[@]} -eq 0 ]; then
-  MODELS=(small)
+  MODELS=(large-v3-turbo)
 fi
 
 mkdir -p "$OUT_DIR"

@@ -1,16 +1,25 @@
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
-import { fetchJson } from "../util/http.js";
+import { fetchJson, fetchWithTimeout, HttpRequestError } from "../util/http.js";
 import { DEFAULT_CHAT_MODEL } from "./models.js";
 
 /**
- * Output caps for the workstation GPU (32GB). These are generation limits,
- * not context — raise them when briefings get cut off mid-sentence.
+ * Output caps. These are generation limits, not context.
+ * Voice stays short; typed !ask may brief at length.
  */
 export const LLM_DEFAULT_MAX_TOKENS = 8192;
 export const LLM_ASK_MAX_TOKENS = 16_384;
-export const LLM_INTENT_MAX_TOKENS = 8192;
+export const LLM_INTENT_MAX_TOKENS = 1024;
+export const LLM_VOICE_MAX_TOKENS = 384;
 export const LLM_DELEGATE_MAX_TOKENS = 16_384;
+
+/** Penny (GPU 1) stays hot. Desk (GPU 0) yields for games. */
+export const LLM_PENNY_KEEP_ALIVE = "24h";
+export const LLM_DESK_KEEP_ALIVE = "5m";
+
+/** Never default 256k. Voice 8k, typed !ask 32k. */
+export const LLM_VOICE_NUM_CTX = 8192;
+export const LLM_ASK_NUM_CTX = 32_768;
 
 export interface LlmClientOptions {
   baseUrl?: string; // RKLLama OpenAI-compatible endpoint, e.g. http://localhost:8080
@@ -54,7 +63,28 @@ export interface ChatCompletionRequest {
   max_tokens?: number;
   /** Cancels the HTTP request itself — without it a timed-out caller leaves the completion burning CPU. */
   signal?: AbortSignal;
+  /** Ollama keep_alive (ignored elsewhere). Default 24h on the penny client. */
+  keepAlive?: string;
+  /** Ollama/llama.cpp context window. Voice 8k, !ask 32k. */
+  numCtx?: number;
+  /** Gemma reasoning / Ollama `think`. Banned on voice; optional on !ask. */
+  think?: boolean;
+  /**
+   * Hint flash-attention (+ Gemma 4 MTP drafter when the build supports it).
+   * Unknown keys are ignored by OpenAI-compatible servers.
+   */
+  flashAttention?: boolean;
+  stream?: boolean;
 }
+
+export type ChatStreamEvent =
+  | { type: "text"; text: string }
+  | {
+      type: "done";
+      content: string;
+      reasoning: string;
+      toolCalls: ToolCall[];
+    };
 
 export interface ChatCompletionResponse {
   id: string;
@@ -146,19 +176,28 @@ export class LlmClient {
     return this.baseUrl;
   }
 
-  async chat(req: ChatCompletionRequest): Promise<ChatCompletionResponse> {
-    const payload = {
+  private buildPayload(req: ChatCompletionRequest, stream: boolean): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
       model: req.model || this.model,
       messages: req.messages,
       tools: req.tools,
       tool_choice: req.tool_choice ?? "auto",
       temperature: req.temperature ?? 0.2,
       max_tokens: req.max_tokens ?? LLM_DEFAULT_MAX_TOKENS,
-      stream: false,
-      // ollama extension (ignored by other OpenAI servers): keep the model
-      // resident for 2h so a !ask after a lull doesn't pay the cold-load tax.
-      keep_alive: "6h",
+      stream,
+      // ollama extension (ignored by other OpenAI servers).
+      keep_alive: req.keepAlive ?? LLM_PENNY_KEEP_ALIVE,
     };
+    if (req.think !== undefined) payload.think = req.think;
+    const options: Record<string, unknown> = {};
+    if (req.numCtx) options.num_ctx = req.numCtx;
+    if (req.flashAttention) options.flash_attention = true;
+    if (Object.keys(options).length > 0) payload.options = options;
+    return payload;
+  }
+
+  async chat(req: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+    const payload = this.buildPayload(req, false);
 
     try {
       return await fetchJson<ChatCompletionResponse>(`${this.baseUrl}/v1/chat/completions`, {
@@ -176,5 +215,123 @@ export class LlmClient {
       // Rethrow as-is so HttpRequestError.status reaches FallbackLlmClient.
       throw err;
     }
+  }
+
+  /**
+   * Stream assistant text deltas (OpenAI SSE). Used on voice turns so TTS can
+   * start on the first complete sentence while 12B is still generating.
+   */
+  async *chatStream(req: ChatCompletionRequest): AsyncIterable<ChatStreamEvent> {
+    const payload = this.buildPayload(req, true);
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(`${this.baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        timeoutMs: this.timeoutMs,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: req.signal,
+      });
+    } catch (err: unknown) {
+      this.logger?.warn(
+        { err: errorMessage(err), baseUrl: this.baseUrl },
+        "LLM stream request failed",
+      );
+      throw err;
+    }
+    if (!res.ok) {
+      let body: string | undefined;
+      try {
+        body = (await res.text()).trim() || undefined;
+      } catch {
+        /* ignore */
+      }
+      throw new HttpRequestError(`HTTP ${res.status} ${res.statusText}`, {
+        status: res.status,
+        body,
+      });
+    }
+    if (!res.body) {
+      throw new HttpRequestError("LLM stream had no body");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let content = "";
+    let reasoning = "";
+    const toolCalls: ToolCall[] = [];
+
+    const consumeLine = (line: string): ChatStreamEvent | null => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) return null;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === "[DONE]") return null;
+      let json: {
+        choices?: Array<{
+          delta?: {
+            content?: string | null;
+            reasoning?: string | null;
+            tool_calls?: Array<{
+              index?: number;
+              id?: string;
+              type?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+        }>;
+      };
+      try {
+        json = JSON.parse(data) as typeof json;
+      } catch {
+        return null;
+      }
+      const delta = json.choices?.[0]?.delta;
+      if (!delta) return null;
+      if (delta.tool_calls?.length) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? toolCalls.length;
+          const cur = toolCalls[idx] ?? {
+            id: tc.id || `call_${idx}`,
+            type: "function" as const,
+            function: { name: "", arguments: "" },
+          };
+          if (tc.id) cur.id = tc.id;
+          if (tc.function?.name) cur.function.name += tc.function.name;
+          if (tc.function?.arguments) cur.function.arguments += tc.function.arguments;
+          toolCalls[idx] = cur;
+        }
+      }
+      if (typeof delta.reasoning === "string" && delta.reasoning) {
+        reasoning += delta.reasoning;
+      }
+      if (typeof delta.content === "string" && delta.content) {
+        content += delta.content;
+        return { type: "text", text: delta.content };
+      }
+      return null;
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split(/\r?\n/);
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const ev = consumeLine(line);
+          if (ev) yield ev;
+        }
+      }
+      if (buf.trim()) {
+        const ev = consumeLine(buf);
+        if (ev) yield ev;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    yield { type: "done", content, reasoning, toolCalls: toolCalls.filter(Boolean) };
   }
 }

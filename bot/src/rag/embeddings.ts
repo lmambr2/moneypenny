@@ -78,7 +78,7 @@ export class EmbeddingsClient {
             model: this.model,
             input: texts,
             // ollama extension (ignored elsewhere): keep the embed model resident.
-            keep_alive: "6h",
+            keep_alive: "24h",
           }),
         });
         let out = (data.data ?? [])

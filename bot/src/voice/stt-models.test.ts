@@ -7,10 +7,10 @@ import {
 } from "./stt-models.js";
 
 describe("resolveSttModelSelection", () => {
-  it("server defaults to medium whisper-cpp float16", () => {
+  it("server defaults to large-v3-turbo whisper-cpp float16", () => {
     const s = resolveSttModelSelection({ edition: "server" });
     expect(s).toMatchObject({
-      model: "medium",
+      model: "large-v3-turbo",
       backend: "whisper-cpp",
       quant: "float16",
       edition: "server",

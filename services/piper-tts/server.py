@@ -24,7 +24,7 @@ from pathlib import Path
 PORT = int(os.environ.get("PORT", "8880"))
 PIPER_BIN = os.environ.get("PIPER_BIN", "piper")
 PIPER_MODEL = os.environ.get("PIPER_MODEL", "")  # default path to .onnx
-PIPER_VOICE = os.environ.get("PIPER_VOICE", "en_GB-cori-medium")
+PIPER_VOICE = os.environ.get("PIPER_VOICE", "en_GB-cori-high")
 PIPER_MODELS_DIR = os.environ.get("PIPER_MODELS_DIR", "/models")
 DEFAULT_FORMAT = os.environ.get("TTS_FORMAT", "wav")
 ESPEAK = os.environ.get("ESPEAK_BIN", "espeak-ng")
@@ -53,8 +53,11 @@ def _resolve_model(voice: str | None) -> str | None:
         candidates.append(Path(PIPER_MODEL))
     models_dir = Path(PIPER_MODELS_DIR)
     if models_dir.is_dir():
-        # Prefer product default if present
+        # Prefer product default if present; high → medium fail-open.
         candidates.append(models_dir / f"{PIPER_VOICE}.onnx")
+        if PIPER_VOICE.endswith("-high"):
+            candidates.append(models_dir / f"{PIPER_VOICE[: -len('high')]}medium.onnx")
+        candidates.append(models_dir / "en_GB-cori-medium.onnx")
         candidates.extend(sorted(models_dir.glob("*.onnx")))
     for p in candidates:
         if p.is_file():

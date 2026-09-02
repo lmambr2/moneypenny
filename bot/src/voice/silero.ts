@@ -2,9 +2,9 @@
  * Silero VAD end-pointer (audit C5).
  *
  * Implements the same `VadSegmenter` contract as the RMS `SilenceSegmenter`, so
- * it drops into `createVadSegmenter({ backend: "silero" })` with no pipeline
- * change. Energy remains the default: the RMS segmenter is model-free and
- * unit-tested, while this needs an ONNX model on disk and a native runtime.
+ * it drops into `createVadSegmenterAsync({ backend: "silero" })` with no pipeline
+ * change. Silero is the default; energy RMS is fallback when the ONNX model or
+ * `onnxruntime-node` is missing.
  *
  * Deliberately NOT a package.json dependency. `onnxruntime-node` is a large
  * native module and this bot's primary target is an RK3588 SBC, so it is

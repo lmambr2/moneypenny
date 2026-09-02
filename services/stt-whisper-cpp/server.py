@@ -34,6 +34,7 @@ PORT = int(os.environ.get("PORT", "9000"))
 STT_MODEL = os.environ.get("STT_MODEL", "small").strip()
 STT_MODEL_PATH = os.environ.get("STT_MODEL_PATH", "").strip()
 STT_DEVICE = os.environ.get("STT_DEVICE", "auto").strip().lower()
+STT_INITIAL_PROMPT = os.environ.get("STT_INITIAL_PROMPT", "").strip()
 WHISPER_BIN = os.environ.get("WHISPER_BIN", "whisper-cli").strip()
 MODELS_DIR = Path(os.environ.get("STT_MODELS_DIR", "/models"))
 MAX_PCM_BYTES = int(os.environ.get("MAX_PCM_BYTES", str(25 * 1024 * 1024)))
@@ -171,11 +172,12 @@ def transcribe_audio(audio, sample_rate: int = TARGET_SR) -> str:
         ]
         # Device flags (whisper.cpp versions differ slightly; ignore unknown via fallback).
         env = os.environ.copy()
-        if device in ("vulkan", "cuda"):
-            # GPU path when binary was built with GGML_VULKAN / CUDA.
-            env.setdefault("GGML_VK_VISIBLE_DEVICES", "0")
-        else:
+        # Compose already binds a single render node. Honour GGML_VK_VISIBLE_DEVICES
+        # from the environment when set; do not force device 0.
+        if device not in ("vulkan", "cuda"):
             cmd += ["--no-gpu"]
+        if STT_INITIAL_PROMPT:
+            cmd += ["--prompt", STT_INITIAL_PROMPT]
         with _TX_LOCK:
             try:
                 proc = subprocess.run(
@@ -193,6 +195,8 @@ def transcribe_audio(audio, sample_rate: int = TARGET_SR) -> str:
                 retry = [WHISPER_BIN, "-m", str(model), "-f", str(wav), "-l", "en", "-nt"]
                 if device == "cpu":
                     retry += ["--no-gpu"]
+                if STT_INITIAL_PROMPT:
+                    retry += ["--prompt", STT_INITIAL_PROMPT]
                 proc = subprocess.run(
                     retry,
                     capture_output=True,

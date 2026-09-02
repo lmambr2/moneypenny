@@ -4,6 +4,7 @@ import { isHttpRequestError } from "../util/http.js";
 import {
   type ChatCompletionRequest,
   type ChatCompletionResponse,
+  type ChatStreamEvent,
   LlmClient,
   type LlmClientOptions,
 } from "./client.js";
@@ -126,6 +127,30 @@ export class FallbackLlmClient {
       const res = await this.fallback.chat(req);
       this.lastRoute = { route: "fallback", at: Date.now() };
       return res;
+    }
+  }
+
+  async *chatStream(req: ChatCompletionRequest): AsyncIterable<ChatStreamEvent> {
+    this.lastUsedFallback = false;
+    try {
+      const iter = this.primary.chatStream(req);
+      let first = true;
+      for await (const ev of iter) {
+        if (first) {
+          this.lastRoute = { route: "primary", at: Date.now() };
+          first = false;
+        }
+        yield ev;
+      }
+    } catch (err) {
+      if (!this.fallback || !isRetryableLlmError(err)) throw err;
+      this.logger?.warn(
+        { err: errorMessage(err), fallbackUrl: this.fallback.getBaseUrl() },
+        "Primary LLM stream failed — retrying on fallback",
+      );
+      this.lastUsedFallback = true;
+      this.lastRoute = { route: "fallback", at: Date.now() };
+      yield* this.fallback.chatStream(req);
     }
   }
 }

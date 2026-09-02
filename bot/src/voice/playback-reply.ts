@@ -40,8 +40,8 @@ export function voiceSpokenAck(reply: string | null): string | null {
   return null;
 }
 
-/** Speak short transport acks; skip long LLM answers (post those in chat instead). */
-export function shouldSpeakVoiceReply(reply: string, maxChars = 120): boolean {
+/** Speak short transport acks and radio-length spoken replies (sentence-chunked). */
+export function shouldSpeakVoiceReply(reply: string, maxChars = 900): boolean {
   if (voiceSpokenAck(reply)) return true;
   return reply.length <= maxChars;
 }

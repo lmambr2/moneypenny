@@ -6,6 +6,21 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-09-02
+
+### Voice loop: stream, Silero, skip-LLM, dual-GPU pin
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Voice LLM turns `stream: true`; TTS starts on the first complete sentence
+- Sentence-chunk Piper + markdown/footer strip + org speak-lexicon (`600i`, `INTSUM`, ranks)
+- Instant acks (`On it.`, `Paused.`, …) pre-rendered so barge-in speaks before the 12B
+- Skip-LLM router for play/pause/skip/volume/stop/next — “Moneypenny skip” does not wait on 12B
+- Two prompts: radio = short spoken English; `!ask` = cited/structured. Claim-check + thinking on typed `!ask` only
+- Voice context 8k / `!ask` 32k; Penny `keep_alive=24h`; desk/delegate `5m`
+- Default VAD Silero (`createVadSegmenterAsync`); energy RMS fallback
+- Server STT default `large-v3-turbo` + Vulkan; Piper `en_GB-cori-high` (medium fail-open)
+- Dual R9700 is **opt-in** (not required until the second card is in): GPU0 desk / GPU1 Penny, two Ollama daemons, Whisper binds one render node. `scripts/game-mode.sh` / `desk-mode.sh`. Docs: `docs/gpu-amd.md`
+
 ## 2026-08-27
 
 ### Major/pin bumps

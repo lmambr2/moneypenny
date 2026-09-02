@@ -14,13 +14,13 @@ always co-locates with that install. Chat may still point at a remote Ollama.
 
 | | **SBC** | **Server** |
 |---|---|---|
-| **Hardware** | Orange Pi 5 Max / RK3588, 16 GB, arm64 | x86_64 Linux, **AMD** GPU preferred (e.g. R9700) |
+| **Hardware** | Orange Pi 5 Max / RK3588, 16 GB, arm64 | x86_64 Linux, **AMD** GPU preferred (one card now; dual R9700: GPU0 desk / GPU1 Penny — [gpu-amd.md](./gpu-amd.md)) |
 | **Bot primary host** | **Yes** — this install path | **Yes** — this install path |
 | **Typical stack** | bot + embed + TurboVec + edge voice; chat often LAN 12B | bot + embed + TurboVec + voice + **host Ollama** 12B (+ 31B if fits); optional **TS6** |
 | **Chat LLM** | LAN **Gemma 4 12B QAT** preferred; on-device **E2B** fallback | **Host Ollama** Gemma 4 **12B QAT** (`!ask`); **31B analyst opt-in** (Settings toggle; only if VRAM fits or swap OK) |
 | **Embeddings / vectors** | On this host (`nomic-embed-text-v2-moe` + TurboVec) | On this host (`bge-large-en-v1.5` default + TurboVec) |
-| **STT (dual track)** | **`stt-rknn`**: RKNN NPU **base** → faster-whisper CPU fallback | **`stt-whisper-cpp`**: whisper.cpp + **Vulkan** on AMD (`medium`) |
-| **TTS** | Piper `en_GB-cori-medium` (British female medium) | Same |
+| **STT (dual track)** | **`stt-rknn`**: RKNN NPU **base** → faster-whisper CPU fallback | **`stt-whisper-cpp`**: whisper.cpp + **Vulkan** on AMD (`large-v3-turbo`) |
+| **TTS** | Piper `en_GB-cori-medium` (CPU; SBC) | Piper `en_GB-cori-high` (CPU; medium fail-open) |
 | **NPU** | **RKNN Whisper** priority; offline chat opt-in only | N/A |
 | **Compose files** | `docker-compose.yml` + `docker-compose.sbc.yml` | `docker-compose.yml` + `docker-compose.server.yml` |
 | **Installer** | `./install.sh --edition sbc` | `./install.sh --edition server` |

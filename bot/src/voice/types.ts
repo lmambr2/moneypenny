@@ -69,6 +69,10 @@ export interface VoiceConfig {
   ttsUrl: string;
   /** TTS voice name (Kokoro id or Piper voice label). */
   ttsVoice: string;
+  /** VAD backend. Default `silero`; energy RMS is fallback only. */
+  vadBackend?: "energy" | "silero";
+  /** Path to silero_vad.onnx when vadBackend is silero. */
+  vadModelPath?: string;
   /** RMS threshold for energy VAD (0..32768). Lower = more sensitive. */
   energyThreshold?: number;
   /** Spoken wake phrase required before a voice command is routed (default: Moneypenny). */
@@ -103,8 +107,9 @@ export function defaultVoiceConfig(): VoiceConfig {
     respondWithVoice: true,
     sttUrl: "",
     ttsUrl: "",
-    // Piper default: British female medium (samples: https://rhasspy.github.io/piper-samples/).
-    ttsVoice: "en_GB-cori-medium",
+    // Piper default: British female high (medium is the fail-open fallback).
+    ttsVoice: "en_GB-cori-high",
+    vadBackend: "silero",
     energyThreshold: 200,
     watchword: "moneypenny",
     requireWatchword: true,

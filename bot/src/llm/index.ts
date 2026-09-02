@@ -13,17 +13,34 @@ import {
   type MemoryBudgets,
 } from "../memory/turn-context.js";
 import { buildRevisePrompt, type ClaimCheckResult, runClaimCheck } from "../rag/claim-check.js";
-import { type ChatMessage, extractAssistantText, LLM_ASK_MAX_TOKENS, LlmClient } from "./client.js";
+import { splitCompleteSentences, textToSpoken } from "../voice/speak-clean.js";
+import {
+  type ChatCompletionRequest,
+  type ChatMessage,
+  type ChatStreamEvent,
+  extractAssistantText,
+  LLM_ASK_MAX_TOKENS,
+  LLM_ASK_NUM_CTX,
+  LLM_PENNY_KEEP_ALIVE,
+  LLM_VOICE_MAX_TOKENS,
+  LLM_VOICE_NUM_CTX,
+  LlmClient,
+} from "./client.js";
 import { ANALYST_SYSTEM_PROMPT, type DelegateClient } from "./delegate.js";
 import { FallbackLlmClient, type LlmRoute } from "./fallback-client.js";
 import { ConversationStore, type HistoryEntry } from "./history.js";
 import { probeLlmEndpoint } from "./probe.js";
-import { buildToolRequest, DEFAULT_SYSTEM_PROMPT, type MusicToolName } from "./tools.js";
+import {
+  buildToolRequest,
+  DEFAULT_SYSTEM_PROMPT,
+  type MusicToolName,
+  VOICE_RADIO_RULES,
+} from "./tools.js";
 
 export { LlmClient } from "./client.js";
 export { createLlmClient, FallbackLlmClient } from "./fallback-client.js";
 export { ConversationStore } from "./history.js";
-export { DEFAULT_SYSTEM_PROMPT, MUSIC_CONTROL_TOOLS } from "./tools.js";
+export { DEFAULT_SYSTEM_PROMPT, MUSIC_CONTROL_TOOLS, VOICE_RADIO_RULES } from "./tools.js";
 
 /** Per-ask retrieval context (Phase 6/7): who's asking + what they may see. */
 export interface AskContext {
@@ -31,6 +48,10 @@ export interface AskContext {
   allowedClassifications?: string[];
   /** Invoker uid, for per-user memory injection. */
   userUid?: string;
+  /** Voice/radio turn — spoken prompt, no claim-check, no thinking, 8k ctx. */
+  fromVoice?: boolean;
+  /** Stream complete sentences to TTS while the 12B is still generating. */
+  onSentence?: (sentence: string) => Promise<void>;
 }
 
 /**
@@ -213,7 +234,9 @@ export class LlmModule {
 
   async ask(question: string, conversationId?: string, ctx?: AskContext): Promise<string> {
     this.logger?.debug({ question: question.slice(0, 80), conversationId }, "LLM ask");
-    const messages: ChatMessage[] = [{ role: "system", content: this.systemPrompt }];
+    const spoken = ctx?.fromVoice === true;
+    const system = spoken ? `${this.systemPrompt}\n\n${VOICE_RADIO_RULES}` : this.systemPrompt;
+    const messages: ChatMessage[] = [{ role: "system", content: system }];
 
     // RAG (Phase 5/6/7) + P2 typed pack: inject doctrine with budgets + dedup.
     // Best-effort — retrieval failures never block the answer.
@@ -270,30 +293,34 @@ export class LlmModule {
     messages.push(...this.historyMessages(conversationId), { role: "user", content: question });
 
     try {
-      const resp = await this.client.chat({
+      const req: ChatCompletionRequest = {
         messages,
         tools: undefined,
         tool_choice: "none",
         temperature: this.temperature,
-        max_tokens: LLM_ASK_MAX_TOKENS,
-      });
-      const msg = resp.choices?.[0]?.message;
-      // Gemma/Ollama often leave content empty and put the answer in reasoning —
-      // same salvage used by complete() / doctrine bumpers.
-      let content = msg ? extractAssistantText(msg) : "";
+        max_tokens: spoken ? LLM_VOICE_MAX_TOKENS : LLM_ASK_MAX_TOKENS,
+        keepAlive: LLM_PENNY_KEEP_ALIVE,
+        numCtx: spoken ? LLM_VOICE_NUM_CTX : LLM_ASK_NUM_CTX,
+        think: !spoken,
+        flashAttention: true,
+      };
+      let content = "";
+      if (spoken && ctx?.onSentence) {
+        content = await this.completeStreaming(req, ctx.onSentence);
+      } else {
+        const resp = await this.client.chat(req);
+        const msg = resp.choices?.[0]?.message;
+        // Gemma/Ollama often leave content empty and put the answer in reasoning —
+        // same salvage used by complete() / doctrine bumpers.
+        content = msg ? extractAssistantText(msg) : "";
+      }
       if (!content) {
-        this.logger?.warn(
-          {
-            hasContent: !!(msg?.content && String(msg.content).trim()),
-            hasReasoning: !!(msg as { reasoning?: string } | undefined)?.reasoning,
-          },
-          "LLM ask returned empty text (content/reasoning)",
-        );
+        this.logger?.warn("LLM ask returned empty text (content/reasoning)");
         content = "(no response)";
       }
 
-      // P1 claim-check (optional, fail-open).
-      if (this.claimCheckOpts?.enabled && content && content !== "(no response)") {
+      // P1 claim-check (optional, fail-open). Off on voice — latency + spoken prompt.
+      if (!spoken && this.claimCheckOpts?.enabled && content && content !== "(no response)") {
         try {
           const checked: ClaimCheckResult = await runClaimCheck(
             content,
@@ -396,7 +423,11 @@ export class LlmModule {
   async chatForIntent(
     userMessage: string,
     conversationId?: string,
-    opts?: { moveClientEnabled?: boolean },
+    opts?: {
+      moveClientEnabled?: boolean;
+      spoken?: boolean;
+      onSentence?: (sentence: string) => Promise<void>;
+    },
   ): Promise<{
     content: string | null;
     toolCalls?: Array<{ name: string; arguments: any }>;
@@ -405,14 +436,36 @@ export class LlmModule {
       ...this.historyMessages(conversationId),
       { role: "user", content: userMessage },
     ];
+    const persona = opts?.spoken
+      ? `${this.systemPrompt}\n\n${VOICE_RADIO_RULES}`
+      : this.systemPrompt;
     const req = buildToolRequest(messages, {
-      systemPrompt: this.systemPrompt,
+      systemPrompt: persona,
       delegationEnabled: this.isDelegateConfigured(),
       moveClientEnabled: opts?.moveClientEnabled,
     });
     req.temperature = this.temperature;
+    req.keepAlive = LLM_PENNY_KEEP_ALIVE;
+    req.numCtx = LLM_VOICE_NUM_CTX;
+    req.think = false;
+    req.flashAttention = true;
+    if (opts?.spoken) req.max_tokens = LLM_VOICE_MAX_TOKENS;
 
     try {
+      if (opts?.spoken && opts.onSentence) {
+        const streamed = await this.streamIntent(req, opts.onSentence);
+        if (streamed.toolCalls?.length) {
+          this.record(
+            conversationId,
+            userMessage,
+            streamed.content?.trim() || summarizeToolCalls(streamed.toolCalls),
+          );
+          return streamed;
+        }
+        if (streamed.content) this.record(conversationId, userMessage, streamed.content);
+        return streamed;
+      }
+
       const resp = await this.client.chat(req);
       const choice = resp.choices?.[0];
       const msg = choice?.message;
@@ -529,6 +582,131 @@ export class LlmModule {
       delegateConfigured,
       delegateAvailable,
     };
+  }
+
+  private chatBackend(): {
+    chat: LlmClient["chat"];
+    chatStream?: (req: ChatCompletionRequest) => AsyncIterable<ChatStreamEvent>;
+  } {
+    return this.client;
+  }
+
+  /** Stream voice Q&A: TTS each complete sentence while tokens still arrive. */
+  private async completeStreaming(
+    req: ChatCompletionRequest,
+    onSentence: (sentence: string) => Promise<void>,
+  ): Promise<string> {
+    const backend = this.chatBackend();
+    if (!backend.chatStream) {
+      const resp = await this.client.chat(req);
+      const text = extractAssistantText(resp.choices?.[0]?.message ?? {});
+      const spoken = textToSpoken(text);
+      if (spoken) await onSentence(spoken);
+      return text;
+    }
+
+    let raw = "";
+    let reasoning = "";
+    let buf = "";
+    try {
+      for await (const ev of backend.chatStream(req)) {
+        if (ev.type === "text") {
+          raw += ev.text;
+          buf += ev.text;
+          const split = splitCompleteSentences(buf);
+          buf = split.rest;
+          for (const s of split.sentences) {
+            const spoken = textToSpoken(s);
+            if (spoken) await onSentence(spoken);
+          }
+        } else if (ev.type === "done") {
+          if (!raw && ev.content) raw = ev.content;
+          if (ev.reasoning) reasoning = ev.reasoning;
+        }
+      }
+    } catch (err) {
+      this.logger?.warn({ err }, "LLM stream failed — falling back to non-stream chat");
+      const resp = await this.client.chat({ ...req, stream: false });
+      return extractAssistantText(resp.choices?.[0]?.message ?? {});
+    }
+    if (buf.trim()) {
+      const spoken = textToSpoken(buf);
+      if (spoken) await onSentence(spoken);
+    }
+    return extractAssistantText({ content: raw, reasoning });
+  }
+
+  private async streamIntent(
+    req: ChatCompletionRequest,
+    onSentence: (sentence: string) => Promise<void>,
+  ): Promise<{
+    content: string | null;
+    toolCalls?: Array<{ name: string; arguments: any }>;
+  }> {
+    const backend = this.chatBackend();
+    if (!backend.chatStream) {
+      const resp = await this.client.chat(req);
+      const msg = resp.choices?.[0]?.message;
+      if (msg?.tool_calls?.length) {
+        return {
+          content: msg.content,
+          toolCalls: msg.tool_calls.map((tc) => {
+            try {
+              return {
+                name: tc.function.name as MusicToolName,
+                arguments: JSON.parse(tc.function.arguments || "{}"),
+              };
+            } catch {
+              return { name: tc.function.name as MusicToolName, arguments: {} };
+            }
+          }),
+        };
+      }
+      const text = extractAssistantText(msg ?? {});
+      if (text) await onSentence(textToSpoken(text) || text);
+      return { content: text || null };
+    }
+
+    let raw = "";
+    let reasoning = "";
+    let buf = "";
+    let toolCalls: Array<{ name: string; arguments: any }> = [];
+    for await (const ev of backend.chatStream(req)) {
+      if (ev.type === "text") {
+        raw += ev.text;
+        buf += ev.text;
+        if (toolCalls.length === 0) {
+          const split = splitCompleteSentences(buf);
+          buf = split.rest;
+          for (const s of split.sentences) {
+            const spoken = textToSpoken(s);
+            if (spoken) await onSentence(spoken);
+          }
+        }
+      } else if (ev.type === "done") {
+        if (!raw && ev.content) raw = ev.content;
+        if (ev.reasoning) reasoning = ev.reasoning;
+        if (ev.toolCalls.length) {
+          toolCalls = ev.toolCalls.map((tc) => {
+            try {
+              return {
+                name: tc.function.name as MusicToolName,
+                arguments: JSON.parse(tc.function.arguments || "{}"),
+              };
+            } catch {
+              return { name: tc.function.name as MusicToolName, arguments: {} };
+            }
+          });
+        }
+      }
+    }
+    if (toolCalls.length) return { content: raw || null, toolCalls };
+    if (buf.trim()) {
+      const spoken = textToSpoken(buf);
+      if (spoken) await onSentence(spoken);
+    }
+    const content = extractAssistantText({ content: raw, reasoning }) || null;
+    return { content };
   }
 
   private historyMessages(conversationId?: string): ChatMessage[] {

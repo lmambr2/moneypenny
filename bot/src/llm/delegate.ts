@@ -4,6 +4,7 @@ import {
   type ChatMessage,
   extractAssistantText,
   LLM_DELEGATE_MAX_TOKENS,
+  LLM_DESK_KEEP_ALIVE,
   LlmClient,
 } from "./client.js";
 import { probeLlmEndpoint } from "./probe.js";
@@ -92,6 +93,8 @@ export class DelegateClient {
         tool_choice: "none",
         temperature,
         max_tokens: LLM_DELEGATE_MAX_TOKENS,
+        keepAlive: LLM_DESK_KEEP_ALIVE,
+        think: true,
       });
       const msg = resp.choices?.[0]?.message;
       if (!msg) return "";

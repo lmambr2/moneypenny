@@ -1,6 +1,7 @@
 import type { Logger } from "../logger.js";
 import { fetchBuffer } from "../util/http.js";
 import { normalizeLoudness } from "./loudness.js";
+import { textToSpoken } from "./speak-clean.js";
 import type { TtsProvider } from "./types.js";
 
 /**
@@ -36,7 +37,7 @@ export class HttpTtsClient implements TtsProvider {
     normalize?: (audio: Buffer, format: string, logger?: Logger) => Promise<Buffer>;
   }) {
     this.url = opts.url.replace(/\/$/, "");
-    this.voice = opts.voice || "en_GB-cori-medium";
+    this.voice = opts.voice || "en_GB-cori-high";
     this.model = opts.model || "piper";
     this.format = opts.format || "wav";
     this.logger = opts.logger;
@@ -45,14 +46,16 @@ export class HttpTtsClient implements TtsProvider {
   }
 
   async synthesize(text: string): Promise<{ audio: Buffer; format: string }> {
-    const timeout = ttsTimeoutForText(text, this.timeoutMs);
+    const spoken = textToSpoken(text);
+    if (!spoken) return { audio: Buffer.alloc(0), format: this.format };
+    const timeout = ttsTimeoutForText(spoken, this.timeoutMs);
     let audio = await fetchBuffer(`${this.url}/v1/audio/speech`, {
       method: "POST",
       timeoutMs: timeout,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: this.model,
-        input: text,
+        input: spoken,
         voice: this.voice,
         response_format: this.format,
       }),
