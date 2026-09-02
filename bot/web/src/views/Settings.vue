@@ -1533,17 +1533,17 @@
           <input v-model="ai.voiceTtsUrl" class="input" placeholder="http://piper-tts:8880" />
         </div>
         <div class="form-group">
-          <label title="Piper voice id matching /models/<id>.onnx. Product default: en_GB-cori-medium (British female, medium)."
+          <label title="Piper voice id matching /models/<id>.onnx. Product default: en_GB-cori-high (British female, high; medium fail-open)."
             >TTS voice (Piper id)</label
           >
           <input
             v-model="ai.voiceTtsVoice"
             class="input"
-            placeholder="en_GB-cori-medium"
+            placeholder="en_GB-cori-high"
             title="Must match a model file on the piper-tts service. Radio bumpers use the same voice."
           />
           <p class="profile-toggle-hint" style="margin:4px 0 0">
-            Default <code>en_GB-cori-medium</code> (British). After changing voice:
+            Default <code>en_GB-cori-high</code> (British). After changing voice:
             <strong>Save</strong>, clear bumper cache below, then pre-generate / test bumper.
           </p>
         </div>
@@ -2184,7 +2184,7 @@ const ai = reactive({
   voiceEnabled: false,
   voiceSttUrl: '',
   voiceTtsUrl: '',
-  voiceTtsVoice: 'en_GB-cori-medium',
+  voiceTtsVoice: 'en_GB-cori-high',
   voiceWatchword: 'moneypenny',
   voiceRequireWatchword: true,
   voiceDuckMusicOnSpeech: true,
@@ -2525,7 +2525,7 @@ async function loadAiSettings() {
     ai.voiceEnabled = !!voice.enabled;
     ai.voiceSttUrl = voice.sttUrl ?? '';
     ai.voiceTtsUrl = voice.ttsUrl ?? '';
-    ai.voiceTtsVoice = voice.ttsVoice ?? 'en_GB-cori-medium';
+    ai.voiceTtsVoice = voice.ttsVoice ?? 'en_GB-cori-high';
     ai.voiceWatchword = voice.watchword ?? 'moneypenny';
     ai.voiceRequireWatchword = voice.requireWatchword !== false;
     ai.voiceDuckMusicOnSpeech = voice.duckMusicOnSpeech !== false;
@@ -3134,7 +3134,7 @@ async function saveAiSettings() {
         respondWithVoice: ai.voiceRespondWithVoice,
         sttUrl: ai.voiceSttUrl.trim(),
         ttsUrl: ai.voiceTtsUrl.trim(),
-        ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-medium',
+        ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-high',
         watchword: ai.voiceWatchword.trim() || 'moneypenny',
         requireWatchword: ai.voiceRequireWatchword,
         duckMusicOnSpeech: ai.voiceDuckMusicOnSpeech,
@@ -3167,7 +3167,7 @@ async function saveAiSettings() {
         })(),
         activeProfile: ai.radioActiveProfile,
         // Keep radio TTS aligned with voice settings (station IDs / time checks).
-        ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-medium',
+        ttsVoice: ai.voiceTtsVoice.trim() || 'en_GB-cori-high',
         stationIdLines: ai.radioStationIdLinesText
           .split('\n')
           .map((s) => s.trim())

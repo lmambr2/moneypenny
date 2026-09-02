@@ -633,6 +633,23 @@ describe("ControlRouter — voice routing", () => {
     expect(d.type).toBe("deterministic");
     expect(d.command!.name).toBe("pause");
   });
+
+  it("skip-LLM router handles padded media verbs without the 12B", async () => {
+    const llm: LlmAssist = {
+      ask: vi.fn(),
+      chatForIntent: vi.fn(),
+      delegate: vi.fn(),
+    };
+    const router = new ControlRouter(fakeLogger(), llm);
+    const skip = await router.routeVoice("please skip this song", makeContext(fakeBot()));
+    expect(skip.type).toBe("deterministic");
+    expect(skip.command!.name).toBe("skip");
+    const vol = await router.routeVoice("volume 40", makeContext(fakeBot()));
+    expect(vol.command!.name).toBe("vol");
+    expect(vol.command!.args).toBe("40");
+    expect(llm.chatForIntent).not.toHaveBeenCalled();
+    expect(llm.ask).not.toHaveBeenCalled();
+  });
 });
 
 describe("ControlRouter — rank gating", () => {

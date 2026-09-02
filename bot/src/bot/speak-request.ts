@@ -1,3 +1,5 @@
+import { textToSpoken } from "../voice/speak-clean.js";
+
 /** Max characters sent to TTS for a spoken !ask (Piper will chew on novels). */
 export const MAX_ANNOUNCE_CHARS = 900;
 
@@ -39,13 +41,9 @@ export function stripSourcesForSpeech(raw: string): string {
     .trim();
 }
 
-/** Flatten markdown/URLs and cap length for Piper. */
+/** Flatten markdown/URLs, expand the org lexicon, and cap length for Piper. */
 export function textForAnnouncement(raw: string, max = MAX_ANNOUNCE_CHARS): string {
-  const t = stripSourcesForSpeech(raw)
-    .replace(/[*_`#]+/g, "")
-    .replace(/https?:\/\/\S+/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const t = textToSpoken(stripSourcesForSpeech(raw));
   if (!t) return "";
   if (t.length <= max) return t;
   const cut = t.slice(0, max);

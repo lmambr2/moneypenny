@@ -797,7 +797,7 @@ export function createBotRouter(
         active: false,
         sttUrl: config.voice?.sttUrl ?? "",
         ttsUrl: config.voice?.ttsUrl ?? "",
-        ttsVoice: config.voice?.ttsVoice ?? "en_GB-cori-medium",
+        ttsVoice: config.voice?.ttsVoice ?? "en_GB-cori-high",
         respondWithVoice: config.voice?.respondWithVoice ?? true,
         sttAvailable: false,
         ttsAvailable: false,

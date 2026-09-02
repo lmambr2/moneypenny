@@ -43,7 +43,7 @@ const DEFAULTS: Record<
   { model: WhisperModelId; backend: SttModelSelection["backend"]; quant: SttQuantType }
 > = {
   sbc: { model: "base", backend: "rknn", quant: "int8" },
-  server: { model: "medium", backend: "whisper-cpp", quant: "float16" },
+  server: { model: "large-v3-turbo", backend: "whisper-cpp", quant: "float16" },
   dev: { model: "tiny", backend: "faster-whisper", quant: "int8" },
 };
 
@@ -57,7 +57,7 @@ export function isSttQuantType(v: string): v is SttQuantType {
 
 /**
  * Resolve STT model + quant from env-like inputs.
- * `preferLargeV3` on server edition upgrades medium → large-v3 when VRAM free.
+ * `preferLargeV3` on server edition upgrades large-v3-turbo → large-v3 when VRAM free.
  * RKNN always defaults quant to int8 (INT8 path for exported .rknn pairs).
  */
 export function resolveSttModelSelection(opts: {

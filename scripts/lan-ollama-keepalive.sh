@@ -5,7 +5,7 @@ set -euo pipefail
 
 MODEL="${MONEYPENNY_CHAT_MODEL:-hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL}"
 URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
-KEEP="${OLLAMA_KEEP_ALIVE:-6h}"
+KEEP="${OLLAMA_KEEP_ALIVE:-24h}"
 
 if command -v python3 >/dev/null 2>&1; then
   if ! python3 - "$URL" "$MODEL" <<'PY'

@@ -1,0 +1,24 @@
+[Unit]
+Description=Ollama Penny (GPU 1) — Moneypenny voice + !ask 12B
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Dual R9700: pin GPU 1. Single card / not migrated: set HIP_VISIBLE_DEVICES=0
+# (or omit) and leave ROCR_VISIBLE_DEVICES empty.
+Environment=OLLAMA_HOST=127.0.0.1:11434
+Environment=OLLAMA_KEEP_ALIVE=24h
+Environment=OLLAMA_MAX_LOADED_MODELS=2
+Environment=OLLAMA_NUM_PARALLEL=1
+Environment=OLLAMA_CONTEXT_LENGTH=8192
+Environment=OLLAMA_FLASH_ATTENTION=1
+Environment=HIP_VISIBLE_DEVICES=1
+Environment=GGML_VK_VISIBLE_DEVICES=1
+# Optional, more reliable than index: ROCR_VISIBLE_DEVICES=<gpu1-uuid>
+ExecStart=/usr/local/bin/ollama serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Fetch the Silero VAD ONNX model for the optional `silero` VAD backend (audit C5).
 #
-# The energy segmenter is the default and needs nothing. This is only for
-# A/B-ing model end-pointing, which is the suspected fix for commands being
-# mis-segmented while music plays under the speaker.
+# Silero is the default VAD backend. Energy RMS is fallback if this model or
+# onnxruntime-node is missing. Download this so the default actually engages.
 #
 # Also requires the runtime, which is deliberately NOT a package.json
 # dependency (large native module, RK3588 is the primary target):

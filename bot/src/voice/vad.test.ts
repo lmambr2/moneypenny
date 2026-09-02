@@ -91,7 +91,7 @@ describe("createVadSegmenter", () => {
     maxUtteranceMs: 200,
   };
 
-  it("returns energy SilenceSegmenter by default", () => {
+  it("sync factory always returns energy (silero needs async init)", () => {
     const seg = createVadSegmenter(factoryOpts);
     expect(seg).toBeInstanceOf(SilenceSegmenter);
   });

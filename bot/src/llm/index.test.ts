@@ -133,4 +133,34 @@ describe("LlmModule history", () => {
     expect(answer).toMatch(/fleet holds at the jump point/i);
     expect(answer).not.toMatch(/^\(no response\)/);
   });
+
+  it("typed !ask uses 32k context and thinking; voice ask does not", async () => {
+    const { client, requests } = fakeClient(() => textResponse("ok"));
+    const mod = new LlmModule({ client: client as any });
+
+    await mod.ask("what is INTSUM");
+    expect(requests[0].think).toBe(true);
+    expect(requests[0].numCtx).toBe(32_768);
+    expect(requests[0].keepAlive).toBe("24h");
+
+    await mod.ask("what is INTSUM", "voice", { fromVoice: true });
+    expect(requests[1].think).toBe(false);
+    expect(requests[1].numCtx).toBe(8192);
+    expect(String(requests[1].messages[0].content)).toMatch(/voice radio/i);
+  });
+
+  it("skips claim-check extra completes on fromVoice asks", async () => {
+    const { client } = fakeClient(() => textResponse("The fleet holds at the jump point."));
+    const retrieve = vi.fn(async () => [{ text: "The fleet holds.", source: "doc.md" }]);
+    const complete = vi.fn();
+    const mod = new LlmModule({
+      client: client as any,
+      retrieve,
+      claimCheck: { enabled: true, revise: true },
+    });
+    mod.complete = complete as any;
+    await mod.ask("where is the fleet?", "v", { fromVoice: true });
+    expect(complete).not.toHaveBeenCalled();
+    expect(client.chat).toHaveBeenCalledTimes(1);
+  });
 });

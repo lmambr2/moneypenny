@@ -2,16 +2,16 @@
 # Download a Piper voice (onnx + json) into a models directory.
 #
 # Usage:
-#   ./scripts/download-piper-voice.sh                          # default en_GB-cori-medium
-#   ./scripts/download-piper-voice.sh en_GB-cori-medium
-#   ./scripts/download-piper-voice.sh en_GB-alba-medium /path/to/models
+#   ./scripts/download-piper-voice.sh                          # default en_GB-cori-high
+#   ./scripts/download-piper-voice.sh en_GB-cori-high
+#   ./scripts/download-piper-voice.sh en_GB-cori-medium /path/to/models
 #
 # Voices: https://huggingface.co/rhasspy/piper-voices (en/en_GB/…)
-# Product default: en_GB-cori-medium (British female, medium quality).
+# Product default: en_GB-cori-high (British female, high). Medium is fail-open.
 
 set -euo pipefail
 
-VOICE="${1:-en_GB-cori-medium}"
+VOICE="${1:-en_GB-cori-high}"
 OUT_DIR="${2:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

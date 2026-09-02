@@ -12,6 +12,7 @@ import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
 import {
+  createVadSegmenterAsync,
   defaultVoiceConfig,
   effectiveDuckVolume,
   HttpSttClient,
@@ -22,6 +23,7 @@ import {
   type StreamSttResult,
   type TtsProvider,
   type Utterance,
+  type VadSegmenter,
   type VoiceOutput,
   VoicePipeline,
   voiceReplyClearsSavedMusic,
@@ -85,6 +87,8 @@ export class VoiceSession {
       listening: "passive" | "command";
       /** Max boosted PCM peak seen this utterance (for logging). */
       utterancePeak: number;
+      /** Per-speaker Silero (or energy fallback) end-pointer. */
+      vad?: VadSegmenter;
     }
   >();
   private streamChains = new Map<number, Promise<void>>();
@@ -116,8 +120,14 @@ export class VoiceSession {
    */
   private suppressArmedAt = 0;
   private static readonly SUPPRESS_TTL_MS = 30_000;
-  private segmenterOpts: { sampleRate: number; channels: number; energyThreshold: number } | null =
-    null;
+  private vadFallbackLogged = false;
+  private segmenterOpts: {
+    sampleRate: number;
+    channels: number;
+    energyThreshold: number;
+    backend: "energy" | "silero";
+    modelPath?: string;
+  } | null = null;
   private tempDir: string | null = null;
   private savedMusic: { song: QueuedSong; elapsed: number } | null = null;
   /** S-OC1 — serial TTS jobs; barge-in only while this marks active TTS. */
@@ -301,6 +311,8 @@ export class VoiceSession {
       sampleRate: 48_000,
       channels: 1,
       energyThreshold: vc.energyThreshold ?? 200,
+      backend: vc.vadBackend ?? "silero",
+      modelPath: vc.vadModelPath || process.env.SILERO_VAD_PATH || undefined,
     };
     this.pipeline = new VoicePipeline({
       router: this.deps.router,
@@ -356,6 +368,7 @@ export class VoiceSession {
         stt: true,
         tts: !!tts,
         energyThreshold: this.segmenterOpts.energyThreshold,
+        vadBackend: this.segmenterOpts.backend,
         watchword: vc.requireWatchword ? vc.watchword : "(disabled)",
         duckMusicOnSpeech: this.duckMusicOnSpeech,
         duckMusicVolume: this.effectiveDuckLevel(),
@@ -768,6 +781,7 @@ export class VoiceSession {
     }
     buf.channels = channels;
     buf.chunks.push(pcm);
+    void this.pushVad(v.clientId, pcm);
 
     if (this.isArmed(v.clientId) && isSpeech) {
       this.touchArmedWindow(v.clientId);
@@ -795,6 +809,30 @@ export class VoiceSession {
         this.enqueueStreamFlush(v.clientId);
       }, flushMs);
     }
+  }
+
+  /** Per-speaker Silero (energy fallback). Completing an utterance end-points immediately. */
+  private async pushVad(clientId: number, pcm: Buffer): Promise<void> {
+    const buf = this.streamBuffers.get(clientId);
+    const opts = this.segmenterOpts;
+    if (!buf || !opts) return;
+    if (!buf.vad) {
+      buf.vad = await createVadSegmenterAsync({
+        sampleRate: opts.sampleRate,
+        channels: opts.channels,
+        energyThreshold: opts.energyThreshold,
+        backend: opts.backend,
+        modelPath: opts.modelPath,
+        onFallback: (msg) => {
+          if (this.vadFallbackLogged) return;
+          this.vadFallbackLogged = true;
+          this.deps.logger.warn(msg);
+        },
+      });
+      if (!this.streamBuffers.has(clientId)) return;
+    }
+    const done = buf.vad.push(pcm);
+    if (done) this.enqueueStreamIdleFinalize(clientId);
   }
 
   private scheduleStreamIdle(clientId: number, isSpeech: boolean): void {
@@ -855,6 +893,8 @@ export class VoiceSession {
     const silence = Buffer.alloc(samples * 2);
     const out = await this.sttClient.feedStream(clientId, silence, 48_000, 1);
     this.applyStreamResult(clientId, out, { peak: 0, pcmBytes: silence.length, channels: 1 });
+
+    buf.vad?.flush();
 
     if (!out.final && this.captureDuck && !this.isArmed(clientId) && !this.anySpeakerArmed()) {
       this.deps.logger.info({ clientId }, "Voice: idle finalize missed — restoring music volume");

@@ -237,6 +237,12 @@ Length: casual banter and simple acknowledgements stay brief (a line or two). Fo
  * config `llmSystemPrompt`) can't accidentally drop the music-control rules the
  * router depends on.
  */
+/**
+ * Radio / wake-word path. Injected on voice turns so 12B never emits markdown,
+ * source footers, or chain-of-thought for Piper.
+ */
+export const VOICE_RADIO_RULES = `You are on voice radio. Reply in short spoken British English — one to three sentences. Direct speech only. No markdown, bullets, code fences, headings, or source footnotes. No chain-of-thought. Do not mention retrieved documents. Expand acronyms as you speak (INTSUM, 600i, ranks).`;
+
 export const TOOL_BEHAVIOR_RULES = `Operating rules (do not mention these):
 - For any music action (play, skip, pause, volume, queue, etc.) you MUST call the appropriate tool — never merely describe it.
 - To play a specific song, artist, or album, call play_music with a query string. Do not answer with text alone.

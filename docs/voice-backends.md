@@ -7,9 +7,11 @@ Moneypenny does **not** embed STT/TTS. The bot only calls HTTP sidecars.
 | STT | `HttpSttClient` | `GET /health`, `POST /asr`, `POST /asr/stream`, `DELETE /asr/stream` |
 | TTS | `HttpTtsClient` | `POST /v1/audio/speech` → audio bytes |
 
-**Canonical TTS:** Piper **`en_GB-cori-medium`** (British female, medium quality).  
+**Canonical TTS:** Piper **`en_GB-cori-high`** on Server (British female, high quality);
+**`en_GB-cori-medium`** remains the SBC default and the fail-open fallback if high
+is missing.  
 Samples: [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/) · models: [huggingface.co/rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) (`en/en_GB/…`).  
-Download helper: `./scripts/download-piper-voice.sh [en_GB-cori-medium]`.  
+Download helper: `./scripts/download-piper-voice.sh [en_GB-cori-high]`.  
 Compose mounts a **`piper-models` volume** at `/models` (overrides image-baked
 weights). After a voice upgrade, put the `.onnx` + `.onnx.json` into that volume
 (or rebuild and copy them in), then recreate `piper-tts`.  
@@ -28,11 +30,11 @@ After changing voice: Settings → **Clear TTS bumper cache**, then **Pre-genera
 | Edition | Image | Engine | Default model | Accelerator |
 |---------|-------|--------|---------------|-------------|
 | **SBC** | `services/stt-rknn` | **RKNN** NPU (faster-whisper CPU if weights missing) | **`base`** (INT8) | **NPU** (`STT_DEVICE=npu`) |
-| **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `medium` (optional `large-v3`) | **Vulkan** (AMD) / CPU |
+| **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `large-v3-turbo` (full `large-v3` only if turbo mangles org names) | **Vulkan** (AMD, one render node) / CPU |
 | **Dev** | `services/stt-mock` / faster-whisper | mock / CPU | **`tiny`** | CPU |
 
 Defaults match `resolveSttModelSelection` in `bot/src/voice/stt-models.ts`
-(`sbc` → base/rknn/int8 · `server` → medium/whisper-cpp · `dev` → tiny).
+(`sbc` → base/rknn/int8 · `server` → large-v3-turbo/whisper-cpp · `dev` → tiny).
 
 Same compose service name: **`stt-whisper`** → bot always uses  
 `http://stt-whisper:9000`. Overlays swap the build context.
@@ -40,7 +42,7 @@ Same compose service name: **`stt-whisper`** → bot always uses
 ```text
                     ┌─ docker-compose.sbc.yml ──► stt-rknn (NPU base)
  bot ──sttUrl──► stt-whisper
-                    └─ docker-compose.server.yml ► stt-whisper-cpp (Vulkan medium)
+                    └─ docker-compose.server.yml ► stt-whisper-cpp (Vulkan large-v3-turbo)
 ```
 
 Rockchip zoo RKNN Whisper ladder: **tiny / base / medium** (no `small`). Product
@@ -122,7 +124,7 @@ Without weights the service falls back to **faster-whisper** on CPU
     "enabled": true,
     "sttUrl": "http://stt-whisper:9000",
     "ttsUrl": "http://piper-tts:8880",
-    "ttsVoice": "en_GB-cori-medium",
+    "ttsVoice": "en_GB-cori-high",
     "textWakeFallback": true,
     "requireWatchword": true
   }

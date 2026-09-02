@@ -1,8 +1,11 @@
+export { INSTANT_ACK_PHRASES, TtsAckCache } from "./ack-cache.js";
+export { matchVoiceMediaCommand } from "./media-router.js";
 export {
   isMusicSearchRouteText,
   MUSIC_SEARCH_COMMANDS,
   voiceRouteNeedsPendingAck,
 } from "./music-command.js";
+export { WHISPER_INITIAL_PROMPT } from "./org-lexicon.js";
 export {
   isPcmClipped,
   MIN_PCM_BOOST_PEAK,
@@ -28,6 +31,10 @@ export {
   probeKokoroTts,
   probeSherpaStt,
 } from "./probe.js";
+export {
+  splitSpokenSentences,
+  textToSpoken,
+} from "./speak-clean.js";
 export { SpeechQueue } from "./speech-queue.js";
 export { HttpSttClient, SherpaSttClient } from "./stt.js";
 export { HttpTtsClient, KokoroTtsClient } from "./tts.js";
@@ -49,6 +56,7 @@ export {
 export {
   type CreateVadOptions,
   createVadSegmenter,
+  createVadSegmenterAsync,
   rms16,
   type SegmenterOptions,
   SilenceSegmenter,

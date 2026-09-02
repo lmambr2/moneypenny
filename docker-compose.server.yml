@@ -1,4 +1,4 @@
-# Moneypenny — Server edition overlay (x86_64, ideally NVIDIA GPU)
+# Moneypenny — Server edition overlay (x86_64, AMD GPU preferred)
 #
 # Use with the base file:
 #   docker compose -f docker-compose.yml -f docker-compose.server.yml \
@@ -6,7 +6,8 @@
 #
 # Or: ./install.sh --edition server
 #
-# Defaults: local Gemma 4 12B chat, Whisper medium (Vulkan on AMD), Piper TTS.
+# Defaults: host Ollama 12B on GPU 1 (see docs/gpu-amd.md), Whisper large-v3-turbo
+# (Vulkan on AMD, GPU 1 render node only), Piper en_GB-cori-high on CPU.
 # Can also act as the LAN LLM host for an SBC edition (docs/editions.md).
 
 services:
@@ -20,11 +21,22 @@ services:
       - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-120000}
       - VECTOR_DB_URL=${VECTOR_DB_URL:-http://turbovec:6333}
       - MONEYPENNY_EDITION=server
+      - SILERO_VAD_PATH=${SILERO_VAD_PATH:-/models/silero/silero_vad.onnx}
+    volumes:
+      - ${SILERO_MODELS_DIR:-./models/silero}:/models/silero:ro
 
   ollama:
+    # Prefer host ollama-penny / ollama-desk (docs/gpu-amd.md). This container
+    # path must not see both R9700s — pin GPU 1 only.
     environment:
-      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-3}
-      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-2}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
+      - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-8192}
+      - OLLAMA_FLASH_ATTENTION=${OLLAMA_FLASH_ATTENTION:-1}
+      # Dual-R9700 later: set PENNY_GPU_INDEX=1 so this container never sees GPU 0.
+      - HIP_VISIBLE_DEVICES=${PENNY_GPU_INDEX:-0}
+      - GGML_VK_VISIBLE_DEVICES=${PENNY_GPU_INDEX:-0}
     # Uncomment when nvidia-container-toolkit is installed:
     # deploy:
     #   resources:
@@ -42,20 +54,22 @@ services:
       args:
         WHISPER_VULKAN: ${WHISPER_VULKAN:-1}
     environment:
-      # Model ladder: medium default; set STT_MODEL=large-v3 when VRAM free
-      - STT_MODEL=${STT_MODEL:-medium}
-      - STT_DEVICE=${STT_DEVICE:-auto}
+      # GPU 1 only. Full large-v3 only if turbo still mangles org names.
+      - STT_MODEL=${STT_MODEL:-large-v3-turbo}
+      - STT_DEVICE=${STT_DEVICE:-vulkan}
       - STT_BACKEND=whisper-cpp
       - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-float16}
       - STT_EAGER_LOAD=${STT_EAGER_LOAD:-1}
       - STT_MODELS_DIR=/models
       - STT_MODEL_PATH=${STT_MODEL_PATH:-}
+      - STT_INITIAL_PROMPT=${STT_INITIAL_PROMPT:-Moneypenny, skip, pause, resume, volume, INTSUM, AAR, 600i, Colonel, Captain, Talon, hangar, quantum}
+      - GGML_VK_VISIBLE_DEVICES=${GGML_VK_VISIBLE_DEVICES:-0}
       - WHISPER_BIN=${WHISPER_BIN:-whisper-cli}
     volumes:
       - whisper-models:/models
-    # AMD / Intel iGPU Vulkan — pass render node
+    # Bind Penny's render node only — never every /dev/dri node (GPU 0 is reserved).
     devices:
-      - /dev/dri:/dev/dri
+      - ${PENNY_RENDER_NODE:-/dev/dri/renderD128}:/dev/dri/renderD128
     group_add:
       # Host gids: ALWAYS export from host (Arch/CachyOS ≠ Debian 992/44):
       #   export RENDER_GID=$(getent group render | cut -d: -f3)
@@ -65,6 +79,6 @@ services:
 
   piper-tts:
     environment:
-      - PIPER_VOICE=${PIPER_VOICE:-en_GB-cori-medium}
-      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-cori-medium.onnx}
+      - PIPER_VOICE=${PIPER_VOICE:-en_GB-cori-high}
+      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-cori-high.onnx}
       - PIPER_MODELS_DIR=${PIPER_MODELS_DIR:-/models}

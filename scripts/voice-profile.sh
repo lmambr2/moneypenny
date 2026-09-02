@@ -44,13 +44,14 @@ elif [[ "$HAS_AMD" -eq 1 ]]; then
 # Server + AMD — whisper.cpp Vulkan
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
 COMPOSE_PROFILES=core,ollama,rag,voice-server
-STT_MODEL=medium
+STT_MODEL=large-v3-turbo
 STT_DEVICE=vulkan
 STT_BACKEND=whisper-cpp
 WHISPER_VULKAN=1
 RENDER_GID=\$(getent group render | cut -d: -f3)
 VIDEO_GID=\$(getent group video | cut -d: -f3)
-# Download: ./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp medium
+# Dual R9700 later: PENNY_GPU_INDEX=1 PENNY_RENDER_NODE=/dev/dri/renderD129
+# Download: ./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp large-v3-turbo
 EOF
 elif [[ "$HAS_NVIDIA" -eq 1 ]]; then
   cat <<EOF

@@ -458,12 +458,12 @@ if [ "$WITH_VOICE" -eq 1 ]; then
       PROFILES+=("voice-server")
       : "${STT_BACKEND:=whisper-cpp}"
       if [ "$HAS_AMD" -eq 1 ]; then
-        : "${STT_MODEL:=medium}"
+        : "${STT_MODEL:=large-v3-turbo}"
         : "${STT_DEVICE:=vulkan}"
         : "${WHISPER_VULKAN:=1}"
         say "Voice: ${c_b}server${c_0} (whisper.cpp Vulkan, model=${STT_MODEL} + piper; AMD)"
       elif [ "$HAS_NVIDIA" -eq 1 ]; then
-        : "${STT_MODEL:=medium}"
+        : "${STT_MODEL:=large-v3-turbo}"
         : "${STT_DEVICE:=cuda}"
         say "Voice: ${c_b}server${c_0} (whisper.cpp, model=${STT_MODEL}; NVIDIA untested)"
       else
@@ -600,15 +600,20 @@ if [ "$WITH_VOICE" -eq 1 ] && [ "$VOICE_PROFILE" != "legacy" ]; then
     set_env STT_FALLBACK "faster-whisper"
     set_env RKNN_MODELS_DIR "/models/rknn"
   else
-    set_env STT_MODEL "${STT_MODEL:-medium}"
-    set_env STT_DEVICE "${STT_DEVICE:-auto}"
+    set_env STT_MODEL "${STT_MODEL:-large-v3-turbo}"
+    set_env STT_DEVICE "${STT_DEVICE:-vulkan}"
     set_env STT_BACKEND "${STT_BACKEND:-whisper-cpp}"
     if [ "${STT_BACKEND}" = "whisper-cpp" ]; then
       set_env WHISPER_VULKAN "${WHISPER_VULKAN:-1}"
     fi
   fi
-  set_env PIPER_VOICE "en_GB-cori-medium"
-  set_env PIPER_MODEL "/models/en_GB-cori-medium.onnx"
+  if [ "${VOICE_PROFILE}" = "edge" ]; then
+    set_env PIPER_VOICE "en_GB-cori-medium"
+    set_env PIPER_MODEL "/models/en_GB-cori-medium.onnx"
+  else
+    set_env PIPER_VOICE "en_GB-cori-high"
+    set_env PIPER_MODEL "/models/en_GB-cori-high.onnx"
+  fi
 fi
 [ "$LLM" = "npu" ] && set_env RKLLM_BACKEND native
 # Default the music library to a local, writable folder. Respect a real custom

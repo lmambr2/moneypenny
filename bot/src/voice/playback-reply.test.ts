@@ -41,9 +41,10 @@ describe("playback voice replies", () => {
     expect(voiceSpokenAck("Now playing: long song title")).toBeNull();
   });
 
-  it("speaks short transport acks but not long LLM answers", () => {
+  it("speaks transport acks and radio-length replies, not novels", () => {
     expect(shouldSpeakVoiceReply("Paused")).toBe(true);
-    expect(shouldSpeakVoiceReply("x".repeat(200))).toBe(false);
+    expect(shouldSpeakVoiceReply("x".repeat(200))).toBe(true);
+    expect(shouldSpeakVoiceReply("x".repeat(1000))).toBe(false);
     expect(shouldSpeakVoiceReply("Right away.")).toBe(true);
   });
 });
