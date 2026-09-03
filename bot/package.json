@@ -42,13 +42,13 @@
     "better-sqlite3": "^13.0.3",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
-    "multer": "^2.2.0",
-    "music-metadata": "^11.14.0",
+    "multer": "^2.3.0",
+    "music-metadata": "^11.15.0",
     "pino": "^10.3.1",
-    "swagger-ui-dist": "^5.32.13",
+    "swagger-ui-dist": "^5.32.14",
     "tweetnacl": "^1.0.3",
     "ws": "^8.21.3",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "overrides": {
     "tar": "^7.5.22",
@@ -57,20 +57,21 @@
     "@hono/node-server": "^2.1.0",
     "fast-uri": "^3.1.5",
     "hono": "^4.13.2",
-    "nanoid": "^3.3.18"
+    "nanoid": "^3.3.18",
+    "qs": "^6.16.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.11",
+    "@biomejs/biome": "2.5.12",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^9.6.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.4.1",
     "@types/supertest": "^7.2.1",
     "@types/ws": "^8.18.1",
     "supertest": "^7.2.2",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },

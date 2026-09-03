@@ -16,12 +16,12 @@
     "@iconify/vue": "^5.0.1",
     "pinia": "^4.0.3",
     "vue": "^3.5.41",
-    "vue-router": "^5.2.0"
+    "vue-router": "^5.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.4.11",
-    "happy-dom": "^20.11.2",
+    "happy-dom": "^20.13.2",
     "sass": "^1.102.0",
     "typescript": "^6.0.3",
     "vite": "^8.2.1",

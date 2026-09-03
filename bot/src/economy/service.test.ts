@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { EconomyDiskCache, setEconomyDiskCacheForTests } from "./cache/store.js";
 import { ScCraftClient } from "./sc-craft.js";
 import { handleEconomyCommand } from "./service.js";
 import { UexClient } from "./uex.js";
@@ -18,6 +22,20 @@ const sampleBp = {
 };
 
 describe("handleEconomyCommand", () => {
+  let dir: string;
+  let disk: EconomyDiskCache;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "econ-svc-"));
+    disk = new EconomyDiskCache(dir);
+    setEconomyDiskCacheForTests(disk);
+  });
+
+  afterEach(() => {
+    setEconomyDiskCacheForTests(null);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("mine / refine / craft return formatted orders", async () => {
     const mine = await handleEconomyCommand("mine", "stileron scu:16");
     expect(mine).toMatch(/Stileron/);
@@ -67,6 +85,7 @@ describe("handleEconomyCommand", () => {
   it("econ prices uses injected UEX client", async () => {
     const uex = new UexClient({
       enabled: true,
+      disk,
       fetchCommodities: async () => [
         {
           id: 1,
@@ -77,6 +96,7 @@ describe("handleEconomyCommand", () => {
           price_buy: 20000,
         },
       ],
+      fetchTerminalPrices: async () => [],
     });
     const out = await handleEconomyCommand("econ", "prices bexalite", "!", { uex });
     expect(out).toContain("28,000");
@@ -84,7 +104,7 @@ describe("handleEconomyCommand", () => {
   });
 
   it("econ prices soft-fails when disabled", async () => {
-    const uex = new UexClient({ enabled: false });
+    const uex = new UexClient({ enabled: false, disk });
     const out = await handleEconomyCommand("econ", "prices bex", "!", { uex });
     expect(out).toMatch(/disabled/i);
   });
