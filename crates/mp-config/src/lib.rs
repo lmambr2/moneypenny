@@ -7,6 +7,7 @@
 //! Phase 0/1 is load-only — do not write config.json (Node owns DDL/writes
 //! during dual-run).
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -59,6 +60,14 @@ pub struct BotConfig {
     pub theme: String,
     #[serde(default = "default_prefix")]
     pub command_prefix: String,
+    #[serde(default = "default_aliases")]
+    pub command_aliases: HashMap<String, String>,
+    #[serde(default)]
+    pub admin_groups: Vec<i32>,
+    #[serde(default)]
+    pub playback_ban_protected_artists: Vec<String>,
+    #[serde(default)]
+    pub rights: Option<Value>,
     #[serde(default)]
     pub public_url: String,
     #[serde(default)]
@@ -104,6 +113,13 @@ fn default_theme() -> String {
 fn default_prefix() -> String {
     "!".into()
 }
+fn default_aliases() -> HashMap<String, String> {
+    HashMap::from([
+        ("p".into(), "play".into()),
+        ("s".into(), "skip".into()),
+        ("n".into(), "skip".into()),
+    ])
+}
 fn default_trust_proxy_hops() -> u32 {
     1
 }
@@ -128,6 +144,10 @@ impl Default for BotConfig {
             locale: default_locale(),
             theme: default_theme(),
             command_prefix: default_prefix(),
+            command_aliases: default_aliases(),
+            admin_groups: Vec::new(),
+            playback_ban_protected_artists: Vec::new(),
+            rights: None,
             public_url: String::new(),
             trust_proxy: false,
             trust_proxy_hops: 1,
@@ -267,6 +287,7 @@ mod tests {
         assert_eq!(c.web_port, 3000);
         assert_eq!(c.bind_address, "127.0.0.1");
         assert_eq!(c.command_prefix, "!");
+        assert_eq!(c.command_aliases.get("p").map(String::as_str), Some("play"));
         assert!(c.rights_enabled);
         assert_eq!(c.music_opus_bitrate_kbps, 64);
         assert!(c.music_blocked_genres.iter().any(|g| g == "rap"));

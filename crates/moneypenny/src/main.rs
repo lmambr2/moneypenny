@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: MIT
 
 //! Moneypenny bot process (Rust). Replaces `bot/src/index.ts` at cutover.
-//! Phase 0/1: config + sqlite + axum health/session/SPA. TeamSpeak is mocked.
+//! Phase 2: TeamSpeak live session + local !play/!skip/!queue (no LLM).
+
+mod bot;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
+use mp_ts::TsSession;
 use tracing::{error, info, warn};
 
 #[derive(Parser, Debug)]
@@ -105,8 +108,33 @@ async fn main() {
         "database ready"
     );
 
-    let _ts = mp_ts::MockSession::new();
-    info!("ts session: mock (Option A/B not chosen — see docs/rust-rewrite.md)");
+    let config = Arc::new(config);
+    let music_dir = std::env::var("MUSIC_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("music"));
+    let protected = config.playback_ban_protected_artists.clone();
+    let blacklist = Arc::new(mp_music::PlaybackBlacklist::new(Arc::clone(&db), move || {
+        protected.clone()
+    }));
+    let station = Arc::new(mp_music::MusicStation::new(&music_dir, Some(blacklist)));
+    station
+        .player
+        .set_bitrate_kbps(config.music_opus_bitrate_kbps as i32);
+    info!(dir = %music_dir.display(), tracks = station.local.track_count(), "music library");
+
+    let rights = if !config.rights_enabled {
+        None
+    } else if let Some(v) = &config.rights {
+        mp_rights::parse_rights_config(v).map(|c| {
+            Arc::new(mp_rights::RightsEngine::new(c))
+        })
+    } else {
+        Some(Arc::new(mp_rights::RightsEngine::new(
+            mp_control::legacy_rights_config(&config.admin_groups),
+        )))
+    };
 
     let addr: SocketAddr = match config.bind_addr().parse() {
         Ok(a) => a,
@@ -116,11 +144,110 @@ async fn main() {
         }
     };
 
-    let state = mp_http::AppState::new(db, Arc::new(config), paths.static_dir.clone());
+    let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone());
     start_watchdog();
-    if let Err(e) = mp_http::serve(state, addr).await {
-        error!(error = %e, "http server");
-        std::process::exit(1);
+
+    let http = tokio::spawn(async move {
+        if let Err(e) = mp_http::serve(state, addr).await {
+            error!(error = %e, "http server");
+        }
+    });
+
+    start_teamspeak(
+        Arc::clone(&station),
+        rights,
+        config.command_prefix.clone(),
+        config.command_aliases.clone(),
+        &paths.data_dir,
+    )
+    .await;
+
+    let _ = http.await;
+}
+
+async fn start_teamspeak(
+    station: Arc<mp_music::MusicStation>,
+    rights: Option<Arc<mp_rights::RightsEngine>>,
+    prefix: String,
+    aliases: std::collections::HashMap<String, String>,
+    data_dir: &std::path::Path,
+) {
+    #[cfg(feature = "ts6")]
+    {
+        if let Some(cfg) = mp_ts::TsConnectConfig::from_env(data_dir) {
+            let session = Arc::new(mp_ts::LiveSession::new(cfg));
+            let (sched, mut driver) = mp_ts::ReconnectScheduler::pair(2_000, 60_000);
+            {
+                let s = Arc::clone(&session);
+                let sched = sched.clone();
+                let st = Arc::clone(&station);
+                tokio::spawn(async move {
+                    let mut rx = s.subscribe();
+                    loop {
+                        match rx.recv().await {
+                            Ok(mp_ts::TsEvent::Disconnected { .. }) if !s.is_closing() => {
+                                st.set_connected(false);
+                                sched.schedule("bot", "disconnected");
+                            }
+                            Ok(mp_ts::TsEvent::Connected) => {
+                                st.set_connected(true);
+                                sched.reset("bot");
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                            _ => {}
+                        }
+                    }
+                });
+            }
+            let loop_ = bot::BotLoop::new(
+                Arc::clone(&session),
+                Arc::clone(&station),
+                rights,
+                prefix,
+                aliases,
+            );
+            let session_c = Arc::clone(&session);
+            let station_c = Arc::clone(&station);
+            let session_r = Arc::clone(&session);
+            let station_r = Arc::clone(&station);
+            tokio::select! {
+                _ = async {
+                    match session_c.connect().await {
+                        Ok(()) => {
+                            info!("ts session: live (tsclient-rs)");
+                            station_c.set_connected(true);
+                        }
+                        Err(e) => {
+                            error!(error = %e, "ts connect failed — HTTP still up, will reconnect");
+                            station_c.set_connected(false);
+                            sched.schedule("bot", "initial-connect");
+                        }
+                    }
+                    std::future::pending::<()>().await;
+                } => {}
+                _ = loop_.run() => {}
+                _ = driver.run(move |_id| {
+                    let s = Arc::clone(&session_r);
+                    let st = Arc::clone(&station_r);
+                    async move {
+                        match s.reconnect().await {
+                            Ok(()) => {
+                                st.set_connected(true);
+                                Ok(())
+                            }
+                            Err(e) => Err(e.to_string()),
+                        }
+                    }
+                }) => {}
+            }
+            return;
+        }
+        info!("TS6_HOST empty — HTTP only (no TeamSpeak)");
+    }
+    #[cfg(not(feature = "ts6"))]
+    {
+        let _ = (station, rights, prefix, aliases, data_dir);
+        info!("ts session: mock (built without ts6 feature)");
     }
 }
 

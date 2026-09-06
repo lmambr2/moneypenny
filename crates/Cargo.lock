@@ -1210,8 +1210,11 @@ dependencies = [
  "dotenvy",
  "mp-audio",
  "mp-config",
+ "mp-control",
  "mp-db",
  "mp-http",
+ "mp-music",
+ "mp-rights",
  "mp-ts",
  "tokio",
  "tracing",
@@ -1249,9 +1252,12 @@ dependencies = [
 name = "mp-control"
 version = "0.1.0"
 dependencies = [
+ "mp-music",
+ "mp-rights",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]
@@ -1306,7 +1312,15 @@ dependencies = [
 name = "mp-music"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "mp-audio",
+ "mp-db",
+ "rand 0.8.8",
+ "rusqlite",
+ "sha1",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1330,6 +1344,7 @@ name = "mp-rights"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 
@@ -1339,6 +1354,7 @@ version = "0.1.0"
 dependencies = [
  "mp-audio",
  "reqwest",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
  "tracing",

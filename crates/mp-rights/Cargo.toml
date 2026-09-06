@@ -8,4 +8,5 @@ description = "RightsEngine, hot reload, subject resolution (Phase 2)"
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true

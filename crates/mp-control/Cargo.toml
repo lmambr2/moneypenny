@@ -7,6 +7,9 @@ publish.workspace = true
 description = "parse + executeDeterministic (Phase 2)"
 
 [dependencies]
+mp-music = { path = "../mp-music" }
+mp-rights = { path = "../mp-rights" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true

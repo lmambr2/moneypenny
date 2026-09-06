@@ -3,12 +3,22 @@
 
 //! TeamSpeak 3/6 session façade.
 //!
-//! Phase 0: trait + in-memory mock. Live transport is a week-1 go/no-go:
-//! - Option A: `tsclient-rs` (spike in `examples/join.rs`)
-//! - Option B: keep `@honeybbq/teamspeak-client` as a Node sidecar
-//!
-//! HTTP Query (`:10080` + `TS6_API_KEY`) is a separate `reqwest` client and
-//! is **not** blocked on the UDP voice spike.
+//! Live transport (Option A): `tsclient-rs` behind the `tsclient-rs` feature.
+//! HTTP Query (`:10080` + `TS6_API_KEY`) is a separate `reqwest` client.
+
+mod reconnect;
+
+#[cfg(feature = "tsclient-rs")]
+mod live;
+#[cfg(feature = "tsclient-rs")]
+mod query;
+
+pub use reconnect::{reconnect_delay_ms, ReconnectDriver, ReconnectScheduler};
+
+#[cfg(feature = "tsclient-rs")]
+pub use live::{LiveSession, TsConnectConfig};
+#[cfg(feature = "tsclient-rs")]
+pub use query::{parse_client_list, QueryClient, QueryClientRow};
 
 use tokio::sync::broadcast;
 
@@ -43,12 +53,33 @@ pub const CODEC_OPUS_VOICE: u8 = 4;
 #[derive(Debug, Clone)]
 pub enum TsEvent {
     Connected,
-    Disconnected { reason: String },
-    TextMessage { invoker_id: i32, invoker_name: String, body: String },
-    Poke { invoker_id: i32, invoker_name: String, body: String },
-    VoiceData { client_id: i32, opus: Vec<u8> },
-    ClientEnter { client_id: i32, nickname: String },
-    ClientLeave { client_id: i32 },
+    Disconnected {
+        reason: String,
+    },
+    TextMessage {
+        invoker_id: i32,
+        invoker_uid: String,
+        invoker_name: String,
+        body: String,
+        invoker_groups: Vec<String>,
+    },
+    Poke {
+        invoker_id: i32,
+        invoker_uid: String,
+        invoker_name: String,
+        body: String,
+    },
+    VoiceData {
+        client_id: i32,
+        opus: Vec<u8>,
+    },
+    ClientEnter {
+        client_id: i32,
+        nickname: String,
+    },
+    ClientLeave {
+        client_id: i32,
+    },
 }
 
 pub trait TsSession: Send + Sync {
@@ -64,7 +95,12 @@ pub trait TsSession: Send + Sync {
     ) -> impl std::future::Future<Output = Result<()>> + Send;
 }
 
-/// In-memory session used until Option A/B is chosen.
+pub trait TsSessionExt: TsSession {
+    fn client_id(&self) -> i32;
+    fn is_connected(&self) -> bool;
+}
+
+/// In-memory session used until Option A/B is chosen, and in tests.
 #[derive(Clone)]
 pub struct MockSession {
     tx: broadcast::Sender<TsEvent>,
@@ -119,6 +155,16 @@ impl TsSession for MockSession {
     }
 }
 
+impl TsSessionExt for MockSession {
+    fn client_id(&self) -> i32 {
+        1
+    }
+    fn is_connected(&self) -> bool {
+        self.connected
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,8 +182,10 @@ mod tests {
         .unwrap();
         s.inject(TsEvent::TextMessage {
             invoker_id: 1,
+            invoker_uid: "uid".into(),
             invoker_name: "Bond".into(),
             body: "!skip".into(),
+            invoker_groups: vec![],
         });
         match rx.recv().await.unwrap() {
             TsEvent::TextMessage { body, .. } => assert_eq!(body, "!skip"),

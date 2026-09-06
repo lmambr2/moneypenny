@@ -40,11 +40,11 @@ Rust :3001 (this overlay) until flip
 | `mp-config` | `.env` + `config.json` defaults | **live** (load-only, no save) |
 | `mp-db` | rusqlite, identical `CREATE TABLE IF NOT EXISTS` | **live** |
 | `mp-audio` | audio-native minus napi (`NativeOpus`, `pcmRms`, `isSpeechFrame`) | **live** (libopus) |
-| `mp-ts` | TS3/TS6 façade | **Option A spiked** (see below); default still mock |
+| `mp-ts` | TS3/TS6 façade | **live** (`tsclient-rs` + reconnect driver; HTTP Query groups) |
 | `mp-http` | axum: health, session, CSRF, SPA, OpenAPI snapshot | **live** (session + health) |
-| `mp-rights` | RightsEngine | stub |
-| `mp-control` | parse + executeDeterministic | stub + frozen command names |
-| `mp-music` | Local / YouTube / Stream | stub + `MusicProvider` trait |
+| `mp-rights` | RightsEngine | **live** (PUBLIC/ADMIN + rank JSON) |
+| `mp-control` | parse + executeDeterministic | **live** (`!play`/`!skip`/`!queue` + music transport) |
+| `mp-music` | Local / YouTube / Stream | **live LocalProvider** + ffmpeg→Opus 20 ms; YT/stream still out |
 | `mp-brain` | `/v1/turn` | stub + JSON types |
 | `mp-rag` | embeddings + TurboVec | stub |
 | `mp-voice` | VAD → STT HTTP → TTS HTTP | stub |
@@ -95,7 +95,7 @@ cargo run -p mp-ts --example join --features tsclient-rs
 | 3. 10s Opus music | **Pass.** 500 × 20 ms frames (`CODEC_OPUS_MUSIC=5`, silence encodes to 3-byte DTX). |
 | 4. inbound `voiceData` | **Pass (retest).** 750 frames from `grafcv` (clid=3, `CODEC_OPUS_VOICE=4`). Last packet decoded to 1920 bytes PCM (20 ms mono 48 kHz). |
 | 5. HTTP Query + groups | **Pass.** `GET /1/clientlist?-groups` 200, nickname visible, `client_servergroups` present. |
-| 6. Reconnect after restart | Not run (Phase 2 scheduler). |
+| 6. Reconnect after restart | **Scheduler ported** (backoff + cancel generation). Live restart still operator-tested. |
 
 Org `TS6_HOST=192.168.1.69` was **ARP-dead** from this host; `ts.beardforce.com:9987` UDP timed out. Do not treat those as a protocol fail.
 
@@ -197,8 +197,9 @@ sidecar Option B is rejected. Stop. Do not rewrite the rest.
 | Session setup/login/cookie/CSRF | live | audit log insert skipped |
 | Vue `bot/web/dist` static | live if dist present | — |
 | OpenAPI JSON | frozen catalog | most paths 404 |
-| TeamSpeak UDP / Query | **spiked** (`tsclient-rs` + HTTP Query, inbound voice pass) | default `moneypenny` binary still `MockSession` until Phase 2 wires it |
-| Player, rights, LLM, radio, RAG, voice | — | compiling stubs |
+| TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
+| `!play` `!skip` `!queue` | **live** local library, rank-gated, no LLM | YouTube / radio / brain still 404 / "not ported" |
+| LLM, radio, RAG, inbound voice pipeline | — | compiling stubs |
 
 Do not rewrite Vue, sidecars, or add features Node does not have.
 Refuse Leptos, in-process Whisper, rewriting Piper.
