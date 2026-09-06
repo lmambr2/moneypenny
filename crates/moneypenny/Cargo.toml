@@ -1,0 +1,30 @@
+[package]
+name = "moneypenny"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Moneypenny bot binary — boot, watchdog, graceful shutdown"
+
+[[bin]]
+name = "moneypenny"
+path = "src/main.rs"
+
+[features]
+default = ["ts6"]
+ts6 = []
+sbc = []
+server = []
+npu = []
+
+[dependencies]
+clap.workspace = true
+dotenvy.workspace = true
+mp-audio = { path = "../mp-audio" }
+mp-config = { path = "../mp-config" }
+mp-db = { path = "../mp-db" }
+mp-http = { path = "../mp-http" }
+mp-ts = { path = "../mp-ts" }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

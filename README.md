@@ -11,6 +11,7 @@
 
 ## Table of Contents
 
+- [Rust rewrite (WIP)](#rust-rewrite-wip)
 - [Features](#features)
 - [Commands](#commands)
 - [Editions](#editions)
@@ -40,6 +41,16 @@ tests passing (175 + 4 test files).
 TurboVec (vector store) stay on that host. See [docs/editions.md](./docs/editions.md),
 [docs/remote-llm.md](./docs/remote-llm.md), [docs/voice-backends.md](./docs/voice-backends.md),
 [RELEASES.md](./RELEASES.md), [DESIGN.md](./DESIGN.md), [ROADMAP.md](./ROADMAP.md).
+
+## Rust rewrite (WIP)
+
+The **Node bot process** is being replaced by a Rust binary in `crates/`. Vue,
+sidecars, and the installer stay. Node remains production until cutover.
+See **[docs/rust-rewrite.md](./docs/rust-rewrite.md)**.
+
+```bash
+cd crates && cargo test --workspace && cargo run -p moneypenny
+```
 
 ## Features
 

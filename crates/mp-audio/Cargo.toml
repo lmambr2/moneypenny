@@ -1,0 +1,17 @@
+[package]
+name = "mp-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Opus encode/decode + PCM/VAD helpers lifted from @moneypenny/audio-native (PR-B4)"
+
+[features]
+default = ["opus"]
+# System libopus via pkg-config (audiopus). Disable to compile RMS/VAD tests
+# on hosts without libopus-dev.
+opus = ["dep:audiopus"]
+
+[dependencies]
+audiopus = { workspace = true, optional = true }
+thiserror.workspace = true

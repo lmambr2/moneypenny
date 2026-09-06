@@ -1,0 +1,11 @@
+[package]
+name = "mp-economy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cache, work orders, UEX (Phase 8)"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true

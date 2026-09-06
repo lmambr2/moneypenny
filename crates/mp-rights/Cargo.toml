@@ -1,0 +1,11 @@
+[package]
+name = "mp-rights"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "RightsEngine, hot reload, subject resolution (Phase 2)"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "mp-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = ".env + config.json + edition defaults (same keys as bot/src/data/config.ts)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

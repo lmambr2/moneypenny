@@ -1,0 +1,11 @@
+[package]
+name = "mp-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "MCP tool surface (Phase 8)"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true

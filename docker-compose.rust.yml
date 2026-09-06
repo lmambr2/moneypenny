@@ -1,0 +1,49 @@
+# Overlay: Rust bot beside Node. Does not remove the Node bot image.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.rust.yml \
+#     --profile core --profile rust up --build
+#
+# Node keeps 127.0.0.1:3000. Rust publishes 127.0.0.1:3001.
+# Share ./bot/data and MUSIC_DIR. Only one should be the public UI.
+# Cutover: point the :3000 publish at bot-rust (or BOT_RUNTIME=rust in install.sh).
+
+services:
+  bot-rust:
+    profiles: ["rust"]
+    build:
+      context: .
+      dockerfile: crates/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - BOT_RUNTIME=rust
+      - BIND_ADDRESS=${BIND_ADDRESS:-0.0.0.0}
+      - MONEYPENNY_DATA_DIR=/app/data
+      - MONEYPENNY_WEB_DIST=/app/web/dist
+      - MUSIC_DIR=/music
+      - RKLLAMA_URL=${RKLLAMA_URL:-http://ollama:11434}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL}
+      - VECTOR_DB_URL=${VECTOR_DB_URL:-http://turbovec:6333}
+      - EMBEDDING_URL=${EMBEDDING_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text-v2-moe}
+      - WATCHDOG_MEMORY_MB=${WATCHDOG_MEMORY_MB:-0}
+    volumes:
+      - ./bot/data:/app/data
+      - ${MUSIC_HOST_DIR:-${MUSIC_DIR:-/mnt/music}}:/music
+      # Serve the Vue SPA the Node image already builds (or a host `npm run build` in bot/web).
+      - ./bot/web/dist:/app/web/dist:ro
+    ports:
+      - "127.0.0.1:3001:3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/moneypenny/.cache
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - moneypenny
+    user: "1000:1000"

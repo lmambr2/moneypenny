@@ -1,0 +1,11 @@
+[package]
+name = "mp-rag"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "embeddings + TurboVec + doctrine ingest (Phase 5)"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true

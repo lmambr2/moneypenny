@@ -1,0 +1,11 @@
+[package]
+name = "mp-radio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "director, clock, bumpers (Phase 7)"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,590 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/health"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/public-url"
+  },
+  {
+    "method": "GET",
+    "path": "/api/openapi.json"
+  },
+  {
+    "method": "GET",
+    "path": "/api/docs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/docs/"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/turn"
+  },
+  {
+    "method": "GET",
+    "path": "/api/session/needs-setup"
+  },
+  {
+    "method": "POST",
+    "path": "/api/session/setup"
+  },
+  {
+    "method": "POST",
+    "path": "/api/session/login"
+  },
+  {
+    "method": "POST",
+    "path": "/api/session/logout"
+  },
+  {
+    "method": "GET",
+    "path": "/api/session/me"
+  },
+  {
+    "method": "POST",
+    "path": "/api/session/change-password"
+  },
+  {
+    "method": "GET",
+    "path": "/api/auth/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/play"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/add"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/pause"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/resume"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/next"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/prev"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/stop"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/clear"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/volume"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/mode"
+  },
+  {
+    "method": "GET",
+    "path": "/api/player/{botId}/elapsed"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/seek"
+  },
+  {
+    "method": "GET",
+    "path": "/api/player/{botId}/queue"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/player/{botId}/queue/{index}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/play-at"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/playlist"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/play-playlist"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/play-album"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/play-song"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/play-next-song"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/add-song"
+  },
+  {
+    "method": "POST",
+    "path": "/api/player/{botId}/add-by-id"
+  },
+  {
+    "method": "GET",
+    "path": "/api/player/{botId}/profile"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/player/{botId}/profile"
+  },
+  {
+    "method": "GET",
+    "path": "/api/player/{botId}/history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/settings"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/voice/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/voice/test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/voice/under-music-check"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/memory/sync"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/memory/status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/memory/scopes"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/memory/private"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/ace-step/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/ace-step/generate"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/radio/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/radio/test-bumper"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/radio/clear-bumper-cache"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/radio/prewarm-bumpers"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/rag/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/rag/query"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/rag/eval"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/stream-bridge/status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/llm/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/llm/ask"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/rights/debug"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/harness/ask"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/harness/turns"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/org-kg"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/org-kg"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/ops/status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/recordings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/recordings"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/recordings/{name}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/bot/recordings/{name}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/live"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/{id}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/bot/{id}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/bot/{id}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/{id}/config"
+  },
+  {
+    "method": "GET",
+    "path": "/api/bot/{id}/avatar"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/bot/{id}/avatar"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/bot/{id}/avatar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/{id}/start"
+  },
+  {
+    "method": "POST",
+    "path": "/api/bot/{id}/stop"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/resolve"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/search"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/search/all"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/library"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/blacklist"
+  },
+  {
+    "method": "POST",
+    "path": "/api/music/blacklist"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/music/blacklist/{id}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/music/tracks/{id}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/song/{id}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/playlist/{id}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/recommend/playlists"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/album/{id}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/lyrics/{id}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/quality"
+  },
+  {
+    "method": "POST",
+    "path": "/api/music/quality"
+  },
+  {
+    "method": "POST",
+    "path": "/api/music/upload"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/stats"
+  },
+  {
+    "method": "POST",
+    "path": "/api/music/refresh"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/analyze/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/music/analyze"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/music/tracks/tags/bulk"
+  },
+  {
+    "method": "GET",
+    "path": "/api/music/tracks/{id}/tags"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/music/tracks/{id}/tags"
+  },
+  {
+    "method": "POST",
+    "path": "/api/music/tracks/{id}/tags/guess"
+  },
+  {
+    "method": "POST",
+    "path": "/api/music/tracks/{id}/rating"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/music/tracks/{id}/rating"
+  },
+  {
+    "method": "POST",
+    "path": "/api/rag/ingest"
+  },
+  {
+    "method": "POST",
+    "path": "/api/rag/query"
+  },
+  {
+    "method": "GET",
+    "path": "/api/rag/doctrine"
+  },
+  {
+    "method": "GET",
+    "path": "/api/rag/doctrine/hygiene"
+  },
+  {
+    "method": "GET",
+    "path": "/api/rag/doctrine/export/capabilities"
+  },
+  {
+    "method": "GET",
+    "path": "/api/rag/doctrine/{source}/export"
+  },
+  {
+    "method": "POST",
+    "path": "/api/rag/doctrine/new"
+  },
+  {
+    "method": "GET",
+    "path": "/api/rag/doctrine/{source}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/rag/doctrine/{source}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/rag/doctrine"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/rag/doctrine/{source}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/rag/doctrine/reindex"
+  },
+  {
+    "method": "POST",
+    "path": "/api/rag/doctrine/reformat"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/overview"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/ores"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/boxes"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/methods"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/mine"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/refine"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/blueprints"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/craft"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/commodities"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/prices"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/workorders"
+  },
+  {
+    "method": "POST",
+    "path": "/api/economy/workorders"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/economy/workorders/{id}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/economy/workorders"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/trade/ships"
+  },
+  {
+    "method": "POST",
+    "path": "/api/economy/trade/routes"
+  },
+  {
+    "method": "POST",
+    "path": "/api/economy/trade/buyers"
+  },
+  {
+    "method": "POST",
+    "path": "/api/economy/trade/itinerary"
+  },
+  {
+    "method": "POST",
+    "path": "/api/economy/trade/circuit"
+  },
+  {
+    "method": "GET",
+    "path": "/api/economy/cache"
+  },
+  {
+    "method": "POST",
+    "path": "/api/economy/cache/refresh"
+  },
+  {
+    "method": "GET",
+    "path": "/api/users"
+  },
+  {
+    "method": "POST",
+    "path": "/api/users"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/users/{id}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/users/{id}/reset-password"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/users/{id}/role"
+  },
+  {
+    "method": "GET",
+    "path": "/api/audit"
+  }
+]
