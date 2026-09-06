@@ -40,7 +40,7 @@ Rust :3001 (this overlay) until flip
 | `mp-config` | `.env` + `config.json` defaults | **live** (load-only, no save) |
 | `mp-db` | rusqlite, identical `CREATE TABLE IF NOT EXISTS` | **live** |
 | `mp-audio` | audio-native minus napi (`NativeOpus`, `pcmRms`, `isSpeechFrame`) | **live** (libopus) |
-| `mp-ts` | TS3/TS6 façade | **mock**; `examples/join.rs` |
+| `mp-ts` | TS3/TS6 façade | **Option A spiked** (see below); default still mock |
 | `mp-http` | axum: health, session, CSRF, SPA, OpenAPI snapshot | **live** (session + health) |
 | `mp-rights` | RightsEngine | stub |
 | `mp-control` | parse + executeDeterministic | stub + frozen command names |
@@ -73,14 +73,33 @@ official TS6 SDK.
 
 | Option | What | Verdict |
 |--------|------|---------|
-| **A. tsclient-rs** | Native Rust, claims TS3/5/6, tokio, Opus send | Spike first. Not linked in Phase 0. |
-| **B. Node sidecar** | Keep honeybbq; Rust talks Unix socket | Fallback if A fails TS6 voice. Do not stall. |
+| **A. tsclient-rs** | Native Rust, claims TS3/5/6, tokio, Opus send | **Keep.** Spiked 2026-09-06 on local TS6 6.0.0-beta12. |
+| **B. Node sidecar** | Keep honeybbq; Rust talks Unix socket | Fallback only if inbound `voiceData` fails on a populated channel. |
 | **C. Reimplement TS6** | Months, undocumented | Do not start. |
 | **D. tsclientlib / tsproto** | TS3 only | Insufficient. |
 
-**Phase 0 decision:** Option A is **not proven**. `mp-ts` is a **mock**.
-`cargo run -p mp-ts --example join` documents the live checklist. If `TS6_HOST`
-is set, the example exits 2 until a live client is wired.
+Live command:
+
+```bash
+# needs a TS6 (LAN or `docker run … teamspeak6-server:6.0.0-beta12`)
+set -a && source .env && set +a   # TS6_HOST, TS6_API_KEY, …
+cargo run -p mp-ts --example join --features tsclient-rs
+```
+
+**Spike results (local TS6 6.0.0-beta12, 2026-09-06, babbypc):**
+
+| Gate | Result |
+|------|--------|
+| 1. Connect, nick, channel | **Pass.** `client_id=1`. `channel_id()` reported 0 (tsclient-rs gap — HTTP Query `cid=1`). |
+| 2. textMessage in/out | **Pass.** Channel send echoed back as recv (self-echo; still proves the path). |
+| 3. 10s Opus music | **Pass.** 500 × 20 ms frames (`CODEC_OPUS_MUSIC=5`, silence encodes to 3-byte DTX). |
+| 4. inbound `voiceData` | **Inconclusive.** 0 frames in an empty channel (no second client speaking). Not a fail. |
+| 5. HTTP Query + groups | **Pass.** `GET /1/clientlist?-groups` 200, nickname visible, `client_servergroups` present. |
+| 6. Reconnect after restart | Not run (Phase 2 scheduler). |
+
+Org `TS6_HOST=192.168.1.69` was **ARP-dead** from this host; `ts.beardforce.com:9987` UDP timed out. Do not treat those as a protocol fail.
+
+**Gaps to carry into Phase 2:** `Client::channel_id()` is 0 after join — enrich from HTTP Query. Self-echo of our own chat must stay filtered. Re-test gate 4 with a real speaker in the channel before locking Option A for voice STT.
 
 Gate (must pass on a live TS6 6.0 beta **and** a TS3 server):
 
@@ -178,7 +197,7 @@ sidecar Option B is rejected. Stop. Do not rewrite the rest.
 | Session setup/login/cookie/CSRF | live | audit log insert skipped |
 | Vue `bot/web/dist` static | live if dist present | — |
 | OpenAPI JSON | frozen catalog | most paths 404 |
-| TeamSpeak UDP / Query | — | `MockSession` |
+| TeamSpeak UDP / Query | **spiked** (`tsclient-rs` + HTTP Query) | default binary still `MockSession`; inbound voice untested |
 | Player, rights, LLM, radio, RAG, voice | — | compiling stubs |
 
 Do not rewrite Vue, sidecars, or add features Node does not have.

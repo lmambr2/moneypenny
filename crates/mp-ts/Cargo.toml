@@ -10,7 +10,15 @@ description = "TS3/TS6 façade (trait over tsclient-rs or a Node sidecar)"
 name = "join"
 path = "examples/join.rs"
 
+[features]
+default = []
+# Option A: native TS3/5/6 client. `cargo run -p mp-ts --example join --features tsclient-rs`
+tsclient-rs = ["dep:tsclient-rs", "dep:mp-audio", "dep:reqwest"]
+
 [dependencies]
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+mp-audio = { path = "../mp-audio", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+tsclient-rs = { version = "0.1.3", optional = true }
