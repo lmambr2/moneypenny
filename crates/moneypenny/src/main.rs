@@ -144,7 +144,12 @@ async fn main() {
         }
     };
 
-    let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone());
+    let executor = Arc::new(mp_control::CommandExecutor::new(
+        Arc::clone(&station),
+        config.command_prefix.clone(),
+    ));
+    let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone())
+        .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone());
     start_watchdog();
 
     let http = tokio::spawn(async move {

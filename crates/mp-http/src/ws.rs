@@ -1,8 +1,7 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
-//! WebSocket upgrade on `/ws`. Same cookie + Origin checks as Node.
-//! Phase 0/1: accept the socket and send a hello. Live-status events are Phase 3.
+//! WebSocket `/ws`. Cookie + Origin checks. Sends `init` then live `stateChange`.
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
@@ -11,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 
+use crate::bot_api::bot_status_json;
 use crate::session::current_user;
 use crate::AppState;
 
@@ -42,21 +42,43 @@ pub async fn upgrade(
         )
             .into_response();
     }
-    ws.on_upgrade(handle_socket).into_response()
+    ws.on_upgrade(move |socket| handle_socket(socket, st))
+        .into_response()
 }
 
-async fn handle_socket(mut socket: WebSocket) {
-    let hello = json!({
-        "type": "hello",
-        "runtime": "rust",
-        "note": "live-status events: Phase 3"
+async fn handle_socket(mut socket: WebSocket, st: AppState) {
+    let init = json!({
+        "type": "init",
+        "bots": [bot_status_json(&st)],
     });
-    let _ = socket
-        .send(Message::Text(hello.to_string().into()))
-        .await;
-    while let Some(Ok(msg)) = socket.recv().await {
-        if matches!(msg, Message::Close(_)) {
-            break;
+    if socket
+        .send(Message::Text(init.to_string().into()))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let mut rx = st.ws_tx.subscribe();
+    loop {
+        tokio::select! {
+            incoming = socket.recv() => {
+                match incoming {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => break,
+                }
+            }
+            ev = rx.recv() => {
+                match ev {
+                    Ok(v) => {
+                        if socket.send(Message::Text(v.to_string().into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
         }
     }
 }

@@ -176,7 +176,7 @@ Rust publishes `127.0.0.1:3001:3000`. Node `:3000` stays. Same volumes
 | **0 spike** (this branch) | `cargo test --workspace`; health; schema; audio lift; TS mock |
 | **1 skeleton** | create admin in existing Vue UI against Rust |
 | **2 music bot** | `!play` `!skip` `!queue` rank-gated, no LLM |
-| **3 HTTP parity** | every Vue page, no console 404s, live-status WS |
+| **3 HTTP parity** | every Vue page, no console 404s, live-status WS — **this commit** |
 | **4 brain** | `POST /v1/turn`, dispose after rights |
 | **5 RAG/memory** | TurboVec + doctrine + `!remember` |
 | **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process |
@@ -196,10 +196,12 @@ sidecar Option B is rejected. Stop. Do not rewrite the rest.
 | `GET /api/health`, `/api/healthz` | live | llm.route=`none` |
 | Session setup/login/cookie/CSRF | live | audit log insert skipped |
 | Vue `bot/web/dist` static | live if dist present | — |
-| OpenAPI JSON | frozen catalog | most paths 404 |
+| OpenAPI JSON | frozen catalog | — |
+| Vue pages (Home/Search/Library/History/Live/Settings/…) | **live** session + `/api/bot` + local music/player | economy/RAG/harness/recordings return empty 200s (not 404) |
+| `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
-| `!play` `!skip` `!queue` | **live** local library, rank-gated, no LLM | YouTube / radio / brain still 404 / "not ported" |
-| LLM, radio, RAG, inbound voice pipeline | — | compiling stubs |
+| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated, no LLM | YouTube / radio / brain still stubbed |
+| LLM, radio, RAG, inbound voice pipeline | — | compiling stubs / empty JSON |
 
 Do not rewrite Vue, sidecars, or add features Node does not have.
 Refuse Leptos, in-process Whisper, rewriting Piper.

@@ -104,6 +104,17 @@ impl UserStore<'_> {
         })
     }
 
+    pub fn list_users(&self) -> Result<Vec<UserRow>> {
+        self.db.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, username, passwordHash, createdAt, updatedAt, role
+                 FROM users ORDER BY createdAt ASC",
+            )?;
+            let rows = stmt.query_map([], row_from)?;
+            Ok(rows.filter_map(|r| r.ok()).collect())
+        })
+    }
+
     pub fn find_by_id(&self, id: &str) -> Result<Option<UserRow>> {
         self.db.with_conn(|conn| {
             let mut stmt = conn.prepare(

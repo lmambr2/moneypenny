@@ -456,6 +456,16 @@ impl LocalProvider {
         self.ensure_indexed();
         self.songs.lock().expect("songs").len()
     }
+
+    pub fn song_by_id(&self, id: &str) -> Option<Track> {
+        self.ensure_indexed();
+        self.songs
+            .lock()
+            .expect("songs")
+            .iter()
+            .find(|s| s.track.id == id)
+            .map(|s| s.track.clone())
+    }
 }
 
 impl MusicProvider for LocalProvider {

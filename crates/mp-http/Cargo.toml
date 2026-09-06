@@ -10,7 +10,10 @@ description = "axum: same OpenAPI + cookies + WS stub + static Vue SPA"
 axum.workspace = true
 mp-audio = { path = "../mp-audio" }
 mp-config = { path = "../mp-config" }
+mp-control = { path = "../mp-control" }
 mp-db = { path = "../mp-db" }
+mp-music = { path = "../mp-music" }
+mp-rights = { path = "../mp-rights" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

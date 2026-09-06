@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
+#![recursion_limit = "256"]
 
 //! Axum HTTP surface. Domain bundle order matches `domain-bundles.ts`:
 //! SYSTEM → MCP (stub) → SESSION → BRAIN (stub) → STATION API (stub) → SPA → WS.
@@ -15,18 +16,25 @@ use std::time::Instant;
 use axum::extract::State;
 use axum::http::{header, HeaderName, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 use tokio::net::TcpListener;
+use tokio::sync::broadcast;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::info;
 
+mod authz;
+mod bot_api;
 mod csrf;
+mod json_song;
+mod music_api;
 mod openapi;
+mod player_api;
 mod rate_limit;
 mod session;
 mod spa;
+mod stubs;
 mod ws;
 
 pub use csrf::csrf_origin_check;
@@ -42,20 +50,50 @@ pub struct AppState {
     pub config: Arc<BotConfig>,
     pub started: Instant,
     pub static_dir: Option<PathBuf>,
+    pub station: Option<Arc<mp_music::MusicStation>>,
+    pub executor: Option<Arc<mp_control::CommandExecutor>>,
+    pub rights: Option<Arc<mp_rights::RightsEngine>>,
+    pub bot_id: String,
+    pub bot_name: String,
+    pub ws_tx: broadcast::Sender<serde_json::Value>,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
 
 impl AppState {
     pub fn new(db: Arc<Database>, config: Arc<BotConfig>, static_dir: Option<PathBuf>) -> Self {
+        let (ws_tx, _) = broadcast::channel(64);
         Self {
             db,
             config,
             started: Instant::now(),
             static_dir,
+            station: None,
+            executor: None,
+            rights: None,
+            bot_id: std::env::var("BOT_ID")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "default".into()),
+            bot_name: std::env::var("BOT_NICKNAME")
+                .or_else(|_| std::env::var("BOT_NAME"))
+                .unwrap_or_else(|_| "Moneypenny".into()),
+            ws_tx,
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
+    }
+
+    pub fn with_music(
+        mut self,
+        station: Arc<mp_music::MusicStation>,
+        executor: Arc<mp_control::CommandExecutor>,
+        rights: Option<Arc<mp_rights::RightsEngine>>,
+    ) -> Self {
+        self.station = Some(station);
+        self.executor = Some(executor);
+        self.rights = rights;
+        self
     }
 }
 
@@ -117,7 +155,7 @@ fn security_headers() -> SetResponseHeaderLayer<HeaderValue> {
 }
 
 pub fn router(state: AppState) -> Router {
-    let api = Router::new()
+    let public = Router::new()
         .route("/api/health", get(health))
         .route("/api/healthz", get(healthz))
         .route("/api/config/public-url", get(public_url))
@@ -133,7 +171,119 @@ pub fn router(state: AppState) -> Router {
             "/api/session/change-password",
             post(session::change_password),
         )
-        .route("/v1/turn", post(brain_stub))
+        .route("/v1/turn", post(brain_stub));
+
+    let protected = Router::new()
+        .route("/api/bot", get(bot_api::list_bots).post(bot_api::create_bot))
+        .route(
+            "/api/bot/settings",
+            get(bot_api::settings_get).post(bot_api::settings_post),
+        )
+        .route("/api/bot/live", get(bot_api::live))
+        .route("/api/bot/recordings", get(bot_api::recordings_list))
+        .route("/api/bot/llm/status", get(stubs::bot_status_stub))
+        .route("/api/bot/voice/status", get(stubs::bot_status_stub))
+        .route("/api/bot/radio/status", get(stubs::bot_status_stub))
+        .route("/api/bot/rag/status", get(stubs::bot_status_stub))
+        .route("/api/bot/memory/status", get(stubs::bot_status_stub))
+        .route("/api/bot/ace-step/status", get(stubs::bot_status_stub))
+        .route("/api/bot/stream-bridge/status", get(stubs::bot_status_stub))
+        .route("/api/bot/ops/status", get(stubs::bot_status_stub))
+        .route("/api/bot/rights/debug", get(stubs::bot_status_stub))
+        .route("/api/bot/voice/under-music-check", get(stubs::bot_status_stub))
+        .route("/api/bot/memory/scopes", get(stubs::bot_status_stub))
+        .route("/api/bot/memory/private", get(stubs::bot_status_stub))
+        .route("/api/bot/org-kg", get(stubs::economy_ok).post(stubs::not_ported))
+        .route("/api/bot/harness/turns", get(stubs::harness_turns))
+        .route("/api/bot/harness/ask", post(stubs::harness_ask))
+        .route("/api/bot/rag/eval", post(stubs::not_ported))
+        .route("/api/bot/rag/query", post(stubs::not_ported))
+        .route("/api/bot/llm/ask", post(stubs::not_ported))
+        .route("/api/bot/{id}", get(bot_api::get_bot).delete(bot_api::delete_bot))
+        .route("/api/bot/{id}/start", post(bot_api::start_bot))
+        .route("/api/bot/{id}/stop", post(bot_api::stop_bot))
+        .route("/api/bot/{id}/config", get(bot_api::bot_config))
+        .route("/api/music/search", get(music_api::search))
+        .route("/api/music/search/all", get(music_api::search_all))
+        .route("/api/music/library", get(music_api::library))
+        .route("/api/music/stats", get(music_api::stats))
+        .route("/api/music/refresh", post(music_api::refresh))
+        .route("/api/music/lyrics/{id}", get(music_api::lyrics))
+        .route(
+            "/api/music/blacklist",
+            get(music_api::blacklist_get).post(music_api::blacklist_post),
+        )
+        .route("/api/music/blacklist/{id}", delete(music_api::blacklist_delete))
+        .route("/api/music/tracks/{id}/tags", get(music_api::tags_get).patch(stubs::economy_ok))
+        .route("/api/music/tracks/{id}/tags/guess", post(stubs::not_ported))
+        .route("/api/music/tracks/tags/bulk", axum::routing::patch(stubs::economy_ok))
+        .route("/api/music/tracks/{id}/rating", post(stubs::economy_ok).delete(stubs::economy_ok))
+        .route("/api/music/tracks/{id}", delete(stubs::not_ported))
+        .route("/api/music/analyze/status", get(music_api::analyze_status))
+        .route("/api/music/analyze", post(stubs::not_ported))
+        .route("/api/music/upload", post(stubs::not_ported))
+        .route("/api/bot/ace-step/generate", post(stubs::not_ported))
+        .route("/api/rag/doctrine/new", post(stubs::not_ported))
+        .route("/api/rag/doctrine/reindex", post(stubs::not_ported))
+        .route("/api/rag/doctrine/reformat", post(stubs::not_ported))
+        .route("/api/economy/workorders", get(stubs::economy_workorders).post(stubs::not_ported).delete(stubs::not_ported))
+        .route("/api/economy/cache/refresh", post(stubs::not_ported))
+        .route("/api/economy/trade/routes", post(stubs::not_ported))
+        .route("/api/economy/trade/buyers", post(stubs::not_ported))
+        .route("/api/economy/trade/itinerary", post(stubs::not_ported))
+        .route("/api/economy/trade/circuit", post(stubs::not_ported))
+        .route("/api/player/{botId}/play", post(player_api::play))
+        .route("/api/player/{botId}/add", post(player_api::add))
+        .route("/api/player/{botId}/pause", post(player_api::pause))
+        .route("/api/player/{botId}/resume", post(player_api::resume))
+        .route("/api/player/{botId}/next", post(player_api::next))
+        .route("/api/player/{botId}/prev", post(player_api::prev))
+        .route("/api/player/{botId}/stop", post(player_api::stop))
+        .route("/api/player/{botId}/elapsed", get(player_api::elapsed))
+        .route("/api/player/{botId}/queue", get(player_api::queue_get))
+        .route(
+            "/api/player/{botId}/queue/{index}",
+            delete(player_api::queue_remove),
+        )
+        .route("/api/player/{botId}/volume", post(player_api::volume))
+        .route("/api/player/{botId}/mode", post(player_api::mode))
+        .route("/api/player/{botId}/play-at", post(player_api::play_at))
+        .route("/api/player/{botId}/play-song", post(player_api::play_song))
+        .route("/api/player/{botId}/add-song", post(player_api::add_song))
+        .route("/api/player/{botId}/play-by-id", post(player_api::play_by_id))
+        .route("/api/player/{botId}/add-by-id", post(player_api::add_by_id))
+        .route(
+            "/api/player/{botId}/play-next-song",
+            post(player_api::play_next_song),
+        )
+        .route("/api/player/{botId}/seek", post(player_api::seek))
+        .route("/api/player/{botId}/history", get(player_api::history))
+        .route(
+            "/api/player/{botId}/profile",
+            get(player_api::profile_get).put(player_api::profile_put),
+        )
+        .route("/api/auth/status", get(stubs::auth_status))
+        .route("/api/economy/overview", get(stubs::economy_overview))
+        .route("/api/economy/ores", get(stubs::economy_ores))
+        .route("/api/economy/methods", get(stubs::economy_methods))
+        .route("/api/economy/cache", get(stubs::economy_cache))
+        .route("/api/economy/commodities", get(stubs::economy_commodities))
+        .route("/api/economy/mine", get(stubs::economy_ok))
+        .route("/api/economy/refine", get(stubs::economy_ok))
+        .route("/api/economy/craft", get(stubs::economy_ok))
+        .route("/api/economy/blueprints", get(stubs::economy_ok))
+        .route("/api/economy/prices", get(stubs::economy_ok))
+        .route("/api/rag/doctrine", get(stubs::rag_doctrine))
+        .route("/api/rag/doctrine/export/capabilities", get(stubs::rag_export_caps))
+        .route("/api/rag/doctrine/hygiene", get(stubs::rag_hygiene))
+        .route("/api/users", get(stubs::users_list))
+        .route("/api/audit", get(stubs::audit_list))
+        .route("/api/users/{id}", delete(stubs::not_ported))
+        .route("/api/users/{id}/role", axum::routing::patch(stubs::not_ported))
+        .route("/api/users/{id}/reset-password", post(stubs::not_ported));
+
+    let api = public
+        .merge(protected)
         .layer(axum::middleware::from_fn(csrf::csrf_origin_check));
 
     let ws_route = Router::new().route("/ws", get(ws::upgrade));
@@ -323,6 +473,130 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["username"], "admin");
         assert_eq!(v["role"], "admin");
+    }
+
+    #[tokio::test]
+    async fn bot_list_requires_auth() {
+        let app = test_app();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn bot_list_and_library_after_setup() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let dir = std::env::temp_dir().join(format!(
+            "mp-http-lib-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.mp3"), b"x").unwrap();
+        let station = Arc::new(mp_music::MusicStation::new(&dir, None));
+        station.set_dry_run(true);
+        let executor = Arc::new(mp_control::CommandExecutor::new(Arc::clone(&station), "!"));
+        let state = AppState::new(db, cfg, None).with_music(station, executor, None);
+        let app = router(state);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/session/setup")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .body(Body::from(r#"{"username":"admin","password":"password12"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cookie = res
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["bots"][0]["name"], "Moneypenny");
+        assert!(v["bots"][0]["id"].is_string());
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/music/library")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v["count"].as_u64().unwrap() >= 1);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/live")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/settings")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
