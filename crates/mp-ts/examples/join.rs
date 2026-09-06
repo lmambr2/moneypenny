@@ -93,6 +93,8 @@ mod live {
         let connected = Arc::new(AtomicBool::new(false));
         let voice_n = Arc::new(AtomicU32::new(0));
         let chat_n = Arc::new(AtomicU32::new(0));
+        let last_voice: Arc<std::sync::Mutex<Option<(i32, i32, Vec<u8>)>>> =
+            Arc::new(std::sync::Mutex::new(None));
         {
             let c = connected.clone();
             client.on_connected(Arc::new(move || {
@@ -119,15 +121,21 @@ mod live {
         }));
         {
             let n = voice_n.clone();
+            let last = last_voice.clone();
             client.on_voice_data(Arc::new(move |ev| {
                 if let EventMap::VoiceData(v) = ev {
-                    n.fetch_add(1, Ordering::SeqCst);
-                    println!(
-                        "[4] voiceData clid={} codec={} bytes={}",
-                        v.client_id,
-                        v.codec,
-                        v.data.len()
-                    );
+                    let i = n.fetch_add(1, Ordering::SeqCst) + 1;
+                    if i <= 8 || i % 50 == 0 {
+                        println!(
+                            "[4] voiceData #{i} clid={} codec={} bytes={}",
+                            v.client_id,
+                            v.codec,
+                            v.data.len()
+                        );
+                    }
+                    if let Ok(mut g) = last.lock() {
+                        *g = Some((v.client_id, v.codec, v.data.to_vec()));
+                    }
                 }
             }));
         }
@@ -168,25 +176,46 @@ mod live {
             Err(e) => println!("[2] send text FAILED: {e}"),
         }
 
-        // 10s of Opus music frames (20 ms, 48 kHz stereo).
-        println!("[3] encoding 10s Opus music (CODEC_OPUS_MUSIC={CODEC_OPUS_MUSIC})…");
+        // Listen FIRST so a human already in the channel can talk.
+        println!("[4] SPEAK NOW — listening 20s for inbound voiceData");
+        let mut decoder = NativeOpus::new(48_000, 1).ok();
+        let listen_until = tokio::time::Instant::now() + Duration::from_secs(20);
+        let mut last = 0u32;
+        while tokio::time::Instant::now() < listen_until {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let now = voice_n.load(Ordering::SeqCst);
+            if now != last {
+                last = now;
+            }
+        }
+        let inbound = voice_n.load(Ordering::SeqCst);
+        println!("[4] inbound voice frames={inbound}");
+        if let Some((clid, codec, data)) = last_voice.lock().ok().and_then(|g| g.clone()) {
+            if let Some(ref mut dec) = decoder {
+                match dec.decode_voice(&data) {
+                    Ok(r) => println!(
+                        "[4] decode last packet clid={clid} codec={codec} ok={} reason={} pcm={} frames={}",
+                        r.ok, r.reason, r.pcm.len(), r.frames
+                    ),
+                    Err(e) => println!("[4] decode last packet FAILED: {e}"),
+                }
+            }
+        }
+
+        // Short Opus music send (2s) after listen so it does not eat the talk window.
+        println!("[3] encoding 2s Opus music (CODEC_OPUS_MUSIC={CODEC_OPUS_MUSIC})…");
         let mut opus = NativeOpus::new(48_000, 2)?;
         opus.set_bitrate_bps(64_000)?;
-        let pcm = vec![0u8; 1920 * 2]; // 20ms stereo s16le
+        let pcm = vec![0u8; 1920 * 2];
         let pkt = opus.encode(&pcm)?;
         let mut sent = 0u32;
         let mut tick = tokio::time::interval(Duration::from_millis(20));
-        for _ in 0..500 {
+        for _ in 0..100 {
             tick.tick().await;
             client.send_voice(pkt.clone(), i32::from(CODEC_OPUS_MUSIC));
             sent += 1;
         }
         println!("[3] sent {sent} Opus frames ({} bytes each)", pkt.len());
-
-        println!("[4] waiting 8s for inbound voiceData (speak in the channel if you can)…");
-        tokio::time::sleep(Duration::from_secs(8)).await;
-        let inbound = voice_n.load(Ordering::SeqCst);
-        println!("[4] inbound voice frames={inbound}");
 
         // HTTP Query (not the UDP client).
         query_spike().await;

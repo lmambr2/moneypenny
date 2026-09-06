@@ -93,13 +93,13 @@ cargo run -p mp-ts --example join --features tsclient-rs
 | 1. Connect, nick, channel | **Pass.** `client_id=1`. `channel_id()` reported 0 (tsclient-rs gap — HTTP Query `cid=1`). |
 | 2. textMessage in/out | **Pass.** Channel send echoed back as recv (self-echo; still proves the path). |
 | 3. 10s Opus music | **Pass.** 500 × 20 ms frames (`CODEC_OPUS_MUSIC=5`, silence encodes to 3-byte DTX). |
-| 4. inbound `voiceData` | **Inconclusive.** 0 frames in an empty channel (no second client speaking). Not a fail. |
+| 4. inbound `voiceData` | **Pass (retest).** 750 frames from `grafcv` (clid=3, `CODEC_OPUS_VOICE=4`). Last packet decoded to 1920 bytes PCM (20 ms mono 48 kHz). |
 | 5. HTTP Query + groups | **Pass.** `GET /1/clientlist?-groups` 200, nickname visible, `client_servergroups` present. |
 | 6. Reconnect after restart | Not run (Phase 2 scheduler). |
 
 Org `TS6_HOST=192.168.1.69` was **ARP-dead** from this host; `ts.beardforce.com:9987` UDP timed out. Do not treat those as a protocol fail.
 
-**Gaps to carry into Phase 2:** `Client::channel_id()` is 0 after join — enrich from HTTP Query. Self-echo of our own chat must stay filtered. Re-test gate 4 with a real speaker in the channel before locking Option A for voice STT.
+**Gaps to carry into Phase 2:** `Client::channel_id()` is 0 after join — enrich from HTTP Query. Self-echo of our own chat must stay filtered. Inbound voice is proven; still filter self-echo on `voiceData` (clid == self).
 
 Gate (must pass on a live TS6 6.0 beta **and** a TS3 server):
 
@@ -197,7 +197,7 @@ sidecar Option B is rejected. Stop. Do not rewrite the rest.
 | Session setup/login/cookie/CSRF | live | audit log insert skipped |
 | Vue `bot/web/dist` static | live if dist present | — |
 | OpenAPI JSON | frozen catalog | most paths 404 |
-| TeamSpeak UDP / Query | **spiked** (`tsclient-rs` + HTTP Query) | default binary still `MockSession`; inbound voice untested |
+| TeamSpeak UDP / Query | **spiked** (`tsclient-rs` + HTTP Query, inbound voice pass) | default `moneypenny` binary still `MockSession` until Phase 2 wires it |
 | Player, rights, LLM, radio, RAG, voice | — | compiling stubs |
 
 Do not rewrite Vue, sidecars, or add features Node does not have.
