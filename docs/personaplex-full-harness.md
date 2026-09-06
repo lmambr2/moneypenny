@@ -5,7 +5,7 @@
 | **Title** | Moneypenny as first-class agent harness, with PersonaPlex full-duplex speech and three Server GPU packs |
 | **Author** | Lane Ambrose / implementer |
 | **Date** | 2026-09-06 |
-| **Status** | Draft (rev 6 — crash vs RTF fallback recovery split) |
+| **Status** | Draft (rev 7 — Q1 Cori clone + Q8 Penny index resolved) |
 | **Codename** | Project Moneypenny — Harness + Duplex |
 | **Supersedes (product identity)** | “Station that becomes smart when Grok Build is attached.” Grok Build remains an optional MCP *client*; Moneypenny *is* the harness. |
 | **Does not supersede** | Spine, brain-proposes/bot-disposes, dual-edition packaging, dual-R9700 pin, cascaded Whisper+Piper default/fallback |
@@ -82,7 +82,7 @@ Locked: **PersonaPlex talks; Whisper hears the user; Gemma proposes; bot dispose
 6. **Dual-R9700 pin is load-bearing.** MoneyPenny never loads weights on GPU 0. Duplex and any GPU STT bind Penny’s render node / `PENNY_GPU_INDEX` only.
 7. **Compose with in-flight voice work** (streaming sentence TTS, Silero VAD, skip-LLM, idle-unload, pending-play-ack). Duplex does not bypass `routeVoice` for transport verbs.
 8. **English-only source** (`AGENTS.md`).
-9. **Persona lock.** Short Talker prompt + British female preset aligned with Piper `en_GB-cori-high`. HF token handling for gated weights.
+9. **Persona lock.** Short Talker **role** prompt (Miss Moneypenny, dry British wit). Boot voice NATF2; product Talker default is a Piper `en_GB-cori-high` clone (K19). Piper remains Reasoner/bumper/ack mouth (K10). HF token for gated weights.
 
 ### Non-Goals
 
@@ -130,7 +130,8 @@ Locked: **PersonaPlex talks; Whisper hears the user; Gemma proposes; bot dispose
 | K15 | **v1 Q2/Q3/Q4 defaults are decisions.** (Q2) **All** Reasoner `replyText` under duplex uses Piper (K10) — not only >3 sentences. (Q3) Empty channel: unload **both** 12B **weights** (`LlmClient.unload`) **and Talker weights** (`DuplexClient.unload`). Adapter stays **`ok=true`, `loaded=false`**. Bot remains `idle` (not `fallback-cascaded`). First `extractWatchwordCommand` → `warm()` (Talker audio blocks on warm; skip-LLM still immediate). Warm 12B on human join. (Q4) `duplex-open` is Settings + admin/`@analyst` rank; default remains `duplex-gated`. | `vram_mb` is **Talker process only** (not `nvidia-smi`/`rocm-smi` card used — 12B must not keep `vram_mb` at 8 GB). NVIDIA `unload` SIGTERM `moshi.server` and **does not restart it until `warm`**. |
 | K16 | **Single floor controller in `VoiceSession`.** Modes `{ music, piper-ack, bumper, duplex-speak, silence }`. Rising edge `speaking=true` in an armed session **steals** the player (pause send loop, park `savedMusic`). Falling edge / floor=`music` restores. Duplex PCM may enter `sendVoiceData` only in `duplex-speak` via the dedicated pump (K14). Piper acks, pending-play-ack, Reasoner Piper (K10), and radio bumpers take the floor and `mute_out` Talker **output** (user PCM may still flow in for Moshi interruption). Skip-LLM `stop`/`pause` takes the floor. Karaoke: duck on **user VAD** only. | In-flight pending-ack, skip-TTS-when-song-is-reply, bumper ownership, barge-in-cuts-TTS-not-music. |
 | K17 | **Skip-LLM under duplex is Whisper-final, not 80 ms.** Server `stt-whisper-cpp` `feed_stream` returns empty `partial`; final after `SILENCE_TAIL_S=0.8` + CPU `whisper-cli`. Native Moshi barge-in can cut **her** audio in ~200 ms; **song skip / pause waits on ASR final**, same as cascaded Server today. No tiny command classifier on partials in v1. | Operators must not think duplex skip is 200 ms. `tryRouteArmedPartial` cannot fire without partials. |
-| K18 | **Installer Penny index.** `gpu_count=1` ⇒ write `PENNY_GPU_INDEX=0` (and the matching render node). `gpu_count>=2` ⇒ **refuse** to write compose until the operator confirms Penny index (Q8). Never silent-default 0 on a dual-GPU desk. | `${PENNY_GPU_INDEX:?}` is correct for dual-GPU; a one-GPU NVIDIA host must still boot. |
+| K18 | **Installer Penny index (Q8 resolved 2026-09-06).** `gpu_count=1` ⇒ write `PENNY_GPU_INDEX=0` (and the matching render node). `gpu_count>=2` ⇒ **refuse** to write compose until the operator confirms Penny index / render node. Never silent-default 0 on a dual-GPU desk. | Operator confirmed. `${PENNY_GPU_INDEX:?}` stays for dual-GPU; a one-GPU host must still boot. |
+| K19 | **Talker voice identity (Q1 resolved 2026-09-06).** NVIDIA ships 18 **unlabeled-by-accent** presets only (NATF/NATM/VARF/VARM). There is **no British-labeled stock voice**. Accent lives in the **audio embedding**, not the text prompt. **Boot:** `NATF2` (official demo / LiveKit / HF “Natural Female” default) so `--with-duplex` works from `voices.tgz` alone. **Product default after first boot / Settings:** zero-shot **Cori clone** — 3–10 s of Piper `en_GB-cori-high` as the Talker voice prompt (paper §3.1 Hybrid System Prompt). Settings lists all 18 presets plus “Cori clone”. Piper remains the mouth for Reasoner replies, acks, and bumpers (K10) so bumpers stay Cori even while Talker small-talk is still NATF2. Text prompt is **role** (Miss Moneypenny, dry British wit), not accent. If clone listen-test fails (paper SSIM ~0.57–0.65; q4_k drift), stay on NATF2 for Talker and Piper for all Reasoner speech. | NVIDIA README Voices; paper arXiv:2602.06053 Appendix A (Fisher US + Chatterbox/TortoiseTTS); banking demo “accent control using voice prompting”. |
 
 ---
 
@@ -360,7 +361,7 @@ export interface VoiceConfig {
   mode: VoiceMode;                 // default "cascaded"
   duplexUrl: string;               // http://personaplex:8999
   duplexWatch: DuplexWatch;        // default "gated"
-  duplexVoice: string;             // NATF2
+  duplexVoice: string;             // boot NATF2; product default "cori-clone" after first Settings/boot helper
   duplexFallback: DuplexFallback;  // default "cascaded"
 }
 ```
@@ -593,7 +594,30 @@ acknowledge briefly; the desk handles it. Do not mention being a model.
 
 Doctrine/RAG stays on Gemma from **user ASR**. Talker small-talk is ungrounded by design (K13) and is **cut off** as soon as a non-verb user final arrives (K10): `mute_out` + Piper the Reasoner answer, short or long. Prompt cannot cite TurboVec; Piper can speak the cited reply.
 
-**Voice:** NATF2 at ship; clone-from-Cori is Settings extra after a listen test (not v1-blocking).
+#### 3.8 Voice identity (Q1 locked)
+
+NVIDIA PersonaPlex ships **18 unlabeled-by-accent** embeddings in `voices.tgz` ([NVIDIA/personaplex README “Voices”](https://github.com/NVIDIA/personaplex)). There is **no British-labeled stock voice**. LiveKit default `voice=NATF2`; Hugging Face spaces map “Natural Female” → `NATF2.pt`; official offline assistant example uses `--voice-prompt NATF2.pt`. NVIDIA publishes **no** accent, age, or timbre notes.
+
+| Category | IDs |
+|---|---|
+| Natural female | NATF0, NATF1, **NATF2**, NATF3 |
+| Natural male | NATM0, NATM1, NATM2, NATM3 |
+| Variety female | VARF0, VARF1, VARF2, VARF3, VARF4 |
+| Variety male | VARM0, VARM1, VARM2, VARM3, VARM4 |
+
+Released-checkpoint training (paper [arXiv:2602.06053](https://arxiv.org/abs/2602.06053) Appendix A): **Fisher English** (US telephone speech, LDC2004T19) + Chatterbox TTS on TortoiseTTS synthetic voices. NVIDIA’s banking demo claims “accent control **using voice prompting**” — accent lives in the **audio embedding**, not the text prompt. “You are a British secretary” will **not** make NATF2 sound like Piper Cori.
+
+PersonaPlex **does** zero-shot clone from a short agent-audio sample (paper §3.1 Hybrid System Prompt; ComfyUI: 3–10 s).
+
+**Product procedure (K19):**
+
+1. **First `--with-duplex` boot:** Talker `duplexVoice=NATF2` so install works with only `voices.tgz` + `HF_TOKEN`.
+2. **First boot / Settings helper (F2):** synthesize 3–10 s of Piper **`en_GB-cori-high`** (existing bumper/ack cache or `scripts/download-piper-voice.sh`) to `bot/data/voice/cori-clone.wav`. Set Talker voice prompt to that clip (`duplexVoice=cori-clone`). Operator listen-test.
+3. **Settings dropdown:** NATF0–3, NATM0–3, VARF0–4, VARM0–4, plus **Cori clone**.
+4. **Piper stays the Reasoner/bumper/ack mouth (K10).** Station IDs and doctrine answers remain Cori even if Talker small-talk is still NATF2.
+5. **Fallback:** clone unusable (paper speaker SSIM ~0.57–0.65; q4_k British drift) → keep NATF2 for Talker; Piper for all Reasoner speech. Do not block duplex install on clone quality.
+
+Text prompt remains role-only (Miss Moneypenny, dry British wit, British spelling).
 
 ### 4. Three GPU packs
 
@@ -632,7 +656,7 @@ docs=docs/gpu-nvidia.md|docs/gpu-amd.md|docs/gpu-intel.md
 | **Runtime** | Official `python -m moshi.server`, PyTorch CUDA, BF16, pinned commit, **`/api/chat`**. Init-OOM fix upstream (~20 GB not ~40 GB). |
 | **Happy VRAM** | 12–24 GB speech-alone. BF16 ~19 GB. |
 | **Consumer (N2)** | `--cpu-offload`; moshi.cpp CUDA q4_k; ORT CUDA `int8-nb-dep_gint8` (~12.1 GB, RTF 1.12× on 5090). **Not** ORT mixed 6.6 GB. |
-| **Device pin** | Copy Whisper’s *shape*: **one** visible device. `NVIDIA_VISIBLE_DEVICES=${PENNY_GPU_INDEX}` on the container, then `CUDA_VISIBLE_DEVICES=0` **inside that namespace**. **Never** `gpus: all` / `count: all`. Installer: `gpu_count=1` ⇒ write `PENNY_GPU_INDEX=0`; `gpu_count>=2` ⇒ refuse until operator confirms Penny index (K18, Q8). |
+| **Device pin** | Copy Whisper’s *shape*: **one** visible device. `NVIDIA_VISIBLE_DEVICES=${PENNY_GPU_INDEX}` on the container, then `CUDA_VISIBLE_DEVICES=0` **inside that namespace**. **Never** `gpus: all` / `count: all`. Installer: `gpu_count=1` ⇒ write `PENNY_GPU_INDEX=0`; `gpu_count>=2` ⇒ refuse until operator confirms Penny index (K18, Q8 resolved). |
 | **Regression (PR-N1)** | Test or script asserts personaplex **and** ollama device lists contain **exactly one** UUID/index. |
 | **STT while duplex primary** | Same container, `STT_DEVICE=cpu`, tiny/base. Not docker stop. |
 | **Fallback** | Cascaded; promote CUDA Whisper to **tested** even if Talker fails. |
@@ -964,7 +988,7 @@ Auto-fallback: immediate on `ok=false` (adapter down) → auto-return to `idle` 
 | Talker + 12B Q8 working set OOMs despite “22 GB fits” weights math | **High** | `plan-vram.sh` GPU1; Q4+q4_k first; embeddings CPU; no Vulkan Whisper spike |
 | cpp-bridge is a real C++ service (clock, health, mute_out) | **High** | D1.5 before vendor images; mock shares bytes |
 | Official Moshi adapter Opus round-trip >20 ms | Med | Measure N1; in-process adapter in same container |
-| q4_k British persona drift | Med | NATF2 listen test; Piper for bumpers/acks |
+| q4_k / clone British persona drift | Med | K19: boot NATF2; product Cori clone from `en_GB-cori-high`; listen-test; fallback NATF2 + Piper Reasoner (K10). Text prompt is role, not accent. |
 | User ASR CPU tiny mishears skip under music | Med | Pre-arm duck; chat `!skip` always works; cascaded fallback |
 | Operators expect 200 ms skip under duplex | Med | K17: document skip = Whisper final (~0.8 s tail + CLI); 200 ms is Talker barge-in only |
 | Talker small-talk contradicts doctrine | Med | K10: mute Talker on non-verb final; Piper the Reasoner reply (short or long) |
@@ -984,20 +1008,15 @@ Auto-fallback: immediate on `ok=false` (adapter down) → auto-return to `idle` 
 
 ## Open Questions
 
-Resolved into K15–K18 except:
-
-| # | Question | Default if undecided |
-|---|---|---|
-| Q1 | NATF2 vs Piper clone for “Cori-like” identity | NATF2 at ship; clone Settings extra |
-| Q8 | Is `renderD129` / NVIDIA index 1 always Penny? | Never assume; detector prints; operator confirms |
+None remaining. Q1 (Talker voice) → **K19** (2026-09-06). Q8 (Penny GPU index) → **K18** (2026-09-06). Q2–Q4 were already locked in K15.
 
 ---
 
 ## References
 
-- NVIDIA PersonaPlex: https://github.com/NVIDIA/personaplex — `python -m moshi.server`, `--cpu-offload`; WS **`/api/chat`**, kind `0x01` **Opus** + `0x02` **agent** UTF-8, port 8998
+- NVIDIA PersonaPlex: https://github.com/NVIDIA/personaplex — `python -m moshi.server`, `--cpu-offload`; WS **`/api/chat`**, kind `0x01` **Opus** + `0x02` **agent** UTF-8, port 8998; README **Voices** NATF0–3 / NATM0–3 / VARF0–4 / VARM0–4 (no accent labels)
 - Weights: https://huggingface.co/nvidia/personaplex-7b-v1 (gated) — outputs **agent** text + agent audio
-- Paper: arXiv:2602.06053
+- Paper: arXiv:2602.06053 — Appendix A Fisher English (LDC2004T19) + Chatterbox/TortoiseTTS; §3.1 Hybrid System Prompt (voice clone from short sample); speaker SSIM ~0.57–0.65
 - moshi.cpp: https://github.com/Codes4Fun/moshi.cpp — Vulkan STS q4_k fps are **Moshika `moshi-sts` proxies**
 - ONNX: https://huggingface.co/soniqo/PersonaPlex-7B-ONNX — int8 RTF 1.12× @ 12.1 GB; mixed 6.6 GB RTF 3.5×
 - ORT: CUDA production; ROCm deprecated; MIGraphX plugin; OpenVINO Intel
@@ -1119,7 +1138,7 @@ Incremental, independently reviewable. Cascaded stays green. Dirty voice files a
 - **Title:** `feat(voice): duplex Settings + editions docs`
 - **Files:** Settings.vue, `docs/editions.md`, `docs/voice-backends.md` (Talker + user ASR), CHANGELOG
 - **Depends:** PR-D2, PR-F1a
-- **Change:** Status already in D2; this is operator UX + docs. NVIDIA/Intel first-class; SBC unchanged.
+- **Change:** Status already in D2; this is operator UX + docs. NVIDIA/Intel first-class; SBC unchanged. **K19:** synthesize 3–10 s Piper `en_GB-cori-high` → `bot/data/voice/cori-clone.wav`; Settings dropdown of 18 presets + “Cori clone”; duplex boots NATF2 until that helper runs.
 
 ### Suggested merge order
 
