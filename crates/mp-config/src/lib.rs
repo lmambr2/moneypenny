@@ -85,6 +85,10 @@ pub struct BotConfig {
     #[serde(default)]
     pub llm_fallback_model: String,
     #[serde(default)]
+    pub llm_system_prompt: String,
+    #[serde(default = "default_llm_temperature")]
+    pub llm_temperature: f32,
+    #[serde(default)]
     pub embedding_url: String,
     #[serde(default)]
     pub embedding_model: String,
@@ -135,6 +139,9 @@ fn default_blocked_genres() -> Vec<String> {
         .map(|s| (*s).to_string())
         .collect()
 }
+fn default_llm_temperature() -> f32 {
+    0.2
+}
 
 impl Default for BotConfig {
     fn default() -> Self {
@@ -156,6 +163,8 @@ impl Default for BotConfig {
             llm_model: String::new(),
             llm_fallback_url: String::new(),
             llm_fallback_model: String::new(),
+            llm_system_prompt: String::new(),
+            llm_temperature: 0.2,
             embedding_url: String::new(),
             embedding_model: String::new(),
             rights_enabled: true,
@@ -273,6 +282,28 @@ fn apply_env(cfg: &mut BotConfig) {
     if cfg.embedding_url.is_empty() {
         if let Ok(v) = std::env::var("EMBEDDING_URL") {
             cfg.embedding_url = v;
+        }
+    }
+    if let Ok(v) = std::env::var("LLM_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.llm_enabled = true;
+        } else if t == "0" || t.eq_ignore_ascii_case("false") {
+            cfg.llm_enabled = false;
+        }
+    }
+    if cfg.llm_url.is_empty() {
+        if let Ok(v) = std::env::var("LLM_URL") {
+            if !v.is_empty() {
+                cfg.llm_url = v;
+            }
+        }
+    }
+    if cfg.llm_model.is_empty() {
+        if let Ok(v) = std::env::var("LLM_MODEL") {
+            if !v.is_empty() {
+                cfg.llm_model = v;
+            }
         }
     }
 }

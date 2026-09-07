@@ -19,30 +19,31 @@ pub struct CommandSpec {
     pub kind: CommandKind,
     pub admin: bool,
     pub audio: bool,
+    pub llm_tool: Option<&'static str>,
 }
 
 pub const COMMAND_MANIFEST: &[CommandSpec] = &[
-    spec("play", CommandKind::Resolved, false, true),
-    spec("add", CommandKind::Resolved, false, true),
+    spec_llm("play", CommandKind::Resolved, false, true, "play_music"),
+    spec_llm("add", CommandKind::Resolved, false, true, "queue"),
     spec("playnext", CommandKind::Resolved, false, true),
     spec("pn", CommandKind::Resolved, false, true),
     spec("playlist", CommandKind::Resolved, false, true),
     spec("album", CommandKind::Resolved, false, true),
-    spec("skip", CommandKind::Delegated, false, true),
+    spec_llm("skip", CommandKind::Delegated, false, true, "skip"),
     spec("next", CommandKind::Delegated, false, true),
     spec("jump", CommandKind::Delegated, false, true),
     spec("go", CommandKind::Delegated, false, true),
     spec("prev", CommandKind::Delegated, false, true),
-    spec("pause", CommandKind::Delegated, false, false),
-    spec("resume", CommandKind::Delegated, false, false),
-    spec("stop", CommandKind::Delegated, true, false),
+    spec_llm("pause", CommandKind::Delegated, false, false, "pause"),
+    spec_llm("resume", CommandKind::Delegated, false, false, "resume"),
+    spec_llm("stop", CommandKind::Delegated, true, false, "stop"),
     spec("clear", CommandKind::Delegated, true, false),
-    spec("vol", CommandKind::Delegated, true, false),
+    spec_llm("vol", CommandKind::Delegated, true, false, "set_volume"),
     spec("remove", CommandKind::Delegated, true, false),
     spec("mode", CommandKind::Delegated, true, false),
     spec("ban", CommandKind::Delegated, true, false),
     spec("unban", CommandKind::Delegated, true, false),
-    spec("now", CommandKind::Delegated, false, false),
+    spec_llm("now", CommandKind::Delegated, false, false, "now_playing"),
     spec("queue", CommandKind::Delegated, false, false),
     spec("list", CommandKind::Delegated, false, false),
     spec("artist", CommandKind::Delegated, false, true),
@@ -54,10 +55,10 @@ pub const COMMAND_MANIFEST: &[CommandSpec] = &[
     spec("radio", CommandKind::Delegated, false, false),
     spec("rate", CommandKind::Delegated, false, false),
     spec("unrate", CommandKind::Delegated, false, false),
-    spec("selecttracks", CommandKind::Delegated, false, false),
+    spec_llm("selecttracks", CommandKind::Delegated, false, false, "select_tracks"),
     spec("move", CommandKind::Delegated, true, false),
-    spec("moveclient", CommandKind::Delegated, true, false),
-    spec("moveall", CommandKind::Delegated, true, false),
+    spec_llm("moveclient", CommandKind::Delegated, true, false, "move_client"),
+    spec_llm("moveall", CommandKind::Delegated, true, false, "move_all_clients"),
     spec("follow", CommandKind::Delegated, true, false),
     spec("roast", CommandKind::Special, false, false),
     spec("roastout", CommandKind::Special, false, false),
@@ -97,6 +98,23 @@ const fn spec(name: &'static str, kind: CommandKind, admin: bool, audio: bool) -
         kind,
         admin,
         audio,
+        llm_tool: None,
+    }
+}
+
+const fn spec_llm(
+    name: &'static str,
+    kind: CommandKind,
+    admin: bool,
+    audio: bool,
+    llm_tool: &'static str,
+) -> CommandSpec {
+    CommandSpec {
+        name,
+        kind,
+        admin,
+        audio,
+        llm_tool: Some(llm_tool),
     }
 }
 

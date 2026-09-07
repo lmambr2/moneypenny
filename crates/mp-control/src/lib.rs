@@ -4,9 +4,13 @@
 //! Deterministic-first router. Rights live in the executor's caller, never the model.
 //! COMMAND_MANIFEST names are frozen from `bot/src/bot/commands.ts` at ec464a2.
 
+mod dispose;
 mod executor;
 mod manifest;
+mod policy;
+mod tool_map;
 
+pub use dispose::{BrainDisposer, ToolDisposeRecord};
 pub use executor::{
     find_queue_index_by_query, is_same_playback_track, query_tokens, song_matches_query,
     CommandExecutor,
@@ -16,6 +20,8 @@ pub use manifest::{
     is_known_command, parse_command, public_commands, CommandKind, CommandSpec, ParsedCommand,
     COMMAND_MANIFEST,
 };
+pub use policy::{decide_harness_tool, HarnessToolDecision, HARNESS_DANGEROUS_TOOLS, HARNESS_SAFE_TOOLS};
+pub use tool_map::{known_llm_tool_names, source_flags, tool_call_to_command, ToolCallInput};
 
 use mp_rights::{default_rights_config, RightsConfig};
 

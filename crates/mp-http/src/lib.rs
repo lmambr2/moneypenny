@@ -3,7 +3,7 @@
 #![recursion_limit = "256"]
 
 //! Axum HTTP surface. Domain bundle order matches `domain-bundles.ts`:
-//! SYSTEM → MCP (stub) → SESSION → BRAIN (stub) → STATION API (stub) → SPA → WS.
+//! SYSTEM → MCP (stub) → SESSION → BRAIN (`POST /v1/turn`) → STATION API → SPA → WS.
 //!
 //! Phase 0/1 implements health, OpenAPI snapshot, session/setup, CSRF, rate
 //! limits, SPA static, and an authenticated WS upgrade stub.
@@ -14,8 +14,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::State;
-use axum::http::{header, HeaderName, HeaderValue, StatusCode};
-use axum::response::IntoResponse;
+use axum::http::{header, HeaderName, HeaderValue};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Serialize;
@@ -26,6 +25,7 @@ use tracing::info;
 
 mod authz;
 mod bot_api;
+mod brain;
 mod csrf;
 mod json_song;
 mod music_api;
@@ -56,6 +56,7 @@ pub struct AppState {
     pub bot_id: String,
     pub bot_name: String,
     pub ws_tx: broadcast::Sender<serde_json::Value>,
+    pub brain: Arc<mp_brain::BrainRuntime>,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -63,6 +64,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(db: Arc<Database>, config: Arc<BotConfig>, static_dir: Option<PathBuf>) -> Self {
         let (ws_tx, _) = broadcast::channel(64);
+        let brain = mp_brain::BrainRuntime::from_settings(brain::llm_settings_from(&config));
         Self {
             db,
             config,
@@ -79,9 +81,15 @@ impl AppState {
                 .or_else(|_| std::env::var("BOT_NAME"))
                 .unwrap_or_else(|_| "Moneypenny".into()),
             ws_tx,
+            brain,
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
+    }
+
+    pub fn with_brain(mut self, brain: Arc<mp_brain::BrainRuntime>) -> Self {
+        self.brain = brain;
+        self
     }
 
     pub fn with_music(
@@ -171,7 +179,7 @@ pub fn router(state: AppState) -> Router {
             "/api/session/change-password",
             post(session::change_password),
         )
-        .route("/v1/turn", post(brain_stub));
+        .route("/v1/turn", post(brain::turn));
 
     let protected = Router::new()
         .route("/api/bot", get(bot_api::list_bots).post(bot_api::create_bot))
@@ -301,19 +309,6 @@ pub fn router(state: AppState) -> Router {
     app.with_state(state)
 }
 
-async fn brain_stub() -> impl IntoResponse {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(serde_json::json!({
-            "error": "brain not ported yet",
-            "toolProposals": [],
-            "replyText": "",
-            "sources": [],
-            "executeTools": false,
-        })),
-    )
-}
-
 pub async fn serve(state: AppState, addr: SocketAddr) -> Result<(), std::io::Error> {
     let app = router(state);
     let listener = TcpListener::bind(addr).await?;
@@ -376,7 +371,7 @@ pub(crate) fn clear_session_cookie(
 mod tests {
     use super::*;
     use axum::body::Body;
-    use axum::http::Request;
+    use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
     fn test_app() -> Router {
@@ -619,5 +614,224 @@ mod tests {
         assert!(v["paths"]["/api/health"]["get"].is_object());
         assert!(v["paths"]["/api/session/needs-setup"]["get"].is_object());
         assert!(v["paths"]["/v1/turn"]["post"].is_object());
+    }
+
+    async fn setup_cookie(app: Router) -> (Router, String) {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/session/setup")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .body(Body::from(r#"{"username":"admin","password":"password12"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cookie = res
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        (app, cookie)
+    }
+
+    fn turn_post(cookie: &str, body: &'static str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/v1/turn")
+            .header("content-type", "application/json")
+            .header("host", "localhost:3000")
+            .header("origin", "http://localhost:3000")
+            .header("cookie", cookie)
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn turn_requires_admin() {
+        let app = test_app();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/turn")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .body(Body::from(r#"{"text":"hello"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn turn_missing_text_is_400() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app.oneshot(turn_post(&cookie, r#"{"text":"  "}"#)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn turn_llm_disabled_is_409() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .oneshot(turn_post(&cookie, r#"{"text":"hello"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["code"], "LLM_DISABLED");
+        assert!(v["error"].as_str().unwrap_or("").contains("not enabled"));
+        assert!(v["toolProposals"].as_array().unwrap().is_empty());
+    }
+
+    fn music_state() -> (std::path::PathBuf, AppState) {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let dir = std::env::temp_dir().join(format!(
+            "mp-http-turn-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sine.mp3"), b"x").unwrap();
+        let station = Arc::new(mp_music::MusicStation::new(&dir, None));
+        station.set_dry_run(true);
+        let executor = Arc::new(mp_control::CommandExecutor::new(Arc::clone(&station), "!"));
+        let state = AppState::new(db, cfg, None).with_music(station, executor, None);
+        (dir, state)
+    }
+
+    #[tokio::test]
+    async fn execute_tools_false_does_not_mutate_queue() {
+        let (dir, state) = music_state();
+        let station = state.station.clone().unwrap();
+        let brain = mp_brain::BrainRuntime::in_process(
+            mp_brain::InProcessBrain::scripted(mp_brain::ScriptedLlm::with_intent(
+                |_| "Sure".into(),
+                |_| mp_brain::IntentResult {
+                    content: Some("Sure".into()),
+                    tool_calls: vec![mp_brain::IntentToolCall {
+                        name: "play_music".into(),
+                        arguments: serde_json::json!({ "query": "sine" }),
+                    }],
+                },
+            ))
+            .with_id_factory(|| "t-intent".into()),
+        );
+        let app = router(state.with_brain(brain));
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .clone()
+            .oneshot(turn_post(
+                &cookie,
+                r#"{"text":"play sine","mode":"intent","executeTools":false}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["toolProposals"][0]["name"], "play_music");
+        assert!(v.get("disposedTools").is_none());
+        assert_eq!(station.queue.lock().unwrap().size(), 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn execute_tools_true_disposes_after_rights() {
+        let (dir, state) = music_state();
+        let station = state.station.clone().unwrap();
+        let brain = mp_brain::BrainRuntime::in_process(
+            mp_brain::InProcessBrain::scripted(mp_brain::ScriptedLlm::with_intent(
+                |_| "Sure".into(),
+                |_| mp_brain::IntentResult {
+                    content: Some("Sure".into()),
+                    tool_calls: vec![mp_brain::IntentToolCall {
+                        name: "play_music".into(),
+                        arguments: serde_json::json!({ "query": "sine" }),
+                    }],
+                },
+            ))
+            .with_id_factory(|| "t-exec".into()),
+        );
+        let app = router(state.with_brain(brain));
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .oneshot(turn_post(
+                &cookie,
+                r#"{"text":"play sine","mode":"intent","executeTools":true}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["disposedTools"][0]["ok"], true);
+        let result = v["disposedTools"][0]["result"].as_str().unwrap_or("");
+        assert!(result.starts_with("Now playing"), "{result}");
+        assert_eq!(station.queue.lock().unwrap().size(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn execute_tools_dry_run_does_not_mutate_queue() {
+        let (dir, state) = music_state();
+        let station = state.station.clone().unwrap();
+        let brain = mp_brain::BrainRuntime::in_process(
+            mp_brain::InProcessBrain::scripted(mp_brain::ScriptedLlm::with_intent(
+                |_| "Sure".into(),
+                |_| mp_brain::IntentResult {
+                    content: Some("Sure".into()),
+                    tool_calls: vec![mp_brain::IntentToolCall {
+                        name: "play_music".into(),
+                        arguments: serde_json::json!({ "query": "sine" }),
+                    }],
+                },
+            ))
+            .with_id_factory(|| "t-dry".into()),
+        );
+        let app = router(state.with_brain(brain));
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .oneshot(turn_post(
+                &cookie,
+                r#"{"text":"play sine","mode":"intent","executeTools":true,"dryRun":true}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["disposedTools"][0]["ok"], true);
+        assert!(v["disposedTools"][0]["result"]
+            .as_str()
+            .unwrap_or("")
+            .contains("[dry-run]"));
+        assert_eq!(station.queue.lock().unwrap().size(), 0);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

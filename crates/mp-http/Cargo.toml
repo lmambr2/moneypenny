@@ -9,6 +9,7 @@ description = "axum: same OpenAPI + cookies + WS stub + static Vue SPA"
 [dependencies]
 axum.workspace = true
 mp-audio = { path = "../mp-audio" }
+mp-brain = { path = "../mp-brain" }
 mp-config = { path = "../mp-config" }
 mp-control = { path = "../mp-control" }
 mp-db = { path = "../mp-db" }

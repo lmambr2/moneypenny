@@ -1233,9 +1233,12 @@ dependencies = [
 name = "mp-brain"
 version = "0.1.0"
 dependencies = [
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1289,6 +1292,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "mp-audio",
+ "mp-brain",
  "mp-config",
  "mp-control",
  "mp-db",

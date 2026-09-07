@@ -45,7 +45,7 @@ Rust :3001 (this overlay) until flip
 | `mp-rights` | RightsEngine | **live** (PUBLIC/ADMIN + rank JSON) |
 | `mp-control` | parse + executeDeterministic | **live** (`!play`/`!skip`/`!queue` + music transport) |
 | `mp-music` | Local / YouTube / Stream | **live LocalProvider** + ffmpeg→Opus 20 ms; YT/stream still out |
-| `mp-brain` | `/v1/turn` | stub + JSON types |
+| `mp-brain` | `/v1/turn` | **live** in-process + `BRAIN_URL` HTTP; dispose after rights |
 | `mp-rag` | embeddings + TurboVec | stub |
 | `mp-voice` | VAD → STT HTTP → TTS HTTP | stub |
 | `mp-radio` | director / bumpers | stub |
@@ -176,8 +176,8 @@ Rust publishes `127.0.0.1:3001:3000`. Node `:3000` stays. Same volumes
 | **0 spike** (this branch) | `cargo test --workspace`; health; schema; audio lift; TS mock |
 | **1 skeleton** | create admin in existing Vue UI against Rust |
 | **2 music bot** | `!play` `!skip` `!queue` rank-gated, no LLM |
-| **3 HTTP parity** | every Vue page, no console 404s, live-status WS — **this commit** |
-| **4 brain** | `POST /v1/turn`, dispose after rights |
+| **3 HTTP parity** | every Vue page, no console 404s, live-status WS |
+| **4 brain** | `POST /v1/turn`, dispose after rights — **this commit** |
 | **5 RAG/memory** | TurboVec + doctrine + `!remember` |
 | **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process |
 | **7 radio** | `docs/radio.md` |
@@ -200,8 +200,9 @@ sidecar Option B is rejected. Stop. Do not rewrite the rest.
 | Vue pages (Home/Search/Library/History/Live/Settings/…) | **live** session + `/api/bot` + local music/player | economy/RAG/harness/recordings return empty 200s (not 404) |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
-| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated, no LLM | YouTube / radio / brain still stubbed |
-| LLM, radio, RAG, inbound voice pipeline | — | compiling stubs / empty JSON |
+| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated, no LLM | YouTube / radio still stubbed |
+| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights | RAG retrieve empty until Phase 5; `!ask` / harness UI still stub |
+| radio, RAG, inbound voice pipeline | — | compiling stubs / empty JSON |
 
 Do not rewrite Vue, sidecars, or add features Node does not have.
 Refuse Leptos, in-process Whisper, rewriting Piper.

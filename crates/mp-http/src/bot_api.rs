@@ -140,11 +140,12 @@ pub fn live_status(st: &AppState) -> Value {
 
 pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
     let c = &st.config;
+    let (llm_enabled, llm_url, llm_model) = st.brain.llm_snapshot().await;
     Json(json!({
         "idleTimeoutMinutes": 0,
-        "llmEnabled": c.llm_enabled,
-        "llmUrl": c.llm_url,
-        "llmModel": c.llm_model,
+        "llmEnabled": llm_enabled,
+        "llmUrl": llm_url,
+        "llmModel": llm_model,
         "llmFallbackUrl": c.llm_fallback_url,
         "llmFallbackModel": c.llm_fallback_model,
         "llmDelegateUrl": "",
@@ -205,6 +206,34 @@ pub async fn settings_post(
         if let Some(station) = st.station.as_ref() {
             station.player.set_bitrate_kbps(kbps as i32);
         }
+    }
+    if body.get("llmEnabled").is_some()
+        || body.get("llmUrl").is_some()
+        || body.get("llmModel").is_some()
+        || body.get("llmSystemPrompt").is_some()
+        || body.get("llmTemperature").is_some()
+        || body.get("llmFallbackUrl").is_some()
+        || body.get("llmFallbackModel").is_some()
+    {
+        st.brain
+            .update_llm(
+                body.get("llmEnabled").and_then(|v| v.as_bool()),
+                body.get("llmUrl").and_then(|v| v.as_str()).map(str::to_string),
+                body.get("llmModel").and_then(|v| v.as_str()).map(str::to_string),
+                body.get("llmSystemPrompt")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                body.get("llmTemperature")
+                    .and_then(|v| v.as_f64())
+                    .map(|n| n as f32),
+                body.get("llmFallbackUrl")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                body.get("llmFallbackModel")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            )
+            .await;
     }
     Json(json!({ "ok": true }))
 }
