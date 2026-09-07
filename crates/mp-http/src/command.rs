@@ -5,10 +5,16 @@
 
 use mp_brain::{TurnChannel, TurnMode, TurnOptions, TurnRequest, TurnSubject};
 use mp_control::{CommandExecutor, ParsedCommand};
-use mp_db::Database;
+use mp_db::{Database, WorkOrderLine};
+use mp_economy::{
+    find_ore, handle_econ, handle_mine, handle_refine, parse_workorder_args, WorkOrderSub,
+    MAX_OPEN_WORK_ORDERS,
+};
 use mp_rag::allowed_classifications_for;
 use mp_radio::{Boundary, CueResult, RadioRuntime};
 use mp_rights::{RightsEngine, Scope, Subject};
+
+use crate::roast::RoastRuntime;
 
 pub async fn dispatch_command(
     parsed: &ParsedCommand,
@@ -20,6 +26,7 @@ pub async fn dispatch_command(
     brain: &mp_brain::BrainRuntime,
     rag: Option<&mp_rag::RagRuntime>,
     radio: Option<&RadioRuntime>,
+    roast: Option<&RoastRuntime>,
 ) -> Option<String> {
     if let Some(engine) = rights {
         if !engine.can(subject, &parsed.name, scope) {
@@ -36,6 +43,21 @@ pub async fn dispatch_command(
         "ask" => Some(cmd_ask(brain, rights, subject, scope, &parsed.args).await),
         "reindex" => Some(cmd_reindex(rag, &parsed.args).await),
         "radio" => Some(cmd_radio(radio, &executor.prefix, parsed).await),
+        "roast" => Some(cmd_roast(roast).await),
+        "roastout" => Some(cmd_roastout(roast, &subject.uid)),
+        "roastin" => Some(cmd_roastin(roast, &subject.uid)),
+        "mine" => Some(handle_mine(&parsed.args, &executor.prefix)),
+        "refine" => Some(handle_refine(&parsed.args, &executor.prefix)),
+        "econ" => Some(handle_econ(&parsed.args, &executor.prefix)),
+        "craft" => Some(format!(
+            "Craft lookup is not ported (no sc-craft HTTP). Seed catalog: {}mine / {}refine / {}econ ores",
+            executor.prefix, executor.prefix, executor.prefix
+        )),
+        "trade" => Some(
+            "Trade lookup is not ported (no sc-trade token/HTTP). Seed catalog: !econ ores".into(),
+        ),
+        "workorder" => Some(cmd_workorder(db, rights, subject, scope, &executor.prefix, &parsed.args)),
+        "work-items" | "workitems" => Some(cmd_work_items(db, &executor.prefix)),
         "skip" | "next" => {
             if let Some(r) = radio {
                 if r.enabled() {
@@ -298,5 +320,158 @@ async fn cmd_reindex(rag: Option<&mp_rag::RagRuntime>, args: &str) -> String {
             }
         }
         Err(e) => format!("Reindex failed: {e}"),
+    }
+}
+
+async fn cmd_roast(roast: Option<&RoastRuntime>) -> String {
+    let Some(roast) = roast else {
+        return "The roast is switched off. An admin can enable it in Settings.".into();
+    };
+    roast.handle_command().await
+}
+
+fn cmd_roastout(roast: Option<&RoastRuntime>, uid: &str) -> String {
+    let Some(roast) = roast else {
+        return "The roast is switched off.".into();
+    };
+    roast.handle_opt_out(uid)
+}
+
+fn cmd_roastin(roast: Option<&RoastRuntime>, uid: &str) -> String {
+    let Some(roast) = roast else {
+        return "The roast is switched off.".into();
+    };
+    roast.handle_opt_in(uid)
+}
+
+fn cmd_workorder(
+    db: &Database,
+    rights: Option<&RightsEngine>,
+    subject: &Subject,
+    scope: Scope,
+    prefix: &str,
+    args: &str,
+) -> String {
+    let parsed = parse_workorder_args(args);
+    match parsed.sub {
+        WorkOrderSub::Help => [
+            format!("{prefix}workorder <item> xN — save a seed-ore shopping line (e.g. {prefix}workorder quantainium x32)"),
+            format!("{prefix}work-items — org totals from open work orders"),
+            format!("{prefix}workorder list · {prefix}workorder done <id>"),
+            format!("{prefix}workorder clear — wipe board (admin / workorder.clear)"),
+            "Craft blueprint BOMs need sc-craft (not ported).".to_string(),
+        ]
+        .join("\n"),
+        WorkOrderSub::List => {
+            let orders = db.work_orders().list().unwrap_or_default();
+            if orders.is_empty() {
+                return "No open work orders.".into();
+            }
+            let mut lines: Vec<String> = vec!["Open work orders:".into()];
+            for o in &orders {
+                lines.push(format!(
+                    "#{} {}× {} — {}",
+                    o.id,
+                    o.qty,
+                    o.item_name,
+                    format_lines(&o.lines)
+                ));
+            }
+            lines.push(String::new());
+            lines.push(format!("Totals: {prefix}work-items"));
+            lines.join("\n")
+        }
+        WorkOrderSub::Clear => {
+            let allowed = rights.is_none_or(|e| e.can(subject, "workorder.clear", scope));
+            if !allowed {
+                return "Clear all work orders requires admin (rights: workorder.clear). Use done <id> for one.".into();
+            }
+            let n = db.work_orders().clear().unwrap_or(0);
+            if n == 0 {
+                "No work orders to clear.".into()
+            } else {
+                format!("Cleared {n} work order(s).")
+            }
+        }
+        WorkOrderSub::Done { id } => {
+            if db.work_orders().delete(id).unwrap_or(false) {
+                format!("Removed work order #{id}.")
+            } else {
+                format!("No work order #{id}.")
+            }
+        }
+        WorkOrderSub::Add { item, qty } => {
+            let open = db.work_orders().count().unwrap_or(0);
+            if open >= MAX_OPEN_WORK_ORDERS {
+                return format!(
+                    "Too many open work orders (max {MAX_OPEN_WORK_ORDERS}). Mark some done first."
+                );
+            }
+            let Some(ore) = find_ore(&item) else {
+                return format!(
+                    "No seed-ore match for \"{item}\" (craft blueprints need sc-craft, not ported). Try {prefix}econ ores."
+                );
+            };
+            let lines = vec![WorkOrderLine {
+                material: ore.name.to_string(),
+                amount: qty as f64,
+                unit: "SCU".into(),
+            }];
+            match db
+                .work_orders()
+                .add(ore.name, qty, &lines, Some(subject.uid.as_str()))
+            {
+                Ok(id) => format!(
+                    "Okay — {qty}× {} takes {}. Saved as work order #{id}.\nOrg totals: {prefix}work-items",
+                    ore.name,
+                    format_lines(&lines)
+                ),
+                Err(e) => format!("Couldn't save work order: {e}"),
+            }
+        }
+    }
+}
+
+fn cmd_work_items(db: &Database, prefix: &str) -> String {
+    let orders = db.work_orders().list().unwrap_or_default();
+    if orders.is_empty() {
+        return format!("Nothing on the board. Add with {prefix}workorder <item> xN.");
+    }
+    let needs = mp_db::aggregate(&orders);
+    let n = orders.len();
+    format!(
+        "The org needs {}.\n({n} open work order{} — {prefix}workorder list)",
+        format_lines(&needs),
+        if n == 1 { "" } else { "s" }
+    )
+}
+
+fn format_lines(lines: &[WorkOrderLine]) -> String {
+    if lines.is_empty() {
+        return "nothing".into();
+    }
+    let parts: Vec<String> = lines
+        .iter()
+        .map(|l| {
+            let boxes = mp_economy::calculate_boxes(l.amount);
+            let name = &l.material;
+            let unit = if l.unit.is_empty() { "SCU" } else { l.unit.as_str() };
+            if unit.eq_ignore_ascii_case("scu") && !boxes.label.is_empty() {
+                format!("{} SCU ({}) of {name}", l.amount, boxes.label)
+            } else {
+                format!("{} {unit} of {name}", l.amount)
+            }
+        })
+        .collect();
+    if parts.len() == 1 {
+        parts[0].clone()
+    } else if parts.len() == 2 {
+        format!("{} and {}", parts[0], parts[1])
+    } else {
+        format!(
+            "{}, and {}",
+            parts[..parts.len() - 1].join(", "),
+            parts[parts.len() - 1]
+        )
     }
 }

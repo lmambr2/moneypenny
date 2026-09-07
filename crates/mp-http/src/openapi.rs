@@ -30,7 +30,7 @@ pub async fn docs_html() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         r#"<!doctype html><meta charset="utf-8"><title>Moneypenny API</title>
 <p>OpenAPI snapshot: <a href="/api/openapi.json">/api/openapi.json</a></p>
-<p>Rust rewrite Phase 4 — session, Vue station APIs, local music/player, <code>POST /v1/turn</code>. Remaining catalog paths return empty JSON until later phases.</p>"#,
+<p>Rust rewrite Phase 8 — session, Vue station APIs, local music/player, <code>POST /v1/turn</code>, RAG, voice, radio, roast, seed economy, MCP REST.</p>"#,
     )
 }
 

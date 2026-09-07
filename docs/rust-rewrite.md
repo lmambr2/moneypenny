@@ -7,7 +7,7 @@ Spotify/Tidal bridges, `install.sh`, and compose overlays **stay**.
 Source of truth for this branch: `lmambr2/moneypenny` @ `ec464a2` (DESIGN v3,
 AGENTS.md seams, 1227 backend tests).
 
-**Branch status (2026-09):** Phases **0–7 live** on `feat/rust-bot-rewrite`.
+**Branch status (2026-09):** Phases **0–8 live** on `feat/rust-bot-rewrite`.
 Node remains production (`BOT_RUNTIME=node`) until Phase 9 cutover.
 
 ## Why
@@ -52,8 +52,8 @@ Rust :3001 (this overlay) until flip
 | `mp-rag` | embeddings + TurboVec + doctrine | **live** HTTP embeddings or hash-dev; TurboVec or in-memory; `!remember` SQLite |
 | `mp-voice` | VAD → STT HTTP → TTS HTTP | **live** energy VAD + HTTP STT/TTS + watchword; Whisper out of process |
 | `mp-radio` | director / bumpers | **live** local seed + every-N bumpers; TTS bumpers need Piper |
-| `mp-economy` | mine/craft/trade/UEX | stub (Phase 8) |
-| `mp-mcp` | MCP tools | stub (Phase 8) |
+| `mp-economy` | mine/craft/trade/UEX | **live** seed catalog + work orders; sc-craft/UEX/sc-trade HTTP later |
+| `mp-mcp` | MCP tools | **live** Bearer REST `/mcp/tools` + `/mcp/tools/call`; confirm-for-high-impact |
 
 Day-1 traits (locked so crates cannot invent competing shapes):
 
@@ -148,6 +148,8 @@ TS6_HOST=127.0.0.1 TS6_PORT=9987 TS6_NICK=Moneypenny
 # optional voice (Whisper/Piper stay out of process)
 # VOICE_ENABLED=1 STT_URL=http://127.0.0.1:9000 TTS_URL=http://127.0.0.1:8880
 # RADIO_ENABLED=1   # or Settings → Radio; seeds local library
+# ROAST_ENABLED=1   # or Settings → Roast
+# MCP_ENABLED=1 MCP_TOKEN=secret   # Bearer REST at /mcp/tools
 ```
 
 Needs: `rustc` 1.85+, `pkg-config`, `libopus` (for `mp-audio` default feature).
@@ -188,13 +190,13 @@ These numbers are **the rewrite sequence**, not DESIGN.md product phases
 | **5 RAG/memory** | TurboVec + doctrine + `!remember` | **done** |
 | **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process | **done** |
 | **7 radio** | `docs/radio.md` | **done** (this branch) |
-| **8 community** | roast, economy, MCP, moves | — |
+| **8 community** | roast, economy, MCP, moves | **done** (this branch) |
 | **9 cutover** | `BOT_RUNTIME=rust` default; keep `moneypenny-node` one release | — |
 
 Kill criteria for the *spike* (gates 3+4 fail **and** sidecar Option B rejected)
 did **not** fire. Option A (`tsclient-rs`) is the live path.
 
-## What is mock vs live (Phase 7)
+## What is mock vs live (Phase 8)
 
 | Surface | Live | Mock / stub |
 |---------|------|-------------|
@@ -204,7 +206,7 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Session setup/login/cookie/CSRF | live | audit log insert skipped |
 | Vue `bot/web/dist` static | live if dist present | — |
 | OpenAPI JSON | frozen catalog | `/api/docs` HTML is a snapshot index |
-| Vue pages (Home/Search/Library/History/Live/Settings/…) | **live** session + `/api/bot` + local music/player | economy/RAG/harness/recordings return empty 200s (not 404) |
+| Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy | harness/recordings/ACE-Step still empty or 503 |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
 | `!play` `!skip` `!queue` + web play | **live** local library, rank-gated | YouTube still stubbed |
@@ -214,7 +216,10 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory on runtimes | not persisted to `config.json` (dual-run: Node still owns writes) |
 | Inbound voice | **live** Opus decode + energy VAD + HTTP STT + watchword + same executor as chat (`Scope::Voice`); `GET /api/bot/voice/status`; `POST /api/bot/voice/test` | Silero VAD, under-music-check, KWS, TTS park/restore into the channel (test `speak:true` synthesizes; channel play of Piper wav is later) |
 | Radio | **live** director (disabled = `play_next`); local seed; `!radio` on/off/status/ops; every-N bumpers; `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, YouTube/stream seed, Silero-adjacent TTS park, doctrine/memory LLM bumpers, prerecorded pool, analyzer |
-| MCP, economy | — | compiling stubs / empty JSON |
+| Moves | **live** `!move` / `!moveclient` / `!moveall` (30s confirm, max 10) / `!follow` via TS6 HTTP Query | no auto-follow |
+| Roast | **live** channel capture + `!roast` / `!roastout` / `!roastin`; LLM grade fail-open; Settings toggle | no voice-transcript capture; auto-reel needs LLM + min present |
+| Economy | **live** seed ores/methods/mine/refine + SQLite work orders; Vue `/api/economy/*` | sc-craft / sc-trade / UEX HTTP still 503; no scrapers |
+| MCP | **live** Bearer `GET /mcp/tools` + `POST /mcp/tools/call`; `NEEDS_CONFIRMATION` on ban/stop/clear/mod | not the Node SDK streamable-HTTP transport; ACE-Step `generate_music` unavailable |
 
 ## Brain code map (Phase 4)
 
@@ -245,6 +250,17 @@ dashboard  →  POST /v1/turn
 | `crates/moneypenny/src/bot.rs` | inbound `VoiceData` → decode → VAD → STT → same `dispatch_command` as chat (`Scope::Voice`) |
 
 Whisper stays a sidecar. Self-echo (`clid == self`) and music codec `5` are dropped.
+
+## Community code map (Phase 8)
+
+| Path | Role |
+|------|------|
+| `crates/moneypenny/src/moves.rs` | `!move` / `!moveclient` / `!moveall` / `!follow` over TS6 HTTP Query |
+| `crates/mp-http/src/roast.rs` | Channel capture, LLM grade (fail-open), `!roast` reel — **not** on skip |
+| `crates/mp-economy/` | Seed ores/methods + mine/refine + work-order parse |
+| `crates/mp-http/src/economy_api.rs` | Vue `/api/economy/*` |
+| `crates/mp-mcp/` | Bearer token, `HIGH_IMPACT` + `NEEDS_CONFIRMATION` |
+| `crates/mp-http/src/mcp_api.rs` | `GET /mcp/tools`, `POST /mcp/tools/call` (outside CSRF) |
 
 Do not rewrite Vue, sidecars, or add features Node does not have.
 Refuse Leptos, in-process Whisper, rewriting Piper.

@@ -5,10 +5,9 @@
 //! Axum HTTP surface. Domain bundle order matches `domain-bundles.ts`:
 //! SYSTEM → MCP (stub) → SESSION → BRAIN (`POST /v1/turn`) → STATION API → SPA → WS.
 //!
-//! Live through rewrite Phase 6: health, session/CSRF, Vue SPA, `/api/bot` +
+//! Live through rewrite Phase 8: health, session/CSRF, Vue SPA, `/api/bot` +
 //! local music/player, live-status WS, `POST /v1/turn`, doctrine RAG + memory,
-//! inbound voice (STT/TTS HTTP). Unported domains (economy/harness/MCP/radio)
-//! return empty JSON, not 404.
+//! inbound voice (STT/TTS HTTP), radio, roast, seed economy, MCP REST.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -30,13 +29,16 @@ mod bot_api;
 mod brain;
 mod command;
 mod csrf;
+mod economy_api;
 mod json_song;
+mod mcp_api;
 mod music_api;
 mod openapi;
 mod player_api;
 mod radio_api;
 mod rag_api;
 mod rate_limit;
+mod roast;
 mod session;
 mod spa;
 mod stubs;
@@ -44,6 +46,7 @@ mod voice_api;
 mod ws;
 
 pub use command::dispatch_command;
+pub use roast::RoastRuntime;
 pub use csrf::csrf_origin_check;
 pub use session::SESSION_COOKIE_NAME;
 
@@ -67,6 +70,8 @@ pub struct AppState {
     pub rag: Option<Arc<mp_rag::RagRuntime>>,
     pub voice: Arc<mp_voice::VoiceRuntime>,
     pub radio: Arc<mp_radio::RadioRuntime>,
+    pub roast: Arc<roast::RoastRuntime>,
+    pub mcp: mp_mcp::McpConfig,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -86,6 +91,11 @@ impl AppState {
                 .unwrap_or_else(|_| "Moneypenny".into()),
         );
         radio.set_tts(config.voice.tts_url.clone(), config.voice.tts_voice.clone());
+        let roast = roast::RoastRuntime::new(
+            Arc::clone(&db),
+            Arc::clone(&brain),
+            roast::RoastConfig::from_bot(&config),
+        );
         Self {
             db,
             config,
@@ -106,6 +116,8 @@ impl AppState {
             rag: None,
             voice,
             radio,
+            roast,
+            mcp: mp_mcp::McpConfig::default(),
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
@@ -118,6 +130,11 @@ impl AppState {
 
     pub fn with_brain(mut self, brain: Arc<mp_brain::BrainRuntime>) -> Self {
         self.brain = brain;
+        self
+    }
+
+    pub fn with_mcp(mut self, mcp: mp_mcp::McpConfig) -> Self {
+        self.mcp = mcp;
         self
     }
 
@@ -273,12 +290,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/rag/doctrine/reformat", post(stubs::not_ported))
         .route("/api/rag/query", post(rag_api::rag_query))
         .route("/api/rag/ingest", post(rag_api::rag_ingest))
-        .route("/api/economy/workorders", get(stubs::economy_workorders).post(stubs::not_ported).delete(stubs::not_ported))
-        .route("/api/economy/cache/refresh", post(stubs::not_ported))
-        .route("/api/economy/trade/routes", post(stubs::not_ported))
-        .route("/api/economy/trade/buyers", post(stubs::not_ported))
-        .route("/api/economy/trade/itinerary", post(stubs::not_ported))
-        .route("/api/economy/trade/circuit", post(stubs::not_ported))
+        .route("/api/economy/workorders", get(economy_api::workorders_get).post(economy_api::workorders_post).delete(economy_api::workorders_clear))
+        .route("/api/economy/workorders/{id}", delete(economy_api::workorders_delete_one))
+        .route("/api/economy/cache/refresh", post(economy_api::cache_refresh))
+        .route("/api/economy/trade/routes", post(economy_api::trade_off))
+        .route("/api/economy/trade/buyers", post(economy_api::trade_off))
+        .route("/api/economy/trade/itinerary", post(economy_api::trade_off))
+        .route("/api/economy/trade/circuit", post(economy_api::trade_off))
         .route("/api/player/{botId}/play", post(player_api::play))
         .route("/api/player/{botId}/add", post(player_api::add))
         .route("/api/player/{botId}/pause", post(player_api::pause))
@@ -310,16 +328,18 @@ pub fn router(state: AppState) -> Router {
             get(player_api::profile_get).put(player_api::profile_put),
         )
         .route("/api/auth/status", get(stubs::auth_status))
-        .route("/api/economy/overview", get(stubs::economy_overview))
-        .route("/api/economy/ores", get(stubs::economy_ores))
-        .route("/api/economy/methods", get(stubs::economy_methods))
-        .route("/api/economy/cache", get(stubs::economy_cache))
-        .route("/api/economy/commodities", get(stubs::economy_commodities))
-        .route("/api/economy/mine", get(stubs::economy_ok))
-        .route("/api/economy/refine", get(stubs::economy_ok))
-        .route("/api/economy/craft", get(stubs::economy_ok))
-        .route("/api/economy/blueprints", get(stubs::economy_ok))
-        .route("/api/economy/prices", get(stubs::economy_ok))
+        .route("/api/economy/overview", get(economy_api::overview))
+        .route("/api/economy/ores", get(economy_api::ores))
+        .route("/api/economy/methods", get(economy_api::methods))
+        .route("/api/economy/boxes", get(economy_api::boxes))
+        .route("/api/economy/cache", get(economy_api::cache))
+        .route("/api/economy/commodities", get(economy_api::commodities))
+        .route("/api/economy/mine", get(economy_api::mine))
+        .route("/api/economy/refine", get(economy_api::refine))
+        .route("/api/economy/craft", get(economy_api::craft_off))
+        .route("/api/economy/blueprints", get(economy_api::craft_off))
+        .route("/api/economy/prices", get(economy_api::prices_off))
+        .route("/api/economy/trade/ships", get(economy_api::trade_off))
         .route("/api/rag/doctrine", get(rag_api::doctrine_list))
         .route("/api/rag/doctrine/export/capabilities", get(stubs::rag_export_caps))
         .route("/api/rag/doctrine/hygiene", get(rag_api::doctrine_hygiene))
@@ -340,8 +360,10 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(csrf::csrf_origin_check));
 
     let ws_route = Router::new().route("/ws", get(ws::upgrade));
+    let mcp = mcp_api::router();
 
     let mut app = Router::new()
+        .merge(mcp)
         .merge(api)
         .merge(ws_route)
         .layer(security_headers())
@@ -1163,5 +1185,240 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::CONFLICT);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn economy_seed_catalog_and_workorder() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/economy/overview")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v["oreCount"].as_u64().unwrap() >= 11, "{v}");
+        assert_eq!(v["workOrders"]["available"], true);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/economy/mine?ore=quantanium&scu=16")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ore"]["id"], "quantainium");
+        assert_eq!(v["targetScu"], 16.0);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/economy/workorders")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"item":"quantainium","qty":8}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let id = v["order"]["id"].as_i64().unwrap();
+        assert!(id > 0);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/economy/workorders/{id}"))
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn mcp_disabled_is_404() {
+        let app = test_app();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/mcp/tools")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn mcp_confirm_blocks_stop_not_skip() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let mcp = mp_mcp::McpConfig {
+            enabled: true,
+            token: "phase8-test".into(),
+            require_confirm: true,
+            ..mp_mcp::McpConfig::default()
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "mp-http-mcp-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sine.mp3"), b"x").unwrap();
+        let station = Arc::new(mp_music::MusicStation::new(&dir, None));
+        station.set_dry_run(true);
+        let executor = Arc::new(mp_control::CommandExecutor::new(Arc::clone(&station), "!"));
+        let state = AppState::new(db, cfg, None)
+            .with_music(station, executor, None)
+            .with_mcp(mcp);
+        let app = router(state);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/mcp/tools")
+                    .header("authorization", "Bearer phase8-test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer phase8-test")
+                    .body(Body::from(r#"{"name":"music_stop","arguments":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["code"], "NEEDS_CONFIRMATION");
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer phase8-test")
+                    .body(Body::from(r#"{"name":"music_skip","arguments":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_ne!(v["code"], "NEEDS_CONFIRMATION", "{v}");
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer phase8-test")
+                    .body(Body::from(r#"{"name":"music_stop","arguments":{"confirm":true}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["code"], "OK");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn roast_settings_toggle() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/settings")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"roastEnabled":true,"roastMinScore":6}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/settings")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["roastEnabled"], true);
+        assert_eq!(v["roastMinScore"], 6);
     }
 }

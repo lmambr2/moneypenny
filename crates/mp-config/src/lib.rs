@@ -117,6 +117,15 @@ pub struct BotConfig {
     /// Autonomous DJ (rewrite Phase 7). Nested object matches Node `config.radio`.
     #[serde(default)]
     pub radio: RadioConfig,
+    /// Roast community layer (rewrite Phase 8). Off by default.
+    #[serde(default)]
+    pub roast_enabled: bool,
+    #[serde(default = "default_roast_min_present")]
+    pub roast_min_present: u32,
+    #[serde(default = "default_roast_cooldown")]
+    pub roast_cooldown_minutes: u32,
+    #[serde(default = "default_roast_min_score")]
+    pub roast_min_score: i64,
 }
 
 /// Node `VoiceConfig` (`bot/src/voice/types.ts`). Load-only during dual-run.
@@ -232,6 +241,15 @@ fn default_duck_volume() -> u32 {
 }
 fn default_listen_window_ms() -> u64 {
     15_000
+}
+fn default_roast_min_present() -> u32 {
+    3
+}
+fn default_roast_cooldown() -> u32 {
+    180
+}
+fn default_roast_min_score() -> i64 {
+    4
 }
 
 impl Default for VoiceConfig {
@@ -514,6 +532,10 @@ impl Default for BotConfig {
             music_blocked_genres: default_blocked_genres(),
             voice: VoiceConfig::default(),
             radio: RadioConfig::default(),
+            roast_enabled: false,
+            roast_min_present: 3,
+            roast_cooldown_minutes: 180,
+            roast_min_score: 4,
         }
     }
 }
@@ -703,6 +725,14 @@ fn apply_env(cfg: &mut BotConfig) {
             cfg.radio.enabled = false;
         }
     }
+    if let Ok(v) = std::env::var("ROAST_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.roast_enabled = true;
+        } else if t == "0" || t.eq_ignore_ascii_case("false") {
+            cfg.roast_enabled = false;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -726,6 +756,9 @@ mod tests {
         assert!(!c.radio.enabled);
         assert_eq!(c.radio.every_n_songs, 4);
         assert_eq!(c.radio.active_profile, "lobby");
+        assert!(!c.roast_enabled);
+        assert_eq!(c.roast_min_present, 3);
+        assert_eq!(c.roast_min_score, 4);
         assert_eq!(SESSION_COOKIE_NAME, "moneypenny_session");
         assert_eq!(BCRYPT_COST, 12);
     }

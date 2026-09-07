@@ -16,6 +16,7 @@ pub async fn auth_status(_user: AuthUser) -> Json<Value> {
     Json(json!({ "platform": "youtube", "loggedIn": true, "nickname": "Local" }))
 }
 
+#[allow(dead_code)]
 pub async fn economy_overview(_user: AuthUser) -> Json<Value> {
     Json(json!({
         "catalogAsOf": "",
@@ -29,15 +30,19 @@ pub async fn economy_overview(_user: AuthUser) -> Json<Value> {
     }))
 }
 
+#[allow(dead_code)]
 pub async fn economy_ores(_user: AuthUser) -> Json<Value> {
     Json(json!({ "ores": [] }))
 }
+#[allow(dead_code)]
 pub async fn economy_methods(_user: AuthUser) -> Json<Value> {
     Json(json!({ "methods": [] }))
 }
+#[allow(dead_code)]
 pub async fn economy_workorders(_user: AuthUser) -> Json<Value> {
     Json(json!({ "orders": [], "materials": [] }))
 }
+#[allow(dead_code)]
 pub async fn economy_cache(_user: AuthUser) -> Json<Value> {
     Json(json!({
         "rootLabel": "",
@@ -48,6 +53,7 @@ pub async fn economy_cache(_user: AuthUser) -> Json<Value> {
         "lastRefresh": null,
     }))
 }
+#[allow(dead_code)]
 pub async fn economy_commodities(_user: AuthUser) -> Json<Value> {
     Json(json!({ "commodities": [] }))
 }

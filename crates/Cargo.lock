@@ -1214,6 +1214,7 @@ dependencies = [
  "mp-control",
  "mp-db",
  "mp-http",
+ "mp-mcp",
  "mp-music",
  "mp-radio",
  "mp-rag",
@@ -1276,6 +1277,8 @@ dependencies = [
  "hex",
  "rand 0.8.8",
  "rusqlite",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror 2.0.20",
  "tracing",
@@ -1300,6 +1303,8 @@ dependencies = [
  "mp-config",
  "mp-control",
  "mp-db",
+ "mp-economy",
+ "mp-mcp",
  "mp-music",
  "mp-radio",
  "mp-rag",
@@ -1319,6 +1324,7 @@ name = "mp-mcp"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 

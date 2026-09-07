@@ -14,13 +14,17 @@ use rusqlite::{Connection, OpenFlags};
 
 mod history;
 mod memory;
+mod roast;
 mod sessions;
 mod users;
+mod work_orders;
 
 pub use history::PlayHistoryStore;
 pub use memory::{MemoryFact, MemoryStore};
+pub use roast::{RoastQuote, RoastStore};
 pub use sessions::{SessionStore, SessionValidation, MAX_SESSIONS_PER_USER, SESSION_TTL_MS};
 pub use users::{UserRole, UserRow, UserStore, UsernameTakenError, BCRYPT_COST};
+pub use work_orders::{aggregate, WorkOrder, WorkOrderLine, WorkOrderStore};
 
 pub const SCHEMA_SQL: &str = include_str!("schema.sql");
 
@@ -146,6 +150,14 @@ impl Database {
 
     pub fn memory(&self) -> MemoryStore<'_> {
         MemoryStore { db: self }
+    }
+
+    pub fn roast(&self) -> RoastStore<'_> {
+        RoastStore { db: self }
+    }
+
+    pub fn work_orders(&self) -> WorkOrderStore<'_> {
+        WorkOrderStore { db: self }
     }
 
     pub fn user_count(&self) -> Result<u32> {

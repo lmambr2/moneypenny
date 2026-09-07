@@ -68,6 +68,7 @@ async fn run_named(
         &st.brain,
         st.rag.as_deref(),
         Some(&st.radio),
+        Some(&st.roast),
     )
     .await
     .unwrap_or_default())

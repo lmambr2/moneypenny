@@ -11,8 +11,9 @@ use mp_control::{
     default_aliases, is_known_command, parse_command, CommandExecutor,
 };
 use mp_db::Database;
-use mp_http::dispatch_command;
+use mp_http::{dispatch_command, RoastRuntime};
 use mp_music::{MusicStation, PlayerEvent, QueuedSong};
+use crate::moves::MoveRuntime;
 use mp_rights::{RightsEngine, Scope, Subject};
 use mp_ts::{OpusPacket, Target, TsEvent, TsSession, TsSessionExt, CODEC_OPUS_MUSIC};
 use mp_radio::{Boundary, RadioRuntime};
@@ -38,6 +39,8 @@ pub struct BotLoop<S> {
     services: BotServices,
     voice: Arc<VoiceRuntime>,
     radio: Arc<RadioRuntime>,
+    roast: Arc<RoastRuntime>,
+    moves: Arc<MoveRuntime>,
     humans: std::sync::Mutex<std::collections::HashSet<i32>>,
 }
 
@@ -51,6 +54,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         services: BotServices,
         voice: Arc<VoiceRuntime>,
         radio: Arc<RadioRuntime>,
+        roast: Arc<RoastRuntime>,
+        moves: Arc<MoveRuntime>,
     ) -> Self {
         let mut aliases = aliases;
         if aliases.is_empty() {
@@ -67,6 +72,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             services,
             voice,
             radio,
+            roast,
+            moves,
             humans: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
@@ -75,6 +82,9 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         let mut events = self.session.subscribe();
         let mut frames = self.station.subscribe_player();
         let mut last_reply: Option<(String, Instant)> = None;
+        let mut roast_tick = tokio::time::interval(Duration::from_secs(30));
+        roast_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        roast_tick.tick().await;
         info!("bot loop listening for chat");
         loop {
             tokio::select! {
@@ -121,6 +131,18 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                         Err(_) => {
                             frames = self.station.subscribe_player();
+                        }
+                    }
+                }
+                _ = roast_tick.tick() => {
+                    let n = self.humans.lock().expect("humans").len() as u32;
+                    if let Some(reel) = self.roast.run_tick(n).await {
+                        if should_dedupe(&last_reply, &reel) {
+                            continue;
+                        }
+                        last_reply = Some((reel.clone(), Instant::now()));
+                        if let Err(e) = self.session.send_text(Target::Channel, &reel).await {
+                            warn!(error = %e, "roast reel send_text failed");
                         }
                     }
                 }
@@ -228,31 +250,73 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             tracing::debug!(message = %body, "ignore own message");
             return None;
         }
-        let parsed = parse_command(&body, &self.prefix, &self.aliases)?;
-        if !is_known_command(&parsed.name) {
-            return None;
-        }
         let uid = if invoker_uid.is_empty() {
             format!("clid:{invoker_id}")
         } else {
             invoker_uid
         };
+        let parsed = parse_command(&body, &self.prefix, &self.aliases);
+        if parsed.is_none() {
+            self.roast.capture_line(&uid, &invoker_name, &body, false);
+            return None;
+        }
+        let parsed = parsed?;
+        if !is_known_command(&parsed.name) {
+            return None;
+        }
         let subject = Subject {
             uid: uid.clone(),
             server_groups: invoker_groups,
             nickname: Some(invoker_name),
         };
         self.radio.note_human_activity(invoker_id);
+        self.dispose_cmd(&parsed, &subject, Scope::Chat, invoker_id)
+            .await
+    }
+
+    async fn dispose_cmd(
+        &self,
+        parsed: &mp_control::ParsedCommand,
+        subject: &Subject,
+        scope: Scope,
+        invoker_clid: i32,
+    ) -> Option<String> {
+        if matches!(
+            parsed.name.as_str(),
+            "move" | "moveclient" | "moveall" | "follow"
+        ) {
+            if let Some(engine) = self.rights.as_deref() {
+                if !engine.can(subject, &parsed.name, scope) {
+                    return Some(format!(
+                        "You don't have permission to use '{}'.",
+                        parsed.name
+                    ));
+                }
+            }
+            return Some(
+                self.moves
+                    .handle(
+                        &parsed.name,
+                        &parsed.args,
+                        &parsed.raw_args,
+                        invoker_clid,
+                        &subject.uid,
+                        self.session.client_id(),
+                    )
+                    .await,
+            );
+        }
         dispatch_command(
-            &parsed,
-            &subject,
-            Scope::Chat,
+            parsed,
+            subject,
+            scope,
             &self.executor,
             self.rights.as_deref(),
             &self.services.db,
             &self.services.brain,
             self.services.rag.as_deref(),
             Some(&self.radio),
+            Some(&self.roast),
         )
         .await
     }
@@ -278,11 +342,14 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         let voice = Arc::clone(&self.voice);
         let executor = self.executor.clone();
         let station = Arc::clone(&self.station);
-        let rights = self.rights.clone();
         let services = self.services.clone();
         let prefix = self.prefix.clone();
         let aliases = self.aliases.clone();
         let radio = Arc::clone(&self.radio);
+        let roast = Arc::clone(&self.roast);
+        let moves = Arc::clone(&self.moves);
+        let rights_c = self.rights.clone();
+        let session_id = self.session.client_id();
         let speaker_id = utt.speaker_client_id;
         let uid = utt
             .speaker_uid
@@ -310,11 +377,13 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     },
                     |cmd| {
                         let executor = executor.clone();
-                        let rights = rights.clone();
                         let services = services.clone();
                         let prefix = prefix.clone();
                         let aliases = aliases.clone();
                         let radio = Arc::clone(&radio);
+                        let roast = Arc::clone(&roast);
+                        let moves = Arc::clone(&moves);
+                        let rights = rights_c.clone();
                         let uid = uid.clone();
                         async move {
                             let parsed = parse_command(&format!("{prefix}{cmd}"), &prefix, &aliases)?;
@@ -326,6 +395,31 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 server_groups: Vec::new(),
                                 nickname: None,
                             };
+                            if matches!(
+                                parsed.name.as_str(),
+                                "move" | "moveclient" | "moveall" | "follow"
+                            ) {
+                                if let Some(engine) = rights.as_deref() {
+                                    if !engine.can(&subject, &parsed.name, Scope::Voice) {
+                                        return Some(format!(
+                                            "You don't have permission to use '{}'.",
+                                            parsed.name
+                                        ));
+                                    }
+                                }
+                                return Some(
+                                    moves
+                                        .handle(
+                                            &parsed.name,
+                                            &parsed.args,
+                                            &parsed.raw_args,
+                                            speaker_id,
+                                            &subject.uid,
+                                            session_id,
+                                        )
+                                        .await,
+                                );
+                            }
                             dispatch_command(
                                 &parsed,
                                 &subject,
@@ -336,6 +430,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 &services.brain,
                                 services.rag.as_deref(),
                                 Some(&radio),
+                                Some(&roast),
                             )
                             .await
                         }

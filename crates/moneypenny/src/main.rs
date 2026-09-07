@@ -6,6 +6,7 @@
 //! POST /v1/turn (LLM proposes, executor disposes).
 
 mod bot;
+mod moves;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -193,9 +194,11 @@ async fn main() {
 
     let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone())
         .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
-        .with_rag(Arc::clone(&rag));
+        .with_rag(Arc::clone(&rag))
+        .with_mcp(mp_mcp::McpConfig::from_env());
     let voice = Arc::clone(&state.voice);
     let radio = Arc::clone(&state.radio);
+    let roast = Arc::clone(&state.roast);
     {
         let rag_c = Arc::clone(&rag);
         let db_c = Arc::clone(&db);
@@ -260,6 +263,7 @@ async fn main() {
         },
         voice,
         radio,
+        roast,
     )
     .await;
 
@@ -275,6 +279,7 @@ async fn start_teamspeak(
     services: bot::BotServices,
     voice: Arc<mp_voice::VoiceRuntime>,
     radio: Arc<mp_radio::RadioRuntime>,
+    roast: Arc<mp_http::RoastRuntime>,
 ) {
     #[cfg(feature = "ts6")]
     {
@@ -303,6 +308,7 @@ async fn start_teamspeak(
                     }
                 });
             }
+            let moves = Arc::new(moves::MoveRuntime::new(session.query().cloned()));
             let loop_ = bot::BotLoop::new(
                 Arc::clone(&session),
                 Arc::clone(&station),
@@ -312,6 +318,8 @@ async fn start_teamspeak(
                 services,
                 voice,
                 radio,
+                roast,
+                moves,
             );
             let session_c = Arc::clone(&session);
             let station_c = Arc::clone(&station);
@@ -349,12 +357,12 @@ async fn start_teamspeak(
             }
             return;
         }
-        let _ = (voice, radio);
+        let _ = (voice, radio, roast);
         info!("TS6_HOST empty — HTTP only (no TeamSpeak)");
     }
     #[cfg(not(feature = "ts6"))]
     {
-        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio);
+        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio, roast);
         info!("ts session: mock (built without ts6 feature)");
     }
 }

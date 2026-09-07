@@ -18,7 +18,9 @@ pub use reconnect::{reconnect_delay_ms, ReconnectDriver, ReconnectScheduler};
 #[cfg(feature = "tsclient-rs")]
 pub use live::{LiveSession, TsConnectConfig};
 #[cfg(feature = "tsclient-rs")]
-pub use query::{parse_client_list, QueryClient, QueryClientRow};
+pub use query::{
+    parse_channel_list, parse_client_list, QueryChannel, QueryClient, QueryClientRow,
+};
 
 use tokio::sync::broadcast;
 

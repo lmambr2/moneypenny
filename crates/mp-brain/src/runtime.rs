@@ -57,6 +57,24 @@ impl BrainRuntime {
         complete_turn(req, &transport).await
     }
 
+    /// Custom-system completion (roast grader). Never used on skip.
+    /// Returns None when LLM is disabled or the request fails (fail-open).
+    pub async fn complete_plain(&self, system: &str, user: &str) -> Option<String> {
+        let settings = {
+            let g = self.inner.read().await;
+            if !g.settings.enabled {
+                return None;
+            }
+            g.settings.clone()
+        };
+        let llm = crate::llm::OpenAiLlm::from_settings(&settings);
+        llm.complete_system(system, user)
+            .await
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
     pub async fn llm_snapshot(&self) -> (bool, String, String) {
         let g = self.inner.read().await;
         (

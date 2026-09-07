@@ -178,10 +178,10 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "llmDelegateModel": "",
         "llmSystemPrompt": "",
         "llmTemperature": 0.2,
-        "roastEnabled": false,
-        "roastMinPresent": 3,
-        "roastCooldownMinutes": 180,
-        "roastMinScore": 4,
+        "roastEnabled": st.roast.config().enabled,
+        "roastMinPresent": st.roast.config().min_present,
+        "roastCooldownMinutes": st.roast.config().cooldown_minutes,
+        "roastMinScore": st.roast.config().min_score,
         "youtubeSaveEnabled": false,
         "musicOpusBitrateKbps": c.music_opus_bitrate_kbps,
         "musicBlockedGenres": c.music_blocked_genres,
@@ -296,6 +296,46 @@ pub async fn settings_post(
                 return Json(json!({ "ok": false, "error": msg, "code": "VALIDATION_ERROR" }));
             }
         }
+    }
+    if body.get("roastEnabled").is_some()
+        || body.get("roastMinPresent").is_some()
+        || body.get("roastCooldownMinutes").is_some()
+        || body.get("roastMinScore").is_some()
+    {
+        let mut next = st.roast.config();
+        if let Some(b) = body.get("roastEnabled") {
+            match b.as_bool() {
+                Some(v) => next.enabled = v,
+                None => {
+                    return Json(json!({ "ok": false, "error": "roastEnabled must be a boolean", "code": "VALIDATION_ERROR" }));
+                }
+            }
+        }
+        if let Some(n) = body.get("roastMinPresent") {
+            match n.as_u64() {
+                Some(v) => next.min_present = v.max(1) as u32,
+                None => {
+                    return Json(json!({ "ok": false, "error": "roastMinPresent must be a number", "code": "VALIDATION_ERROR" }));
+                }
+            }
+        }
+        if let Some(n) = body.get("roastCooldownMinutes") {
+            match n.as_u64() {
+                Some(v) => next.cooldown_minutes = v as u32,
+                None => {
+                    return Json(json!({ "ok": false, "error": "roastCooldownMinutes must be a number", "code": "VALIDATION_ERROR" }));
+                }
+            }
+        }
+        if let Some(n) = body.get("roastMinScore") {
+            match n.as_i64() {
+                Some(v) => next.min_score = v.clamp(0, 10),
+                None => {
+                    return Json(json!({ "ok": false, "error": "roastMinScore must be a number", "code": "VALIDATION_ERROR" }));
+                }
+            }
+        }
+        st.roast.apply(next);
     }
     Json(json!({ "ok": true }))
 }

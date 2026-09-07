@@ -188,6 +188,29 @@ impl OpenAiLlm {
         }
     }
 
+    /// One-shot completion with a custom system prompt (roast grader, etc.).
+    /// Does not touch conversation history. Fail-open at the caller.
+    pub async fn complete_system(&self, system: &str, user: &str) -> Result<String, String> {
+        let messages = vec![
+            ChatMessage {
+                role: "system".into(),
+                content: Some(system.to_string()),
+            },
+            ChatMessage {
+                role: "user".into(),
+                content: Some(user.to_string()),
+            },
+        ];
+        let resp = self
+            .chat(&messages, None, Some("none"), 0.2, 256)
+            .await?;
+        let msg = resp.choices.first().map(|c| &c.message);
+        let content = msg
+            .map(|m| extract_assistant_text(m.content.as_deref(), m.reasoning.as_deref()))
+            .unwrap_or_default();
+        Ok(content)
+    }
+
     pub async fn ask(&self, question: &str, conversation_id: Option<&str>) -> Result<String, String> {
         let mut messages = vec![ChatMessage {
             role: "system".into(),

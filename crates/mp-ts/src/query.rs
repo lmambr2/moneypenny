@@ -41,6 +41,72 @@ impl QueryClient {
         Ok((status, body))
     }
 
+    async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(u16, String), String> {
+        let url = format!("http://{}:{}{path}", self.host, self.port);
+        let mut req = self
+            .http
+            .post(&url)
+            .header("Accept", "application/json")
+            .header("content-type", "application/json")
+            .json(body);
+        if !self.api_key.is_empty() {
+            req = req.header("x-api-key", &self.api_key);
+        }
+        let res = req.send().await.map_err(|e| e.to_string())?;
+        let status = res.status().as_u16();
+        let text = res.text().await.unwrap_or_default();
+        Ok((status, text))
+    }
+
+    pub async fn channel_list(&self) -> Result<Vec<QueryChannel>, String> {
+        let (status, body) = self.get("/1/channellist").await?;
+        if status != 200 {
+            return Err(format!("channellist status={status}"));
+        }
+        Ok(parse_channel_list(&body))
+    }
+
+    pub async fn resolve_channel(&self, query: &str) -> Result<QueryChannel, String> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Err("channel required".into());
+        }
+        let list = self.channel_list().await?;
+        if let Ok(id) = q.parse::<u64>() {
+            if let Some(ch) = list.iter().find(|c| c.cid == id) {
+                return Ok(ch.clone());
+            }
+        }
+        let lower = q.to_ascii_lowercase();
+        let exact = list.iter().find(|c| c.name.eq_ignore_ascii_case(q));
+        if let Some(ch) = exact {
+            return Ok(ch.clone());
+        }
+        let starts = list
+            .iter()
+            .find(|c| c.name.to_ascii_lowercase().starts_with(&lower));
+        if let Some(ch) = starts {
+            return Ok(ch.clone());
+        }
+        let contains = list
+            .iter()
+            .find(|c| c.name.to_ascii_lowercase().contains(&lower));
+        contains.cloned().ok_or_else(|| format!("No channel matching '{q}'."))
+    }
+
+    pub async fn client_move(&self, clid: i32, cid: u64) -> Result<(), String> {
+        let (status, body) = self
+            .post_json(
+                "/1/clientmove?sid=1",
+                &serde_json::json!({ "clid": clid, "cid": cid }),
+            )
+            .await?;
+        if status < 200 || status >= 300 {
+            return Err(format!("clientmove failed ({status}): {}", body.chars().take(80).collect::<String>()));
+        }
+        Ok(())
+    }
+
     /// GET /1/clientlist?-groups — nickname + client_servergroups.
     pub async fn client_list_groups(&self) -> Result<Vec<QueryClientRow>, String> {
         let (status, body) = self.get("/1/clientlist?-groups").await?;
@@ -72,6 +138,12 @@ pub struct QueryClientRow {
     pub uid: String,
     pub cid: u64,
     pub server_groups: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryChannel {
+    pub cid: u64,
+    pub name: String,
 }
 
 pub fn parse_client_list(body: &str) -> Vec<QueryClientRow> {
@@ -156,6 +228,59 @@ fn json_u64(v: &Value) -> Option<u64> {
     v.as_u64()
         .or_else(|| v.as_i64().map(|n| n as u64))
         .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
+pub fn parse_channel_list(body: &str) -> Vec<QueryChannel> {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return parse_pipe_channels(body);
+    };
+    let arr = if v.is_array() {
+        v.as_array().cloned().unwrap_or_default()
+    } else if let Some(a) = v.get("body").and_then(|b| b.as_array()) {
+        a.clone()
+    } else if let Some(a) = v.get("data").and_then(|b| b.as_array()) {
+        a.clone()
+    } else {
+        return parse_pipe_channels(body);
+    };
+    arr.into_iter()
+        .filter_map(|row| {
+            let cid = row
+                .get("cid")
+                .or_else(|| row.get("channel_id"))
+                .and_then(json_u64)?;
+            let name = row
+                .get("channel_name")
+                .or_else(|| row.get("name"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(QueryChannel { cid, name })
+        })
+        .collect()
+}
+
+fn parse_pipe_channels(body: &str) -> Vec<QueryChannel> {
+    body.split('|')
+        .filter_map(|chunk| {
+            let mut cid = 0u64;
+            let mut name = String::new();
+            for part in chunk.split_whitespace() {
+                if let Some((k, v)) = part.split_once('=') {
+                    match k {
+                        "cid" => cid = v.parse().unwrap_or(0),
+                        "channel_name" => name = v.replace("\\s", " "),
+                        _ => {}
+                    }
+                }
+            }
+            if cid == 0 {
+                None
+            } else {
+                Some(QueryChannel { cid, name })
+            }
+        })
+        .collect()
 }
 
 fn parse_pipe_list(body: &str) -> Vec<QueryClientRow> {
