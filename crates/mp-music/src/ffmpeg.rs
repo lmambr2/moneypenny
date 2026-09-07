@@ -9,6 +9,9 @@ pub const FRAME_DURATION_MS: u64 = 20;
 pub const FRAME_SIZE: usize = (SAMPLE_RATE as usize * FRAME_DURATION_MS as usize) / 1000; // 960
 pub const PCM_FRAME_BYTES: usize = FRAME_SIZE * CHANNELS as usize * 2; // 3840
 pub const MIN_STALL_GRACE_SEC: f64 = 2.0;
+/// yt-dlp / first-byte often takes longer than the mid-track 10s window.
+/// Ending a play that never got PCM at 10s skips !add YouTube tracks.
+pub const STARTUP_STALL_SEC: f64 = 45.0;
 pub const MUSIC_OPUS_BITRATE_KBPS_MIN: u32 = 24;
 pub const MUSIC_OPUS_BITRATE_KBPS_MAX: u32 = 160;
 pub const MUSIC_OPUS_BITRATE_KBPS_DEFAULT: u32 = 64;
@@ -30,21 +33,28 @@ pub enum StallVerdict {
     MidTrackStall,
 }
 
+#[derive(Clone, Copy)]
 pub struct StallCheckInput {
     pub empty_frame_attempts: u32,
     pub near_end_attempts: u32,
     pub mid_track_attempts: u32,
     pub is_near_end: bool,
     pub wall_elapsed_sec: f64,
+    /// True once at least one PCM frame was decoded this play().
+    pub has_decoded_audio: bool,
 }
 
 pub fn classify_stall(input: StallCheckInput) -> StallVerdict {
     if input.empty_frame_attempts >= input.near_end_attempts && input.is_near_end {
         return StallVerdict::NearEndStall;
     }
-    if input.empty_frame_attempts >= input.mid_track_attempts
-        && input.wall_elapsed_sec >= MIN_STALL_GRACE_SEC
-    {
+    if input.empty_frame_attempts < input.mid_track_attempts {
+        return StallVerdict::Continue;
+    }
+    if input.has_decoded_audio && input.wall_elapsed_sec >= MIN_STALL_GRACE_SEC {
+        return StallVerdict::MidTrackStall;
+    }
+    if !input.has_decoded_audio && input.wall_elapsed_sec >= STARTUP_STALL_SEC {
         return StallVerdict::MidTrackStall;
     }
     StallVerdict::Continue
@@ -141,6 +151,7 @@ mod tests {
                 mid_track_attempts: 500,
                 is_near_end: true,
                 wall_elapsed_sec: 1.0,
+                has_decoded_audio: true,
             }),
             StallVerdict::NearEndStall
         );
@@ -155,6 +166,7 @@ mod tests {
                 mid_track_attempts: 500,
                 is_near_end: false,
                 wall_elapsed_sec: 1.0,
+                has_decoded_audio: true,
             }),
             StallVerdict::Continue
         );
@@ -165,8 +177,25 @@ mod tests {
                 mid_track_attempts: 500,
                 is_near_end: false,
                 wall_elapsed_sec: 2.0,
+                has_decoded_audio: true,
             }),
             StallVerdict::MidTrackStall
         );
+    }
+
+    #[test]
+    fn stall_startup_waits_for_youtube_first_byte() {
+        let starving = StallCheckInput {
+            empty_frame_attempts: 500,
+            near_end_attempts: 250,
+            mid_track_attempts: 500,
+            is_near_end: false,
+            wall_elapsed_sec: 10.0,
+            has_decoded_audio: false,
+        };
+        assert_eq!(classify_stall(starving), StallVerdict::Continue);
+        let mut late = starving;
+        late.wall_elapsed_sec = STARTUP_STALL_SEC;
+        assert_eq!(classify_stall(late), StallVerdict::MidTrackStall);
     }
 }

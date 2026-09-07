@@ -25,6 +25,9 @@ pub fn source_flags(source: Option<&str>) -> HashSet<char> {
         Some("local") => {
             flags.insert('l');
         }
+        Some("stream") => {
+            flags.insert('s');
+        }
         _ => {}
     }
     flags
@@ -327,6 +330,7 @@ mod tests {
     fn source_flags_values() {
         assert!(source_flags(Some("youtube")).contains(&'y'));
         assert!(source_flags(Some("local")).contains(&'l'));
+        assert!(source_flags(Some("stream")).contains(&'s'));
         assert!(source_flags(Some("auto")).is_empty());
     }
 

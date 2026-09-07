@@ -33,6 +33,33 @@ fn no_station() -> Response {
         .into_response()
 }
 
+fn platform_flag(platform: Option<&str>) -> &'static str {
+    match platform {
+        Some("youtube") => "-y ",
+        Some("stream") => "-s ",
+        Some("local") => "-l ",
+        _ => "",
+    }
+}
+
+/// Missing/empty → youtube (Node parsePlatformOrDefault). Explicit unknown → 400.
+fn parse_platform_or_default(platform: Option<&str>) -> Result<mp_music::Platform, Response> {
+    match platform.map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(mp_music::Platform::Youtube),
+        Some("local") => Ok(mp_music::Platform::Local),
+        Some("youtube") => Ok(mp_music::Platform::Youtube),
+        Some("stream") => Ok(mp_music::Platform::Stream),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "platform must be local, youtube, or stream",
+                "code": "VALIDATION_ERROR",
+            })),
+        )
+            .into_response()),
+    }
+}
+
 async fn run_named(
     st: &AppState,
     user: &AuthUser,
@@ -43,7 +70,12 @@ async fn run_named(
     let Some(ex) = st.executor.as_ref() else {
         return Err(no_station());
     };
-    let cmd = ParsedCommand {
+    let line = if args.is_empty() {
+        format!("{}{name}", ex.prefix)
+    } else {
+        format!("{}{name} {args}", ex.prefix)
+    };
+    let cmd = parse_command(&line, &ex.prefix, &Default::default()).unwrap_or(ParsedCommand {
         name: name.to_string(),
         args: args.to_string(),
         raw_args: if args.is_empty() {
@@ -52,7 +84,7 @@ async fn run_named(
             args.split_whitespace().map(str::to_string).collect()
         },
         flags: Default::default(),
-    };
+    });
     let subject = mp_rights::Subject {
         uid: user.id.clone(),
         server_groups: Vec::new(),
@@ -91,7 +123,11 @@ pub async fn play(
         )
             .into_response();
     }
-    match run_named(&st, &user, "play", q).await {
+    let args = format!(
+        "{}{q}",
+        platform_flag(body.get("platform").and_then(|v| v.as_str()))
+    );
+    match run_named(&st, &user, "play", &args).await {
         Ok(message) => {
             record_current(&st);
             broadcast_state(&st);
@@ -111,7 +147,11 @@ pub async fn add(
         return r;
     }
     let q = body.get("query").and_then(|v| v.as_str()).unwrap_or("");
-    match run_named(&st, &user, "add", q).await {
+    let args = format!(
+        "{}{q}",
+        platform_flag(body.get("platform").and_then(|v| v.as_str()))
+    );
+    match run_named(&st, &user, "add", &args).await {
         Ok(message) => {
             broadcast_state(&st);
             Json(json!({ "message": message })).into_response()
@@ -408,10 +448,14 @@ pub async fn play_by_id(
         return r;
     }
     let song_id = body.get("songId").and_then(|v| v.as_str()).unwrap_or("");
+    let plat = match parse_platform_or_default(body.get("platform").and_then(|v| v.as_str())) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
-    let Some(track) = station.local.song_by_id(song_id) else {
+    let Some(track) = station.song_by_id_platform(song_id, plat) else {
         return Json(json!({ "message": "Song not found" })).into_response();
     };
     let queued = QueuedSong::from_track(track, QueueSource::User);
@@ -443,10 +487,14 @@ pub async fn add_by_id(
         return r;
     }
     let song_id = body.get("songId").and_then(|v| v.as_str()).unwrap_or("");
+    let plat = match parse_platform_or_default(body.get("platform").and_then(|v| v.as_str())) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
-    let Some(track) = station.local.song_by_id(song_id) else {
+    let Some(track) = station.song_by_id_platform(song_id, plat) else {
         return Json(json!({ "message": "Song not found" })).into_response();
     };
     add_song(

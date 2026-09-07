@@ -6,8 +6,8 @@
 //! SYSTEM → MCP (stub) → SESSION → BRAIN (`POST /v1/turn`) → STATION API → SPA → WS.
 //!
 //! Live through rewrite Phase 8: health, session/CSRF, Vue SPA, `/api/bot` +
-//! local music/player, live-status WS, `POST /v1/turn`, doctrine RAG + memory,
-//! inbound voice (STT/TTS HTTP), radio, roast, seed economy, MCP REST.
+//! local/YouTube/stream music/player, live-status WS, `POST /v1/turn`, doctrine
+//! RAG + memory, inbound voice (STT/TTS HTTP), radio, roast, seed economy, MCP REST.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

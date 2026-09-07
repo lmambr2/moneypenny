@@ -47,7 +47,7 @@ Rust :3001 (this overlay) until flip
 | `mp-http` | axum: same cookies, OpenAPI catalog, Vue SPA, `/api/*` | **live** (session + Vue parity + player/music + `POST /v1/turn`) |
 | `mp-rights` | RightsEngine | **live** (PUBLIC/ADMIN + rank JSON) |
 | `mp-control` | parse + executeDeterministic + LLM `tool-map` + dispose | **live** (`!play`/`!skip`/`!queue` + brain dispose after rights) |
-| `mp-music` | Local / YouTube / Stream | **live LocalProvider** + ffmpeg→Opus 20 ms; YT/stream still out |
+| `mp-music` | Local / YouTube / Stream | **live** LocalProvider + ffmpeg→Opus 20 ms; YouTube via yt-dlp (CDN at play time); direct HTTP streams (SSRF-guarded) |
 | `mp-brain` | `/v1/turn` transport | **live** in-process OpenAI-compat or `BRAIN_URL` HTTP; dispose after rights |
 | `mp-rag` | embeddings + TurboVec + doctrine | **live** HTTP embeddings or hash-dev; TurboVec or in-memory; `!remember` SQLite |
 | `mp-voice` | VAD → STT HTTP → TTS HTTP | **live** energy VAD + HTTP STT/TTS + watchword; Whisper out of process |
@@ -209,7 +209,7 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy | harness/recordings/ACE-Step still empty or 503 |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
-| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated | YouTube still stubbed |
+| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated; YouTube via yt-dlp; direct HTTP streams | Spotify/Tidal bridges, yt-library save |
 | `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | dashboard `/harness` ask still stub |
 | `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; doctrine reindex | MemPalace / org KG still out |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query | multipart upload + pandoc export + reformat still stub |

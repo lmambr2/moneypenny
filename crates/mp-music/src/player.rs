@@ -412,6 +412,7 @@ fn stall_or_end(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) -> bool 
             mid_track_attempts: 500,
             is_near_end,
             wall_elapsed_sec: wall,
+            has_decoded_audio: g.frames_played > 0,
         });
         if verdict != crate::ffmpeg::StallVerdict::Continue {
             g.state = PlayerState::Idle;

@@ -12,8 +12,16 @@ use serde_json::{json, Value};
 use crate::authz::{AdminUser, AuthUser};
 use crate::AppState;
 
-pub async fn auth_status(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "platform": "youtube", "loggedIn": true, "nickname": "Local" }))
+pub async fn auth_status(State(st): State<AppState>, _user: AuthUser) -> Json<Value> {
+    let yt = st
+        .station
+        .as_ref()
+        .is_some_and(|s| s.youtube.available());
+    Json(json!({
+        "platform": "youtube",
+        "loggedIn": yt,
+        "nickname": if yt { "YouTube (yt-dlp)" } else { "YouTube (yt-dlp not installed)" },
+    }))
 }
 
 #[allow(dead_code)]

@@ -413,16 +413,30 @@ async fn dispatch_mcp(
                 "music_play_next" => "playnext",
                 _ => "play",
             };
+            let platform = str_arg(args, "platform");
+            let flag = match platform.as_str() {
+                "youtube" => "-y ",
+                "stream" => "-s ",
+                "local" => "-l ",
+                "" => "",
+                _ => "",
+            };
             if dry {
                 return ok_envelope(
                     format!("[dry-run] would {verb}: {query}"),
-                    Some(json!({ "dry_run": true, "verb": verb, "query": query })),
+                    Some(json!({
+                        "dry_run": true,
+                        "verb": verb,
+                        "query": query,
+                        "platform": if platform.is_empty() { Value::Null } else { json!(platform) },
+                    })),
                     bot_id,
                     started,
                     request_id,
                 );
             }
-            run_cmd(st, verb, &query, McpProfile::Dj, started, request_id, bot_id).await
+            let cmd_args = format!("{flag}{query}");
+            run_cmd(st, verb, &cmd_args, McpProfile::Dj, started, request_id, bot_id).await
         }
         "music_skip" => run_cmd(st, "skip", "", McpProfile::Dj, started, request_id, bot_id).await,
         "music_pause" => run_cmd(st, "pause", "", McpProfile::Dj, started, request_id, bot_id).await,

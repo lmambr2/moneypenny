@@ -3,7 +3,8 @@
 
 //! Music providers. Platforms are `local | youtube | stream` only.
 //! Live: LocalProvider (realpath+prefix), PlayQueue, ffmpeg→Opus player,
-//! playback blacklist + protected artists. YouTube/stream still out.
+//! playback blacklist + protected artists. YouTube via yt-dlp (CDN at play
+//! time); direct HTTP/Icecast streams after the SSRF guard.
 
 mod blacklist;
 mod ffmpeg;
@@ -12,7 +13,10 @@ mod player;
 mod queue;
 mod speech;
 mod station;
+mod stream;
 mod track;
+mod url_guard;
+mod youtube;
 
 pub use blacklist::{
     ban_protected_message, blacklist_content_key, extract_video_id, is_ban_protected,
@@ -21,14 +25,22 @@ pub use blacklist::{
 };
 pub use ffmpeg::{
     build_ffmpeg_args, classify_stall, clamp_music_opus_bitrate_kbps, StallCheckInput, StallVerdict,
-    FRAME_DURATION_MS, MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES,
+    FRAME_DURATION_MS, MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES, STARTUP_STALL_SEC,
 };
 pub use local::{LocalProvider, Playlist, ResolveHit};
 pub use player::{AudioPlayer, PlayerEvent, PlayerState};
 pub use queue::{replace_queue_with_song, PlayMode, PlayQueue};
 pub use speech::{ChannelSpeech, TrackEndKind};
 pub use station::{MusicStation, ReplaceResult, UserPause};
+pub use stream::{
+    is_bandcamp_url, is_spotify_ref, is_streamable_url, is_tidal_url, is_x_twitter_url,
+    is_youtube_url, stream_track,
+};
 pub use track::{Platform, QueuedSong, QueueSource, Track};
+pub use youtube::{
+    is_youtube_full_album_title, is_youtube_livestream_radio_title, should_block_youtube_song,
+    YoutubeClient, YoutubePolicy, DEFAULT_DEMO_VIDEO_ID,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum MusicError {

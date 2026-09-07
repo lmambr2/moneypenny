@@ -69,7 +69,7 @@ impl CommandExecutor {
         if cmd.args.is_empty() {
             return format!("Usage: {}play <song name or URL>", self.prefix);
         }
-        match self.station.replace_with_first_hit(&cmd.args) {
+        match self.station.replace_with_first_hit_flags(&cmd.args, &cmd.flags) {
             ReplaceResult::Ok(t) => format!("Now playing: {} - {}", t.title, t.artist),
             ReplaceResult::NoResults => format!("No results found for: {}", cmd.args),
             ReplaceResult::CantPlay(t) => format!("Cannot play: {}", t.title),
@@ -80,7 +80,7 @@ impl CommandExecutor {
         if cmd.args.is_empty() {
             return format!("Usage: {}add <song name>", self.prefix);
         }
-        let Some(track) = self.station.search_first(&cmd.args) else {
+        let Some(track) = self.station.search_first_flags(&cmd.args, &cmd.flags) else {
             return format!("No results found for: {}", cmd.args);
         };
         let was_idle = self.station.player.get_state() == mp_music::PlayerState::Idle;
@@ -114,7 +114,7 @@ impl CommandExecutor {
         if cmd.args.is_empty() {
             return format!("Usage: {}playnext <song name>", self.prefix);
         }
-        let Some(track) = self.station.search_first(&cmd.args) else {
+        let Some(track) = self.station.search_first_flags(&cmd.args, &cmd.flags) else {
             return format!("No results found for: {}", cmd.args);
         };
         let was_idle = self.station.player.get_state() == mp_music::PlayerState::Idle;
@@ -194,7 +194,7 @@ impl CommandExecutor {
         {
             return self.advance_one_track();
         }
-        let Some(track) = self.station.search_first(query) else {
+        let Some(track) = self.station.search_first_flags(query, &cmd.flags) else {
             return format!("No results found for: {query}");
         };
         if current
@@ -551,6 +551,10 @@ mod tests {
     }
 
     fn cmd(name: &str, args: &str) -> ParsedCommand {
+        cmd_flags(name, args, HashSet::new())
+    }
+
+    fn cmd_flags(name: &str, args: &str, flags: HashSet<char>) -> ParsedCommand {
         ParsedCommand {
             name: name.into(),
             args: args.into(),
@@ -559,7 +563,7 @@ mod tests {
             } else {
                 args.split_whitespace().map(str::to_string).collect()
             },
-            flags: HashSet::new(),
+            flags,
         }
     }
 
@@ -577,6 +581,32 @@ mod tests {
         assert_eq!(skip, "Queue is empty");
         assert!(!skip.starts_with('!'));
         assert!(!skip.to_lowercase().contains("only advance"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn play_stream_flag_skips_local() {
+        let (dir, st) = tmp_station();
+        let ex = CommandExecutor::new(st.clone(), "!");
+        let mut s = HashSet::new();
+        s.insert('s');
+        let out = ex
+            .execute(&cmd_flags("play", "https://example.com/radio.mp3", s))
+            .await
+            .unwrap();
+        assert!(
+            out.starts_with("Now playing:") || out.starts_with("Cannot play:"),
+            "{out}"
+        );
+        let cur = st.queue.lock().unwrap().current().unwrap();
+        assert_eq!(cur.platform, mp_music::Platform::Stream);
+        let mut l = HashSet::new();
+        l.insert('l');
+        let miss = ex
+            .execute(&cmd_flags("play", "https://example.com/radio.mp3", l))
+            .await
+            .unwrap();
+        assert!(miss.starts_with("No results"), "{miss}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

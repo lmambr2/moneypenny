@@ -48,15 +48,32 @@ pub async fn search(
     } else {
         clamp(q.limit, 20, 50)
     };
-    let songs: Vec<Value> = if plat == "local" {
-        station
+    let songs: Vec<Value> = match plat.as_str() {
+        "local" => station
             .local
             .search(&query, lim as usize)
             .iter()
             .map(track_json)
-            .collect()
-    } else {
-        Vec::new()
+            .collect(),
+        "youtube" => station
+            .youtube
+            .search(
+                &query,
+                lim as usize,
+                if mp_music::YoutubeClient::can_handle(&query) {
+                    mp_music::YoutubePolicy::Explicit
+                } else {
+                    mp_music::YoutubePolicy::Search
+                },
+            )
+            .iter()
+            .map(track_json)
+            .collect(),
+        "stream" => mp_music::stream_track(&query)
+            .into_iter()
+            .map(|t| track_json(&t))
+            .collect(),
+        _ => Vec::new(),
     };
     Json(json!({ "songs": songs, "playlists": [], "albums": [] })).into_response()
 }
@@ -75,7 +92,7 @@ pub async fn search_all(
             .into_response();
     }
     let lim = clamp(q.limit, 20, 50) as usize;
-    let songs = st
+    let mut songs = st
         .station
         .as_ref()
         .map(|s| {
@@ -86,6 +103,14 @@ pub async fn search_all(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    if let Some(stn) = st.station.as_ref() {
+        if songs.len() < lim {
+            let need = lim - songs.len();
+            for t in stn.youtube.search(&query, need, mp_music::YoutubePolicy::Search) {
+                songs.push(track_json(&t));
+            }
+        }
+    }
     Json(json!({ "songs": songs, "albums": [], "playlists": [] })).into_response()
 }
 

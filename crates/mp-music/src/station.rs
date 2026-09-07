@@ -3,13 +3,16 @@
 
 //! Queue + local library + player. The executor talks to this, not ffmpeg.
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use crate::blacklist::PlaybackBlacklist;
 use crate::local::{LocalProvider, ResolveHit};
 use crate::player::{AudioPlayer, PlayerEvent, PlayerState};
 use crate::queue::{replace_queue_with_song, PlayMode, PlayQueue};
+use crate::stream::{is_streamable_url, stream_playback_url, stream_track};
 use crate::track::{Platform, QueuedSong, QueueSource, Track};
+use crate::youtube::{YoutubeClient, YoutubePolicy};
 
 pub struct UserPause {
     pub song_id: String,
@@ -20,6 +23,7 @@ pub struct MusicStation {
     pub queue: Mutex<PlayQueue>,
     pub player: AudioPlayer,
     pub local: LocalProvider,
+    pub youtube: YoutubeClient,
     pub blacklist: Option<Arc<PlaybackBlacklist>>,
     pub user_pause: Mutex<Option<UserPause>>,
     connected: Mutex<bool>,
@@ -31,6 +35,7 @@ impl MusicStation {
             queue: Mutex::new(PlayQueue::new()),
             player: AudioPlayer::new(),
             local: LocalProvider::new(music_dir),
+            youtube: YoutubeClient::new(),
             blacklist,
             user_pause: Mutex::new(None),
             connected: Mutex::new(true),
@@ -54,33 +59,83 @@ impl MusicStation {
     }
 
     pub fn search_first(&self, query: &str) -> Option<Track> {
+        self.search_first_flags(query, &HashSet::new())
+    }
+
+    /// `-l` local only, `-y` YouTube, `-s` stream. Else: URL auto-route, then local, then ytsearch.
+    pub fn search_first_flags(&self, query: &str, flags: &HashSet<char>) -> Option<Track> {
         let q = query.trim();
         if q.is_empty() {
             return None;
         }
-        if let Some(hit) = self.local.resolve_input(q) {
-            match hit {
-                ResolveHit::Song(t) if !self.blocked(&t) => return Some(t),
-                ResolveHit::Playlist { songs, .. } => {
-                    if let Some(t) = songs.into_iter().find(|t| !self.blocked(t)) {
-                        return Some(t);
+        if flags.contains(&'s') {
+            return stream_track(q).filter(|t| !self.blocked(t));
+        }
+        if flags.contains(&'y') {
+            return self
+                .youtube
+                .search(q, 1, if YoutubeClient::can_handle(q) {
+                    YoutubePolicy::Explicit
+                } else {
+                    YoutubePolicy::Search
+                })
+                .into_iter()
+                .find(|t| !self.blocked(t));
+        }
+        if !flags.contains(&'l') && YoutubeClient::can_handle(q) {
+            return self
+                .youtube
+                .search(q, 1, YoutubePolicy::Explicit)
+                .into_iter()
+                .find(|t| !self.blocked(t));
+        }
+        if !flags.contains(&'l') && is_streamable_url(q) {
+            return stream_track(q).filter(|t| !self.blocked(t));
+        }
+        if !flags.contains(&'y') {
+            if let Some(hit) = self.local.resolve_input(q) {
+                match hit {
+                    ResolveHit::Song(t) if !self.blocked(&t) => return Some(t),
+                    ResolveHit::Playlist { songs, .. } => {
+                        if let Some(t) = songs.into_iter().find(|t| !self.blocked(t)) {
+                            return Some(t);
+                        }
                     }
+                    ResolveHit::Song(_) => {}
                 }
-                ResolveHit::Song(_) => {}
+            }
+            for t in self.local.search(q, 16) {
+                if !self.blocked(&t) {
+                    return Some(t);
+                }
             }
         }
-        for t in self.local.search(q, 16) {
-            if !self.blocked(&t) {
-                return Some(t);
-            }
+        if flags.contains(&'l') {
+            return None;
         }
-        None
+        self.youtube
+            .search(q, 1, YoutubePolicy::Search)
+            .into_iter()
+            .find(|t| !self.blocked(t))
     }
 
     fn blocked(&self, t: &Track) -> bool {
         self.blacklist.as_ref().is_some_and(|bl| {
             bl.is_blacklisted(Some(&t.id), Some(&t.title), Some(&t.artist))
         })
+    }
+
+    /// Vue play-by-id / add-by-id: look up one song on the named platform.
+    pub fn song_by_id_platform(&self, song_id: &str, platform: Platform) -> Option<Track> {
+        let id = song_id.trim();
+        if id.is_empty() {
+            return None;
+        }
+        match platform {
+            Platform::Local => self.local.song_by_id(id).filter(|t| !self.blocked(t)),
+            Platform::Youtube => self.youtube.detail(id).filter(|t| !self.blocked(t)),
+            Platform::Stream => stream_track(id).filter(|t| !self.blocked(t)),
+        }
     }
 
     pub fn resolve_and_play(&self, song: &QueuedSong) -> bool {
@@ -98,19 +153,36 @@ impl MusicStation {
             tracing::info!(id = %song.id, name = %song.name, "blacklist blocked track");
             return false;
         }
-        let url = if !song.url.is_empty() {
-            song.url.clone()
-        } else if song.platform == Platform::Local {
-            match self.local.get_song_url(&song.id) {
-                Some(p) => p.to_string_lossy().into_owned(),
-                None => return false,
-            }
-        } else {
-            return false;
+        let url = match self.playback_url(song) {
+            Some(u) => u,
+            None => return false,
         };
         self.player.reset_failures();
         self.player.play(&url, elapsed.max(0.0), song.duration as f64);
         true
+    }
+
+    fn playback_url(&self, song: &QueuedSong) -> Option<String> {
+        match song.platform {
+            Platform::Local => {
+                if !song.url.is_empty() && !song.url.starts_with("http://") && !song.url.starts_with("https://")
+                {
+                    return Some(song.url.clone());
+                }
+                self.local
+                    .get_song_url(&song.id)
+                    .map(|p| p.to_string_lossy().into_owned())
+            }
+            Platform::Youtube => {
+                let key = if song.id.is_empty() {
+                    song.url.as_str()
+                } else {
+                    song.id.as_str()
+                };
+                self.youtube.playback_url(key)
+            }
+            Platform::Stream => stream_playback_url(&song.id, &song.url),
+        }
     }
 
     pub fn play_next(&self) -> Option<QueuedSong> {
@@ -131,7 +203,11 @@ impl MusicStation {
     }
 
     pub fn replace_with_first_hit(&self, query: &str) -> ReplaceResult {
-        let Some(track) = self.search_first(query) else {
+        self.replace_with_first_hit_flags(query, &HashSet::new())
+    }
+
+    pub fn replace_with_first_hit_flags(&self, query: &str, flags: &HashSet<char>) -> ReplaceResult {
+        let Some(track) = self.search_first_flags(query, flags) else {
             return ReplaceResult::NoResults;
         };
         let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
@@ -192,18 +268,9 @@ impl MusicStation {
             if cur.id == cp.song_id {
                 let elapsed = cp.elapsed;
                 drop(checkpoint);
-                let url = if !cur.url.is_empty() {
-                    cur.url.clone()
-                } else {
-                    self.local
-                        .get_song_url(&cur.id)
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                };
-                if url.is_empty() {
+                if !self.play_song_at(&cur, elapsed) {
                     return "Could not resume — try play again".into();
                 }
-                self.player.play(&url, elapsed, cur.duration as f64);
                 *self.user_pause.lock().expect("pause") = None;
                 return "Resumed".into();
             }
@@ -222,4 +289,67 @@ pub enum ReplaceResult {
 #[allow(dead_code)]
 pub fn _mode_touch() -> PlayMode {
     PlayMode::Sequential
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn tmp_station() -> (std::path::PathBuf, MusicStation) {
+        let dir = std::env::temp_dir().join(format!(
+            "mp-st-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("titanium.mp3"), b"fake").unwrap();
+        let st = MusicStation::new(&dir, None);
+        st.set_dry_run(true);
+        (dir, st)
+    }
+
+    #[test]
+    fn flags_route_local_youtube_stream() {
+        let (dir, st) = tmp_station();
+        let stream = "https://example.com/radio.mp3";
+        let mut s = HashSet::new();
+        s.insert('s');
+        let hit = st.search_first_flags(stream, &s).unwrap();
+        assert_eq!(hit.platform, Platform::Stream);
+        assert_eq!(hit.id, stream);
+
+        let mut l = HashSet::new();
+        l.insert('l');
+        assert!(st.search_first_flags(stream, &l).is_none());
+        assert!(st.search_first_flags("titanium", &l).is_some());
+
+        let mut y = HashSet::new();
+        y.insert('y');
+        // No yt-dlp in unit tests — -y must not fall through to local.
+        assert!(st.search_first_flags("titanium", &y).is_none());
+
+        let auto = st.search_first_flags(stream, &HashSet::new()).unwrap();
+        assert_eq!(auto.platform, Platform::Stream);
+
+        let local = st.search_first_flags("titanium", &HashSet::new()).unwrap();
+        assert_eq!(local.platform, Platform::Local);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn song_by_id_stream_and_local() {
+        let (dir, st) = tmp_station();
+        let local = st.search_first("titanium").unwrap();
+        assert!(st.song_by_id_platform(&local.id, Platform::Local).is_some());
+        assert!(st
+            .song_by_id_platform("https://example.com/a.mp3", Platform::Stream)
+            .is_some());
+        assert!(st
+            .song_by_id_platform("http://127.0.0.1/a.mp3", Platform::Stream)
+            .is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
