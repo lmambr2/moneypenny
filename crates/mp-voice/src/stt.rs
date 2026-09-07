@@ -31,6 +31,11 @@ impl HttpSttClient {
     }
 
     pub async fn transcribe(&self, u: &Utterance) -> String {
+        self.transcribe_ex(u).await.0
+    }
+
+    /// Returns (text, kws keyword if the sidecar spotted one).
+    pub async fn transcribe_ex(&self, u: &Utterance) -> (String, Option<String>) {
         let url = format!("{}/asr", self.url);
         match self
             .http
@@ -44,15 +49,24 @@ impl HttpSttClient {
             .await
         {
             Ok(res) => match res.json::<AsrBody>().await {
-                Ok(body) => body.text.unwrap_or_default().trim().to_string(),
+                Ok(body) => {
+                    let text = body.text.unwrap_or_default().trim().to_string();
+                    let kw = body
+                        .keyword
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    (text, kw)
+                }
                 Err(e) => {
                     tracing::warn!(error = %e, "STT json");
-                    String::new()
+                    (String::new(), None)
                 }
             },
             Err(e) => {
                 tracing::warn!(error = %e, url = %self.url, "STT request failed");
-                String::new()
+                (String::new(), None)
             }
         }
     }
@@ -135,6 +149,7 @@ impl HttpSttClient {
 #[derive(Deserialize)]
 struct AsrBody {
     text: Option<String>,
+    keyword: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -17,6 +17,7 @@ mod stream;
 mod track;
 mod url_guard;
 mod youtube;
+mod ytlibrary;
 
 pub use blacklist::{
     ban_protected_message, blacklist_content_key, extract_video_id, is_ban_protected,
@@ -34,8 +35,9 @@ pub use speech::{ChannelSpeech, TrackEndKind};
 pub use station::{MusicStation, ReplaceResult, UserPause};
 pub use stream::{
     is_bandcamp_url, is_spotify_ref, is_streamable_url, is_tidal_url, is_x_twitter_url,
-    is_youtube_url, stream_track,
+    is_youtube_url, stream_track, StreamBridge,
 };
+pub use ytlibrary::{sanitize_base, YtLibrary, SAVE_SUBDIR};
 pub use track::{Platform, QueuedSong, QueueSource, Track};
 pub use youtube::{
     is_youtube_full_album_title, is_youtube_livestream_radio_title, should_block_youtube_song,

@@ -23,7 +23,7 @@ pub use runtime::{IngestResult, VoiceRuntime};
 pub use speak::{split_spoken_sentences, text_to_spoken, tts_timeout_for_text};
 pub use stt::HttpSttClient;
 pub use tts::HttpTtsClient;
-pub use vad::{SegmenterOptions, SilenceSegmenter};
+pub use vad::{to_mono_16k, SegmenterOptions, SilenceSegmenter};
 pub use watchword::{
     extract_command_segment, extract_watchword_command, is_actionable_voice_command,
     is_music_search_route_text, is_partial_safe_voice_command, is_playback_control_reply,

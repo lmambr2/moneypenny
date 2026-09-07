@@ -368,8 +368,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             .unwrap_or_else(|| format!("clid:{speaker_id}"));
 
         tokio::spawn(async move {
-            let transcript = voice.transcribe(&utt).await;
-            if transcript.trim().is_empty() {
+            let (transcript, keyword) = voice.transcribe_ex(&utt).await;
+            if transcript.trim().is_empty() && keyword.is_none() {
                 tracing::info!(speaker_id, "Voice: STT returned empty transcript");
                 if !voice.any_armed() {
                     station.player.restore_from_stt_duck();
@@ -377,6 +377,11 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 return;
             }
             let cfg = voice.config();
+            let ww = cfg.watchword.to_ascii_lowercase();
+            let kws_detected = keyword
+                .as_deref()
+                .map(|k| k.to_ascii_lowercase() == ww || k.to_ascii_lowercase().contains(&ww))
+                .unwrap_or(false);
             let turn = voice
                 .handle_transcript(
                     &transcript,
@@ -384,7 +389,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     TranscriptOpts {
                         speak: Some(cfg.respond_with_voice && !cfg.tts_url.trim().is_empty()),
                         text_wake_fallback: Some(cfg.text_wake_fallback),
-                        ..Default::default()
+                        kws_detected,
                     },
                     |cmd| {
                         let executor = executor.clone();

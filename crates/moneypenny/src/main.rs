@@ -124,6 +124,12 @@ async fn main() {
     station
         .player
         .set_bitrate_kbps(config.music_opus_bitrate_kbps as i32);
+    station.set_youtube_save_enabled(config.youtube_save_enabled);
+    station.attach_yt_library(Arc::new(mp_music::YtLibrary::new(
+        Arc::clone(&db),
+        &music_dir,
+        station.youtube.clone(),
+    )));
     info!(dir = %music_dir.display(), tracks = station.local.track_count(), "music library");
 
     let rights = if !config.rights_enabled {
@@ -184,6 +190,7 @@ async fn main() {
         config.memory_enabled,
         config.rag_top_k as usize,
     );
+    rag.set_mempalace_enabled(config.mempalace_enabled);
     info!(
         rag = config.rag_enabled,
         memory = config.memory_enabled,
@@ -234,6 +241,18 @@ async fn main() {
                                     classification: Some("unclassified".into()),
                                     score: Some(1.0),
                                 });
+                            }
+                        }
+                        if rag.mempalace_enabled() {
+                            if let Some(c) = rag.mempalace.clone() {
+                                for fact in c.search(uid, &q, 5).await {
+                                    sources.push(mp_brain::TurnSource {
+                                        source: "your memory".into(),
+                                        text: Some(fact),
+                                        classification: Some("unclassified".into()),
+                                        score: Some(0.9),
+                                    });
+                                }
                             }
                         }
                     }

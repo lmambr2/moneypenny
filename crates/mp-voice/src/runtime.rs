@@ -120,11 +120,17 @@ impl VoiceRuntime {
         if cfg.enabled && cfg.stt_url.trim().is_empty() {
             tracing::warn!("Voice enabled but no sttUrl configured — voice loop inactive");
         } else if active {
+            if cfg.vad_backend.eq_ignore_ascii_case("silero") {
+                tracing::info!(
+                    "Voice: silero VAD requested — using energy end-pointer (ONNX stays in the Node sidecar path; STT keyword is KWS)"
+                );
+            }
             tracing::info!(
                 stt = %cfg.stt_url,
                 tts = %cfg.tts_url,
                 watchword = %cfg.watchword,
                 energy = cfg.energy_threshold,
+                vad = %cfg.vad_backend,
                 "Voice pipeline enabled"
             );
         } else {
@@ -208,11 +214,15 @@ impl VoiceRuntime {
     }
 
     pub async fn transcribe(&self, u: &Utterance) -> String {
+        self.transcribe_ex(u).await.0
+    }
+
+    pub async fn transcribe_ex(&self, u: &Utterance) -> (String, Option<String>) {
         let url = self.config().stt_url;
         if url.trim().is_empty() {
-            return String::new();
+            return (String::new(), None);
         }
-        HttpSttClient::new(url).transcribe(u).await
+        HttpSttClient::new(url).transcribe_ex(u).await
     }
 
     pub async fn handle_transcript<F, Fut>(

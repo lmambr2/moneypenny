@@ -11,6 +11,7 @@ hex.workspace = true
 mp-audio = { path = "../mp-audio" }
 mp-db = { path = "../mp-db" }
 rand.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
 rusqlite.workspace = true
 serde_json.workspace = true
 sha1.workspace = true

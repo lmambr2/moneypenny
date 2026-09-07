@@ -103,6 +103,14 @@ pub struct BotConfig {
     #[serde(default)]
     pub memory_enabled: bool,
     #[serde(default)]
+    pub mempalace_enabled: bool,
+    #[serde(default)]
+    pub mempalace_url: String,
+    #[serde(default)]
+    pub youtube_save_enabled: bool,
+    #[serde(default)]
+    pub stream_bridge_url: String,
+    #[serde(default)]
     pub rights_enabled: bool,
     #[serde(default = "default_true")]
     pub poke_commands_enabled: bool,
@@ -158,6 +166,13 @@ pub struct VoiceConfig {
     /// Whisper has no KWS — prefix text wake is required (Node default true).
     #[serde(default = "default_true")]
     pub text_wake_fallback: bool,
+    /// `energy` or `silero` (HTTP sidecar / energy fallback). Node default silero.
+    #[serde(default = "default_vad_backend")]
+    pub vad_backend: String,
+}
+
+fn default_vad_backend() -> String {
+    "silero".into()
 }
 
 pub const DEFAULT_DUCK_MUSIC_VOLUME: u32 = 15;
@@ -267,6 +282,7 @@ impl Default for VoiceConfig {
             karaoke_mode: false,
             listen_window_ms: 15_000,
             text_wake_fallback: true,
+            vad_backend: default_vad_backend(),
         }
     }
 }
@@ -550,6 +566,10 @@ impl Default for BotConfig {
             rag_top_k: 6,
             rag_collection: "moneypenny_docs".into(),
             memory_enabled: false,
+            mempalace_enabled: false,
+            mempalace_url: String::new(),
+            youtube_save_enabled: false,
+            stream_bridge_url: String::new(),
             rights_enabled: true,
             poke_commands_enabled: true,
             music_opus_bitrate_kbps: 64,
@@ -808,6 +828,32 @@ fn apply_env(cfg: &mut BotConfig) {
             cfg.radio.enabled = true;
         } else if t == "0" || t.eq_ignore_ascii_case("false") {
             cfg.radio.enabled = false;
+        }
+    }
+    if cfg.mempalace_url.is_empty() {
+        if let Ok(v) = std::env::var("MEMPALACE_URL") {
+            if !v.is_empty() {
+                cfg.mempalace_url = v;
+            }
+        }
+    }
+    if let Ok(v) = std::env::var("MEMPALACE_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.mempalace_enabled = true;
+        }
+    }
+    if let Ok(v) = std::env::var("YOUTUBE_SAVE_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.youtube_save_enabled = true;
+        }
+    }
+    if cfg.stream_bridge_url.is_empty() {
+        if let Ok(v) = std::env::var("STREAM_BRIDGE_URL") {
+            if !v.is_empty() {
+                cfg.stream_bridge_url = v;
+            }
         }
     }
     if let Ok(v) = std::env::var("ROAST_ENABLED") {

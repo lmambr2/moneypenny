@@ -200,6 +200,17 @@ fn cmd_remember(db: &Database, rag: Option<&mp_rag::RagRuntime>, args: &str, uid
     if let Err(e) = db.memory().add(uid, fact) {
         return format!("Couldn't save that: {e}");
     }
+    if let Some(r) = rag {
+        if r.mempalace_enabled() {
+            if let Some(c) = r.mempalace.clone() {
+                let uid = uid.to_string();
+                let fact = fact.to_string();
+                tokio::spawn(async move {
+                    let _ = c.remember(&uid, &fact).await;
+                });
+            }
+        }
+    }
     let injection = rag.is_some_and(|r| r.memory_enabled());
     if injection {
         "Noted — I shan't forget, darling.".into()

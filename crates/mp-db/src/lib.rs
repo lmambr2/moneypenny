@@ -18,6 +18,7 @@ mod roast;
 mod sessions;
 mod users;
 mod work_orders;
+mod yt_saved;
 
 pub use history::PlayHistoryStore;
 pub use memory::{MemoryFact, MemoryStore};
@@ -25,6 +26,7 @@ pub use roast::{RoastQuote, RoastStore};
 pub use sessions::{SessionStore, SessionValidation, MAX_SESSIONS_PER_USER, SESSION_TTL_MS};
 pub use users::{UserRole, UserRow, UserStore, UsernameTakenError, BCRYPT_COST};
 pub use work_orders::{aggregate, WorkOrder, WorkOrderLine, WorkOrderStore};
+pub use yt_saved::YtSavedStore;
 
 pub const SCHEMA_SQL: &str = include_str!("schema.sql");
 
@@ -158,6 +160,10 @@ impl Database {
 
     pub fn work_orders(&self) -> WorkOrderStore<'_> {
         WorkOrderStore { db: self }
+    }
+
+    pub fn yt_saved(&self) -> YtSavedStore<'_> {
+        YtSavedStore { db: self }
     }
 
     pub fn user_count(&self) -> Result<u32> {

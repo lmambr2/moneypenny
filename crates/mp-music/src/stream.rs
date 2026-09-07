@@ -122,6 +122,131 @@ pub fn stream_track(url: &str) -> Option<Track> {
     })
 }
 
+/// Optional Spotify/Tidal sidecar. Contract: `GET {base}/resolve?uri=` → `{streamUrl,...}`.
+#[derive(Clone, Default)]
+pub struct StreamBridge {
+    pub generic: String,
+    pub spotify: String,
+    pub tidal: String,
+}
+
+impl StreamBridge {
+    pub fn from_env() -> Self {
+        Self {
+            generic: env_url("STREAM_BRIDGE_URL"),
+            spotify: env_url("SPOTIFY_BRIDGE_URL"),
+            tidal: env_url("TIDAL_BRIDGE_URL"),
+        }
+    }
+
+    pub fn any(&self) -> bool {
+        !self.generic.is_empty() || !self.spotify.is_empty() || !self.tidal.is_empty()
+    }
+
+    pub fn base_for(&self, input: &str) -> Option<&str> {
+        if is_tidal_url(input) {
+            let b = if !self.tidal.is_empty() {
+                self.tidal.as_str()
+            } else {
+                self.generic.as_str()
+            };
+            return (!b.is_empty()).then_some(b);
+        }
+        if is_spotify_ref(input) {
+            let b = if !self.spotify.is_empty() {
+                self.spotify.as_str()
+            } else {
+                self.generic.as_str()
+            };
+            return (!b.is_empty()).then_some(b);
+        }
+        None
+    }
+
+    pub fn resolve_track(&self, input: &str) -> Option<crate::track::Track> {
+        let meta = self.resolve(input)?;
+        let url = meta.get("streamUrl")?.as_str()?.to_string();
+        if url.is_empty() || !assert_public_playback_url(&url) {
+            return None;
+        }
+        let svc = if is_tidal_url(input) { "Tidal" } else { "Spotify" };
+        Some(crate::track::Track {
+            id: input.trim().to_string(),
+            title: meta
+                .get("title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(svc)
+                .to_string(),
+            artist: meta
+                .get("artist")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(svc)
+                .to_string(),
+            album: svc.into(),
+            platform: crate::track::Platform::Stream,
+            url: String::new(),
+            duration: meta.get("durationSec").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            cover_url: meta
+                .get("coverUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        })
+    }
+
+    pub fn resolve_url(&self, input: &str) -> Option<String> {
+        let meta = self.resolve(input)?;
+        let url = meta.get("streamUrl")?.as_str()?.to_string();
+        if url.is_empty() || !assert_public_playback_url(&url) {
+            None
+        } else {
+            Some(url)
+        }
+    }
+
+    fn resolve(&self, input: &str) -> Option<serde_json::Value> {
+        let base = self.base_for(input)?;
+        let uri = urlencoding_query(input.trim());
+        let url = format!("{base}/resolve?uri={uri}");
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .ok()?;
+        let run = || {
+            let res = client.get(&url).send().ok()?;
+            if !res.status().is_success() {
+                return None;
+            }
+            res.json::<serde_json::Value>().ok()
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(_) => tokio::task::block_in_place(run),
+            Err(_) => run(),
+        }
+    }
+}
+
+fn env_url(key: &str) -> String {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default()
+}
+
+fn urlencoding_query(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 pub fn stream_playback_url(song_id: &str, stored_url: &str) -> Option<String> {
     let u = if stored_url.starts_with("http://") || stored_url.starts_with("https://") {
         stored_url

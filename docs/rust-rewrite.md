@@ -8,7 +8,10 @@ Source of truth for this branch: `lmambr2/moneypenny` @ `ec464a2` (DESIGN v3,
 AGENTS.md seams, 1227 backend tests).
 
 **Branch status (2026-09):** Phases **0–8 live** on `feat/rust-bot-rewrite`.
-Node remains production (`BOT_RUNTIME=node`) until Phase 9 cutover.
+**Phase 9 cutover is live on this branch:** `BOT_RUNTIME=rust` is default
+when `docker-compose.rust.yml` is applied (`bot-rust` publishes `:3000`).
+Node remains one release as profile `node` on `:3001`. Production checkout
+`Projects/moneypenny` is not flipped.
 
 ## Why
 
@@ -172,8 +175,9 @@ Frozen command names: `crates/mp-control/fixtures/command-manifest-names.json` (
 docker compose -f docker-compose.yml -f docker-compose.rust.yml --profile rust up --build
 ```
 
-Rust publishes `127.0.0.1:3001:3000`. Node `:3000` stays. Same volumes
-(`/app/data`, `MUSIC_DIR`), uid 1000, `cap_drop: ALL`, read-only rootfs.
+With this overlay, Rust publishes `127.0.0.1:3000:3000`. Node is profile
+`node` on `:3001`. Same volumes (`/app/data`, `MUSIC_DIR`), uid 1000,
+`cap_drop: ALL`, read-only rootfs.
 
 ## Phases
 
@@ -191,7 +195,7 @@ These numbers are **the rewrite sequence**, not DESIGN.md product phases
 | **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process | **done** |
 | **7 radio** | `docs/radio.md` | **done** (this branch) |
 | **8 community** | roast, economy, MCP, moves | **done** (this branch) |
-| **9 cutover** | `BOT_RUNTIME=rust` default; keep `moneypenny-node` one release | — |
+| **9 cutover** | `BOT_RUNTIME=rust` default; keep `moneypenny-node` one release | **done** (this branch overlay; not GitHub `master`) |
 
 Kill criteria for the *spike* (gates 3+4 fail **and** sidecar Option B rejected)
 did **not** fire. Option A (`tsclient-rs`) is the live path.
@@ -209,12 +213,12 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy | harness/recordings/ACE-Step still empty or 503 |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
-| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated; YouTube via yt-dlp; direct HTTP streams | Spotify/Tidal bridges, yt-library save |
+| `!play` `!skip` `!queue` + web play | **live** local + YouTube + streams; Spotify/Tidal via sidecar `GET /resolve`; yt-library MP3 save when enabled | — |
 | `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | dashboard `/harness` ask still stub |
-| `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; doctrine reindex | MemPalace / org KG still out |
+| `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; MemPalace HTTP when URL + toggle on; doctrine reindex | org KG |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query | multipart upload + pandoc export + reformat still stub |
 | Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory + merge-write to this worktree `config.json` | do not write production Node `Projects/moneypenny` |
-| Inbound voice | **live** Opus decode + energy VAD + HTTP STT + watchword + same executor as chat (`Scope::Voice`); Piper wav airs on the shared player (park/restore); `GET /api/bot/voice/status`; `POST /api/bot/voice/test` | Silero VAD, under-music-check, KWS |
+| Inbound voice | **live** Opus decode + energy VAD (Silero ONNX stays Node-side) + HTTP STT keyword as KWS + watchword + same executor as chat (`Scope::Voice`); Piper wav airs on the shared player | under-music-check; in-process ONNX Silero |
 | Radio | **live** director (disabled = `play_next`); local + YouTube/stream seed; `!radio` on/off/status/ops; every-N bumpers; Piper bumpers play via the same player; `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, doctrine/memory LLM bumpers, prerecorded pool, analyzer |
 | Moves | **live** `!move` / `!moveclient` / `!moveall` (30s confirm, max 10) / `!follow` via TS6 HTTP Query | no auto-follow |
 | Roast | **live** channel capture + `!roast` / `!roastout` / `!roastin`; LLM grade fail-open; Settings toggle | no voice-transcript capture; auto-reel needs LLM + min present |

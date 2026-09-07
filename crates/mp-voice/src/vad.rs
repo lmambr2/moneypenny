@@ -1,7 +1,49 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
-//! Energy VAD (`SilenceSegmenter`). Silero stays out — Whisper path uses RMS.
+//! Energy VAD (`SilenceSegmenter`). Silero ONNX stays out of process (Node
+//! `onnxruntime-node`); rust uses RMS and STT-sidecar keyword as KWS.
+
+/// Downmix interleaved s16 to mono and decimate 48 kHz → 16 kHz (Silero v5).
+pub fn to_mono_16k(pcm: &[u8], sample_rate: u32, channels: u32) -> Vec<f32> {
+    let ch = channels.max(1) as usize;
+    let frame_count = pcm.len() / 2 / ch;
+    let mut mono = Vec::with_capacity(frame_count);
+    for i in 0..frame_count {
+        let mut sum = 0i32;
+        for c in 0..ch {
+            let off = (i * ch + c) * 2;
+            if off + 1 < pcm.len() {
+                sum += i16::from_le_bytes([pcm[off], pcm[off + 1]]) as i32;
+            }
+        }
+        mono.push((sum as f32 / ch as f32) / 32768.0);
+    }
+    if sample_rate == 16_000 {
+        return mono;
+    }
+    let ratio = sample_rate as f32 / 16_000.0;
+    if ratio <= 0.0 {
+        return mono;
+    }
+    let out_len = (mono.len() as f32 / ratio).floor() as usize;
+    let mut out = Vec::with_capacity(out_len);
+    if (ratio - ratio.round()).abs() < f32::EPSILON {
+        let step = ratio.round() as usize;
+        for i in 0..out_len {
+            let mut s = 0.0;
+            for k in 0..step {
+                s += *mono.get(i * step + k).unwrap_or(&0.0);
+            }
+            out.push(s / step as f32);
+        }
+        return out;
+    }
+    for i in 0..out_len {
+        out.push(*mono.get((i as f32 * ratio).floor() as usize).unwrap_or(&0.0));
+    }
+    out
+}
 
 use mp_audio::pcm_rms;
 
@@ -209,5 +251,17 @@ mod tests {
         let mut seg = SilenceSegmenter::new(opts());
         seg.push(&frame(0, 20));
         assert!(seg.flush().is_none());
+    }
+
+    #[test]
+    fn mono16k_decimates_48k_by_three() {
+        let mut pcm = vec![0u8; 48 * 2];
+        for i in 0..48 {
+            let v = (i as i16).to_le_bytes();
+            pcm[i * 2] = v[0];
+            pcm[i * 2 + 1] = v[1];
+        }
+        let out = to_mono_16k(&pcm, 48_000, 1);
+        assert_eq!(out.len(), 16);
     }
 }

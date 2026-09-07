@@ -44,19 +44,13 @@ TurboVec (vector store) stay on that host. See [docs/editions.md](./docs/edition
 
 ## Rust rewrite (WIP)
 
-On **`feat/rust-bot-rewrite`**, the **Node bot process** is being replaced by a
-Rust binary in `crates/`. Vue, sidecars, and the installer stay. Node remains
-production (`BOT_RUNTIME=node`) until Phase 9 cutover.
+On **`feat/rust-bot-rewrite`**, the **Node bot process** is replaced by the
+Rust binary in `crates/` (Phase 9 overlay). Vue, sidecars, and the installer
+stay. Apply `docker-compose.rust.yml` so `bot-rust` owns `:3000`; Node remains
+one release as profile `node` on `:3001`. This does **not** flip GitHub
+`master` or the production `Projects/moneypenny` checkout.
 
-**Now (Phases 0–5):** first-run Vue admin, `!play` / `!skip` / `!queue` on
-`tsclient-rs`, Vue `/api/*` parity (no console 404s), live-status WebSocket,
-`POST /v1/turn` (LLM proposes, executor disposes after rights), doctrine RAG +
-`!remember` / `!ask`.
-
-**Not yet:** MemPalace / org KG, inbound voice, radio, economy, MCP, YouTube.
-
-See **[docs/rust-rewrite.md](./docs/rust-rewrite.md)** (live vs stub table,
-crate map, dual-run overlay).
+See **[docs/rust-rewrite.md](./docs/rust-rewrite.md)**.
 
 ```bash
 cd crates && cargo test --workspace && cargo run -p moneypenny

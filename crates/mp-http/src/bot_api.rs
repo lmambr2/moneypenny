@@ -182,7 +182,7 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "roastMinPresent": st.roast.config().min_present,
         "roastCooldownMinutes": st.roast.config().cooldown_minutes,
         "roastMinScore": st.roast.config().min_score,
-        "youtubeSaveEnabled": false,
+        "youtubeSaveEnabled": st.station.as_ref().is_some_and(|s| s.youtube_save_enabled()),
         "musicOpusBitrateKbps": c.music_opus_bitrate_kbps,
         "musicBlockedGenres": c.music_blocked_genres,
         "autoFollowEnabled": false,
@@ -191,8 +191,8 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "ragTopK": st.rag.as_ref().map(|r| r.top_k() as u32).unwrap_or(c.rag_top_k),
         "memoryEnabled": st.rag.as_ref().map(|r| r.memory_enabled()).unwrap_or(c.memory_enabled),
         "kgEnabled": false,
-        "mempalaceEnabled": false,
-        "mempalaceUrl": "",
+        "mempalaceEnabled": st.rag.as_ref().is_some_and(|r| r.mempalace_enabled()),
+        "mempalaceUrl": c.mempalace_url,
         "scOrgStatusUrl": "",
         "scOrgName": "",
         "aceStepEnabled": false,
@@ -206,7 +206,7 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "rightsEnabled": c.rights_enabled,
         "adminGroups": c.admin_groups,
         "rights": c.rights,
-        "streamBridgeUrl": "",
+        "streamBridgeUrl": c.stream_bridge_url,
         "pokeCommandsEnabled": c.poke_commands_enabled,
         "pokeCommandsPerMinute": 12,
         "trustProxy": c.trust_proxy,
@@ -231,6 +231,16 @@ pub async fn settings_post(
     if let Some(kbps) = body.get("musicOpusBitrateKbps").and_then(|v| v.as_i64()) {
         if let Some(station) = st.station.as_ref() {
             station.player.set_bitrate_kbps(kbps as i32);
+        }
+    }
+    if let Some(on) = body.get("youtubeSaveEnabled").and_then(|v| v.as_bool()) {
+        if let Some(station) = st.station.as_ref() {
+            station.set_youtube_save_enabled(on);
+        }
+    }
+    if let Some(rag) = st.rag.as_ref() {
+        if let Some(v) = body.get("mempalaceEnabled").and_then(|v| v.as_bool()) {
+            rag.set_mempalace_enabled(v);
         }
     }
     if body.get("llmEnabled").is_some()
@@ -369,6 +379,10 @@ fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
         "roastCooldownMinutes",
         "roastMinScore",
         "musicOpusBitrateKbps",
+        "youtubeSaveEnabled",
+        "mempalaceEnabled",
+        "mempalaceUrl",
+        "streamBridgeUrl",
     ];
     for k in KEYS {
         if let Some(v) = body.get(*k) {

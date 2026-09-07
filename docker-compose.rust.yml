@@ -1,16 +1,22 @@
-# Overlay: Rust bot beside Node. Does not remove the Node bot image.
-# Status: rewrite Phases 0–4 (docs/rust-rewrite.md).
+# Phase 9 cutover overlay: Rust is the :3000 bot. Node stays one release as
+# profile `node` on 127.0.0.1:3001 (moneypenny-node).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.rust.yml \
 #     --profile core --profile rust up --build
 #
-# Node keeps 127.0.0.1:3000. Rust publishes 127.0.0.1:3001.
-# Share ./bot/data and MUSIC_DIR. Only one should be the public UI.
-# Cutover: point the :3000 publish at bot-rust (or BOT_RUNTIME=rust in install.sh).
+# Do not apply this overlay against the production checkout at
+# Projects/moneypenny — this file lives on feat/rust-bot-rewrite.
 
 services:
+  bot:
+    profiles: ["node"]
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - BOT_RUNTIME=node
+
   bot-rust:
-    profiles: ["rust"]
+    profiles: ["core", "rust"]
     build:
       context: .
       dockerfile: crates/Dockerfile
@@ -30,13 +36,19 @@ services:
       - EMBEDDING_URL=${EMBEDDING_URL:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text-v2-moe}
       - WATCHDOG_MEMORY_MB=${WATCHDOG_MEMORY_MB:-0}
+      - MEMPALACE_URL=${MEMPALACE_URL:-}
+      - STREAM_BRIDGE_URL=${STREAM_BRIDGE_URL:-}
+      - SPOTIFY_BRIDGE_URL=${SPOTIFY_BRIDGE_URL:-}
+      - TIDAL_BRIDGE_URL=${TIDAL_BRIDGE_URL:-}
+      - MCP_ENABLED=${MCP_ENABLED:-0}
+      - MCP_TOKEN=${MCP_TOKEN:-}
+      - YT_DLP=${YT_DLP:-}
     volumes:
       - ./bot/data:/app/data
       - ${MUSIC_HOST_DIR:-${MUSIC_DIR:-/mnt/music}}:/music
-      # Serve the Vue SPA the Node image already builds (or a host `npm run build` in bot/web).
       - ./bot/web/dist:/app/web/dist:ro
     ports:
-      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:3000:3000"
     read_only: true
     tmpfs:
       - /tmp

@@ -144,6 +144,39 @@ impl YoutubeClient {
         }
         Some(audio)
     }
+
+    /// Download audio as tagged MP3. Never used on the skip path.
+    pub fn download_audio_mp3(&self, song_id: &str, out_dir: &Path, base_name: &str) -> Option<String> {
+        let bin = self.bin.as_ref()?;
+        let page = media_page_url(song_id)?;
+        if page.starts_with("http") && !is_public_playback_url(&page) {
+            return None;
+        }
+        let _ = std::fs::create_dir_all(out_dir);
+        let template = out_dir.join(format!("{base_name}.%(ext)s"));
+        let args = vec![
+            page,
+            "-x".into(),
+            "--audio-format".into(),
+            "mp3".into(),
+            "--audio-quality".into(),
+            "0".into(),
+            "--embed-metadata".into(),
+            "--embed-thumbnail".into(),
+            "--no-playlist".into(),
+            "--no-warnings".into(),
+            "--quiet".into(),
+            "-o".into(),
+            template.to_string_lossy().into_owned(),
+        ];
+        let _ = run_yt_dlp(bin, &args, Duration::from_secs(300))?;
+        let final_path = out_dir.join(format!("{base_name}.mp3"));
+        if final_path.is_file() {
+            Some(final_path.to_string_lossy().into_owned())
+        } else {
+            None
+        }
+    }
 }
 
 fn media_page_url(song_id: &str) -> Option<String> {

@@ -4,15 +4,19 @@
 //! Queue + local library + player. The executor talks to this, not ffmpeg.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::blacklist::PlaybackBlacklist;
 use crate::local::{LocalProvider, ResolveHit};
 use crate::player::{AudioPlayer, PlayerEvent, PlayerState};
 use crate::queue::{replace_queue_with_song, PlayMode, PlayQueue};
-use crate::stream::{is_streamable_url, stream_playback_url, stream_track};
+use crate::stream::{
+    is_spotify_ref, is_streamable_url, is_tidal_url, stream_playback_url, stream_track, StreamBridge,
+};
 use crate::track::{Platform, QueuedSong, QueueSource, Track};
 use crate::youtube::{YoutubeClient, YoutubePolicy};
+use crate::ytlibrary::YtLibrary;
 
 pub struct UserPause {
     pub song_id: String,
@@ -26,6 +30,9 @@ pub struct MusicStation {
     pub youtube: YoutubeClient,
     pub blacklist: Option<Arc<PlaybackBlacklist>>,
     pub user_pause: Mutex<Option<UserPause>>,
+    pub stream_bridge: StreamBridge,
+    yt_library: Mutex<Option<Arc<YtLibrary>>>,
+    youtube_save_enabled: AtomicBool,
     connected: Mutex<bool>,
 }
 
@@ -38,8 +45,23 @@ impl MusicStation {
             youtube: YoutubeClient::new(),
             blacklist,
             user_pause: Mutex::new(None),
+            stream_bridge: StreamBridge::from_env(),
+            yt_library: Mutex::new(None),
+            youtube_save_enabled: AtomicBool::new(false),
             connected: Mutex::new(true),
         }
+    }
+
+    pub fn attach_yt_library(&self, lib: Arc<YtLibrary>) {
+        *self.yt_library.lock().expect("yt lib") = Some(lib);
+    }
+
+    pub fn set_youtube_save_enabled(&self, on: bool) {
+        self.youtube_save_enabled.store(on, Ordering::SeqCst);
+    }
+
+    pub fn youtube_save_enabled(&self) -> bool {
+        self.youtube_save_enabled.load(Ordering::SeqCst)
     }
 
     pub fn set_connected(&self, c: bool) {
@@ -69,7 +91,9 @@ impl MusicStation {
             return None;
         }
         if flags.contains(&'s') {
-            return stream_track(q).filter(|t| !self.blocked(t));
+            return stream_track(q)
+                .or_else(|| self.stream_bridge.resolve_track(q))
+                .filter(|t| !self.blocked(t));
         }
         if flags.contains(&'y') {
             return self
@@ -88,6 +112,11 @@ impl MusicStation {
                 .search(q, 1, YoutubePolicy::Explicit)
                 .into_iter()
                 .find(|t| !self.blocked(t));
+        }
+        if !flags.contains(&'l') && (is_spotify_ref(q) || is_tidal_url(q)) {
+            if let Some(t) = self.stream_bridge.resolve_track(q).filter(|t| !self.blocked(t)) {
+                return Some(t);
+            }
         }
         if !flags.contains(&'l') && is_streamable_url(q) {
             return stream_track(q).filter(|t| !self.blocked(t));
@@ -134,7 +163,9 @@ impl MusicStation {
         match platform {
             Platform::Local => self.local.song_by_id(id).filter(|t| !self.blocked(t)),
             Platform::Youtube => self.youtube.detail(id).filter(|t| !self.blocked(t)),
-            Platform::Stream => stream_track(id).filter(|t| !self.blocked(t)),
+            Platform::Stream => stream_track(id)
+                .or_else(|| self.stream_bridge.resolve_track(id))
+                .filter(|t| !self.blocked(t)),
         }
     }
 
@@ -159,6 +190,16 @@ impl MusicStation {
         };
         self.player.reset_failures();
         self.player.play(&url, elapsed.max(0.0), song.duration as f64);
+        if song.platform == Platform::Youtube && self.youtube_save_enabled() {
+            if let Some(lib) = self.yt_library.lock().expect("yt lib").clone() {
+                lib.save_in_background(
+                    song.id.clone(),
+                    song.name.clone(),
+                    song.artist.clone(),
+                    song.duration,
+                );
+            }
+        }
         true
     }
 
@@ -179,9 +220,19 @@ impl MusicStation {
                 } else {
                     song.id.as_str()
                 };
+                if let Some(lib) = self.yt_library.lock().expect("yt lib").as_ref() {
+                    if let Some(p) = lib.lookup(key) {
+                        return Some(p);
+                    }
+                }
                 self.youtube.playback_url(key)
             }
-            Platform::Stream => stream_playback_url(&song.id, &song.url),
+            Platform::Stream => {
+                if is_spotify_ref(&song.id) || is_tidal_url(&song.id) {
+                    return self.stream_bridge.resolve_url(&song.id);
+                }
+                stream_playback_url(&song.id, &song.url)
+            }
         }
     }
 
