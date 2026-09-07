@@ -189,7 +189,20 @@ impl AudioPlayer {
     }
 
     pub fn play(&self, url: &str, seek_seconds: f64, song_duration: f64) {
+        self.play_with_floor(url, seek_seconds, song_duration, None);
+    }
+
+    pub fn play_with_floor(
+        &self,
+        url: &str,
+        seek_seconds: f64,
+        song_duration: f64,
+        volume_pct_floor: Option<f64>,
+    ) {
         self.stop();
+        if let Some(f) = volume_pct_floor {
+            self.inner.lock().expect("player").play_volume_floor = Some(f.clamp(0.0, 100.0));
+        }
         if self.dry_run.load(Ordering::SeqCst) {
             let mut g = self.inner.lock().expect("player");
             g.state = PlayerState::Playing;

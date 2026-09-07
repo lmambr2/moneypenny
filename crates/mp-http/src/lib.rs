@@ -34,6 +34,7 @@ mod json_song;
 mod music_api;
 mod openapi;
 mod player_api;
+mod radio_api;
 mod rag_api;
 mod rate_limit;
 mod session;
@@ -65,6 +66,7 @@ pub struct AppState {
     pub brain: Arc<mp_brain::BrainRuntime>,
     pub rag: Option<Arc<mp_rag::RagRuntime>>,
     pub voice: Arc<mp_voice::VoiceRuntime>,
+    pub radio: Arc<mp_radio::RadioRuntime>,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -77,6 +79,13 @@ impl AppState {
             config.voice.clone(),
             config.command_aliases.clone(),
         );
+        let radio = mp_radio::RadioRuntime::from_config(
+            config.radio.clone(),
+            std::env::var("BOT_NICKNAME")
+                .or_else(|_| std::env::var("BOT_NAME"))
+                .unwrap_or_else(|_| "Moneypenny".into()),
+        );
+        radio.set_tts(config.voice.tts_url.clone(), config.voice.tts_voice.clone());
         Self {
             db,
             config,
@@ -96,6 +105,7 @@ impl AppState {
             brain,
             rag: None,
             voice,
+            radio,
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
@@ -122,6 +132,7 @@ impl AppState {
         executor: Arc<mp_control::CommandExecutor>,
         rights: Option<Arc<mp_rights::RightsEngine>>,
     ) -> Self {
+        self.radio.bind_station(Arc::clone(&station));
         self.station = Some(station);
         self.executor = Some(executor);
         self.rights = rights;
@@ -216,7 +227,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bot/llm/status", get(stubs::bot_status_stub))
         .route("/api/bot/voice/status", get(voice_api::voice_status))
         .route("/api/bot/voice/test", post(voice_api::voice_test))
-        .route("/api/bot/radio/status", get(stubs::bot_status_stub))
+        .route("/api/bot/radio/status", get(radio_api::radio_status))
+        .route("/api/bot/radio/test-bumper", post(radio_api::radio_test_bumper))
         .route("/api/bot/rag/status", get(stubs::bot_status_stub))
         .route("/api/bot/memory/status", get(stubs::bot_status_stub))
         .route("/api/bot/ace-step/status", get(stubs::bot_status_stub))
@@ -1066,6 +1078,90 @@ mod tests {
                 || v["reply"].as_str() == Some("Nothing is playing"),
             "{v}"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn radio_status_off_by_default() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/radio/status")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["enabled"], false);
+        assert_eq!(v["activeProfile"], "lobby");
+    }
+
+    #[tokio::test]
+    async fn radio_enable_seeds_local_library() {
+        let (dir, state) = music_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/settings")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"radio":{"enabled":true}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/radio/status")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["enabled"], true);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn radio_test_bumper_requires_on() {
+        let (dir, state) = music_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/radio/test-bumper")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CONFLICT);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

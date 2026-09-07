@@ -455,6 +455,9 @@ impl CommandExecutor {
             &format!("{p}remember <fact> · {p}recall · {p}forget <n|all> — Per-user memory"),
             &format!("{p}reindex [source.md] — Re-embed doctrine"),
             "",
+            "Radio",
+            &format!("{p}radio [on|off|status|ops <profile>] — Autonomous DJ (local seed)"),
+            "",
             &format!("{p}help — This message"),
         ]
         .join("\n")

@@ -111,7 +111,11 @@ pub fn live_status(st: &AppState) -> Value {
     } else {
         "TeamSpeak offline."
     });
-    feedback.push("Radio off.");
+    if st.radio.enabled() {
+        feedback.push("Radio on.");
+    } else {
+        feedback.push("Radio off.");
+    }
     if let Some(n) = now.as_ref() {
         feedback.push("Playing.");
         let _ = n;
@@ -137,7 +141,14 @@ pub fn live_status(st: &AppState) -> Value {
         "connected": connected,
         "nowPlaying": now,
         "queue": queue,
-        "radio": null,
+        "radio": {
+            "enabled": st.radio.enabled(),
+            "activeProfile": st.radio.config().active_profile,
+            "nextBumperHint": st.radio.status().songs_until_bumper.map(|n| {
+                if n == 0 { "due next".into() } else { format!("in {n}") }
+            }).unwrap_or_default(),
+            "cuePending": st.radio.status().cue_pending,
+        },
         "voice": {
             "enabled": st.voice.config().enabled,
             "duckOnSpeech": st.voice.config().duck_music_on_speech,
@@ -204,7 +215,7 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "harnessIntentAllowDangerous": false,
         "recordingsEnabled": false,
         "voice": serde_json::to_value(st.voice.config()).unwrap_or_else(|_| json!({})),
-        "radio": { "enabled": false, "activeProfile": "default" },
+        "radio": serde_json::to_value(st.radio.config()).unwrap_or_else(|_| json!({})),
         "vectorDbUrl": c.vector_db_url,
         "embeddingUrl": c.embedding_url,
         "embeddingModel": c.embedding_model,
@@ -263,13 +274,74 @@ pub async fn settings_post(
     }
     if let Some(v) = body.get("voice") {
         match patch_voice(&st.voice.config(), v) {
-            Ok(next) => st.voice.apply(next),
+            Ok(next) => {
+                st.radio.set_tts(next.tts_url.clone(), next.tts_voice.clone());
+                st.voice.apply(next);
+            }
+            Err(msg) => {
+                return Json(json!({ "ok": false, "error": msg, "code": "VALIDATION_ERROR" }));
+            }
+        }
+    }
+    if let Some(v) = body.get("radio") {
+        match patch_radio(&st.radio.config(), v) {
+            Ok(next) => {
+                let on = next.enabled;
+                st.radio.apply(next);
+                if on {
+                    let _ = st.radio.program_active();
+                }
+            }
             Err(msg) => {
                 return Json(json!({ "ok": false, "error": msg, "code": "VALIDATION_ERROR" }));
             }
         }
     }
     Json(json!({ "ok": true }))
+}
+
+fn patch_radio(prev: &mp_config::RadioConfig, v: &Value) -> Result<mp_config::RadioConfig, String> {
+    if !v.is_object() {
+        return Err("radio must be an object".into());
+    }
+    let mut next = prev.clone();
+    if let Some(b) = v.get("enabled") {
+        next.enabled = b
+            .as_bool()
+            .ok_or_else(|| "radio.enabled must be a boolean".to_string())?;
+    }
+    if let Some(n) = v.get("everyNSongs") {
+        next.every_n_songs = n
+            .as_u64()
+            .ok_or_else(|| "radio.everyNSongs must be a number".to_string())?
+            as u32;
+    }
+    if let Some(n) = v.get("deadAirSeconds") {
+        next.dead_air_seconds = n
+            .as_u64()
+            .ok_or_else(|| "radio.deadAirSeconds must be a number".to_string())?;
+    }
+    if let Some(n) = v.get("speechVolumePct") {
+        let n = n
+            .as_f64()
+            .ok_or_else(|| "radio.speechVolumePct must be 0–100".to_string())?;
+        if !(0.0..=100.0).contains(&n) {
+            return Err("radio.speechVolumePct must be 0–100".into());
+        }
+        next.speech_volume_pct = n as u32;
+    }
+    if let Some(s) = v.get("activeProfile").and_then(|x| x.as_str()) {
+        if !s.is_empty() {
+            next.active_profile = s.to_string();
+        }
+    }
+    if let Some(n) = v.get("minPresentToBroadcast") {
+        next.min_present_to_broadcast = n
+            .as_u64()
+            .ok_or_else(|| "radio.minPresentToBroadcast must be a number".to_string())?
+            as u32;
+    }
+    Ok(next)
 }
 
 fn patch_voice(prev: &mp_config::VoiceConfig, v: &Value) -> Result<mp_config::VoiceConfig, String> {

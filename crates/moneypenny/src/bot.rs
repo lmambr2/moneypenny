@@ -15,6 +15,7 @@ use mp_http::dispatch_command;
 use mp_music::{MusicStation, PlayerEvent, QueuedSong};
 use mp_rights::{RightsEngine, Scope, Subject};
 use mp_ts::{OpusPacket, Target, TsEvent, TsSession, TsSessionExt, CODEC_OPUS_MUSIC};
+use mp_radio::{Boundary, RadioRuntime};
 use mp_voice::{TranscriptOpts, VoiceRuntime};
 use tracing::{info, warn};
 
@@ -36,6 +37,8 @@ pub struct BotLoop<S> {
     aliases: std::collections::HashMap<String, String>,
     services: BotServices,
     voice: Arc<VoiceRuntime>,
+    radio: Arc<RadioRuntime>,
+    humans: std::sync::Mutex<std::collections::HashSet<i32>>,
 }
 
 impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
@@ -47,6 +50,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         aliases: std::collections::HashMap<String, String>,
         services: BotServices,
         voice: Arc<VoiceRuntime>,
+        radio: Arc<RadioRuntime>,
     ) -> Self {
         let mut aliases = aliases;
         if aliases.is_empty() {
@@ -62,6 +66,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             aliases,
             services,
             voice,
+            radio,
+            humans: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -101,8 +107,14 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                             }).await;
                         }
                         Ok(PlayerEvent::TrackEnd) => {
-                            if let Some(song) = self.station.play_next() {
-                                info!(name = %song.name, "advanced after track end");
+                            match self.radio.on_track_boundary().await {
+                                Boundary::Bumper { label } => {
+                                    info!(label = %label, "radio bumper after track end");
+                                }
+                                Boundary::Advanced { song: Some(name) } => {
+                                    info!(name = %name, "advanced after track end");
+                                }
+                                Boundary::Advanced { song: None } => {}
                             }
                         }
                         Ok(PlayerEvent::Error(e)) => warn!(error = %e, "player"),
@@ -179,9 +191,27 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 if !self.voice.any_armed() {
                     self.station.player.restore_from_stt_duck();
                 }
+                let n = {
+                    let mut h = self.humans.lock().expect("humans");
+                    h.remove(&client_id);
+                    h.len() as u32
+                };
+                self.radio.on_poll(n);
                 None
             }
-            _ => None,
+            TsEvent::ClientEnter { client_id, .. } => {
+                let own = self.session.client_id();
+                if own <= 0 || client_id != own {
+                    let n = {
+                        let mut h = self.humans.lock().expect("humans");
+                        h.insert(client_id);
+                        h.len() as u32
+                    };
+                    self.radio.on_poll(n);
+                    self.radio.note_human_activity(client_id);
+                }
+                None
+            }
         }
     }
 
@@ -212,6 +242,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             server_groups: invoker_groups,
             nickname: Some(invoker_name),
         };
+        self.radio.note_human_activity(invoker_id);
         dispatch_command(
             &parsed,
             &subject,
@@ -221,11 +252,13 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             &self.services.db,
             &self.services.brain,
             self.services.rag.as_deref(),
+            Some(&self.radio),
         )
         .await
     }
 
     fn on_voice(&self, client_id: i32, codec: u8, opus: Vec<u8>) {
+        self.radio.note_human_activity(client_id);
         let own = self.session.client_id();
         let Some(ingest) = self.voice.ingest_opus(client_id, &opus, own, codec) else {
             return;
@@ -249,6 +282,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         let services = self.services.clone();
         let prefix = self.prefix.clone();
         let aliases = self.aliases.clone();
+        let radio = Arc::clone(&self.radio);
         let speaker_id = utt.speaker_client_id;
         let uid = utt
             .speaker_uid
@@ -280,6 +314,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         let services = services.clone();
                         let prefix = prefix.clone();
                         let aliases = aliases.clone();
+                        let radio = Arc::clone(&radio);
                         let uid = uid.clone();
                         async move {
                             let parsed = parse_command(&format!("{prefix}{cmd}"), &prefix, &aliases)?;
@@ -300,6 +335,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 &services.db,
                                 &services.brain,
                                 services.rag.as_deref(),
+                                Some(&radio),
                             )
                             .await
                         }

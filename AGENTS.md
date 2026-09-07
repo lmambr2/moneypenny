@@ -300,8 +300,8 @@ cd bot/web && npm run build
 2. Voice smoke — sidecars + Settings synthetic test (`docs/voice.md`)
 3. RAG on hardware — `--profile rag`, doctrine ingest (`docs/rag-ingestion.md`)
 
-**Rust rewrite (this branch):** Phases 0–6 done. Next is **7 radio**, then
-community / cutover. Do not start Phase 7+ work in Node `bot/src`
+**Rust rewrite (this branch):** Phases 0–7 done. Next is **8 community**, then
+cutover. Do not start Phase 8+ work in Node `bot/src`
 on this branch. See [docs/rust-rewrite.md](./docs/rust-rewrite.md).
 
 Do not treat scaffolds as validated until operator confirms on real hardware.

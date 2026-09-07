@@ -1215,6 +1215,7 @@ dependencies = [
  "mp-db",
  "mp-http",
  "mp-music",
+ "mp-radio",
  "mp-rag",
  "mp-rights",
  "mp-ts",
@@ -1300,6 +1301,7 @@ dependencies = [
  "mp-control",
  "mp-db",
  "mp-music",
+ "mp-radio",
  "mp-rag",
  "mp-rights",
  "mp-voice",
@@ -1339,8 +1341,15 @@ dependencies = [
 name = "mp-radio"
 version = "0.1.0"
 dependencies = [
+ "mp-config",
+ "mp-music",
+ "mp-voice",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

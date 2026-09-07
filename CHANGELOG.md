@@ -32,9 +32,12 @@ Plan: [docs/rust-rewrite.md](./docs/rust-rewrite.md). Workspace: `crates/`.
 - **Phase 6** — inbound voice: Opus decode, energy VAD, HTTP STT (`POST /asr`)
   + Piper TTS (`/v1/audio/speech`), watchword + 15s arm window, music duck,
   `GET /api/bot/voice/status` + `POST /api/bot/voice/test`. Whisper out of process.
+- **Phase 7** — radio director (disabled = `play_next`), local-library seed,
+  `!radio` on/off/status/ops, every-N bumpers (station ID / time / now playing
+  when Piper is configured), `GET /api/bot/radio/status` + test-bumper.
 
 Not in this branch yet: MemPalace, org KG, Silero VAD, TTS park/restore into the
-channel, radio, economy, MCP, YouTube provider. Dual-run overlay:
+channel, ACE-Step/Icecast/YouTube radio seed, economy, MCP. Dual-run overlay:
 `docker-compose.rust.yml` (`:3001`).
 
 ## 2026-07-25

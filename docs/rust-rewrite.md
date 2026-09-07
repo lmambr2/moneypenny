@@ -7,7 +7,7 @@ Spotify/Tidal bridges, `install.sh`, and compose overlays **stay**.
 Source of truth for this branch: `lmambr2/moneypenny` @ `ec464a2` (DESIGN v3,
 AGENTS.md seams, 1227 backend tests).
 
-**Branch status (2026-09):** Phases **0–6 live** on `feat/rust-bot-rewrite`.
+**Branch status (2026-09):** Phases **0–7 live** on `feat/rust-bot-rewrite`.
 Node remains production (`BOT_RUNTIME=node`) until Phase 9 cutover.
 
 ## Why
@@ -51,7 +51,7 @@ Rust :3001 (this overlay) until flip
 | `mp-brain` | `/v1/turn` transport | **live** in-process OpenAI-compat or `BRAIN_URL` HTTP; dispose after rights |
 | `mp-rag` | embeddings + TurboVec + doctrine | **live** HTTP embeddings or hash-dev; TurboVec or in-memory; `!remember` SQLite |
 | `mp-voice` | VAD → STT HTTP → TTS HTTP | **live** energy VAD + HTTP STT/TTS + watchword; Whisper out of process |
-| `mp-radio` | director / bumpers | stub (Phase 7) |
+| `mp-radio` | director / bumpers | **live** local seed + every-N bumpers; TTS bumpers need Piper |
 | `mp-economy` | mine/craft/trade/UEX | stub (Phase 8) |
 | `mp-mcp` | MCP tools | stub (Phase 8) |
 
@@ -147,6 +147,7 @@ TS6_HOST=127.0.0.1 TS6_PORT=9987 TS6_NICK=Moneypenny
 # BRAIN_URL=http://brain:8090   # remote POST {url}/v1/turn instead of in-process
 # optional voice (Whisper/Piper stay out of process)
 # VOICE_ENABLED=1 STT_URL=http://127.0.0.1:9000 TTS_URL=http://127.0.0.1:8880
+# RADIO_ENABLED=1   # or Settings → Radio; seeds local library
 ```
 
 Needs: `rustc` 1.85+, `pkg-config`, `libopus` (for `mp-audio` default feature).
@@ -185,15 +186,15 @@ These numbers are **the rewrite sequence**, not DESIGN.md product phases
 | **3 HTTP parity** | every Vue page, no console 404s, live-status WS | **done** |
 | **4 brain** | `POST /v1/turn`, dispose after rights | **done** |
 | **5 RAG/memory** | TurboVec + doctrine + `!remember` | **done** |
-| **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process | **done** (this branch) |
-| **7 radio** | `docs/radio.md` | — |
+| **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process | **done** |
+| **7 radio** | `docs/radio.md` | **done** (this branch) |
 | **8 community** | roast, economy, MCP, moves | — |
 | **9 cutover** | `BOT_RUNTIME=rust` default; keep `moneypenny-node` one release | — |
 
 Kill criteria for the *spike* (gates 3+4 fail **and** sidecar Option B rejected)
 did **not** fire. Option A (`tsclient-rs`) is the live path.
 
-## What is mock vs live (Phase 6)
+## What is mock vs live (Phase 7)
 
 | Surface | Live | Mock / stub |
 |---------|------|-------------|
@@ -206,13 +207,14 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Vue pages (Home/Search/Library/History/Live/Settings/…) | **live** session + `/api/bot` + local music/player | economy/RAG/harness/recordings return empty 200s (not 404) |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
-| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated | YouTube / radio still stubbed |
+| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated | YouTube still stubbed |
 | `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | dashboard `/harness` ask still stub |
 | `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; doctrine reindex | MemPalace / org KG still out |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query | multipart upload + pandoc export + reformat still stub |
 | Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory on runtimes | not persisted to `config.json` (dual-run: Node still owns writes) |
 | Inbound voice | **live** Opus decode + energy VAD + HTTP STT + watchword + same executor as chat (`Scope::Voice`); `GET /api/bot/voice/status`; `POST /api/bot/voice/test` | Silero VAD, under-music-check, KWS, TTS park/restore into the channel (test `speak:true` synthesizes; channel play of Piper wav is later) |
-| radio, MCP, economy | — | compiling stubs / empty JSON |
+| Radio | **live** director (disabled = `play_next`); local seed; `!radio` on/off/status/ops; every-N bumpers; `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, YouTube/stream seed, Silero-adjacent TTS park, doctrine/memory LLM bumpers, prerecorded pool, analyzer |
+| MCP, economy | — | compiling stubs / empty JSON |
 
 ## Brain code map (Phase 4)
 

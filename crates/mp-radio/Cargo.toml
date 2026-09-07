@@ -7,5 +7,15 @@ publish.workspace = true
 description = "director, clock, bumpers (Phase 7)"
 
 [dependencies]
+mp-config = { path = "../mp-config" }
+mp-music = { path = "../mp-music" }
+mp-voice = { path = "../mp-voice" }
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

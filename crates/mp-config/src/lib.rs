@@ -114,6 +114,9 @@ pub struct BotConfig {
     /// Inbound voice loop (rewrite Phase 6). Nested object matches Node `config.voice`.
     #[serde(default)]
     pub voice: VoiceConfig,
+    /// Autonomous DJ (rewrite Phase 7). Nested object matches Node `config.radio`.
+    #[serde(default)]
+    pub radio: RadioConfig,
 }
 
 /// Node `VoiceConfig` (`bot/src/voice/types.ts`). Load-only during dual-run.
@@ -251,6 +254,231 @@ impl Default for VoiceConfig {
     }
 }
 
+/// Bumper content sources (`docs/radio.md`). LLM sources are declared but unused in Phase 7.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BumperSource {
+    Prerecorded,
+    StationId,
+    TimeCheck,
+    NowPlaying,
+    Doctrine,
+    Memory,
+}
+
+impl BumperSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Prerecorded => "prerecorded",
+            Self::StationId => "stationId",
+            Self::TimeCheck => "timeCheck",
+            Self::NowPlaying => "nowPlaying",
+            Self::Doctrine => "doctrine",
+            Self::Memory => "memory",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SlotKind {
+    Song,
+    Bumper,
+    StationId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WheelSlot {
+    pub slot: SlotKind,
+    #[serde(default)]
+    pub sources: Vec<BumperSource>,
+    #[serde(default)]
+    pub topic: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatClockSpec {
+    #[serde(default)]
+    pub wheel: Vec<WheelSlot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioMusic {
+    #[serde(default)]
+    pub seed_queries: Vec<String>,
+    #[serde(default = "default_true")]
+    pub shuffle: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioBumper {
+    #[serde(default)]
+    pub topics: Vec<String>,
+    #[serde(default)]
+    pub tone: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioProfile {
+    pub name: String,
+    #[serde(default)]
+    pub music: RadioMusic,
+    #[serde(default)]
+    pub bumper: RadioBumper,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuietWindow {
+    pub from: String,
+    pub to: String,
+}
+
+/// Node `RadioConfig` (`bot/src/radio/types.ts`). Off by default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_every_n")]
+    pub every_n_songs: u32,
+    #[serde(default = "default_dead_air")]
+    pub dead_air_seconds: u64,
+    #[serde(default = "default_max_bumper")]
+    pub max_bumper_seconds: u32,
+    #[serde(default = "default_speech_vol")]
+    pub speech_volume_pct: u32,
+    #[serde(default = "default_min_present")]
+    pub min_present_to_broadcast: u32,
+    #[serde(default = "default_empty_stop")]
+    pub empty_channel_stop_seconds: i32,
+    #[serde(default = "default_cooldown")]
+    pub cooldown_seconds: u64,
+    #[serde(default = "default_max_bumpers_hour")]
+    pub max_bumpers_per_hour: u32,
+    #[serde(default)]
+    pub quiet_hours: Vec<QuietWindow>,
+    #[serde(default = "default_radio_sources")]
+    pub sources: Vec<BumperSource>,
+    #[serde(default)]
+    pub memory_broadcast_opt_in: bool,
+    #[serde(default = "default_active_profile")]
+    pub active_profile: String,
+    #[serde(default = "default_radio_profiles")]
+    pub profiles: HashMap<String, RadioProfile>,
+    #[serde(default)]
+    pub clock: Option<FormatClockSpec>,
+    #[serde(default)]
+    pub tts_voice: Option<String>,
+    #[serde(default)]
+    pub station_id_lines: Vec<String>,
+    #[serde(default)]
+    pub time_check_timezones: Vec<String>,
+}
+
+fn default_every_n() -> u32 {
+    4
+}
+fn default_dead_air() -> u64 {
+    25
+}
+fn default_max_bumper() -> u32 {
+    30
+}
+fn default_speech_vol() -> u32 {
+    85
+}
+fn default_min_present() -> u32 {
+    1
+}
+fn default_empty_stop() -> i32 {
+    10
+}
+fn default_cooldown() -> u64 {
+    180
+}
+fn default_max_bumpers_hour() -> u32 {
+    12
+}
+fn default_active_profile() -> String {
+    "lobby".into()
+}
+fn default_radio_sources() -> Vec<BumperSource> {
+    vec![
+        BumperSource::Prerecorded,
+        BumperSource::StationId,
+        BumperSource::TimeCheck,
+        BumperSource::NowPlaying,
+    ]
+}
+fn default_radio_profiles() -> HashMap<String, RadioProfile> {
+    let mut m = HashMap::new();
+    m.insert(
+        "lobby".into(),
+        RadioProfile {
+            name: "lobby".into(),
+            music: RadioMusic {
+                seed_queries: vec!["chill".into(), "ambient".into()],
+                shuffle: true,
+            },
+            bumper: RadioBumper {
+                topics: vec![
+                    "station".into(),
+                    "welcome".into(),
+                    "org announcements".into(),
+                    "code of conduct".into(),
+                ],
+                tone: "Colonel Moneypenny: dry poised British colonel-and-secretary wit".into(),
+            },
+        },
+    );
+    m.insert(
+        "focus".into(),
+        RadioProfile {
+            name: "focus".into(),
+            music: RadioMusic {
+                seed_queries: vec!["focus".into(), "ambient".into()],
+                shuffle: true,
+            },
+            bumper: RadioBumper {
+                topics: vec!["ops".into(), "briefing".into()],
+                tone: "Colonel Moneypenny: dry British composure".into(),
+            },
+        },
+    );
+    m
+}
+
+impl Default for RadioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            every_n_songs: 4,
+            dead_air_seconds: 25,
+            max_bumper_seconds: 30,
+            speech_volume_pct: 85,
+            min_present_to_broadcast: 1,
+            empty_channel_stop_seconds: 10,
+            cooldown_seconds: 180,
+            max_bumpers_per_hour: 12,
+            quiet_hours: Vec::new(),
+            sources: default_radio_sources(),
+            memory_broadcast_opt_in: false,
+            active_profile: "lobby".into(),
+            profiles: default_radio_profiles(),
+            clock: None,
+            tts_voice: None,
+            station_id_lines: Vec::new(),
+            time_check_timezones: Vec::new(),
+        }
+    }
+}
+
 impl Default for BotConfig {
     fn default() -> Self {
         Self {
@@ -285,6 +513,7 @@ impl Default for BotConfig {
             music_opus_bitrate_kbps: 64,
             music_blocked_genres: default_blocked_genres(),
             voice: VoiceConfig::default(),
+            radio: RadioConfig::default(),
         }
     }
 }
@@ -466,6 +695,14 @@ fn apply_env(cfg: &mut BotConfig) {
             cfg.voice.tts_voice = v;
         }
     }
+    if let Ok(v) = std::env::var("RADIO_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.radio.enabled = true;
+        } else if t == "0" || t.eq_ignore_ascii_case("false") {
+            cfg.radio.enabled = false;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -486,6 +723,9 @@ mod tests {
         assert_eq!(c.voice.watchword, "moneypenny");
         assert_eq!(c.voice.energy_threshold, 200.0);
         assert!(c.voice.text_wake_fallback);
+        assert!(!c.radio.enabled);
+        assert_eq!(c.radio.every_n_songs, 4);
+        assert_eq!(c.radio.active_profile, "lobby");
         assert_eq!(SESSION_COOKIE_NAME, "moneypenny_session");
         assert_eq!(BCRYPT_COST, 12);
     }

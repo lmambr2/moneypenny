@@ -1,10 +1,20 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
-//! Placeholder — director, clock, bumpers (Phase 7)
-//! docs/radio.md is the spec. Port last among features.
-//! Real implementation is a later phase. This crate exists so the workspace
-//! map matches AGENTS.md ownership and cannot fork a parallel layout.
+//! Director, clock, bumpers (rewrite Phase 7). `docs/radio.md`.
+//! Disabled radio is byte-identical to play_next(). TTS is never between skip and music.
+
+mod bumpers;
+mod clock;
+mod director;
+mod runtime;
+mod seed;
+
+pub use clock::{is_within_quiet_hours, parse_hhmm, FormatClock};
+pub use director::{Boundary, BuiltBumper, CueResult, RadioDirector, RadioStatus};
+pub use mp_config::{RadioConfig, RadioProfile};
+pub use runtime::{RadioRuntime, RadioStatusSnapshot};
+pub use seed::{program_station, seed_local_tracks};
 
 #[cfg(test)]
 mod tests {

@@ -31,6 +31,7 @@ mp-rag = { path = "../mp-rag" }
 mp-rights = { path = "../mp-rights" }
 mp-ts = { path = "../mp-ts" }
 mp-voice = { path = "../mp-voice" }
+mp-radio = { path = "../mp-radio" }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

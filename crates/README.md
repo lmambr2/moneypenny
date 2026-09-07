@@ -3,9 +3,9 @@
 Strangler rewrite of the Node bot process (`bot/src/index.ts`). Vue and HTTP
 sidecars stay. Full plan and live/stub table: **[docs/rust-rewrite.md](../docs/rust-rewrite.md)**.
 
-**This branch:** Phases **0–6 live** (health, first-run, `!play`/`!skip`/`!queue`,
+**This branch:** Phases **0–7 live** (health, first-run, `!play`/`!skip`/`!queue`,
 Vue `/api/*` parity, `POST /v1/turn`, doctrine RAG + `!remember`/`!ask`, inbound
-voice). Radio / economy / MCP are compiling stubs.
+voice, radio director + local seed). Economy / MCP are compiling stubs.
 
 ```bash
 cargo test --workspace
@@ -24,6 +24,7 @@ cargo run -p mp-ts --example join --features tsclient-rs
 | `mp-brain` | in-process OpenAI-compat or `BRAIN_URL` |
 | `mp-rag` | embeddings + doctrine + `!remember` |
 | `mp-voice` | energy VAD, HTTP STT/TTS, watchword, `/api/bot/voice/*` |
-| `mp-radio` / `mp-economy` / `mp-mcp` | stubs |
+| `mp-radio` | director, local seed, `!radio`, bumper cadence |
+| `mp-economy` / `mp-mcp` | stubs |
 
 Dual-run overlay: `docker-compose.rust.yml` (Rust `:3001`, Node `:3000`).

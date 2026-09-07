@@ -53,7 +53,24 @@ async fn run_named(
         },
         flags: Default::default(),
     };
-    Ok(ex.execute(&cmd).await.unwrap_or_default())
+    let subject = mp_rights::Subject {
+        uid: user.id.clone(),
+        server_groups: Vec::new(),
+        nickname: Some(user.username.clone()),
+    };
+    Ok(crate::command::dispatch_command(
+        &cmd,
+        &subject,
+        mp_rights::Scope::Chat,
+        ex,
+        st.rights.as_deref(),
+        &st.db,
+        &st.brain,
+        st.rag.as_deref(),
+        Some(&st.radio),
+    )
+    .await
+    .unwrap_or_default())
 }
 
 pub async fn play(

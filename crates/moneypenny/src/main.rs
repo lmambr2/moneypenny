@@ -195,6 +195,7 @@ async fn main() {
         .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
         .with_rag(Arc::clone(&rag));
     let voice = Arc::clone(&state.voice);
+    let radio = Arc::clone(&state.radio);
     {
         let rag_c = Arc::clone(&rag);
         let db_c = Arc::clone(&db);
@@ -258,6 +259,7 @@ async fn main() {
             rag: Some(rag),
         },
         voice,
+        radio,
     )
     .await;
 
@@ -272,6 +274,7 @@ async fn start_teamspeak(
     data_dir: &std::path::Path,
     services: bot::BotServices,
     voice: Arc<mp_voice::VoiceRuntime>,
+    radio: Arc<mp_radio::RadioRuntime>,
 ) {
     #[cfg(feature = "ts6")]
     {
@@ -308,6 +311,7 @@ async fn start_teamspeak(
                 aliases,
                 services,
                 voice,
+                radio,
             );
             let session_c = Arc::clone(&session);
             let station_c = Arc::clone(&station);
@@ -345,12 +349,12 @@ async fn start_teamspeak(
             }
             return;
         }
-        let _ = voice;
+        let _ = (voice, radio);
         info!("TS6_HOST empty — HTTP only (no TeamSpeak)");
     }
     #[cfg(not(feature = "ts6"))]
     {
-        let _ = (station, rights, prefix, aliases, data_dir, services, voice);
+        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio);
         info!("ts session: mock (built without ts6 feature)");
     }
 }

@@ -105,6 +105,7 @@ pub async fn voice_test(
                         &db,
                         &brain,
                         rag.as_deref(),
+                        None,
                     )
                     .await
                 }
