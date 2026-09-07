@@ -30,6 +30,7 @@ pub struct VoiceTurnResult {
     pub reply: Option<String>,
     pub watchword_only: bool,
     pub tts_bytes: usize,
+    pub tts_audio: Option<Vec<u8>>,
     pub command: Option<String>,
 }
 
@@ -190,6 +191,7 @@ impl VoicePipeline {
 
                 let should_speak = opts.speak.unwrap_or(true);
                 let mut tts_bytes = 0;
+                let mut tts_audio = None;
                 if should_speak && self.respond_with_voice {
                     if let Some(tts) = tts {
                         if let Some(ref r) = reply {
@@ -200,7 +202,12 @@ impl VoicePipeline {
                                 && !tts_text.is_empty()
                             {
                                 match tts.synthesize(&tts_text).await {
-                                    Ok((audio, _)) => tts_bytes = audio.len(),
+                                    Ok((audio, _)) => {
+                                        tts_bytes = audio.len();
+                                        if !audio.is_empty() {
+                                            tts_audio = Some(audio);
+                                        }
+                                    }
                                     Err(e) => tracing::warn!(error = %e, "Voice: TTS failed"),
                                 }
                             }
@@ -211,6 +218,7 @@ impl VoicePipeline {
                     reply,
                     watchword_only: false,
                     tts_bytes,
+                    tts_audio,
                     command: Some(cmd),
                 }
             }

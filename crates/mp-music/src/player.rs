@@ -98,6 +98,10 @@ impl AudioPlayer {
         self.dry_run.store(dry, Ordering::SeqCst);
     }
 
+    pub fn dry_run(&self) -> bool {
+        self.dry_run.load(Ordering::SeqCst)
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<PlayerEvent> {
         self.events.subscribe()
     }

@@ -10,6 +10,7 @@ mod ffmpeg;
 mod local;
 mod player;
 mod queue;
+mod speech;
 mod station;
 mod track;
 
@@ -25,6 +26,7 @@ pub use ffmpeg::{
 pub use local::{LocalProvider, Playlist, ResolveHit};
 pub use player::{AudioPlayer, PlayerEvent, PlayerState};
 pub use queue::{replace_queue_with_song, PlayMode, PlayQueue};
+pub use speech::{ChannelSpeech, TrackEndKind};
 pub use station::{MusicStation, ReplaceResult, UserPause};
 pub use track::{Platform, QueuedSong, QueueSource, Track};
 

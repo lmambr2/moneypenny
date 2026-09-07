@@ -12,7 +12,7 @@ use mp_control::{
 };
 use mp_db::Database;
 use mp_http::{dispatch_command, RoastRuntime};
-use mp_music::{MusicStation, PlayerEvent, QueuedSong};
+use mp_music::{ChannelSpeech, MusicStation, PlayerEvent, QueuedSong, TrackEndKind};
 use crate::moves::MoveRuntime;
 use mp_rights::{RightsEngine, Scope, Subject};
 use mp_ts::{OpusPacket, Target, TsEvent, TsSession, TsSessionExt, CODEC_OPUS_MUSIC};
@@ -41,6 +41,7 @@ pub struct BotLoop<S> {
     radio: Arc<RadioRuntime>,
     roast: Arc<RoastRuntime>,
     moves: Arc<MoveRuntime>,
+    speech: Arc<ChannelSpeech>,
     humans: std::sync::Mutex<std::collections::HashSet<i32>>,
 }
 
@@ -56,6 +57,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         radio: Arc<RadioRuntime>,
         roast: Arc<RoastRuntime>,
         moves: Arc<MoveRuntime>,
+        speech: Arc<ChannelSpeech>,
     ) -> Self {
         let mut aliases = aliases;
         if aliases.is_empty() {
@@ -74,6 +76,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             radio,
             roast,
             moves,
+            speech,
             humans: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
@@ -117,6 +120,10 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                             }).await;
                         }
                         Ok(PlayerEvent::TrackEnd) => {
+                            if self.speech.on_track_end() == TrackEndKind::Tts {
+                                info!("tts playback ended");
+                                continue;
+                            }
                             match self.radio.on_track_boundary().await {
                                 Boundary::Bumper { label } => {
                                     info!(label = %label, "radio bumper after track end");
@@ -127,7 +134,10 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 Boundary::Advanced { song: None } => {}
                             }
                         }
-                        Ok(PlayerEvent::Error(e)) => warn!(error = %e, "player"),
+                        Ok(PlayerEvent::Error(e)) => {
+                            self.speech.on_player_error();
+                            warn!(error = %e, "player");
+                        }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                         Err(_) => {
                             frames = self.station.subscribe_player();
@@ -328,7 +338,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             return;
         };
         let cfg = self.voice.config();
-        if ingest.speech && cfg.duck_music_on_speech {
+        if ingest.speech && cfg.duck_music_on_speech && !self.speech.is_speaking() {
             let _ = self
                 .station
                 .player
@@ -348,6 +358,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         let radio = Arc::clone(&self.radio);
         let roast = Arc::clone(&self.roast);
         let moves = Arc::clone(&self.moves);
+        let speech = Arc::clone(&self.speech);
         let rights_c = self.rights.clone();
         let session_id = self.session.client_id();
         let speaker_id = utt.speaker_client_id;
@@ -442,7 +453,10 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     warn!(error = %e, "voice reply send_text failed");
                 }
             }
-            if !turn.watchword_only && !voice.any_armed() {
+            if let Some(audio) = turn.tts_audio.as_deref() {
+                let hold = mp_voice::voice_reply_clears_saved_music(turn.reply.as_deref());
+                speech.speak(audio, "wav", hold);
+            } else if !turn.watchword_only && !voice.any_armed() {
                 station.player.restore_from_stt_duck();
             }
         });

@@ -71,6 +71,7 @@ pub struct AppState {
     pub voice: Arc<mp_voice::VoiceRuntime>,
     pub radio: Arc<mp_radio::RadioRuntime>,
     pub roast: Arc<roast::RoastRuntime>,
+    pub speech: Option<Arc<mp_music::ChannelSpeech>>,
     pub mcp: mp_mcp::McpConfig,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
@@ -117,6 +118,7 @@ impl AppState {
             voice,
             radio,
             roast,
+            speech: None,
             mcp: mp_mcp::McpConfig::default(),
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
@@ -150,6 +152,7 @@ impl AppState {
         rights: Option<Arc<mp_rights::RightsEngine>>,
     ) -> Self {
         self.radio.bind_station(Arc::clone(&station));
+        self.speech = Some(mp_music::ChannelSpeech::new(Arc::clone(&station)));
         self.station = Some(station);
         self.executor = Some(executor);
         self.rights = rights;

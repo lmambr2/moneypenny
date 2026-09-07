@@ -258,6 +258,7 @@ impl VoiceRuntime {
                 let cfg = self.config();
                 let should_speak = opts.speak.unwrap_or(true);
                 let mut tts_bytes = 0;
+                let mut tts_audio = None;
                 if should_speak && cfg.respond_with_voice && !cfg.tts_url.trim().is_empty() {
                     if let Some(ref r) = reply {
                         let spoken = voice_spoken_ack(Some(r)).map(|s| s.to_string());
@@ -268,7 +269,12 @@ impl VoiceRuntime {
                         {
                             let tts = HttpTtsClient::new(&cfg.tts_url, &cfg.tts_voice);
                             match tts.synthesize(&tts_text).await {
-                                Ok((audio, _)) => tts_bytes = audio.len(),
+                                Ok((audio, _)) => {
+                                    tts_bytes = audio.len();
+                                    if !audio.is_empty() {
+                                        tts_audio = Some(audio);
+                                    }
+                                }
                                 Err(e) => tracing::warn!(error = %e, "Voice: TTS failed"),
                             }
                         }
@@ -278,6 +284,7 @@ impl VoiceRuntime {
                     reply,
                     watchword_only: false,
                     tts_bytes,
+                    tts_audio,
                     command: Some(cmd),
                 }
             }

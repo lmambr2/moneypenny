@@ -214,8 +214,8 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; doctrine reindex | MemPalace / org KG still out |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query | multipart upload + pandoc export + reformat still stub |
 | Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory on runtimes | not persisted to `config.json` (dual-run: Node still owns writes) |
-| Inbound voice | **live** Opus decode + energy VAD + HTTP STT + watchword + same executor as chat (`Scope::Voice`); `GET /api/bot/voice/status`; `POST /api/bot/voice/test` | Silero VAD, under-music-check, KWS, TTS park/restore into the channel (test `speak:true` synthesizes; channel play of Piper wav is later) |
-| Radio | **live** director (disabled = `play_next`); local seed; `!radio` on/off/status/ops; every-N bumpers; `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, YouTube/stream seed, Silero-adjacent TTS park, doctrine/memory LLM bumpers, prerecorded pool, analyzer |
+| Inbound voice | **live** Opus decode + energy VAD + HTTP STT + watchword + same executor as chat (`Scope::Voice`); Piper wav airs on the shared player (park/restore); `GET /api/bot/voice/status`; `POST /api/bot/voice/test` | Silero VAD, under-music-check, KWS |
+| Radio | **live** director (disabled = `play_next`); local seed; `!radio` on/off/status/ops; every-N bumpers; Piper bumpers play via the same player; `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, YouTube/stream seed, doctrine/memory LLM bumpers, prerecorded pool, analyzer |
 | Moves | **live** `!move` / `!moveclient` / `!moveall` (30s confirm, max 10) / `!follow` via TS6 HTTP Query | no auto-follow |
 | Roast | **live** channel capture + `!roast` / `!roastout` / `!roastin`; LLM grade fail-open; Settings toggle | no voice-transcript capture; auto-reel needs LLM + min present |
 | Economy | **live** seed ores/methods/mine/refine + SQLite work orders; Vue `/api/economy/*` | sc-craft / sc-trade / UEX HTTP still 503; no scrapers |
@@ -247,7 +247,8 @@ dashboard  →  POST /v1/turn
 |------|------|
 | `crates/mp-voice/` | energy `SilenceSegmenter`, watchword, `HttpSttClient` (`POST /asr`), `HttpTtsClient` (Piper `/v1/audio/speech`), `VoiceRuntime` |
 | `crates/mp-http/src/voice_api.rs` | `GET /api/bot/voice/status`, `POST /api/bot/voice/test` |
-| `crates/moneypenny/src/bot.rs` | inbound `VoiceData` → decode → VAD → STT → same `dispatch_command` as chat (`Scope::Voice`) |
+| `crates/moneypenny/src/bot.rs` | inbound `VoiceData` → decode → VAD → STT → same `dispatch_command` as chat (`Scope::Voice`); Piper airs via `ChannelSpeech` |
+| `crates/mp-music/src/speech.rs` | Park current song, play TTS wav on the shared player, restore on TrackEnd. Pause/stop hold the queue. Skip does not wait. |
 
 Whisper stays a sidecar. Self-echo (`clid == self`) and music codec `5` are dropped.
 

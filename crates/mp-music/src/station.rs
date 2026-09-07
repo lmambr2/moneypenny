@@ -84,8 +84,12 @@ impl MusicStation {
     }
 
     pub fn resolve_and_play(&self, song: &QueuedSong) -> bool {
+        self.play_song_at(song, 0.0)
+    }
+
+    pub fn play_song_at(&self, song: &QueuedSong, elapsed: f64) -> bool {
         if !self.is_connected() {
-            tracing::warn!(id = %song.id, "resolveAndPlay while disconnected");
+            tracing::warn!(id = %song.id, "play_song_at while disconnected");
             return false;
         }
         if self.blacklist.as_ref().is_some_and(|bl| {
@@ -105,7 +109,7 @@ impl MusicStation {
             return false;
         };
         self.player.reset_failures();
-        self.player.play(&url, 0.0, song.duration as f64);
+        self.player.play(&url, elapsed.max(0.0), song.duration as f64);
         true
     }
 

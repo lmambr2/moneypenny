@@ -118,10 +118,20 @@ pub async fn voice_test(
         )
         .await;
 
+    let mut aired = false;
+    if speak {
+        if let (Some(audio), Some(speech)) = (turn.tts_audio.as_deref(), st.speech.as_ref()) {
+            let hold = mp_voice::voice_reply_clears_saved_music(turn.reply.as_deref());
+            speech.speak(audio, "wav", hold);
+            aired = speech.is_speaking() || hold;
+        }
+    }
+
     Json(json!({
         "transcript": transcript,
         "reply": turn.reply,
         "ttsBytes": turn.tts_bytes,
+        "ttsAired": aired,
         "watchwordOnly": turn.watchword_only,
         "command": turn.command,
     }))
