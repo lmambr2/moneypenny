@@ -149,8 +149,94 @@ async fn main() {
         Arc::clone(&station),
         config.command_prefix.clone(),
     ));
+
+    let embed_url = if config.embedding_url.trim().is_empty() {
+        std::env::var("EMBEDDING_URL").unwrap_or_default()
+    } else {
+        config.embedding_url.clone()
+    };
+    let vector_url = if config.vector_db_url.trim().is_empty() {
+        std::env::var("VECTOR_DB_URL").unwrap_or_default()
+    } else {
+        config.vector_db_url.clone()
+    };
+    let retrieval = Arc::new(mp_rag::RetrievalStore::new(
+        mp_rag::build_embedder(&embed_url, &config.embedding_model),
+        mp_rag::build_vector_store(&vector_url),
+        if config.rag_collection.is_empty() {
+            "moneypenny_docs".into()
+        } else {
+            config.rag_collection.clone()
+        },
+        config.rag_top_k as usize,
+    ));
+    let doctrine = Arc::new(
+        mp_rag::DoctrineStore::new(Arc::clone(&db), &paths.data_dir).unwrap_or_else(|e| {
+            error!(error = %e, "doctrine store");
+            std::process::exit(1);
+        }),
+    );
+    let rag = mp_rag::RagRuntime::new(
+        retrieval,
+        doctrine,
+        config.rag_enabled,
+        config.memory_enabled,
+        config.rag_top_k as usize,
+    );
+    info!(
+        rag = config.rag_enabled,
+        memory = config.memory_enabled,
+        embed = %if embed_url.is_empty() { "hash-dev" } else { embed_url.as_str() },
+        vectors = %if vector_url.is_empty() { "memory" } else { vector_url.as_str() },
+        "rag runtime"
+    );
+
     let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone())
-        .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone());
+        .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
+        .with_rag(Arc::clone(&rag));
+    {
+        let rag_c = Arc::clone(&rag);
+        let db_c = Arc::clone(&db);
+        let retrieve: mp_brain::RetrieveFn = Arc::new(move |q, ctx| {
+            let rag = Arc::clone(&rag_c);
+            let db = Arc::clone(&db_c);
+            Box::pin(async move {
+                let mut sources = Vec::new();
+                if rag.rag_enabled() {
+                    let allowed = ctx.allowed_classifications.clone();
+                    let chunks = rag
+                        .retrieval
+                        .query(&q, Some(rag.top_k()), allowed.as_deref())
+                        .await;
+                    for c in chunks {
+                        sources.push(mp_brain::TurnSource {
+                            source: c.source,
+                            text: Some(c.text),
+                            classification: Some(c.classification),
+                            score: Some(c.score),
+                        });
+                    }
+                }
+                if rag.memory_enabled() {
+                    if let Some(uid) = ctx.user_uid.as_deref() {
+                        if let Ok(facts) = db.memory().recall(uid, 10) {
+                            for f in facts {
+                                sources.push(mp_brain::TurnSource {
+                                    source: "your memory".into(),
+                                    text: Some(f.fact),
+                                    classification: Some("unclassified".into()),
+                                    score: Some(1.0),
+                                });
+                            }
+                        }
+                    }
+                }
+                Ok(sources)
+            })
+        });
+        state.brain.set_retrieve(retrieve).await;
+    }
+    let brain = Arc::clone(&state.brain);
     start_watchdog();
 
     let http = tokio::spawn(async move {
@@ -165,6 +251,11 @@ async fn main() {
         config.command_prefix.clone(),
         config.command_aliases.clone(),
         &paths.data_dir,
+        bot::BotServices {
+            db: Arc::clone(&db),
+            brain,
+            rag: Some(rag),
+        },
     )
     .await;
 
@@ -177,6 +268,7 @@ async fn start_teamspeak(
     prefix: String,
     aliases: std::collections::HashMap<String, String>,
     data_dir: &std::path::Path,
+    services: bot::BotServices,
 ) {
     #[cfg(feature = "ts6")]
     {
@@ -211,6 +303,7 @@ async fn start_teamspeak(
                 rights,
                 prefix,
                 aliases,
+                services,
             );
             let session_c = Arc::clone(&session);
             let station_c = Arc::clone(&station);
@@ -252,7 +345,7 @@ async fn start_teamspeak(
     }
     #[cfg(not(feature = "ts6"))]
     {
-        let _ = (station, rights, prefix, aliases, data_dir);
+        let _ = (station, rights, prefix, aliases, data_dir, services);
         info!("ts session: mock (built without ts6 feature)");
     }
 }

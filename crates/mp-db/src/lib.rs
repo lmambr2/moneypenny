@@ -13,10 +13,12 @@ use std::sync::Mutex;
 use rusqlite::{Connection, OpenFlags};
 
 mod history;
+mod memory;
 mod sessions;
 mod users;
 
 pub use history::PlayHistoryStore;
+pub use memory::{MemoryFact, MemoryStore};
 pub use sessions::{SessionStore, SessionValidation, MAX_SESSIONS_PER_USER, SESSION_TTL_MS};
 pub use users::{UserRole, UserRow, UserStore, UsernameTakenError, BCRYPT_COST};
 
@@ -140,6 +142,10 @@ impl Database {
 
     pub fn play_history(&self) -> PlayHistoryStore<'_> {
         PlayHistoryStore { db: self }
+    }
+
+    pub fn memory(&self) -> MemoryStore<'_> {
+        MemoryStore { db: self }
     }
 
     pub fn user_count(&self) -> Result<u32> {

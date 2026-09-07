@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use crate::complete::complete_turn;
 use crate::factory::{transport_from_settings, BrainTransport};
-use crate::in_process::InProcessBrain;
+use crate::in_process::{InProcessBrain, RetrieveFn};
 use crate::llm::LlmSettings;
 use crate::types::{TurnRequest, TurnResponse};
 
@@ -19,6 +19,7 @@ pub struct BrainRuntime {
 struct Inner {
     settings: LlmSettings,
     transport: BrainTransport,
+    retrieve: Option<RetrieveFn>,
 }
 
 impl BrainRuntime {
@@ -28,6 +29,7 @@ impl BrainRuntime {
             inner: RwLock::new(Inner {
                 settings,
                 transport,
+                retrieve: None,
             }),
         })
     }
@@ -37,6 +39,7 @@ impl BrainRuntime {
             inner: RwLock::new(Inner {
                 settings: LlmSettings::default(),
                 transport,
+                retrieve: None,
             }),
         })
     }
@@ -95,6 +98,22 @@ impl BrainRuntime {
         if let Some(v) = fallback_model {
             g.settings.fallback_model = v;
         }
-        g.transport = transport_from_settings(&g.settings);
+        rebuild_transport(&mut g);
     }
+
+    pub async fn set_retrieve(&self, retrieve: RetrieveFn) {
+        let mut g = self.inner.write().await;
+        g.retrieve = Some(retrieve);
+        rebuild_transport(&mut g);
+    }
+}
+
+fn rebuild_transport(inner: &mut Inner) {
+    let mut transport = transport_from_settings(&inner.settings);
+    if let Some(r) = inner.retrieve.clone() {
+        if let BrainTransport::InProcess(b) = transport {
+            transport = BrainTransport::InProcess(b.with_retrieve(r));
+        }
+    }
+    inner.transport = transport;
 }

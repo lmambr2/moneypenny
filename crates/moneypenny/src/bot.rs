@@ -2,21 +2,29 @@
 // SPDX-License-Identifier: MIT
 
 //! Chat → parse → rights → executor. Player frames → TS Opus music send.
-//! Never put the model between a user and skip. Unknown commands are not
-//! sent to an LLM in Phase 2.
+//! Never put the model between a user and skip.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use mp_brain::{TurnChannel, TurnMode, TurnOptions, TurnRequest, TurnSubject};
 use mp_control::{
     default_aliases, is_known_command, parse_command, CommandExecutor,
 };
+use mp_db::Database;
 use mp_music::{MusicStation, PlayerEvent, QueuedSong};
+use mp_rag::allowed_classifications_for;
 use mp_rights::{RightsEngine, Scope, Subject};
 use mp_ts::{OpusPacket, Target, TsEvent, TsSession, TsSessionExt, CODEC_OPUS_MUSIC};
 use tracing::{info, warn};
 
 const REPLY_DEDUPE_MS: u128 = 4_000;
+
+pub struct BotServices {
+    pub db: Arc<Database>,
+    pub brain: Arc<mp_brain::BrainRuntime>,
+    pub rag: Option<Arc<mp_rag::RagRuntime>>,
+}
 
 pub struct BotLoop<S> {
     session: Arc<S>,
@@ -25,6 +33,7 @@ pub struct BotLoop<S> {
     rights: Option<Arc<RightsEngine>>,
     prefix: String,
     aliases: std::collections::HashMap<String, String>,
+    services: BotServices,
 }
 
 impl<S: TsSession + TsSessionExt + 'static> BotLoop<S> {
@@ -34,6 +43,7 @@ impl<S: TsSession + TsSessionExt + 'static> BotLoop<S> {
         rights: Option<Arc<RightsEngine>>,
         prefix: String,
         aliases: std::collections::HashMap<String, String>,
+        services: BotServices,
     ) -> Self {
         let mut aliases = aliases;
         if aliases.is_empty() {
@@ -47,6 +57,7 @@ impl<S: TsSession + TsSessionExt + 'static> BotLoop<S> {
             rights,
             prefix,
             aliases,
+            services,
         }
     }
 
@@ -149,7 +160,7 @@ impl<S: TsSession + TsSessionExt + 'static> BotLoop<S> {
                         return self.executor.execute(&cmd).await;
                     }
                 }
-                Some("Moneypenny online (rust phase 2).".into())
+                Some("Moneypenny online (rust).".into())
             }
             _ => None,
         }
@@ -170,19 +181,19 @@ impl<S: TsSession + TsSessionExt + 'static> BotLoop<S> {
         }
         let parsed = parse_command(&body, &self.prefix, &self.aliases)?;
         if !is_known_command(&parsed.name) {
-            // Phase 2: no LLM fuzzy-intent fallback.
             return None;
         }
+        let uid = if invoker_uid.is_empty() {
+            format!("clid:{invoker_id}")
+        } else {
+            invoker_uid
+        };
+        let subject = Subject {
+            uid: uid.clone(),
+            server_groups: invoker_groups,
+            nickname: Some(invoker_name),
+        };
         if let Some(engine) = &self.rights {
-            let subject = Subject {
-                uid: if invoker_uid.is_empty() {
-                    format!("clid:{invoker_id}")
-                } else {
-                    invoker_uid
-                },
-                server_groups: invoker_groups,
-                nickname: Some(invoker_name),
-            };
             if !engine.can(&subject, &parsed.name, Scope::Chat) {
                 return Some(format!(
                     "You don't have permission to use '{}'.",
@@ -190,7 +201,135 @@ impl<S: TsSession + TsSessionExt + 'static> BotLoop<S> {
                 ));
             }
         }
-        self.executor.execute(&parsed).await
+        match parsed.name.as_str() {
+            "remember" => Some(self.cmd_remember(&parsed.args, &uid)),
+            "recall" => Some(self.cmd_recall(&uid)),
+            "forget" => Some(self.cmd_forget(&parsed.args, &uid)),
+            "ask" => Some(self.cmd_ask(&parsed.args, &subject).await),
+            "reindex" => Some(self.cmd_reindex(&parsed.args).await),
+            _ => self.executor.execute(&parsed).await,
+        }
+    }
+
+    fn cmd_remember(&self, args: &str, uid: &str) -> String {
+        let fact = args.trim();
+        if fact.is_empty() {
+            return "Usage: !remember <something about you>".into();
+        }
+        if let Err(e) = self.services.db.memory().add(uid, fact) {
+            return format!("Couldn't save that: {e}");
+        }
+        let injection = self
+            .services
+            .rag
+            .as_ref()
+            .is_some_and(|r| r.memory_enabled());
+        if injection {
+            "Noted — I shan't forget, darling.".into()
+        } else {
+            "Noted (memory injection is off; an admin can enable it in Settings).".into()
+        }
+    }
+
+    fn cmd_recall(&self, uid: &str) -> String {
+        let facts = self.services.db.memory().recall(uid, 15).unwrap_or_default();
+        if facts.is_empty() {
+            return "I've nothing on you yet. Use !remember <fact>.".into();
+        }
+        let lines: Vec<String> = facts
+            .iter()
+            .enumerate()
+            .map(|(i, f)| format!("{}. {}", i + 1, f.fact))
+            .collect();
+        format!("What I remember about you:\n{}", lines.join("\n"))
+    }
+
+    fn cmd_forget(&self, args: &str, uid: &str) -> String {
+        let trimmed = args.trim().to_ascii_lowercase();
+        if trimmed.is_empty() {
+            return "Usage: !forget <number> or !forget all".into();
+        }
+        if trimmed == "all" {
+            let n = self.services.db.memory().forget(uid).unwrap_or(0);
+            return if n > 0 {
+                format!("Forgotten {n} fact{}.", if n == 1 { "" } else { "s" })
+            } else {
+                "Nothing to forget.".into()
+            };
+        }
+        let Ok(index) = trimmed.parse::<i64>() else {
+            return "Usage: !forget <number> (from !recall) or !forget all".into();
+        };
+        if index < 1 {
+            return "Usage: !forget <number> (from !recall) or !forget all".into();
+        }
+        match self.services.db.memory().forget_at_index(uid, index) {
+            Ok(true) => "Forgotten.".into(),
+            _ => "No fact at that number — run !recall to see your list.".into(),
+        }
+    }
+
+    async fn cmd_ask(&self, args: &str, subject: &Subject) -> String {
+        let q = args.trim();
+        if q.is_empty() {
+            return "Usage: !ask <question>".into();
+        }
+        let allowed = allowed_classifications_for(self.rights.as_deref(), subject);
+        let req = TurnRequest {
+            client_turn_id: None,
+            channel: TurnChannel::Teamspeak,
+            text: q.to_string(),
+            conversation_id: Some("channel".into()),
+            subject: Some(TurnSubject {
+                uid: Some(subject.uid.clone()),
+                server_groups: Some(subject.server_groups.clone()),
+                allowed_classifications: Some(allowed),
+            }),
+            mode: Some(TurnMode::Ask),
+            options: Some(TurnOptions {
+                include_sources: Some(true),
+                max_tools: None,
+            }),
+        };
+        let r = self.services.brain.complete(req).await;
+        if !r.reply_text.trim().is_empty() {
+            r.reply_text
+        } else {
+            r.error
+                .unwrap_or_else(|| "Sorry, the local brain is having a moment.".into())
+        }
+    }
+
+    async fn cmd_reindex(&self, args: &str) -> String {
+        let Some(rag) = self.services.rag.as_ref() else {
+            return "RAG is not configured.".into();
+        };
+        let arg = args.trim();
+        let result = if arg.is_empty() {
+            mp_rag::reindex_doctrine(&rag.retrieval, &rag.doctrine).await
+        } else {
+            mp_rag::reindex_sources(
+                &rag.retrieval,
+                &rag.doctrine,
+                [arg.to_string()],
+                true,
+            )
+            .await
+        };
+        match result {
+            Ok(docs) => {
+                if docs.is_empty() {
+                    "Doctrine already up to date.".into()
+                } else {
+                    format!(
+                        "Reindexed {} doc{}.",
+                        docs.len(),
+                        if docs.len() == 1 { "" } else { "s" }
+                    )
+                }
+            }
+            Err(e) => format!("Reindex failed: {e}"),
+        }
     }
 }
 

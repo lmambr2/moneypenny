@@ -14,8 +14,14 @@ use crate::types::{
     empty_turn, Brain, BrainError, ToolProposal, TurnMode, TurnRequest, TurnResponse, TurnSource,
 };
 
+#[derive(Debug, Clone, Default)]
+pub struct RetrieveCtx {
+    pub allowed_classifications: Option<Vec<String>>,
+    pub user_uid: Option<String>,
+}
+
 pub type RetrieveFn = Arc<
-    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<Vec<TurnSource>, String>> + Send>>
+    dyn Fn(String, RetrieveCtx) -> Pin<Box<dyn Future<Output = Result<Vec<TurnSource>, String>> + Send>>
         + Send
         + Sync,
 >;
@@ -105,7 +111,14 @@ impl InProcessBrain {
         let mut sources: Vec<TurnSource> = Vec::new();
         if include_sources {
             if let Some(retrieve) = self.retrieve.as_ref() {
-                match retrieve(text.to_string()).await {
+                let ctx = RetrieveCtx {
+                    allowed_classifications: req
+                        .subject
+                        .as_ref()
+                        .and_then(|s| s.allowed_classifications.clone()),
+                    user_uid: req.subject.as_ref().and_then(|s| s.uid.clone()),
+                };
+                match retrieve(text.to_string(), ctx).await {
                     Ok(chunks) => sources = chunks,
                     Err(msg) => {
                         return empty_turn(turn_id, &req, format!("RAG retrieval failed: {msg}"));

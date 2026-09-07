@@ -1209,11 +1209,13 @@ dependencies = [
  "clap",
  "dotenvy",
  "mp-audio",
+ "mp-brain",
  "mp-config",
  "mp-control",
  "mp-db",
  "mp-http",
  "mp-music",
+ "mp-rag",
  "mp-rights",
  "mp-ts",
  "tokio",
@@ -1297,6 +1299,7 @@ dependencies = [
  "mp-control",
  "mp-db",
  "mp-music",
+ "mp-rag",
  "mp-rights",
  "serde",
  "serde_json",
@@ -1342,8 +1345,17 @@ dependencies = [
 name = "mp-rag"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "mp-db",
+ "mp-rights",
+ "reqwest",
+ "rusqlite",
  "serde",
+ "serde_json",
+ "sha1",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

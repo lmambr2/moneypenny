@@ -24,8 +24,10 @@ mp-audio = { path = "../mp-audio" }
 mp-config = { path = "../mp-config" }
 mp-control = { path = "../mp-control" }
 mp-db = { path = "../mp-db" }
+mp-brain = { path = "../mp-brain" }
 mp-http = { path = "../mp-http" }
 mp-music = { path = "../mp-music" }
+mp-rag = { path = "../mp-rag" }
 mp-rights = { path = "../mp-rights" }
 mp-ts = { path = "../mp-ts" }
 tokio.workspace = true

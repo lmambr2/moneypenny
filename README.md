@@ -48,11 +48,12 @@ On **`feat/rust-bot-rewrite`**, the **Node bot process** is being replaced by a
 Rust binary in `crates/`. Vue, sidecars, and the installer stay. Node remains
 production (`BOT_RUNTIME=node`) until Phase 9 cutover.
 
-**Now (Phases 0–4):** first-run Vue admin, `!play` / `!skip` / `!queue` on
+**Now (Phases 0–5):** first-run Vue admin, `!play` / `!skip` / `!queue` on
 `tsclient-rs`, Vue `/api/*` parity (no console 404s), live-status WebSocket,
-`POST /v1/turn` (LLM proposes, executor disposes after rights).
+`POST /v1/turn` (LLM proposes, executor disposes after rights), doctrine RAG +
+`!remember` / `!ask`.
 
-**Not yet:** RAG / `!remember`, inbound voice, radio, economy, MCP, YouTube.
+**Not yet:** MemPalace / org KG, inbound voice, radio, economy, MCP, YouTube.
 
 See **[docs/rust-rewrite.md](./docs/rust-rewrite.md)** (live vs stub table,
 crate map, dual-run overlay).

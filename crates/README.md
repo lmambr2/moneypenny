@@ -3,9 +3,9 @@
 Strangler rewrite of the Node bot process (`bot/src/index.ts`). Vue and HTTP
 sidecars stay. Full plan and live/stub table: **[docs/rust-rewrite.md](../docs/rust-rewrite.md)**.
 
-**This branch:** Phases **0–4 live** (health, first-run, `!play`/`!skip`/`!queue`,
-Vue `/api/*` parity, `POST /v1/turn`). RAG / voice / radio / economy / MCP are
-compiling stubs.
+**This branch:** Phases **0–5 live** (health, first-run, `!play`/`!skip`/`!queue`,
+Vue `/api/*` parity, `POST /v1/turn`, doctrine RAG + `!remember`/`!ask`).
+Voice / radio / economy / MCP are compiling stubs.
 
 ```bash
 cargo test --workspace

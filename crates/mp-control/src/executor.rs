@@ -449,6 +449,11 @@ impl CommandExecutor {
             &format!("{p}queue ({p}list) · {p}now · {p}clear · {p}remove <n> · {p}vol <0-100> · {p}mode <seq|loop|random|rloop>"),
             &format!("{p}ban [reason] · {p}ban list · {p}unban"),
             "",
+            "Ask / memory",
+            &format!("{p}ask <question> — Grounded Q&A (RAG when enabled)"),
+            &format!("{p}remember <fact> · {p}recall · {p}forget <n|all> — Per-user memory"),
+            &format!("{p}reindex [source.md] — Re-embed doctrine"),
+            "",
             &format!("{p}help — This message"),
         ]
         .join("\n")

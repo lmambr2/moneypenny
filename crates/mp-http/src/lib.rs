@@ -5,9 +5,9 @@
 //! Axum HTTP surface. Domain bundle order matches `domain-bundles.ts`:
 //! SYSTEM → MCP (stub) → SESSION → BRAIN (`POST /v1/turn`) → STATION API → SPA → WS.
 //!
-//! Live through rewrite Phase 4: health, session/CSRF, Vue SPA, `/api/bot` +
-//! local music/player, live-status WS, `POST /v1/turn`. Unported domains
-//! (economy/RAG/harness/MCP) return empty JSON, not 404.
+//! Live through rewrite Phase 5: health, session/CSRF, Vue SPA, `/api/bot` +
+//! local music/player, live-status WS, `POST /v1/turn`, doctrine RAG + memory.
+//! Unported domains (economy/harness/MCP/radio) return empty JSON, not 404.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -32,6 +32,7 @@ mod json_song;
 mod music_api;
 mod openapi;
 mod player_api;
+mod rag_api;
 mod rate_limit;
 mod session;
 mod spa;
@@ -58,6 +59,7 @@ pub struct AppState {
     pub bot_name: String,
     pub ws_tx: broadcast::Sender<serde_json::Value>,
     pub brain: Arc<mp_brain::BrainRuntime>,
+    pub rag: Option<Arc<mp_rag::RagRuntime>>,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -83,9 +85,15 @@ impl AppState {
                 .unwrap_or_else(|_| "Moneypenny".into()),
             ws_tx,
             brain,
+            rag: None,
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
+    }
+
+    pub fn with_rag(mut self, rag: Arc<mp_rag::RagRuntime>) -> Self {
+        self.rag = Some(rag);
+        self
     }
 
     pub fn with_brain(mut self, brain: Arc<mp_brain::BrainRuntime>) -> Self {
@@ -232,9 +240,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/music/analyze", post(stubs::not_ported))
         .route("/api/music/upload", post(stubs::not_ported))
         .route("/api/bot/ace-step/generate", post(stubs::not_ported))
-        .route("/api/rag/doctrine/new", post(stubs::not_ported))
-        .route("/api/rag/doctrine/reindex", post(stubs::not_ported))
+        .route("/api/rag/doctrine/new", post(rag_api::doctrine_new))
+        .route("/api/rag/doctrine/reindex", post(rag_api::doctrine_reindex))
         .route("/api/rag/doctrine/reformat", post(stubs::not_ported))
+        .route("/api/rag/query", post(rag_api::rag_query))
+        .route("/api/rag/ingest", post(rag_api::rag_ingest))
         .route("/api/economy/workorders", get(stubs::economy_workorders).post(stubs::not_ported).delete(stubs::not_ported))
         .route("/api/economy/cache/refresh", post(stubs::not_ported))
         .route("/api/economy/trade/routes", post(stubs::not_ported))
@@ -282,9 +292,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/economy/craft", get(stubs::economy_ok))
         .route("/api/economy/blueprints", get(stubs::economy_ok))
         .route("/api/economy/prices", get(stubs::economy_ok))
-        .route("/api/rag/doctrine", get(stubs::rag_doctrine))
+        .route("/api/rag/doctrine", get(rag_api::doctrine_list))
         .route("/api/rag/doctrine/export/capabilities", get(stubs::rag_export_caps))
-        .route("/api/rag/doctrine/hygiene", get(stubs::rag_hygiene))
+        .route("/api/rag/doctrine/hygiene", get(rag_api::doctrine_hygiene))
+        .route(
+            "/api/rag/doctrine/{source}",
+            get(rag_api::doctrine_get)
+                .put(rag_api::doctrine_put)
+                .delete(rag_api::doctrine_delete),
+        )
         .route("/api/users", get(stubs::users_list))
         .route("/api/audit", get(stubs::audit_list))
         .route("/api/users/{id}", delete(stubs::not_ported))
@@ -834,5 +850,91 @@ mod tests {
             .contains("[dry-run]"));
         assert_eq!(station.queue.lock().unwrap().size(), 0);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn doctrine_create_list_query() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let data = std::env::temp_dir().join(format!(
+            "mp-http-doc-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let retrieval = Arc::new(mp_rag::RetrievalStore::new(
+            mp_rag::Embedder::Hash { dim: 16 },
+            mp_rag::VectorStore::Memory(mp_rag::MemoryVectorStore::new()),
+            "t".into(),
+            4,
+        ));
+        let doctrine = Arc::new(mp_rag::DoctrineStore::new(Arc::clone(&db), &data).unwrap());
+        let rag = mp_rag::RagRuntime::new(retrieval, doctrine, true, true, 4);
+        let state = AppState::new(db, cfg, None).with_rag(rag);
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/rag/doctrine/new")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(
+                        r##"{"source":"combat.md","content":"# Formation\nHeavies establish the perimeter before jump.\n"}"##,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/rag/doctrine")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["docs"][0]["source"], "combat.md");
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/rag/query")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"q":"formation perimeter"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            v["chunks"].as_array().map(|a| !a.is_empty()).unwrap_or(false),
+            "{v}"
+        );
+        let _ = std::fs::remove_dir_all(data);
     }
 }

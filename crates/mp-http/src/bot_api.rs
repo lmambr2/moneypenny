@@ -128,7 +128,7 @@ pub fn live_status(st: &AppState) -> Value {
         "queue": queue,
         "radio": null,
         "voice": { "enabled": false, "duckOnSpeech": true },
-        "rag": { "enabled": false },
+        "rag": { "enabled": st.rag.as_ref().is_some_and(|r| r.rag_enabled()) },
         "feedback": feedback,
         "scope": {
             "serverLabel": "",
@@ -161,9 +161,9 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "musicBlockedGenres": c.music_blocked_genres,
         "autoFollowEnabled": false,
         "autoFollowCooldownSec": 60,
-        "ragEnabled": false,
-        "ragTopK": 6,
-        "memoryEnabled": false,
+        "ragEnabled": st.rag.as_ref().map(|r| r.rag_enabled()).unwrap_or(c.rag_enabled),
+        "ragTopK": st.rag.as_ref().map(|r| r.top_k() as u32).unwrap_or(c.rag_top_k),
+        "memoryEnabled": st.rag.as_ref().map(|r| r.memory_enabled()).unwrap_or(c.memory_enabled),
         "kgEnabled": false,
         "mempalaceEnabled": false,
         "mempalaceUrl": "",
@@ -190,10 +190,10 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "recordingsEnabled": false,
         "voice": { "enabled": false, "duckMusicOnSpeech": true },
         "radio": { "enabled": false, "activeProfile": "default" },
-        "vectorDbUrl": "",
+        "vectorDbUrl": c.vector_db_url,
         "embeddingUrl": c.embedding_url,
         "embeddingModel": c.embedding_model,
-        "ragCollection": "moneypenny_docs",
+        "ragCollection": c.rag_collection,
     }))
 }
 
@@ -234,6 +234,17 @@ pub async fn settings_post(
                     .map(str::to_string),
             )
             .await;
+    }
+    if let Some(rag) = st.rag.as_ref() {
+        if let Some(v) = body.get("ragEnabled").and_then(|v| v.as_bool()) {
+            rag.set_rag_enabled(v);
+        }
+        if let Some(v) = body.get("memoryEnabled").and_then(|v| v.as_bool()) {
+            rag.set_memory_enabled(v);
+        }
+        if let Some(v) = body.get("ragTopK").and_then(|v| v.as_u64()) {
+            rag.set_top_k(v as usize);
+        }
     }
     Json(json!({ "ok": true }))
 }

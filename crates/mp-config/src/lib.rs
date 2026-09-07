@@ -94,6 +94,16 @@ pub struct BotConfig {
     #[serde(default)]
     pub embedding_model: String,
     #[serde(default)]
+    pub vector_db_url: String,
+    #[serde(default)]
+    pub rag_enabled: bool,
+    #[serde(default = "default_rag_top_k")]
+    pub rag_top_k: u32,
+    #[serde(default = "default_rag_collection")]
+    pub rag_collection: String,
+    #[serde(default)]
+    pub memory_enabled: bool,
+    #[serde(default)]
     pub rights_enabled: bool,
     #[serde(default = "default_true")]
     pub poke_commands_enabled: bool,
@@ -143,6 +153,12 @@ fn default_blocked_genres() -> Vec<String> {
 fn default_llm_temperature() -> f32 {
     0.2
 }
+fn default_rag_top_k() -> u32 {
+    6
+}
+fn default_rag_collection() -> String {
+    "moneypenny_docs".into()
+}
 
 impl Default for BotConfig {
     fn default() -> Self {
@@ -168,6 +184,11 @@ impl Default for BotConfig {
             llm_temperature: 0.2,
             embedding_url: String::new(),
             embedding_model: String::new(),
+            vector_db_url: String::new(),
+            rag_enabled: false,
+            rag_top_k: 6,
+            rag_collection: "moneypenny_docs".into(),
+            memory_enabled: false,
             rights_enabled: true,
             poke_commands_enabled: true,
             music_opus_bitrate_kbps: 64,
@@ -283,6 +304,25 @@ fn apply_env(cfg: &mut BotConfig) {
     if cfg.embedding_url.is_empty() {
         if let Ok(v) = std::env::var("EMBEDDING_URL") {
             cfg.embedding_url = v;
+        }
+    }
+    if cfg.vector_db_url.is_empty() {
+        if let Ok(v) = std::env::var("VECTOR_DB_URL") {
+            if !v.is_empty() {
+                cfg.vector_db_url = v;
+            }
+        }
+    }
+    if let Ok(v) = std::env::var("RAG_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.rag_enabled = true;
+        }
+    }
+    if let Ok(v) = std::env::var("MEMORY_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.memory_enabled = true;
         }
     }
     if let Ok(v) = std::env::var("LLM_ENABLED") {

@@ -1,7 +1,8 @@
 # Loading documents into the knowledge base (RAG)
 
-On `feat/rust-bot-rewrite`, RAG ingest/query is **rewrite Phase 5** (`crates/mp-rag`
-stub). This doc is the Node-shipped ingest contract. See [rust-rewrite.md](./rust-rewrite.md).
+On `feat/rust-bot-rewrite`, doctrine ingest/query/reindex is **live** (`crates/mp-rag`).
+TurboVec when `VECTOR_DB_URL` is set; otherwise in-memory vectors. Multipart upload
+and pandoc export are still stubbed. See [rust-rewrite.md](./rust-rewrite.md).
 
 Moneypenny's `!ask` and `!analyst` answers from a **doctrine corpus** — Markdown
 documents you load, embedded into a vector store (TurboVec) and retrieved at query

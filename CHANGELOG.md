@@ -26,9 +26,12 @@ Plan: [docs/rust-rewrite.md](./docs/rust-rewrite.md). Workspace: `crates/`.
 - **Phase 4** — `POST /v1/turn` (admin cookie): in-process OpenAI-compat or
   `BRAIN_URL`; `executeTools:false` never mutates the queue; dispose after
   harness policy + rights; `409 LLM_DISABLED`
+- **Phase 5** — embeddings HTTP (or hash-dev), TurboVec or in-memory vectors,
+  doctrine ingest/list/query/reindex, SQLite `!remember`/`!recall`/`!forget`,
+  `!ask` + turn `sources[]` (rank-gated `doctrine:<level>`)
 
-Not in this branch yet: RAG/`!remember`, inbound voice pipeline, radio, economy,
-MCP, YouTube provider. Dual-run overlay: `docker-compose.rust.yml` (`:3001`).
+Not in this branch yet: MemPalace, org KG, inbound voice, radio, economy, MCP,
+YouTube provider. Dual-run overlay: `docker-compose.rust.yml` (`:3001`).
 
 ## 2026-07-25
 

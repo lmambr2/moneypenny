@@ -21,7 +21,7 @@ pub use factory::{
     in_process_from_settings, resolve_brain_transport, transport_from_settings, BrainTransport,
 };
 pub use http::{FetchFn, HttpBrain, RawHttp};
-pub use in_process::{InProcessBrain, RetrieveFn};
+pub use in_process::{InProcessBrain, RetrieveCtx, RetrieveFn};
 pub use llm::{
     IntentResult, IntentToolCall, LlmBackend, LlmSettings, OpenAiLlm, ScriptedLlm,
 };
@@ -74,7 +74,7 @@ mod tests {
 
     #[tokio::test]
     async fn ask_mode_returns_reply_and_sources_without_tools() {
-        let retrieve: RetrieveFn = Arc::new(|_q| {
+        let retrieve: RetrieveFn = Arc::new(|_q, _ctx| {
             Box::pin(async {
                 Ok(vec![TurnSource {
                     source: "doc.md".into(),

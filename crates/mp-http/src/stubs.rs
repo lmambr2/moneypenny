@@ -55,16 +55,9 @@ pub async fn economy_ok(_user: AuthUser) -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
-pub async fn rag_doctrine(_admin: AdminUser) -> Json<Value> {
-    Json(json!({ "docs": [] }))
-}
 pub async fn rag_export_caps(_admin: AdminUser) -> Json<Value> {
     Json(json!({ "pandoc": false }))
 }
-pub async fn rag_hygiene(_admin: AdminUser) -> Json<Value> {
-    Json(json!({ "docCount": 0, "expiredCount": 0, "reindex": { "endpoint": "POST /api/rag/doctrine/reindex" } }))
-}
-
 pub async fn harness_turns(_user: AuthUser) -> Json<Value> {
     Json(json!({ "turns": [] }))
 }

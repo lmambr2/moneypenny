@@ -7,7 +7,7 @@ Spotify/Tidal bridges, `install.sh`, and compose overlays **stay**.
 Source of truth for this branch: `lmambr2/moneypenny` @ `ec464a2` (DESIGN v3,
 AGENTS.md seams, 1227 backend tests).
 
-**Branch status (2026-09):** Phases **0–4 live** on `feat/rust-bot-rewrite`.
+**Branch status (2026-09):** Phases **0–5 live** on `feat/rust-bot-rewrite`.
 Node remains production (`BOT_RUNTIME=node`) until Phase 9 cutover.
 
 ## Why
@@ -49,7 +49,7 @@ Rust :3001 (this overlay) until flip
 | `mp-control` | parse + executeDeterministic + LLM `tool-map` + dispose | **live** (`!play`/`!skip`/`!queue` + brain dispose after rights) |
 | `mp-music` | Local / YouTube / Stream | **live LocalProvider** + ffmpeg→Opus 20 ms; YT/stream still out |
 | `mp-brain` | `/v1/turn` transport | **live** in-process OpenAI-compat or `BRAIN_URL` HTTP; dispose after rights |
-| `mp-rag` | embeddings + TurboVec | stub (Phase 5) |
+| `mp-rag` | embeddings + TurboVec + doctrine | **live** HTTP embeddings or hash-dev; TurboVec or in-memory; `!remember` SQLite |
 | `mp-voice` | VAD → STT HTTP → TTS HTTP | stub (Phase 6) |
 | `mp-radio` | director / bumpers | stub (Phase 7) |
 | `mp-economy` | mine/craft/trade/UEX | stub (Phase 8) |
@@ -181,8 +181,8 @@ These numbers are **the rewrite sequence**, not DESIGN.md product phases
 | **1 skeleton** | create admin in existing Vue UI against Rust | **done** |
 | **2 music bot** | `!play` `!skip` `!queue` rank-gated, no LLM | **done** |
 | **3 HTTP parity** | every Vue page, no console 404s, live-status WS | **done** |
-| **4 brain** | `POST /v1/turn`, dispose after rights | **done** (this branch) |
-| **5 RAG/memory** | TurboVec + doctrine + `!remember` | next |
+| **4 brain** | `POST /v1/turn`, dispose after rights | **done** |
+| **5 RAG/memory** | TurboVec + doctrine + `!remember` | **done** (this branch) |
 | **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process | — |
 | **7 radio** | `docs/radio.md` | — |
 | **8 community** | roast, economy, MCP, moves | — |
@@ -191,7 +191,7 @@ These numbers are **the rewrite sequence**, not DESIGN.md product phases
 Kill criteria for the *spike* (gates 3+4 fail **and** sidecar Option B rejected)
 did **not** fire. Option A (`tsclient-rs`) is the live path.
 
-## What is mock vs live (Phase 4)
+## What is mock vs live (Phase 5)
 
 | Surface | Live | Mock / stub |
 |---------|------|-------------|
@@ -205,9 +205,11 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
 | `!play` `!skip` `!queue` + web play | **live** local library, rank-gated | YouTube / radio still stubbed |
-| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | RAG `sources` empty until Phase 5; dashboard `/harness` ask + TS `!ask` still stub |
-| Settings `llmEnabled` / `llmUrl` / `llmModel` | **live** in-memory on the brain runtime | not persisted to `config.json` (dual-run: Node still owns writes) |
-| radio, RAG, inbound voice pipeline, MCP, economy | — | compiling stubs / empty JSON |
+| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | dashboard `/harness` ask still stub |
+| `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; doctrine reindex | MemPalace / org KG still out |
+| Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query | multipart upload + pandoc export + reformat still stub |
+| Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` | **live** in-memory on brain/rag runtimes | not persisted to `config.json` (dual-run: Node still owns writes) |
+| radio, inbound voice pipeline, MCP, economy | — | compiling stubs / empty JSON |
 
 ## Brain code map (Phase 4)
 
