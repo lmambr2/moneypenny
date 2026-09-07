@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 //! Music providers. Platforms are `local | youtube | stream` only.
-//! Phase 2: LocalProvider (realpath+prefix), PlayQueue, ffmpeg→Opus player,
-//! playback blacklist + protected artists.
+//! Live: LocalProvider (realpath+prefix), PlayQueue, ffmpeg→Opus player,
+//! playback blacklist + protected artists. YouTube/stream still out.
 
 mod blacklist;
 mod ffmpeg;

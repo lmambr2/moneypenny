@@ -10,6 +10,10 @@ fork; overlays + install flags select the product shape.
 
 Full product matrix: [docs/editions.md](./docs/editions.md).
 
+Production bot is still **Node** until Phase 9 cutover. The Rust process on
+`feat/rust-bot-rewrite` is dual-run via `docker-compose.rust.yml`
+([docs/rust-rewrite.md](./docs/rust-rewrite.md)).
+
 ---
 
 ## What each release contains

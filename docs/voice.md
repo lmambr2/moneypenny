@@ -2,6 +2,8 @@
 
 **Goal (DESIGN §10):** Inbound TeamSpeak audio → STT → the same control router as chat → optional TTS reply.
 
+On `feat/rust-bot-rewrite` the inbound pipeline is **rewrite Phase 6** (`crates/mp-voice` stub). Sidecar contracts below are unchanged. See [rust-rewrite.md](./rust-rewrite.md).
+
 ## Sidecars
 
 **Multi-backend layout:** see **[voice-backends.md](./voice-backends.md)** (edge Pi vs x86 server).

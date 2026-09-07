@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
-//! Brain turn contract (`docs/brain-boundary.md`).
+//! Brain turn contract (`docs/brain-boundary.md`). Rewrite Phase 4.
 //! Brain *proposes*; bot *disposes*. `POST /v1/turn` JSON is frozen.
 
 mod complete;

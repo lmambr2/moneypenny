@@ -1,6 +1,8 @@
 # Phase 7 — Per-user memory & org knowledge graph
 
-**Status:** shipped. Personal facts (`!remember`) + optional MemPalace semantic
+**Status:** shipped on Node. On `feat/rust-bot-rewrite` this is **rewrite Phase 5** (`crates/mp-rag` stub; `!remember` not ported). See [rust-rewrite.md](./rust-rewrite.md).
+
+**Node:** Personal facts (`!remember`) + optional MemPalace semantic
 recall; institutional temporal facts (`!kg` / `!diary`). Injected into `!ask`
 when the Settings toggles are on.
 

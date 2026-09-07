@@ -15,6 +15,8 @@ session tokens stored only as SHA-256; parameterized SQL; session cookie
   slim runtime running as the unprivileged `moneypenny` user (uid 1000).
 - **Read-only root filesystem.** In `docker-compose.yml` the bot runs with
   `read_only: true`, `cap_drop: [ALL]`, and `security_opt: [no-new-privileges]`.
+  The Rust overlay (`docker-compose.rust.yml`) uses the same uid 1000 / `cap_drop`
+  / read-only rootfs.
   All mutable state (SQLite DB, logs, avatars, **and `config.json`**) lives under
   the single writable `/app/data` volume; scratch goes to `tmpfs` (`/tmp`,
   `~/.cache`).

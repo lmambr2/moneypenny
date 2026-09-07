@@ -54,7 +54,7 @@ impl CommandExecutor {
             "unban" => self.cmd_unban(cmd),
             "help" => self.cmd_help(),
             other if crate::manifest::is_known_command(other) => {
-                format!("{other} is not ported yet (Phase 2 is music transport only).")
+                format!("{other} is not ported yet.")
             }
             other => format!(
                 "Unknown command: {other}. Type {}help for help.",

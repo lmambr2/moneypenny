@@ -1,5 +1,8 @@
 # Project Moneypenny — Radio Mode / Autonomous DJ (design v2)
 
+> On `feat/rust-bot-rewrite` radio is **rewrite Phase 7** (`crates/mp-radio` stub).
+> This doc is the Node-shipped design. See [rust-rewrite.md](./rust-rewrite.md).
+>
 > Feature design doc. Continues `DESIGN.md` §4 (control architecture), §8 (rights),
 > §9 (LLM), §10 (voice/TTS) and the ROADMAP retrieval phases (5–7). Style mirrors
 > [`docs/voice.md`](./voice.md) and [`docs/rank-gating.md`](./rank-gating.md).

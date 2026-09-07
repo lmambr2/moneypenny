@@ -4,7 +4,9 @@ This file guides AI coding assistants working in this repo. Follow it unless the
 
 **Default branch:** `dev` (push here; keep `master` aligned when releasing). `master` is the GitHub default branch — there is no `main`.
 
-**Language policy:** English-only source (`bot/src`, `bot/web/src`). No Chinese platforms, APIs, or user-facing strings. Runtime data (song titles, etc.) may be any language.
+**Language policy:** English-only source (`bot/src`, `bot/web/src`, `crates/`). No Chinese platforms, APIs, or user-facing strings. Runtime data (song titles, etc.) may be any language.
+
+**This branch (`feat/rust-bot-rewrite`):** strangler rewrite of the **Node bot process** into `crates/`. Vue + sidecars stay. Implement new bot behavior in Rust crates, not `bot/src`, unless the *shared contract* (OpenAPI path, cookie, schema, command name) itself changes. Status: **[docs/rust-rewrite.md](./docs/rust-rewrite.md)** (Phases 0–4 live).
 
 **Lint/format:** [Biome](https://biomejs.dev/) — `cd bot && npm run lint` / `lint:fix`. Config `bot/biome.json`. Wired into `scripts/deploy-preflight.sh` and full `scripts/ci-validate.sh`. **Does not replace `tsc` or vitest.** See [docs/linting.md](./docs/linting.md).
 
@@ -18,9 +20,9 @@ This is **not** “a frontend and a backend.” It is a **multi-part system** wi
 
 **Product editions (one bot, two packs):** **SBC** (`docker-compose.sbc.yml`) and **Server** (`docker-compose.server.yml`). Same TypeScript contracts; different defaults for LLM size, STT model, and host role. See `docs/editions.md`, `RELEASES.md`. Do not reintroduce “NPU is primary chat” framing — LAN/Server 12B is day-to-day; NPU is offline opt-in.
 
-### A. Bot process (single Node.js app — `bot/`)
+### A. Bot process (Node — `bot/` · production until cutover)
 
-One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, music playback, AI, and the HTTP API.
+One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, music playback, AI, and the HTTP API. **On this rewrite branch the replacement is `crates/moneypenny`** (same cookies, OpenAPI paths, sqlite, `COMMAND_MANIFEST`). Node remains the product reference until Phase 9.
 
 | Subsystem | Path | Owns |
 |-----------|------|------|
@@ -35,8 +37,8 @@ One long-lived process. Entry: `bot/src/index.ts`. Owns TeamSpeak connectivity, 
 | **Economy** | `bot/src/economy/` | Seed mine/refine; live craft/trade/UEX/wiki; **disk cache** `data/economy-cache/` + refresh — **no scrapers** (`docs/economy.md`) |
 | **Rights** | `bot/src/rights/` | Declarative rank gating (chat + voice scopes) |
 | **Voice pipeline** | `bot/src/voice/` | VAD, STT/TTS **HTTP clients**, `VoicePipeline` — not the sidecar processes |
-| **HTTP app** | `bot/src/http/` | Express plugins only (`createWebServer` + domain bundles); public health/OpenAPI/docs via plugins; OpenAPI `GET /api/openapi.json` + Swagger UI `GET /api/docs` |
-| **Brain** | `bot/src/brain/` | Turn transport (in-process or `BRAIN_URL`); proposes tools — bot disposes; `POST /v1/turn` — Phase D |
+| **HTTP app** | `bot/src/http/` (Node Express) · `crates/mp-http` (Rust axum) | Same `/api/*` + `POST /v1/turn` + cookie; OpenAPI `GET /api/openapi.json` |
+| **Brain** | `bot/src/brain/` (Node) · `crates/mp-brain` + `crates/mp-http/src/brain.rs` (Rust) | Turn transport (in-process or `BRAIN_URL`); proposes tools — bot disposes; `POST /v1/turn` |
 | **Audio native** | `bot/packages/audio-native` | Optional Rust Opus/VAD N-API; fallback `@discordjs/opus` — PR-B4 |
 | **Web API** | `bot/src/web/` | Domain routers (`api/*`), middleware, WS helpers — **all HTTP input validation lives here or in called modules** |
 | **Data** | `bot/src/data/` | SQLite (`better-sqlite3`), `config.json`, doctrine registry, users/sessions, avatars |
@@ -49,6 +51,7 @@ Presentation only. Built to `bot/web/dist/`, served by the bot’s Express stati
 
 - **Owns:** layout, forms, client-side state (`stores/`), calling `/api/*`
 - **Does not own:** business rules, auth enforcement, playback, RAG, or TS protocol (server enforces all of that)
+- **Rewrite:** do **not** port Vue to Leptos/Yew. Rust serves `bot/web/dist`.
 
 ### C. Docker sidecars (separate containers — `docker-compose.yml`, `services/`)
 
@@ -57,6 +60,7 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 | Service | Profile | Contract |
 |---------|---------|----------|
 | `bot` | `core` | The Node app (A + B built-in) |
+| `bot-rust` | `rust` (`docker-compose.rust.yml`) | Rust binary overlay on `:3001` until cutover |
 | `ollama` / `rkllama` | `ollama` / `npu` | OpenAI-compatible `/v1` LLM (`npu` = SBC offline only) |
 | `stt-whisper`, `piper-tts` | `voice-edge` / `voice-server` | Dual-track STT: SBC=`stt-rknn`, Server=`stt-whisper-cpp` + Piper (`docs/voice-backends.md`). **No** sherpa/Kokoro (V2). |
 | `stt-mock` | `voice-dev` | CI-only STT stub |
@@ -288,10 +292,16 @@ cd bot/web && npm run build
 
 ---
 
-## Phase priority (hardware-gated)
+## Phase priority
+
+**Product (Node, hardware-gated):**
 
 1. Phase 0 — TS6 connect + playback (`scripts/phase0-validate.sh`)
 2. Voice smoke — sidecars + Settings synthetic test (`docs/voice.md`)
 3. RAG on hardware — `--profile rag`, doctrine ingest (`docs/rag-ingestion.md`)
+
+**Rust rewrite (this branch):** Phases 0–4 done. Next is **5 RAG/memory**, then
+voice / radio / community / cutover. Do not start Phase 5+ work in Node `bot/src`
+on this branch. See [docs/rust-rewrite.md](./docs/rust-rewrite.md).
 
 Do not treat scaffolds as validated until operator confirms on real hardware.

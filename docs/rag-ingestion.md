@@ -1,5 +1,8 @@
 # Loading documents into the knowledge base (RAG)
 
+On `feat/rust-bot-rewrite`, RAG ingest/query is **rewrite Phase 5** (`crates/mp-rag`
+stub). This doc is the Node-shipped ingest contract. See [rust-rewrite.md](./rust-rewrite.md).
+
 Moneypenny's `!ask` and `!analyst` answers from a **doctrine corpus** — Markdown
 documents you load, embedded into a vector store (TurboVec) and retrieved at query
 time, rank-gated by each document's classification. The fast chat model and the

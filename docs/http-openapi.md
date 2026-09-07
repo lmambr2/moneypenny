@@ -1,7 +1,12 @@
 # Station HTTP API — OpenAPI (PR-C2)
 
 **Decision:** keep **REST** + OpenAPI discovery. **Do not** add tRPC or a second
-RPC stack beside the Express routers.
+RPC stack beside the station routers.
+
+On **`feat/rust-bot-rewrite`** the bot HTTP stack is **axum** (`crates/mp-http`)
+with the same paths, cookie, and CSRF rules. Golden catalog:
+`crates/mp-http/fixtures/openapi-operations.json` (frozen from Node
+`API_OPERATIONS` at ec464a2). See [rust-rewrite.md](./rust-rewrite.md).
 
 | Surface | Auth | Purpose |
 |---------|------|---------|
@@ -31,10 +36,14 @@ open http://127.0.0.1:3000/api/docs
 | `GET /api/health` | public | Liveness |
 | `GET /api/bot/live` | session | Member live snapshot + station `feedback[]` |
 
-HTTP stack is **Express plugins only** (`createWebServer` in
+HTTP stack (Node, production): **Express plugins only** (`createWebServer` in
 `bot/src/http/app.ts`): public system routes (health, OpenAPI, docs) via
 `registerPublicRoutes` / `registerOpenApi`; domain routers under `web/api/*`.
 Nest dual-path was removed (audit C1).
+
+HTTP stack (Rust rewrite): **axum** in `crates/mp-http`. Same cookie
+`moneypenny_session`, same CSRF Origin/Referer, same `/api/*` + `POST /v1/turn`.
+Unported domains return empty JSON in the shapes Vue already expects (not 404).
 
 Document built from `bot/src/http/openapi/operations.ts` (catalog).  
 Drift guard: `src/http/openapi/route-catalog-drift.test.ts` fails CI if Express

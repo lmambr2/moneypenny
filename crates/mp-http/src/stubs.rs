@@ -72,8 +72,8 @@ pub async fn harness_ask(_user: AuthUser) -> Response {
     (
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
-            "error": "brain not ported yet",
-            "turn": { "id": "stub", "error": "brain not ported yet (Phase 4)" }
+            "error": "harness ask not ported — use POST /v1/turn",
+            "turn": { "id": "stub", "error": "dashboard harness ask is later; POST /v1/turn is live (Phase 4)" }
         })),
     )
         .into_response()

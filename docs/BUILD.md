@@ -4,9 +4,13 @@ Living backlog of next implementation work. Design sketches link out; this is th
 ordered **do list**, not full specs.
 
 Product sequence and locked decisions: **[feature-roadmap.md](./feature-roadmap.md)**
-(harness-first, Station via feedback, Vue polish, brain boundary plan-only).
+(harness-first, Station via feedback, Vue polish). Brain `POST /v1/turn` is
+**shipped** ([brain-boundary.md](./brain-boundary.md)).
 
-**Last updated:** 2026-07-09 (reliability S-OC1–3 + RAG/memory P1–P5 foundations)
+**Rust bot rewrite** (this branch, not the Node build queue below):
+[rust-rewrite.md](./rust-rewrite.md) — Phases 0–4 live; next is RAG/memory.
+
+**Last updated:** 2026-09-06 (rust-rewrite pointer; Node backlog still 2026-07-09)
 
 ---
 

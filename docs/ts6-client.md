@@ -107,8 +107,10 @@ Logger: inject any pino-compatible `Ts6Logger` — the package never imports
 | **B3** Dual-protocol docs + smoke notes | Done (this doc) |
 | **B4** Rust Opus/VAD N-API (`@moneypenny/audio-native`) | Done (optional; falls back to `@discordjs/opus`) |
 
-Related (separate packages/layers): HTTP app (`bot/src/http/`), brain
-`POST /v1/turn` (`bot/src/brain/`). This package stays TS6-only.
+Related (separate packages/layers): HTTP app (`bot/src/http/` Node,
+`crates/mp-http` Rust), brain `POST /v1/turn` (`bot/src/brain/` Node,
+`crates/mp-brain` Rust). This package stays TS6-only. The rewrite’s native
+client is `crates/mp-ts` (`tsclient-rs`) — [rust-rewrite.md](./rust-rewrite.md).
 
 ---
 

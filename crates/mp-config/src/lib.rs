@@ -4,8 +4,9 @@
 //! Runtime config: `data/config.json` + env overlays.
 //!
 //! Defaults match `bot/src/data/config.ts` `getDefaultConfig()` at ec464a2.
-//! Phase 0/1 is load-only — do not write config.json (Node owns DDL/writes
-//! during dual-run).
+//! Load-only — do not write config.json (Node owns writes during dual-run).
+//! Settings `llmEnabled`/`llmUrl`/`llmModel` are applied in-memory on the
+//! brain runtime (`mp-http`), not persisted here.
 
 use std::collections::HashMap;
 use std::fs;
@@ -46,7 +47,7 @@ pub const DEFAULT_MUSIC_BLOCKED_GENRES: &[&str] = &[
 ];
 
 /// Subset of `BotConfig` needed to boot HTTP + later crates.
-/// Unknown JSON keys are ignored (we do not round-trip-save in Phase 0/1).
+/// Unknown JSON keys are ignored (we do not round-trip-save during dual-run).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BotConfig {

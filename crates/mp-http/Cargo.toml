@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "axum: same OpenAPI + cookies + WS stub + static Vue SPA"
+description = "axum: same OpenAPI + cookies + Vue SPA + player APIs + POST /v1/turn"
 
 [dependencies]
 axum.workspace = true

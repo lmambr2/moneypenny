@@ -3,6 +3,8 @@
 Moneypenny maps **TeamSpeak server-group IDs** to command and doctrine permissions.
 Typed chat, voice, LLM tool calls, and the web player all go through the same
 `RightsEngine` — natural language cannot escalate past what the invoker's rank allows.
+Rust rewrite: `crates/mp-rights` is that engine; `POST /v1/turn` dispose re-enters it
+([rust-rewrite.md](./rust-rewrite.md)).
 
 Starter template: [`scripts/rights-rank-gating.json`](../scripts/rights-rank-gating.json).
 Replace every `serverGroups` value with the numeric IDs from **your** TS6 server

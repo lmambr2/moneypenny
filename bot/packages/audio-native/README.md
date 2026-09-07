@@ -8,10 +8,11 @@ Rust **N-API** bindings for:
 The bot prefers this package when the `.node` addon is present; otherwise it
 falls back to `@discordjs/opus` and pure-TS `rms16`.
 
-The same codec is being lifted in-process to `crates/mp-audio` for the Rust bot
-rewrite (no N-API). **Do not delete this package** until `BOT_RUNTIME=rust` is
-default and the Node fallback image is gone. `npm run build:native` still
-builds this addon. See [docs/rust-rewrite.md](../../../docs/rust-rewrite.md).
+The same codec lives in-process in `crates/mp-audio` for the Rust bot rewrite
+(no N-API; rewrite Phases 0–4 live). **Do not delete this package** until
+`BOT_RUNTIME=rust` is default and the Node fallback image is gone.
+`npm run build:native` still builds this addon.
+See [docs/rust-rewrite.md](../../../docs/rust-rewrite.md).
 
 ## Build
 

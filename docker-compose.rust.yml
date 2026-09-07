@@ -1,4 +1,5 @@
 # Overlay: Rust bot beside Node. Does not remove the Node bot image.
+# Status: rewrite Phases 0–4 (docs/rust-rewrite.md).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.rust.yml \
 #     --profile core --profile rust up --build

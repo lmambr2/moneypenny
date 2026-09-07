@@ -6,6 +6,30 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## Unreleased (`feat/rust-bot-rewrite`)
+
+### Rust bot rewrite — Phases 0–4
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+Strangler of the Node bot process only. Vue, Whisper/Piper/Ollama, TurboVec,
+MemPalace, ACE-Step, stream bridges, `install.sh`, and compose overlays stay.
+Plan: [docs/rust-rewrite.md](./docs/rust-rewrite.md). Workspace: `crates/`.
+
+- **Phase 0+1** — Cargo workspace, identical sqlite schema, health/session/CSRF,
+  Vue first-run against Rust, OpenAPI catalog snapshot (147 ops)
+- **TS spike** — `tsclient-rs` on local TS6 6.0.0-beta12: connect, chat, Opus
+  music, inbound `voiceData`, HTTP Query groups, reconnect scheduler
+- **Phase 2** — `!play` / `!skip` / `!queue` rank-gated; LocalProvider + ffmpeg
+  PCM→Opus 48 kHz stereo 20 ms; Sequential-on-replace; skip never emits `!jump`
+- **Phase 3** — Vue `/api/*` parity (no console 404s after login); `/ws`
+  `init` + `stateChange`; local search/library/player; unported domains empty 200
+- **Phase 4** — `POST /v1/turn` (admin cookie): in-process OpenAI-compat or
+  `BRAIN_URL`; `executeTools:false` never mutates the queue; dispose after
+  harness policy + rights; `409 LLM_DISABLED`
+
+Not in this branch yet: RAG/`!remember`, inbound voice pipeline, radio, economy,
+MCP, YouTube provider. Dual-run overlay: `docker-compose.rust.yml` (`:3001`).
+
 ## 2026-07-25
 
 ### Audit C1–E complete (Nest out, fetch, zod, voice slimming)

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 //! Moneypenny bot process (Rust). Replaces `bot/src/index.ts` at cutover.
-//! Phase 2: TeamSpeak live session + local !play/!skip/!queue (no LLM).
+//! Phase 4: TS live session, local !play/!skip/!queue, Vue HTTP parity,
+//! POST /v1/turn (LLM proposes, executor disposes).
 
 mod bot;
 

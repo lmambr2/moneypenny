@@ -7,8 +7,10 @@
 > with TeamSpeak attached — without throwing away the stack that already ships.
 
 **Status:** decisions locked 2026-07-09 · target: `dev` / `master`  
-**Spine decision:** keep **TypeScript bot + Python/native sidecars**. No full
-language rewrite. No framework swap for its own sake.
+**Spine decision (2026-07-09):** keep **Vue + Python/native sidecars**. No
+framework swap for its own sake. **Bot process (2026-09):** strangler rewrite
+to Rust on `feat/rust-bot-rewrite` — same HTTP/cookie/schema/commands; Vue and
+sidecars stay. See [rust-rewrite.md](./rust-rewrite.md).
 
 ### Operator decisions (2026-07-09)
 
@@ -198,13 +200,14 @@ brain ──► ollama / turbovec / mempalace / stt / tts (sidecars; bot dispose
 - RAG eval / re-rank / multi-query becomes a pipeline you iterate weekly  
 - Multiple clients (TS + web + future) need the **same** agent loop  
 
-**Still not a full rewrite** — the bot remains the TeamSpeak and music authority.
+**Still not a Vue/sidecar rewrite** — the bot remains the TeamSpeak and music
+authority. The Rust branch replaces the Node *process*, not the contract.
 
-**Near-term planning work (no new service yet):**
+**Brain turn (`POST /v1/turn`):**
 
-- OpenAPI-ish contract: **[brain-boundary.md](./brain-boundary.md)** (`POST /v1/turn`) — **shipped as docs only**  
-- Keep tool *execution* on the bot (executor disposes)  
-- Prefer thin adapters in TS so a future brain is a URL swap, not a rewrite  
+- Contract: **[brain-boundary.md](./brain-boundary.md)** — **shipped** (Node Phase D 2026-07-16; Rust Phase 4 2026-09)
+- Tool *execution* stays on the bot (executor disposes after rights)
+- `BRAIN_URL` empty = in-process; set = remote URL swap, not a new schema
 
 ---
 
@@ -286,7 +289,8 @@ docs.
 |-----|------|
 | [ROADMAP.md](../ROADMAP.md) | Phase history 0–9 |
 | [DESIGN.md](../DESIGN.md) | Architecture principles |
-| [docs/brain-boundary.md](./brain-boundary.md) | Future `POST /v1/turn` contract (plan only) |
+| [docs/brain-boundary.md](./brain-boundary.md) | `POST /v1/turn` contract (Node + Rust) |
+| [docs/rust-rewrite.md](./rust-rewrite.md) | Rust bot process rewrite (Phases 0–4 live) |
 | [docs/rag-claim-check-and-typed-memory.md](./rag-claim-check-and-typed-memory.md) | P1–P5: claim-check, typed memory, playbooks, clarify-once, eval axes (plan only) |
 | [docs/sc-org-status.md](./sc-org-status.md) | SC/org status bridge contract (G2) |
 | [docs/radio.md](./radio.md) | Radio / bumpers / profiles |

@@ -2,10 +2,12 @@
 
 > Expose Moneypenny as an **MCP server** so [Grok Build](https://grok.x.ai) (and
 > any other MCP client) can drive the station without replacing the bot runtime.
-> The TypeScript bot remains the TeamSpeak + music + rights **authority**.
+> The bot remains the TeamSpeak + music + rights **authority**.
 > Grok Build is an optional **agent harness** that calls structured tools.
+> On `feat/rust-bot-rewrite`, MCP is a compiling stub (`crates/mp-mcp`) until
+> rewrite Phase 8 — use Node `bot/src/mcp/` until then.
 
-**Status:** Phase 1–3 **shipped** (2026-07-15) — `bot/src/mcp/`, env `MCP_*`,
+**Status:** Phase 1–3 **shipped** (2026-07-15) on **Node** — `bot/src/mcp/`, env `MCP_*`,
 example Grok config `.grok/config.toml.example`. Tool registry: `MCP_TOOL_NAMES` in
 `bot/src/mcp/server.ts`. Every tool outcome is written to the durable audit store
 (`mcp.tool` / `mcp.tool.denied` / `mcp.tool.error`). High-impact tools use

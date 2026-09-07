@@ -5,8 +5,9 @@
 //! Axum HTTP surface. Domain bundle order matches `domain-bundles.ts`:
 //! SYSTEM → MCP (stub) → SESSION → BRAIN (`POST /v1/turn`) → STATION API → SPA → WS.
 //!
-//! Phase 0/1 implements health, OpenAPI snapshot, session/setup, CSRF, rate
-//! limits, SPA static, and an authenticated WS upgrade stub.
+//! Live through rewrite Phase 4: health, session/CSRF, Vue SPA, `/api/bot` +
+//! local music/player, live-status WS, `POST /v1/turn`. Unported domains
+//! (economy/RAG/harness/MCP) return empty JSON, not 404.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

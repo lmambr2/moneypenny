@@ -2,9 +2,9 @@
 
 > **v3 supersedes v2.** Product is **two editions from one repo**: **SBC** (Orange Pi 5 Max / RK3588) and **Server** (x86_64, ideally GPU). Same bot and HTTP contracts; different compose overlays, model defaults, and host roles. See [docs/editions.md](./docs/editions.md) and [RELEASES.md](./RELEASES.md).
 >
-> Base remains a **fork of `ZHANGTIANYAO1/teamspeak-music-bot`** (TypeScript, native TS6, audited auth, web UI), local-first music, in-process LLM module. Phases and security posture below still apply.
+> Base remains a **fork of `ZHANGTIANYAO1/teamspeak-music-bot`** (TypeScript, native TS6, audited auth, web UI), local-first music, in-process LLM module. Phases and security posture below still apply. The **Rust rewrite** (`feat/rust-bot-rewrite`) replaces the Node *process* only — same contracts; Vue and sidecars stay ([docs/rust-rewrite.md](./docs/rust-rewrite.md)).
 
-**Status:** Core live (music, rank gating, RAG, roast, radio, split-brain LLM, Whisper+Piper voice sidecars). Dual-edition packaging shipped.
+**Status:** Core live on Node (music, rank gating, RAG, roast, radio, split-brain LLM, Whisper+Piper voice sidecars). Dual-edition packaging shipped. On **`feat/rust-bot-rewrite`**, the bot *process* is a Rust strangler (`crates/`) — Phases 0–4 live; Vue and sidecars stay. See [docs/rust-rewrite.md](./docs/rust-rewrite.md).
 **Audience:** Implementers + maintainer
 **Codename:** *Moneypenny*
 

@@ -1,4 +1,8 @@
-# Remote LLM (Phase 4) — split-brain across editions
+# Remote LLM (product Phase 4) — split-brain across editions
+
+> Product Phase 4 (this doc) is **split-brain LLM URLs**, shipped on Node.
+> Rewrite Phase 4 is **`POST /v1/turn` on the Rust bot** —
+> [rust-rewrite.md](./rust-rewrite.md). Different sequences; same `llmUrl`.
 
 Point **chat / tool-calling / roast grading** at a faster host while keeping
 **embeddings + TurboVec** on the bot host. Different URLs for `llmUrl` and

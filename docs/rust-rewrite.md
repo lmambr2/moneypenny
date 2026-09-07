@@ -7,6 +7,9 @@ Spotify/Tidal bridges, `install.sh`, and compose overlays **stay**.
 Source of truth for this branch: `lmambr2/moneypenny` @ `ec464a2` (DESIGN v3,
 AGENTS.md seams, 1227 backend tests).
 
+**Branch status (2026-09):** Phases **0–4 live** on `feat/rust-bot-rewrite`.
+Node remains production (`BOT_RUNTIME=node`) until Phase 9 cutover.
+
 ## Why
 
 Worth it: Opus 20 ms clock without GC pauses, SQLite on the RK3588 hot path,
@@ -34,23 +37,23 @@ Rust :3001 (this overlay) until flip
 
 ## Crate map
 
-| Crate | Owns | Phase 0/1 status |
-|-------|------|------------------|
-| `moneypenny` | bin: boot, watchdog, SIGINT/SIGTERM | **live** |
-| `mp-config` | `.env` + `config.json` defaults | **live** (load-only, no save) |
+| Crate | Owns | Status |
+|-------|------|--------|
+| `moneypenny` | bin: boot, watchdog, SIGINT/SIGTERM, TS chat loop | **live** |
+| `mp-config` | `.env` + `config.json` defaults | **live** (load-only; no `config.json` write) |
 | `mp-db` | rusqlite, identical `CREATE TABLE IF NOT EXISTS` | **live** |
 | `mp-audio` | audio-native minus napi (`NativeOpus`, `pcmRms`, `isSpeechFrame`) | **live** (libopus) |
 | `mp-ts` | TS3/TS6 façade | **live** (`tsclient-rs` + reconnect driver; HTTP Query groups) |
-| `mp-http` | axum: health, session, CSRF, SPA, OpenAPI snapshot | **live** (session + health) |
+| `mp-http` | axum: same cookies, OpenAPI catalog, Vue SPA, `/api/*` | **live** (session + Vue parity + player/music + `POST /v1/turn`) |
 | `mp-rights` | RightsEngine | **live** (PUBLIC/ADMIN + rank JSON) |
-| `mp-control` | parse + executeDeterministic | **live** (`!play`/`!skip`/`!queue` + music transport) |
+| `mp-control` | parse + executeDeterministic + LLM `tool-map` + dispose | **live** (`!play`/`!skip`/`!queue` + brain dispose after rights) |
 | `mp-music` | Local / YouTube / Stream | **live LocalProvider** + ffmpeg→Opus 20 ms; YT/stream still out |
-| `mp-brain` | `/v1/turn` | **live** in-process + `BRAIN_URL` HTTP; dispose after rights |
-| `mp-rag` | embeddings + TurboVec | stub |
-| `mp-voice` | VAD → STT HTTP → TTS HTTP | stub |
-| `mp-radio` | director / bumpers | stub |
-| `mp-economy` | mine/craft/trade/UEX | stub |
-| `mp-mcp` | MCP tools | stub |
+| `mp-brain` | `/v1/turn` transport | **live** in-process OpenAI-compat or `BRAIN_URL` HTTP; dispose after rights |
+| `mp-rag` | embeddings + TurboVec | stub (Phase 5) |
+| `mp-voice` | VAD → STT HTTP → TTS HTTP | stub (Phase 6) |
+| `mp-radio` | director / bumpers | stub (Phase 7) |
+| `mp-economy` | mine/craft/trade/UEX | stub (Phase 8) |
+| `mp-mcp` | MCP tools | stub (Phase 8) |
 
 Day-1 traits (locked so crates cannot invent competing shapes):
 
@@ -73,7 +76,7 @@ official TS6 SDK.
 
 | Option | What | Verdict |
 |--------|------|---------|
-| **A. tsclient-rs** | Native Rust, claims TS3/5/6, tokio, Opus send | **Keep.** Spiked 2026-09-06 on local TS6 6.0.0-beta12. |
+| **A. tsclient-rs** | Native Rust, claims TS3/5/6, tokio, Opus send | **Keep.** Spiked 2026-09-06 on local TS6 6.0.0-beta12. Gates 1–5 passed; reconnect scheduler ported. |
 | **B. Node sidecar** | Keep honeybbq; Rust talks Unix socket | Fallback only if inbound `voiceData` fails on a populated channel. |
 | **C. Reimplement TS6** | Months, undocumented | Do not start. |
 | **D. tsclientlib / tsproto** | TS3 only | Insufficient. |
@@ -99,21 +102,7 @@ cargo run -p mp-ts --example join --features tsclient-rs
 
 Org `TS6_HOST=192.168.1.69` was **ARP-dead** from this host; `ts.beardforce.com:9987` UDP timed out. Do not treat those as a protocol fail.
 
-**Gaps to carry into Phase 2:** `Client::channel_id()` is 0 after join — enrich from HTTP Query. Self-echo of our own chat must stay filtered. Inbound voice is proven; still filter self-echo on `voiceData` (clid == self).
-
-Gate (must pass on a live TS6 6.0 beta **and** a TS3 server):
-
-1. Connect, set nickname, join a channel
-2. Receive `textMessage` / poke → reply
-3. Play 10s of Opus music (`CODEC_OPUS_MUSIC`)
-4. Capture inbound `voiceData` PCM
-5. `clientMove` via HTTP Query + enrich `serverGroups` (rank gating dies without this)
-6. Survive a server restart (reconnect scheduler)
-
-If 3 or 4 fail on TS6 with tsclient-rs, take Option B and keep rewriting the rest.
-
-Also port: Ed25519 identity, self-echo poison, command-echo filters, error 770 =
-already in channel.
+**Known gaps (not blockers):** `Client::channel_id()` is 0 after join — enrich from HTTP Query. Self-echo of our own chat is filtered in the bot loop. Filter self-echo on `voiceData` (clid == self) when Phase 6 wires inbound voice.
 
 HTTP Query (`:10080` + `TS6_API_KEY`) is `reqwest` and is **not** blocked on UDP.
 
@@ -146,6 +135,18 @@ cargo run -p mp-ts --example join  # mock spike
 cargo run -p moneypenny -- --data-dir ../bot/data --check-schema
 ```
 
+Useful env (native debug):
+
+```bash
+BIND_ADDRESS=0.0.0.0
+MONEYPENNY_WEB_DIST=/path/to/bot/web/dist
+MUSIC_DIR=/path/to/music
+TS6_HOST=127.0.0.1 TS6_PORT=9987 TS6_NICK=Moneypenny
+# optional LLM (OpenAI-compat). Empty / llmEnabled=false → POST /v1/turn is 409 LLM_DISABLED
+# LLM_ENABLED=1 LLM_URL=http://127.0.0.1:11434 LLM_MODEL=qwen2.5:7b-instruct-q4_K_M
+# BRAIN_URL=http://brain:8090   # remote POST {url}/v1/turn instead of in-process
+```
+
 Needs: `rustc` 1.85+, `pkg-config`, `libopus` (for `mp-audio` default feature).
 RMS/VAD tests compile without libopus via `--no-default-features -p mp-audio`.
 
@@ -171,38 +172,62 @@ Rust publishes `127.0.0.1:3001:3000`. Node `:3000` stays. Same volumes
 
 ## Phases
 
-| Phase | Exit |
-|-------|------|
-| **0 spike** (this branch) | `cargo test --workspace`; health; schema; audio lift; TS mock |
-| **1 skeleton** | create admin in existing Vue UI against Rust |
-| **2 music bot** | `!play` `!skip` `!queue` rank-gated, no LLM |
-| **3 HTTP parity** | every Vue page, no console 404s, live-status WS |
-| **4 brain** | `POST /v1/turn`, dispose after rights — **this commit** |
-| **5 RAG/memory** | TurboVec + doctrine + `!remember` |
-| **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process |
-| **7 radio** | `docs/radio.md` |
-| **8 community** | roast, economy, MCP, moves |
-| **9 cutover** | `BOT_RUNTIME=rust` default; keep `moneypenny-node` one release |
+These numbers are **the rewrite sequence**, not DESIGN.md product phases
+(product Phase 4 is remote/split-brain LLM, already shipped on Node).
 
-Kill criteria: spike 1+2 (TS connect + Opus in a real channel) fail **and**
-sidecar Option B is rejected. Stop. Do not rewrite the rest.
+| Phase | Exit | Status |
+|-------|------|--------|
+| **0 spike** | `cargo test --workspace`; health; schema; audio lift; TS mock | **done** |
+| **1 skeleton** | create admin in existing Vue UI against Rust | **done** |
+| **2 music bot** | `!play` `!skip` `!queue` rank-gated, no LLM | **done** |
+| **3 HTTP parity** | every Vue page, no console 404s, live-status WS | **done** |
+| **4 brain** | `POST /v1/turn`, dispose after rights | **done** (this branch) |
+| **5 RAG/memory** | TurboVec + doctrine + `!remember` | next |
+| **6 voice** | inbound Opus → STT sidecar → Piper. Whisper out of process | — |
+| **7 radio** | `docs/radio.md` | — |
+| **8 community** | roast, economy, MCP, moves | — |
+| **9 cutover** | `BOT_RUNTIME=rust` default; keep `moneypenny-node` one release | — |
 
-## What is mock vs live (this commit)
+Kill criteria for the *spike* (gates 3+4 fail **and** sidecar Option B rejected)
+did **not** fire. Option A (`tsclient-rs`) is the live path.
+
+## What is mock vs live (Phase 4)
 
 | Surface | Live | Mock / stub |
 |---------|------|-------------|
 | Opus encode/decode + RMS VAD | live (libopus) | — |
 | SQLite schema + users/sessions | live | — |
-| `GET /api/health`, `/api/healthz` | live | llm.route=`none` |
+| `GET /api/health`, `/api/healthz` | live | `llm.route` stays `none` until a completion is tracked |
 | Session setup/login/cookie/CSRF | live | audit log insert skipped |
 | Vue `bot/web/dist` static | live if dist present | — |
-| OpenAPI JSON | frozen catalog | — |
+| OpenAPI JSON | frozen catalog | `/api/docs` HTML is a snapshot index |
 | Vue pages (Home/Search/Library/History/Live/Settings/…) | **live** session + `/api/bot` + local music/player | economy/RAG/harness/recordings return empty 200s (not 404) |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
-| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated, no LLM | YouTube / radio still stubbed |
-| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights | RAG retrieve empty until Phase 5; `!ask` / harness UI still stub |
-| radio, RAG, inbound voice pipeline | — | compiling stubs / empty JSON |
+| `!play` `!skip` `!queue` + web play | **live** local library, rank-gated | YouTube / radio still stubbed |
+| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | RAG `sources` empty until Phase 5; dashboard `/harness` ask + TS `!ask` still stub |
+| Settings `llmEnabled` / `llmUrl` / `llmModel` | **live** in-memory on the brain runtime | not persisted to `config.json` (dual-run: Node still owns writes) |
+| radio, RAG, inbound voice pipeline, MCP, economy | — | compiling stubs / empty JSON |
+
+## Brain code map (Phase 4)
+
+Contract: [brain-boundary.md](./brain-boundary.md). Brain *proposes*; bot *disposes*.
+
+| Path | Role |
+|------|------|
+| `crates/mp-brain/` | `TurnRequest`/`TurnResponse`, `InProcessBrain`, `HttpBrain`, `complete_turn` (soft-fail) |
+| `crates/mp-control/src/tool_map.rs` | `play_music` / `skip` / … → `ParsedCommand` |
+| `crates/mp-control/src/dispose.rs` | harness policy → tool-map → rights → `CommandExecutor` |
+| `crates/mp-http/src/brain.rs` | `POST /v1/turn` (admin cookie, CSRF) |
+
+```
+dashboard  →  POST /v1/turn
+                 │
+                 ├─ BRAIN_URL empty: InProcessBrain (OpenAI-compat LlmModule)
+                 └─ BRAIN_URL set:   HttpBrain → remote /v1/turn
+                 │
+                 └─ executeTools:true → BrainDisposer → CommandExecutor (rights)
+```
 
 Do not rewrite Vue, sidecars, or add features Node does not have.
 Refuse Leptos, in-process Whisper, rewriting Piper.

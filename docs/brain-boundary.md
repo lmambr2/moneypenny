@@ -1,12 +1,14 @@
 # Brain service boundary (`POST /v1/turn`)
 
 > Contract for conversational turns: brain *proposes*, bot *disposes*.
-> Phase D ships the TS adapter + in-process/HTTP transport. External FastAPI
-> brains remain optional.
+> Phase D shipped the TS adapter + in-process/HTTP transport. External FastAPI
+> brains remain optional. The Rust bot (`feat/rust-bot-rewrite` Phase 4) speaks
+> the **same JSON** on `POST /v1/turn`.
 
-**Status:** implemented 2026-07-16 (Phase D) — in-process default; `BRAIN_URL` optional  
+**Status:** implemented 2026-07-16 (Node Phase D) · ported 2026-09 (Rust Phase 4) —
+in-process default; `BRAIN_URL` optional  
 **Related:** [feature-roadmap.md](./feature-roadmap.md) §5, [DESIGN.md](../DESIGN.md),
-[http-openapi.md](./http-openapi.md)
+[http-openapi.md](./http-openapi.md), [rust-rewrite.md](./rust-rewrite.md)
 
 ---
 
@@ -28,9 +30,11 @@ transport never waits on the brain for fail-open paths (`!skip` / player).
 
 | Path | Role |
 |------|------|
-| `bot/src/brain/` | Types, `completeTurn`, `InProcessBrain`, `HttpBrain`, `disposeToolProposals` |
-| `bot/src/harness/run-turn.ts` | Dashboard harness: brain → dispose → `HarnessTurn` |
-| `POST /v1/turn` | Admin session API (`http/plugins/brain-turn.ts`) |
+| `bot/src/brain/` | Node: types, `completeTurn`, `InProcessBrain`, `HttpBrain`, `disposeToolProposals` |
+| `crates/mp-brain/` | Rust: same JSON types, in-process + `HttpBrain`, `complete_turn` (soft-fail) |
+| `crates/mp-control` (`tool_map`, `dispose`) | Rust: LLM tool → `ParsedCommand` → rights → executor |
+| `bot/src/harness/run-turn.ts` | Dashboard harness (Node). Rust `/harness` ask is still a stub; use `POST /v1/turn` |
+| `POST /v1/turn` | Admin session API — Node `http/plugins/brain-turn.ts` · Rust `mp-http/src/brain.rs` |
 | `BRAIN_URL` | Env — empty = in-process; else `POST {BRAIN_URL}/v1/turn` |
 
 ```
@@ -151,5 +155,9 @@ when the client asks (harness always disposes; `/v1/turn` only if `executeTools`
 ## 6. Harness cockpit
 
 Admin **Harness** (`/harness`, `POST /api/bot/harness/ask`) uses the same
-`completeTurn` + dispose path. Sources, tools, errors remain the dashboard shape
-(`HarnessTurn`).
+`completeTurn` + dispose path on **Node**. Sources, tools, errors remain the
+dashboard shape (`HarnessTurn`).
+
+On the Rust rewrite, `POST /v1/turn` is the live brain surface (Phase 4). The
+dashboard harness ask route is still empty-shaped until a later phase; do not
+invent a second turn contract for it.

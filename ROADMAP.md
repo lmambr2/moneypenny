@@ -5,11 +5,14 @@ Forward-looking plan. Continues the phase taxonomy of [`DESIGN.md`](./DESIGN.md)
 shipped). This document covers **Phases 4–8**: org AI (citeable doctrine,
 memory, radio polish) on the **dual-edition** product.
 
-> Status note (2026-07): Phases 0–6 + split-brain R1 are live. Product ships as
-> **two editions** from one repo — **SBC** (RK3588 edge) and **Server** (x86
-> GPU-class). See [docs/editions.md](./docs/editions.md) and [RELEASES.md](./RELEASES.md).
+> Status note (2026-07): Phases 0–6 + split-brain R1 are live on **Node**. Product
+> ships as **two editions** from one repo — **SBC** (RK3588 edge) and **Server**
+> (x86 GPU-class). See [docs/editions.md](./docs/editions.md) and [RELEASES.md](./RELEASES.md).
 > Voice is **Whisper ladder + Piper** (sherpa/Kokoro legacy only). NPU chat is
 > offline opt-in, not the day-to-day path.
+>
+> **Rust rewrite (2026-09, `feat/rust-bot-rewrite`):** bot *process* only —
+> Phases 0–4 live. Vue and sidecars stay. [docs/rust-rewrite.md](./docs/rust-rewrite.md).
 
 ## Target architecture
 
@@ -28,8 +31,9 @@ memory, radio polish) on the **dual-edition** product.
       ─── VECTOR_DB_URL ──── turbovec:6333 (Qdrant-shaped REST bridge)
 
   ControlRouter ─ deterministic │ !ask / fuzzy → LLM tools
-  HTTP ──────── Express plugins · OpenAPI /api/docs · POST /v1/turn
-  TS6 ───────── @moneypenny/ts6-client (workspace package)
+  HTTP ──────── Express plugins (Node) / axum `crates/mp-http` (Rust rewrite)
+                · OpenAPI /api/docs · POST /v1/turn
+  TS6 ───────── @moneypenny/ts6-client (Node) · crates/mp-ts (Rust rewrite)
   Retrieval ─── TurboVec + rank-gated doctrine (Phase 5–6)
   Memory ────── MemPalace + per-user facts (Phase 7)
 ```

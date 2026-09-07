@@ -30,7 +30,7 @@ pub async fn docs_html() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         r#"<!doctype html><meta charset="utf-8"><title>Moneypenny API</title>
 <p>OpenAPI snapshot: <a href="/api/openapi.json">/api/openapi.json</a></p>
-<p>Rust rewrite Phase 0/1 — handlers for health + session only. Remaining paths are catalogued, not implemented.</p>"#,
+<p>Rust rewrite Phase 4 — session, Vue station APIs, local music/player, <code>POST /v1/turn</code>. Remaining catalog paths return empty JSON until later phases.</p>"#,
     )
 }
 
@@ -55,7 +55,7 @@ pub fn build_document() -> Value {
         "info": {
             "title": "Moneypenny station API",
             "version": "0.1.0",
-            "description": "Golden snapshot of Node API_OPERATIONS (ec464a2). Rust implements health + session first."
+            "description": "Golden snapshot of Node API_OPERATIONS (ec464a2). Rust rewrite Phase 4: session, Vue station APIs, local music/player, POST /v1/turn."
         },
         "components": {
             "securitySchemes": {

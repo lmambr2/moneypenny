@@ -125,11 +125,12 @@ Prefer **host Ollama** on the Server for AMD; Docker Ollama is a simpler fallbac
 
 ## What is *not* different between editions
 
-- Bot TypeScript codebase and web UI
+- Bot TypeScript codebase and web UI (Rust rewrite is the same UI against `crates/moneypenny`)
 - Rank gating, radio, roast, doctrine RAG ingest paths
 - STT/TTS HTTP contracts
 - Security posture (localhost binds, CSRF, rights in executor)
-- HTTP app (Express plugins), `@moneypenny/ts6-client`, brain `/v1/turn`
+- HTTP contracts (cookie `moneypenny_session`, `/api/*`, `POST /v1/turn`) — Node Express plugins, or axum on `feat/rust-bot-rewrite` (`crates/mp-http`)
+- `@moneypenny/ts6-client` (Node) / `crates/mp-ts` (Rust rewrite)
 
 Only **where models run**, **STT backend**, and **default profiles** change.
 
