@@ -15,6 +15,7 @@ use mp_music::{
 
 use crate::manifest::{is_audio_command, ParsedCommand};
 
+#[derive(Clone)]
 pub struct CommandExecutor {
     pub station: Arc<mp_music::MusicStation>,
     pub prefix: String,

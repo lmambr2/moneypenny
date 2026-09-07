@@ -111,6 +111,62 @@ pub struct BotConfig {
     pub music_opus_bitrate_kbps: u32,
     #[serde(default = "default_blocked_genres")]
     pub music_blocked_genres: Vec<String>,
+    /// Inbound voice loop (rewrite Phase 6). Nested object matches Node `config.voice`.
+    #[serde(default)]
+    pub voice: VoiceConfig,
+}
+
+/// Node `VoiceConfig` (`bot/src/voice/types.ts`). Load-only during dual-run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub respond_with_voice: bool,
+    #[serde(default)]
+    pub stt_url: String,
+    #[serde(default)]
+    pub tts_url: String,
+    #[serde(default = "default_tts_voice")]
+    pub tts_voice: String,
+    #[serde(default = "default_energy_threshold")]
+    pub energy_threshold: f64,
+    #[serde(default = "default_watchword")]
+    pub watchword: String,
+    #[serde(default = "default_true")]
+    pub require_watchword: bool,
+    #[serde(default = "default_true")]
+    pub duck_music_on_speech: bool,
+    #[serde(default = "default_duck_volume")]
+    pub duck_music_volume: u32,
+    #[serde(default)]
+    pub karaoke_mode: bool,
+    #[serde(default = "default_listen_window_ms")]
+    pub listen_window_ms: u64,
+    /// Whisper has no KWS — prefix text wake is required (Node default true).
+    #[serde(default = "default_true")]
+    pub text_wake_fallback: bool,
+}
+
+pub const DEFAULT_DUCK_MUSIC_VOLUME: u32 = 15;
+pub const KARAOKE_DUCK_VOLUME: u32 = 80;
+pub const MIN_LISTEN_WINDOW_MS: u64 = 15_000;
+
+pub fn normalize_duck_music_volume(raw: Option<u32>) -> u32 {
+    let duck = match raw {
+        None | Some(2) | Some(20) | Some(25) => DEFAULT_DUCK_MUSIC_VOLUME,
+        Some(v) => v,
+    };
+    duck.min(100)
+}
+
+pub fn effective_duck_volume(karaoke_mode: bool, duck_music_volume: u32) -> u32 {
+    if karaoke_mode {
+        KARAOKE_DUCK_VOLUME
+    } else {
+        normalize_duck_music_volume(Some(duck_music_volume))
+    }
 }
 
 fn default_web_port() -> u16 {
@@ -159,6 +215,41 @@ fn default_rag_top_k() -> u32 {
 fn default_rag_collection() -> String {
     "moneypenny_docs".into()
 }
+fn default_tts_voice() -> String {
+    "en_GB-cori-high".into()
+}
+fn default_energy_threshold() -> f64 {
+    200.0
+}
+fn default_watchword() -> String {
+    "moneypenny".into()
+}
+fn default_duck_volume() -> u32 {
+    DEFAULT_DUCK_MUSIC_VOLUME
+}
+fn default_listen_window_ms() -> u64 {
+    15_000
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            respond_with_voice: true,
+            stt_url: String::new(),
+            tts_url: String::new(),
+            tts_voice: default_tts_voice(),
+            energy_threshold: 200.0,
+            watchword: default_watchword(),
+            require_watchword: true,
+            duck_music_on_speech: true,
+            duck_music_volume: DEFAULT_DUCK_MUSIC_VOLUME,
+            karaoke_mode: false,
+            listen_window_ms: 15_000,
+            text_wake_fallback: true,
+        }
+    }
+}
 
 impl Default for BotConfig {
     fn default() -> Self {
@@ -193,6 +284,7 @@ impl Default for BotConfig {
             poke_commands_enabled: true,
             music_opus_bitrate_kbps: 64,
             music_blocked_genres: default_blocked_genres(),
+            voice: VoiceConfig::default(),
         }
     }
 }
@@ -347,6 +439,33 @@ fn apply_env(cfg: &mut BotConfig) {
             }
         }
     }
+    if let Ok(v) = std::env::var("VOICE_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.voice.enabled = true;
+        } else if t == "0" || t.eq_ignore_ascii_case("false") {
+            cfg.voice.enabled = false;
+        }
+    }
+    if cfg.voice.stt_url.is_empty() {
+        if let Ok(v) = std::env::var("STT_URL") {
+            if !v.is_empty() {
+                cfg.voice.stt_url = v;
+            }
+        }
+    }
+    if cfg.voice.tts_url.is_empty() {
+        if let Ok(v) = std::env::var("TTS_URL") {
+            if !v.is_empty() {
+                cfg.voice.tts_url = v;
+            }
+        }
+    }
+    if let Ok(v) = std::env::var("TTS_VOICE") {
+        if !v.is_empty() {
+            cfg.voice.tts_voice = v;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -363,6 +482,10 @@ mod tests {
         assert!(c.rights_enabled);
         assert_eq!(c.music_opus_bitrate_kbps, 64);
         assert!(c.music_blocked_genres.iter().any(|g| g == "rap"));
+        assert!(!c.voice.enabled);
+        assert_eq!(c.voice.watchword, "moneypenny");
+        assert_eq!(c.voice.energy_threshold, 200.0);
+        assert!(c.voice.text_wake_fallback);
         assert_eq!(SESSION_COOKIE_NAME, "moneypenny_session");
         assert_eq!(BCRYPT_COST, 12);
     }

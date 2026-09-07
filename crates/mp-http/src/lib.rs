@@ -5,9 +5,10 @@
 //! Axum HTTP surface. Domain bundle order matches `domain-bundles.ts`:
 //! SYSTEM → MCP (stub) → SESSION → BRAIN (`POST /v1/turn`) → STATION API → SPA → WS.
 //!
-//! Live through rewrite Phase 5: health, session/CSRF, Vue SPA, `/api/bot` +
-//! local music/player, live-status WS, `POST /v1/turn`, doctrine RAG + memory.
-//! Unported domains (economy/harness/MCP/radio) return empty JSON, not 404.
+//! Live through rewrite Phase 6: health, session/CSRF, Vue SPA, `/api/bot` +
+//! local music/player, live-status WS, `POST /v1/turn`, doctrine RAG + memory,
+//! inbound voice (STT/TTS HTTP). Unported domains (economy/harness/MCP/radio)
+//! return empty JSON, not 404.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -27,6 +28,7 @@ use tracing::info;
 mod authz;
 mod bot_api;
 mod brain;
+mod command;
 mod csrf;
 mod json_song;
 mod music_api;
@@ -37,8 +39,10 @@ mod rate_limit;
 mod session;
 mod spa;
 mod stubs;
+mod voice_api;
 mod ws;
 
+pub use command::dispatch_command;
 pub use csrf::csrf_origin_check;
 pub use session::SESSION_COOKIE_NAME;
 
@@ -60,6 +64,7 @@ pub struct AppState {
     pub ws_tx: broadcast::Sender<serde_json::Value>,
     pub brain: Arc<mp_brain::BrainRuntime>,
     pub rag: Option<Arc<mp_rag::RagRuntime>>,
+    pub voice: Arc<mp_voice::VoiceRuntime>,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -68,6 +73,10 @@ impl AppState {
     pub fn new(db: Arc<Database>, config: Arc<BotConfig>, static_dir: Option<PathBuf>) -> Self {
         let (ws_tx, _) = broadcast::channel(64);
         let brain = mp_brain::BrainRuntime::from_settings(brain::llm_settings_from(&config));
+        let voice = mp_voice::VoiceRuntime::from_config(
+            config.voice.clone(),
+            config.command_aliases.clone(),
+        );
         Self {
             db,
             config,
@@ -86,6 +95,7 @@ impl AppState {
             ws_tx,
             brain,
             rag: None,
+            voice,
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
@@ -98,6 +108,11 @@ impl AppState {
 
     pub fn with_brain(mut self, brain: Arc<mp_brain::BrainRuntime>) -> Self {
         self.brain = brain;
+        self
+    }
+
+    pub fn with_voice(mut self, voice: Arc<mp_voice::VoiceRuntime>) -> Self {
+        self.voice = voice;
         self
     }
 
@@ -199,7 +214,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bot/live", get(bot_api::live))
         .route("/api/bot/recordings", get(bot_api::recordings_list))
         .route("/api/bot/llm/status", get(stubs::bot_status_stub))
-        .route("/api/bot/voice/status", get(stubs::bot_status_stub))
+        .route("/api/bot/voice/status", get(voice_api::voice_status))
+        .route("/api/bot/voice/test", post(voice_api::voice_test))
         .route("/api/bot/radio/status", get(stubs::bot_status_stub))
         .route("/api/bot/rag/status", get(stubs::bot_status_stub))
         .route("/api/bot/memory/status", get(stubs::bot_status_stub))
@@ -936,5 +952,120 @@ mod tests {
             "{v}"
         );
         let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn voice_status_inactive_by_default() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/voice/status")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["enabled"], false);
+        assert_eq!(v["active"], false);
+        assert_eq!(v["watchword"], "moneypenny");
+    }
+
+    #[tokio::test]
+    async fn voice_test_requires_active_pipeline() {
+        let (dir, state) = music_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/voice/test")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"transcript":"Moneypenny pause","speak":false}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["code"], "VOICE_UNAVAILABLE");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn voice_synthetic_pause_after_enable() {
+        let (dir, state) = music_state();
+        let mut vc = state.voice.config();
+        vc.enabled = true;
+        vc.stt_url = "http://127.0.0.1:9".into();
+        state.voice.apply(vc);
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/voice/test")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"transcript":"pause","speak":false}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["watchwordOnly"], false);
+        assert!(v["reply"].is_null(), "{v}");
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/voice/test")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(
+                        r#"{"transcript":"Moneypenny pause","speak":false}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["command"], "pause");
+        assert_eq!(v["watchwordOnly"], false);
+        assert!(
+            v["reply"].as_str().unwrap_or("").contains("Paused")
+                || v["reply"].as_str() == Some("Nothing is playing"),
+            "{v}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -160,6 +160,7 @@ impl LiveSession {
                 if let EventMap::VoiceData(v) = ev {
                     let _ = tx.send(TsEvent::VoiceData {
                         client_id: v.client_id,
+                        codec: v.codec as u8,
                         opus: v.data.to_vec(),
                     });
                 }

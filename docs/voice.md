@@ -2,7 +2,7 @@
 
 **Goal (DESIGN §10):** Inbound TeamSpeak audio → STT → the same control router as chat → optional TTS reply.
 
-On `feat/rust-bot-rewrite` the inbound pipeline is **rewrite Phase 6** (`crates/mp-voice` stub). Sidecar contracts below are unchanged. See [rust-rewrite.md](./rust-rewrite.md).
+On `feat/rust-bot-rewrite` the inbound pipeline is **rewrite Phase 6** (`crates/mp-voice`): energy VAD, HTTP STT/TTS, watchword, synthetic `POST /api/bot/voice/test`. Whisper stays out of process. Sidecar contracts below are unchanged. See [rust-rewrite.md](./rust-rewrite.md).
 
 ## Sidecars
 

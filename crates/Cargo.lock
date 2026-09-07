@@ -1218,6 +1218,7 @@ dependencies = [
  "mp-rag",
  "mp-rights",
  "mp-ts",
+ "mp-voice",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1301,6 +1302,7 @@ dependencies = [
  "mp-music",
  "mp-rag",
  "mp-rights",
+ "mp-voice",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -1384,8 +1386,16 @@ dependencies = [
 name = "mp-voice"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "mp-audio",
+ "mp-config",
+ "mp-control",
+ "reqwest",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -47,6 +47,8 @@ struct Inner {
     bitrate_kbps: u32,
     play_volume_floor: Option<f64>,
     child_kill_std: Option<std::sync::mpsc::Sender<()>>,
+    stt_duck_active: bool,
+    stt_duck_level: f64,
 }
 
 pub struct AudioPlayer {
@@ -83,6 +85,8 @@ impl AudioPlayer {
                 bitrate_kbps: MUSIC_OPUS_BITRATE_KBPS_DEFAULT,
                 play_volume_floor: None,
                 child_kill_std: None,
+                stt_duck_active: false,
+                stt_duck_level: 15.0,
             })),
             events,
             loop_running: Arc::new(AtomicBool::new(false)),
@@ -108,6 +112,30 @@ impl AudioPlayer {
 
     pub fn get_volume(&self) -> i32 {
         self.inner.lock().expect("player").volume.round() as i32
+    }
+
+    /// Attenuate output while STT capture runs. No-op when not playing.
+    pub fn duck_for_stt(&self, duck_level: i32) -> bool {
+        let mut g = self.inner.lock().expect("player");
+        if g.state != PlayerState::Playing {
+            return false;
+        }
+        g.stt_duck_active = true;
+        g.stt_duck_level = f64::from(duck_level.clamp(0, 100));
+        true
+    }
+
+    pub fn restore_from_stt_duck(&self) -> bool {
+        let mut g = self.inner.lock().expect("player");
+        if !g.stt_duck_active {
+            return false;
+        }
+        g.stt_duck_active = false;
+        true
+    }
+
+    pub fn is_stt_ducked(&self) -> bool {
+        self.inner.lock().expect("player").stt_duck_active
     }
 
     pub fn reset_failures(&self) {
@@ -150,6 +178,7 @@ impl AudioPlayer {
         g.state = PlayerState::Idle;
         g.ffmpeg_alive = false;
         g.play_volume_floor = None;
+        g.stt_duck_active = false;
         g.play_started = None;
         g.current_url.clear();
         g.frames_played = 0;
@@ -316,7 +345,13 @@ fn send_next_frame(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) {
     }
     let frame: Vec<u8> = g.pcm.drain(..PCM_FRAME_BYTES).collect();
     let floor = g.play_volume_floor.unwrap_or(0.0);
-    let adjusted = match mp_audio::pcm_apply_playback_gain(&frame, g.volume, false, 2.0, floor) {
+    let adjusted = match mp_audio::pcm_apply_playback_gain(
+        &frame,
+        g.volume,
+        g.stt_duck_active,
+        g.stt_duck_level,
+        floor,
+    ) {
         Ok(a) => a,
         Err(e) => {
             let _ = events.send(PlayerEvent::Error(e.to_string()));

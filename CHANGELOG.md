@@ -29,9 +29,13 @@ Plan: [docs/rust-rewrite.md](./docs/rust-rewrite.md). Workspace: `crates/`.
 - **Phase 5** — embeddings HTTP (or hash-dev), TurboVec or in-memory vectors,
   doctrine ingest/list/query/reindex, SQLite `!remember`/`!recall`/`!forget`,
   `!ask` + turn `sources[]` (rank-gated `doctrine:<level>`)
+- **Phase 6** — inbound voice: Opus decode, energy VAD, HTTP STT (`POST /asr`)
+  + Piper TTS (`/v1/audio/speech`), watchword + 15s arm window, music duck,
+  `GET /api/bot/voice/status` + `POST /api/bot/voice/test`. Whisper out of process.
 
-Not in this branch yet: MemPalace, org KG, inbound voice, radio, economy, MCP,
-YouTube provider. Dual-run overlay: `docker-compose.rust.yml` (`:3001`).
+Not in this branch yet: MemPalace, org KG, Silero VAD, TTS park/restore into the
+channel, radio, economy, MCP, YouTube provider. Dual-run overlay:
+`docker-compose.rust.yml` (`:3001`).
 
 ## 2026-07-25
 

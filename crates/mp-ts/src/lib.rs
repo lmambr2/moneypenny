@@ -71,6 +71,7 @@ pub enum TsEvent {
     },
     VoiceData {
         client_id: i32,
+        codec: u8,
         opus: Vec<u8>,
     },
     ClientEnter {

@@ -120,14 +120,29 @@ pub fn live_status(st: &AppState) -> Value {
     } else {
         feedback.push("Queue has tracks waiting.");
     }
-    feedback.push("Voice loop off.");
-    feedback.push("Doctrine RAG off.");
+    let vc = st.voice.config();
+    if st.voice.is_active() {
+        feedback.push("Voice loop on.");
+    } else if vc.enabled {
+        feedback.push("Voice enabled but STT URL empty — loop inactive.");
+    } else {
+        feedback.push("Voice loop off.");
+    }
+    if st.rag.as_ref().is_some_and(|r| r.rag_enabled()) {
+        feedback.push("Doctrine RAG on.");
+    } else {
+        feedback.push("Doctrine RAG off.");
+    }
     json!({
         "connected": connected,
         "nowPlaying": now,
         "queue": queue,
         "radio": null,
-        "voice": { "enabled": false, "duckOnSpeech": true },
+        "voice": {
+            "enabled": st.voice.config().enabled,
+            "duckOnSpeech": st.voice.config().duck_music_on_speech,
+            "active": st.voice.is_active(),
+        },
         "rag": { "enabled": st.rag.as_ref().is_some_and(|r| r.rag_enabled()) },
         "feedback": feedback,
         "scope": {
@@ -188,7 +203,7 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "scope": { "channelHint": "", "serverLabel": "", "virtualServerId": "" },
         "harnessIntentAllowDangerous": false,
         "recordingsEnabled": false,
-        "voice": { "enabled": false, "duckMusicOnSpeech": true },
+        "voice": serde_json::to_value(st.voice.config()).unwrap_or_else(|_| json!({})),
         "radio": { "enabled": false, "activeProfile": "default" },
         "vectorDbUrl": c.vector_db_url,
         "embeddingUrl": c.embedding_url,
@@ -246,7 +261,97 @@ pub async fn settings_post(
             rag.set_top_k(v as usize);
         }
     }
+    if let Some(v) = body.get("voice") {
+        match patch_voice(&st.voice.config(), v) {
+            Ok(next) => st.voice.apply(next),
+            Err(msg) => {
+                return Json(json!({ "ok": false, "error": msg, "code": "VALIDATION_ERROR" }));
+            }
+        }
+    }
     Json(json!({ "ok": true }))
+}
+
+fn patch_voice(prev: &mp_config::VoiceConfig, v: &Value) -> Result<mp_config::VoiceConfig, String> {
+    if !v.is_object() {
+        return Err("voice must be an object".into());
+    }
+    let mut next = prev.clone();
+    if let Some(b) = v.get("enabled") {
+        next.enabled = b
+            .as_bool()
+            .ok_or_else(|| "voice.enabled must be a boolean".to_string())?;
+    }
+    if let Some(b) = v.get("respondWithVoice") {
+        next.respond_with_voice = b
+            .as_bool()
+            .ok_or_else(|| "voice.respondWithVoice must be a boolean".to_string())?;
+    }
+    fn req_str(v: &Value, key: &str) -> Result<Option<String>, String> {
+        match v.get(key) {
+            None => Ok(None),
+            Some(val) => val
+                .as_str()
+                .map(|s| Some(s.to_string()))
+                .ok_or_else(|| format!("voice.{key} must be a string")),
+        }
+    }
+    if let Some(s) = req_str(v, "sttUrl")? {
+        next.stt_url = s;
+    }
+    if let Some(s) = req_str(v, "ttsUrl")? {
+        next.tts_url = s;
+    }
+    if let Some(s) = req_str(v, "ttsVoice")? {
+        next.tts_voice = s;
+    }
+    if let Some(s) = req_str(v, "watchword")? {
+        next.watchword = s;
+    }
+    if let Some(b) = v.get("requireWatchword") {
+        next.require_watchword = b
+            .as_bool()
+            .ok_or_else(|| "voice.requireWatchword must be a boolean".to_string())?;
+    }
+    if let Some(b) = v.get("duckMusicOnSpeech") {
+        next.duck_music_on_speech = b
+            .as_bool()
+            .ok_or_else(|| "voice.duckMusicOnSpeech must be a boolean".to_string())?;
+    }
+    if let Some(n) = v.get("duckMusicVolume") {
+        let n = n
+            .as_f64()
+            .ok_or_else(|| "voice.duckMusicVolume must be a number 0–100".to_string())?;
+        if !(0.0..=100.0).contains(&n) {
+            return Err("voice.duckMusicVolume must be a number 0–100".into());
+        }
+        next.duck_music_volume = n as u32;
+    }
+    if let Some(n) = v.get("listenWindowMs") {
+        let n = n
+            .as_u64()
+            .ok_or_else(|| "voice.listenWindowMs must be 5000–60000".to_string())?;
+        if !(5000..=60_000).contains(&n) {
+            return Err("voice.listenWindowMs must be 5000–60000".into());
+        }
+        next.listen_window_ms = n;
+    }
+    if let Some(n) = v.get("energyThreshold") {
+        next.energy_threshold = n
+            .as_f64()
+            .ok_or_else(|| "voice.energyThreshold must be a number".to_string())?;
+    }
+    if let Some(b) = v.get("karaokeMode") {
+        next.karaoke_mode = b
+            .as_bool()
+            .ok_or_else(|| "voice.karaokeMode must be a boolean".to_string())?;
+    }
+    if let Some(b) = v.get("textWakeFallback") {
+        next.text_wake_fallback = b
+            .as_bool()
+            .ok_or_else(|| "voice.textWakeFallback must be a boolean".to_string())?;
+    }
+    Ok(next)
 }
 
 pub async fn start_bot(

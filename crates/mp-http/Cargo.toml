@@ -16,6 +16,7 @@ mp-db = { path = "../mp-db" }
 mp-music = { path = "../mp-music" }
 mp-rag = { path = "../mp-rag" }
 mp-rights = { path = "../mp-rights" }
+mp-voice = { path = "../mp-voice" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
