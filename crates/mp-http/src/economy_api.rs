@@ -19,10 +19,16 @@ use mp_economy::{
 };
 
 fn sidecar_off(which: &str) -> Response {
+    let env = match which {
+        "sc-craft" => "ECONOMY_SCCRAFT=0",
+        "sc-trade" => "ECONOMY_SCTRADE=0",
+        "UEX" => "ECONOMY_UEX=0",
+        other => other,
+    };
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(json!({
-            "error": format!("{which} not ported (HTTP sidecar). Seed catalog is live.")
+            "error": format!("{which} disabled ({env})")
         })),
     )
         .into_response()
@@ -106,7 +112,7 @@ pub async fn overview(State(st): State<AppState>, _user: AuthUser) -> Json<Value
         "catalogAsOf": CATALOG_AS_OF,
         "disclaimer": CATALOG_DISCLAIMER,
         "sources": CATALOG_SOURCES,
-        "clients": { "scCraft": false, "scTrade": false, "scTradeToken": false, "uex": false },
+        "clients": mp_economy::clients().overview_flags(),
         "cache": {
             "rootLabel": "in-process seed",
             "backend": "none",
@@ -134,6 +140,8 @@ pub struct Q {
     max_box: Option<u32>,
     #[serde(default, rename = "box")]
     box_size: Option<u32>,
+    #[serde(default)]
+    qty: Option<u32>,
 }
 
 pub async fn ores(Query(q): Query<Q>, _user: AuthUser) -> Json<Value> {
@@ -449,20 +457,135 @@ pub async fn cache(_user: AuthUser) -> Json<Value> {
     }))
 }
 
-pub async fn commodities(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "commodities": [] }))
+pub async fn commodities(_user: AuthUser) -> Response {
+    let c = mp_economy::clients();
+    if !c.uex.is_enabled() {
+        return sidecar_off("UEX");
+    }
+    match c.uex.commodities_list().await {
+        Some(v) => Json(v).into_response(),
+        None => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error":"UEX commodities unavailable"})),
+        )
+            .into_response(),
+    }
 }
 
-pub async fn craft_off(_user: AuthUser) -> Response {
-    sidecar_off("sc-craft")
+pub async fn blueprints(Query(q): Query<Q>, _user: AuthUser) -> Response {
+    let query = q.q.trim();
+    if query.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"q required (in-game blueprint name)"})),
+        )
+            .into_response();
+    }
+    let c = mp_economy::clients();
+    if !c.sc_craft.is_enabled() {
+        return sidecar_off("sc-craft");
+    }
+    match c.sc_craft.search(query, 8).await {
+        Some(v) => Json(v).into_response(),
+        None => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error":"sc-craft unreachable or no results"})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn craft(Query(q): Query<Q>, _user: AuthUser) -> Response {
+    let query = if q.q.trim().is_empty() {
+        q.ore.trim()
+    } else {
+        q.q.trim()
+    };
+    if query.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"q required (e.g. ?q=P4-AR&qty=1)"})),
+        )
+            .into_response();
+    }
+    let c = mp_economy::clients();
+    if !c.sc_craft.is_enabled() {
+        return sidecar_off("sc-craft");
+    }
+    let qty = q.qty.filter(|n| *n >= 1).unwrap_or(1);
+    match c.sc_craft.resolve(query, qty.max(1)).await {
+        Some(v) => Json(v).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"No blueprint match for that name"})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn prices(Query(q): Query<Q>, _user: AuthUser) -> Response {
+    let query = q.q.trim();
+    if query.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"q required (commodity name)"})),
+        )
+            .into_response();
+    }
+    let c = mp_economy::clients();
+    if !c.uex.is_enabled() {
+        return sidecar_off("UEX");
+    }
+    match c.uex.lookup_price(query).await {
+        Some(v) => Json(v).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"No UEX price match for that commodity"})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn trade_ships(Query(q): Query<Q>, _user: AuthUser) -> Response {
+    let c = mp_economy::clients();
+    if !c.sc_trade.is_enabled() {
+        return sidecar_off("sc-trade");
+    }
+    match c.sc_trade.ships(&q.q).await {
+        Some(v) => Json(v).into_response(),
+        None => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error":"Could not load ships from sc-trade"})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn trade_routes(_user: AuthUser, Json(body): Json<Value>) -> Response {
+    let c = mp_economy::clients();
+    if !c.sc_trade.is_enabled() {
+        return sidecar_off("sc-trade");
+    }
+    match c.sc_trade.find_trades(&body).await {
+        Ok(v) => Json(v).into_response(),
+        Err(msg) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": msg})),
+        )
+            .into_response(),
+    }
 }
 
 pub async fn trade_off(_user: AuthUser) -> Response {
-    sidecar_off("sc-trade")
-}
-
-pub async fn prices_off(_user: AuthUser) -> Response {
-    sidecar_off("UEX")
+    let c = mp_economy::clients();
+    if !c.sc_trade.is_enabled() {
+        return sidecar_off("sc-trade");
+    }
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({"error":"this sc-trade tool is not ported yet"})),
+    )
+        .into_response()
 }
 
 pub async fn cache_refresh(_admin: AdminUser) -> Response {

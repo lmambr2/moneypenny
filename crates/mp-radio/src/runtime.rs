@@ -12,7 +12,7 @@ use crate::bumpers::{build_from_sources, LiveBumperFactory};
 use crate::director::{
     Boundary, BuiltBumper, BumperFactory, CueResult, DirectorHooks, RadioDirector,
 };
-use crate::seed::{program_station, seed_local_tracks};
+use crate::seed::{program_station, seed_profile_tracks};
 
 struct ConfigFactory {
     inner: LiveBumperFactory,
@@ -291,7 +291,7 @@ fn auto_program(station: &MusicStation, cfg: &RadioConfig) -> bool {
     let Some(profile) = cfg.profiles.get(&cfg.active_profile) else {
         return false;
     };
-    let tracks = seed_local_tracks(station, profile);
+    let tracks = seed_profile_tracks(station, profile);
     program_station(station, tracks) > 0
 }
 

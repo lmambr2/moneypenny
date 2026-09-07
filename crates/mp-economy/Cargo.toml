@@ -7,5 +7,9 @@ publish.workspace = true
 description = "cache, work orders, UEX (Phase 8)"
 
 [dependencies]
+reqwest.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true

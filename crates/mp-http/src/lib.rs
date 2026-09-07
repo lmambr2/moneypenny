@@ -73,6 +73,8 @@ pub struct AppState {
     pub roast: Arc<roast::RoastRuntime>,
     pub speech: Option<Arc<mp_music::ChannelSpeech>>,
     pub mcp: mp_mcp::McpConfig,
+    /// Rewrite worktree `data/config.json`. Empty path skips Settings persist.
+    pub config_path: PathBuf,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -120,6 +122,7 @@ impl AppState {
             roast,
             speech: None,
             mcp: mp_mcp::McpConfig::default(),
+            config_path: PathBuf::new(),
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
@@ -137,6 +140,11 @@ impl AppState {
 
     pub fn with_mcp(mut self, mcp: mp_mcp::McpConfig) -> Self {
         self.mcp = mcp;
+        self
+    }
+
+    pub fn with_config_path(mut self, path: PathBuf) -> Self {
+        self.config_path = path;
         self
     }
 
@@ -296,7 +304,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/economy/workorders", get(economy_api::workorders_get).post(economy_api::workorders_post).delete(economy_api::workorders_clear))
         .route("/api/economy/workorders/{id}", delete(economy_api::workorders_delete_one))
         .route("/api/economy/cache/refresh", post(economy_api::cache_refresh))
-        .route("/api/economy/trade/routes", post(economy_api::trade_off))
+        .route("/api/economy/trade/routes", post(economy_api::trade_routes))
         .route("/api/economy/trade/buyers", post(economy_api::trade_off))
         .route("/api/economy/trade/itinerary", post(economy_api::trade_off))
         .route("/api/economy/trade/circuit", post(economy_api::trade_off))
@@ -337,12 +345,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/economy/boxes", get(economy_api::boxes))
         .route("/api/economy/cache", get(economy_api::cache))
         .route("/api/economy/commodities", get(economy_api::commodities))
+        .route("/api/economy/prices", get(economy_api::prices))
         .route("/api/economy/mine", get(economy_api::mine))
         .route("/api/economy/refine", get(economy_api::refine))
-        .route("/api/economy/craft", get(economy_api::craft_off))
-        .route("/api/economy/blueprints", get(economy_api::craft_off))
-        .route("/api/economy/prices", get(economy_api::prices_off))
-        .route("/api/economy/trade/ships", get(economy_api::trade_off))
+        .route("/api/economy/craft", get(economy_api::craft))
+        .route("/api/economy/blueprints", get(economy_api::blueprints))
+        .route("/api/economy/trade/ships", get(economy_api::trade_ships))
         .route("/api/rag/doctrine", get(rag_api::doctrine_list))
         .route("/api/rag/doctrine/export/capabilities", get(stubs::rag_export_caps))
         .route("/api/rag/doctrine/hygiene", get(rag_api::doctrine_hygiene))
@@ -1389,6 +1397,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_jsonrpc_initialize_and_list() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let mcp = mp_mcp::McpConfig {
+            enabled: true,
+            token: "phase8-test".into(),
+            ..mp_mcp::McpConfig::default()
+        };
+        let app = router(AppState::new(db, cfg, None).with_mcp(mcp));
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("authorization", "Bearer phase8-test")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["result"]["serverInfo"]["name"], "moneypenny");
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("authorization", "Bearer phase8-test")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let tools = v["result"]["tools"].as_array().unwrap();
+        assert!(tools.iter().any(|t| t["name"] == "music_play"));
+        assert!(tools.iter().any(|t| t["name"] == "music_skip"));
+    }
+
+    #[tokio::test]
     async fn roast_settings_toggle() {
         let (app, cookie) = setup_cookie(test_app()).await;
         let res = app
@@ -1423,5 +1483,45 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["roastEnabled"], true);
         assert_eq!(v["roastMinScore"], 6);
+    }
+
+    #[tokio::test]
+    async fn settings_persist_to_config_json() {
+        let dir = std::env::temp_dir().join(format!(
+            "mp-http-cfg-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("config.json");
+        std::fs::write(&cfg_path, r#"{"webPort":3000,"customExtra":"keep"}"#).unwrap();
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let state = AppState::new(db, cfg, None).with_config_path(cfg_path.clone());
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/settings")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"llmEnabled":true,"llmUrl":"http://127.0.0.1:11434"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cfg_path).unwrap()).unwrap();
+        assert_eq!(raw["customExtra"], "keep");
+        assert_eq!(raw["llmEnabled"], true);
+        assert_eq!(raw["llmUrl"], "http://127.0.0.1:11434");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

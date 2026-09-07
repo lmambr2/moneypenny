@@ -337,7 +337,60 @@ pub async fn settings_post(
         }
         st.roast.apply(next);
     }
+    if let Err(e) = persist_settings(&st, &body) {
+        tracing::error!(error = %e, path = %st.config_path.display(), "config.json write failed");
+        return Json(json!({
+            "ok": false,
+            "error": format!("failed to write config.json: {e}"),
+            "code": "CONFIG_WRITE"
+        }));
+    }
     Json(json!({ "ok": true }))
+}
+
+fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
+    if st.config_path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let mut patch = serde_json::Map::new();
+    const KEYS: &[&str] = &[
+        "llmEnabled",
+        "llmUrl",
+        "llmModel",
+        "llmFallbackUrl",
+        "llmFallbackModel",
+        "llmSystemPrompt",
+        "llmTemperature",
+        "ragEnabled",
+        "ragTopK",
+        "memoryEnabled",
+        "roastEnabled",
+        "roastMinPresent",
+        "roastCooldownMinutes",
+        "roastMinScore",
+        "musicOpusBitrateKbps",
+    ];
+    for k in KEYS {
+        if let Some(v) = body.get(*k) {
+            patch.insert((*k).to_string(), v.clone());
+        }
+    }
+    if body.get("voice").is_some() {
+        patch.insert(
+            "voice".into(),
+            serde_json::to_value(st.voice.config()).unwrap_or_else(|_| json!({})),
+        );
+    }
+    if body.get("radio").is_some() {
+        patch.insert(
+            "radio".into(),
+            serde_json::to_value(st.radio.config()).unwrap_or_else(|_| json!({})),
+        );
+    }
+    if patch.is_empty() {
+        return Ok(());
+    }
+    mp_config::save_config_merge(&st.config_path, &Value::Object(patch)).map_err(|e| e.to_string())
 }
 
 fn patch_radio(prev: &mp_config::RadioConfig, v: &Value) -> Result<mp_config::RadioConfig, String> {

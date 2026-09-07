@@ -27,7 +27,7 @@ use mp_rights::{Scope, Subject};
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/mcp", get(mcp_root))
+        .route("/mcp", get(mcp_root).post(mcp_jsonrpc))
         .route("/mcp/tools", get(list_tools))
         .route("/mcp/tools/call", post(call_tool))
 }
@@ -59,6 +59,209 @@ fn authenticate(st: &AppState, auth: Option<&str>) -> Result<(), Response> {
         return Err(mcp_unauth());
     }
     Ok(())
+}
+
+async fn mcp_jsonrpc(
+    State(st): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !st.mcp.enabled {
+        return mcp_disabled();
+    }
+    let auth = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    let token_ok = extract_bearer(auth)
+        .as_deref()
+        .is_some_and(|t| token_eq(t, &st.mcp.token));
+    if !token_ok {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "jsonrpc": "2.0",
+                "error": { "code": -32001, "message": "Unauthorized: invalid or missing Bearer token" },
+                "id": null
+            })),
+        )
+            .into_response();
+    }
+    let method = body.get("method").and_then(|v| v.as_str()).unwrap_or("");
+    let id = body.get("id").cloned();
+    let params = body.get("params").cloned().unwrap_or_else(|| json!({}));
+    if id.is_none() {
+        // JSON-RPC notification (no response body).
+        return StatusCode::ACCEPTED.into_response();
+    }
+    let result = match method {
+        "initialize" => json!({
+            "protocolVersion": "2025-03-26",
+            "capabilities": { "tools": { "listChanged": false } },
+            "serverInfo": { "name": "moneypenny", "version": "0.1.0" },
+            "instructions": "Structured music/status tools. High-impact tools need confirm:true."
+        }),
+        "ping" => json!({}),
+        "tools/list" => json!({ "tools": jsonrpc_tool_list(&st) }),
+        "tools/call" => {
+            return jsonrpc_tools_call(&st, &params, id, &headers).await;
+        }
+        _ => {
+            return jsonrpc_error(
+                id,
+                -32601,
+                format!("Method not found: {method}"),
+                wants_sse(&headers),
+            );
+        }
+    };
+    jsonrpc_ok(id, result, wants_sse(&headers))
+}
+
+fn wants_sse(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_ascii_lowercase().contains("text/event-stream"))
+        .unwrap_or(false)
+}
+
+fn jsonrpc_ok(id: Option<Value>, result: Value, sse: bool) -> Response {
+    let body = json!({ "jsonrpc": "2.0", "id": id, "result": result });
+    jsonrpc_body(body, sse)
+}
+
+fn jsonrpc_error(id: Option<Value>, code: i64, message: String, sse: bool) -> Response {
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": code, "message": message }
+    });
+    jsonrpc_body(body, sse)
+}
+
+fn jsonrpc_body(body: Value, sse: bool) -> Response {
+    let raw = serde_json::to_string(&body).unwrap_or_else(|_| "{}".into());
+    if sse {
+        let payload = format!("event: message\ndata: {raw}\n\n");
+        (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "text/event-stream"),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            payload,
+        )
+            .into_response()
+    } else {
+        (StatusCode::OK, Json(body)).into_response()
+    }
+}
+
+fn jsonrpc_tool_list(st: &AppState) -> Vec<Value> {
+    st.mcp
+        .tool_names()
+        .into_iter()
+        .map(|n| {
+            json!({
+                "name": n,
+                "description": tool_desc(n),
+                "inputSchema": jsonrpc_input_schema(n),
+            })
+        })
+        .collect()
+}
+
+fn jsonrpc_input_schema(name: &str) -> Value {
+    match name {
+        "music_play" | "music_add" | "music_play_next" => json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" },
+                "platform": { "type": "string", "enum": ["local", "youtube", "stream"] },
+                "bot_id": { "type": "string" },
+                "dry_run": { "type": "boolean" }
+            },
+            "required": ["query"]
+        }),
+        "music_skip" | "music_pause" | "music_resume" | "music_stop" | "music_clear" => json!({
+            "type": "object",
+            "properties": { "bot_id": { "type": "string" }, "confirm": { "type": "boolean" } }
+        }),
+        _ => json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" },
+                "bot_id": { "type": "string" },
+                "confirm": { "type": "boolean" }
+            },
+            "additionalProperties": true
+        }),
+    }
+}
+
+async fn jsonrpc_tools_call(
+    st: &AppState,
+    params: &Value,
+    id: Option<Value>,
+    headers: &axum::http::HeaderMap,
+) -> Response {
+    let name = params
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if name.is_empty() {
+        return jsonrpc_error(id, -32602, "name is required".into(), wants_sse(headers));
+    }
+    if !st.mcp.tool_names().iter().any(|n| *n == name) {
+        return jsonrpc_error(
+            id,
+            -32602,
+            format!("Unknown tool '{name}'"),
+            wants_sse(headers),
+        );
+    }
+    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let args = if args.is_object() { args } else { json!({}) };
+    let started = Instant::now();
+    let request_id = format!(
+        "mcp-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let confirm = args.get("confirm").and_then(|v| v.as_bool()).unwrap_or(false);
+    let bot_id = args
+        .get("bot_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| st.mcp.bot_id.clone())
+        .or_else(|| Some(st.bot_id.clone()));
+    if let Some(blocked) = check_confirm(&st.mcp, name, confirm, bot_id.clone(), started, &request_id)
+    {
+        let text = serde_json::to_string(&blocked).unwrap_or_else(|_| blocked.message.clone());
+        return jsonrpc_ok(
+            id,
+            json!({
+                "content": [{ "type": "text", "text": text }],
+                "isError": true
+            }),
+            wants_sse(headers),
+        );
+    }
+    let env = dispatch_mcp(st, name, &args, bot_id, started, &request_id).await;
+    let text = if env.message.is_empty() {
+        env.code.clone()
+    } else {
+        env.message.clone()
+    };
+    jsonrpc_ok(
+        id,
+        json!({
+            "content": [{ "type": "text", "text": text }],
+            "isError": !env.ok
+        }),
+        wants_sse(headers),
+    )
 }
 
 async fn mcp_root(State(st): State<AppState>) -> Response {

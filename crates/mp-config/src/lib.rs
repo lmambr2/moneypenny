@@ -4,9 +4,8 @@
 //! Runtime config: `data/config.json` + env overlays.
 //!
 //! Defaults match `bot/src/data/config.ts` `getDefaultConfig()` at ec464a2.
-//! Load-only — do not write config.json (Node owns writes during dual-run).
-//! Settings `llmEnabled`/`llmUrl`/`llmModel` are applied in-memory on the
-//! brain runtime (`mp-http`), not persisted here.
+//! Settings PATCH merges into the on-disk JSON (unknown keys kept). Write only
+//! the rewrite worktree `data/config.json` — never the production Node tree.
 
 use std::collections::HashMap;
 use std::fs;
@@ -322,13 +321,38 @@ pub struct FormatClockSpec {
     pub wheel: Vec<WheelSlot>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RadioMusic {
     #[serde(default)]
     pub seed_queries: Vec<String>,
     #[serde(default = "default_true")]
     pub shuffle: bool,
+    /// `local` | `youtube` | `stream`. Default local+youtube like Node.
+    #[serde(default = "default_seed_sources")]
+    pub seed_sources: Vec<String>,
+    /// Target share of the pool from non-local sources (0–1). Default ⅔.
+    #[serde(default = "default_seed_external_ratio")]
+    pub seed_external_ratio: f64,
+}
+
+impl Default for RadioMusic {
+    fn default() -> Self {
+        Self {
+            seed_queries: Vec::new(),
+            shuffle: true,
+            seed_sources: default_seed_sources(),
+            seed_external_ratio: default_seed_external_ratio(),
+        }
+    }
+}
+
+fn default_seed_sources() -> Vec<String> {
+    vec!["local".into(), "youtube".into()]
+}
+
+fn default_seed_external_ratio() -> f64 {
+    2.0 / 3.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -442,7 +466,7 @@ fn default_radio_profiles() -> HashMap<String, RadioProfile> {
             name: "lobby".into(),
             music: RadioMusic {
                 seed_queries: vec!["chill".into(), "ambient".into()],
-                shuffle: true,
+                ..Default::default()
             },
             bumper: RadioBumper {
                 topics: vec![
@@ -461,7 +485,7 @@ fn default_radio_profiles() -> HashMap<String, RadioProfile> {
             name: "focus".into(),
             music: RadioMusic {
                 seed_queries: vec!["focus".into(), "ambient".into()],
-                shuffle: true,
+                ..Default::default()
             },
             bumper: RadioBumper {
                 topics: vec!["ops".into(), "briefing".into()],
@@ -600,6 +624,67 @@ impl Paths {
             db_path,
             static_dir,
         }
+    }
+}
+
+/// Deep-merge `patch` into the JSON file at `path` and write pretty JSON.
+/// Empty path is a no-op (tests / HTTP-only). Unknown existing keys are kept.
+pub fn save_config_merge(path: &Path, patch: &Value) -> Result<()> {
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let mut root = match fs::read_to_string(path) {
+        Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|_| json_object()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json_object(),
+        Err(source) => {
+            return Err(ConfigError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    if !root.is_object() {
+        root = json_object();
+    }
+    merge_json_objects(&mut root, patch);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|source| ConfigError::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+    }
+    let pretty = serde_json::to_string_pretty(&root)?;
+    fs::write(path, format!("{pretty}\n")).map_err(|source| ConfigError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(())
+}
+
+fn json_object() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
+fn merge_json_objects(dst: &mut Value, patch: &Value) {
+    let Some(patch_obj) = patch.as_object() else {
+        *dst = patch.clone();
+        return;
+    };
+    let Some(dst_obj) = dst.as_object_mut() else {
+        *dst = patch.clone();
+        return;
+    };
+    for (k, v) in patch_obj {
+        if v.is_object() {
+            let entry = dst_obj.entry(k.clone()).or_insert_with(json_object);
+            if entry.is_object() {
+                merge_json_objects(entry, v);
+                continue;
+            }
+        }
+        dst_obj.insert(k.clone(), v.clone());
     }
 }
 
@@ -780,6 +865,37 @@ mod tests {
         assert_eq!(cfg.command_prefix, "?");
         assert_eq!(cfg.bind_address, "127.0.0.1");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merge_keeps_unknown_keys() {
+        let dir = std::env::temp_dir().join(format!("mp-config-save-{}", uuid_like()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(
+            &path,
+            r#"{"webPort": 3000, "customExtra": "keep-me", "voice": {"enabled": false, "watchword": "moneypenny"}}"#,
+        )
+        .unwrap();
+        save_config_merge(
+            &path,
+            &serde_json::json!({
+                "llmEnabled": true,
+                "voice": { "enabled": true }
+            }),
+        )
+        .unwrap();
+        let raw: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["customExtra"], "keep-me");
+        assert_eq!(raw["llmEnabled"], true);
+        assert_eq!(raw["voice"]["enabled"], true);
+        assert_eq!(raw["voice"]["watchword"], "moneypenny");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn empty_path_is_noop() {
+        save_config_merge(Path::new(""), &serde_json::json!({"llmEnabled": true})).unwrap();
     }
 
     fn uuid_like() -> u64 {

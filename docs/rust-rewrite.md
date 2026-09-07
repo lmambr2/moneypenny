@@ -40,7 +40,7 @@ Rust :3001 (this overlay) until flip
 | Crate | Owns | Status |
 |-------|------|--------|
 | `moneypenny` | bin: boot, watchdog, SIGINT/SIGTERM, TS chat loop | **live** |
-| `mp-config` | `.env` + `config.json` defaults | **live** (load-only; no `config.json` write) |
+| `mp-config` | `.env` + `config.json` defaults | **live** load + Settings merge-write (unknown keys kept) |
 | `mp-db` | rusqlite, identical `CREATE TABLE IF NOT EXISTS` | **live** |
 | `mp-audio` | audio-native minus napi (`NativeOpus`, `pcmRms`, `isSpeechFrame`) | **live** (libopus) |
 | `mp-ts` | TS3/TS6 façade | **live** (`tsclient-rs` + reconnect driver; HTTP Query groups) |
@@ -52,8 +52,8 @@ Rust :3001 (this overlay) until flip
 | `mp-rag` | embeddings + TurboVec + doctrine | **live** HTTP embeddings or hash-dev; TurboVec or in-memory; `!remember` SQLite |
 | `mp-voice` | VAD → STT HTTP → TTS HTTP | **live** energy VAD + HTTP STT/TTS + watchword; Whisper out of process |
 | `mp-radio` | director / bumpers | **live** local seed + every-N bumpers; TTS bumpers need Piper |
-| `mp-economy` | mine/craft/trade/UEX | **live** seed catalog + work orders; sc-craft/UEX/sc-trade HTTP later |
-| `mp-mcp` | MCP tools | **live** Bearer REST `/mcp/tools` + `/mcp/tools/call`; confirm-for-high-impact |
+| `mp-economy` | mine/craft/trade/UEX | **live** seed catalog + work orders + sc-craft/UEX/sc-trade HTTP (fail-soft) |
+| `mp-mcp` | MCP tools | **live** Bearer REST + JSON-RPC streamable `POST /mcp` |
 
 Day-1 traits (locked so crates cannot invent competing shapes):
 
@@ -213,13 +213,13 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | dashboard `/harness` ask still stub |
 | `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; doctrine reindex | MemPalace / org KG still out |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query | multipart upload + pandoc export + reformat still stub |
-| Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory on runtimes | not persisted to `config.json` (dual-run: Node still owns writes) |
+| Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory + merge-write to this worktree `config.json` | do not write production Node `Projects/moneypenny` |
 | Inbound voice | **live** Opus decode + energy VAD + HTTP STT + watchword + same executor as chat (`Scope::Voice`); Piper wav airs on the shared player (park/restore); `GET /api/bot/voice/status`; `POST /api/bot/voice/test` | Silero VAD, under-music-check, KWS |
-| Radio | **live** director (disabled = `play_next`); local seed; `!radio` on/off/status/ops; every-N bumpers; Piper bumpers play via the same player; `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, YouTube/stream seed, doctrine/memory LLM bumpers, prerecorded pool, analyzer |
+| Radio | **live** director (disabled = `play_next`); local + YouTube/stream seed; `!radio` on/off/status/ops; every-N bumpers; Piper bumpers play via the same player; `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, doctrine/memory LLM bumpers, prerecorded pool, analyzer |
 | Moves | **live** `!move` / `!moveclient` / `!moveall` (30s confirm, max 10) / `!follow` via TS6 HTTP Query | no auto-follow |
 | Roast | **live** channel capture + `!roast` / `!roastout` / `!roastin`; LLM grade fail-open; Settings toggle | no voice-transcript capture; auto-reel needs LLM + min present |
-| Economy | **live** seed ores/methods/mine/refine + SQLite work orders; Vue `/api/economy/*` | sc-craft / sc-trade / UEX HTTP still 503; no scrapers |
-| MCP | **live** Bearer `GET /mcp/tools` + `POST /mcp/tools/call`; `NEEDS_CONFIRMATION` on ban/stop/clear/mod | not the Node SDK streamable-HTTP transport; ACE-Step `generate_music` unavailable |
+| Economy | **live** seed ores/methods/mine/refine + SQLite work orders; Vue `/api/economy/*`; sc-craft / UEX / sc-trade HTTP fail-soft | scrapers; disk cache SWR; ingest snapshots |
+| MCP | **live** Bearer REST `GET /mcp/tools` + `POST /mcp/tools/call` and JSON-RPC `POST /mcp` (initialize / tools/list / tools/call, optional SSE) | ACE-Step `generate_music` unavailable |
 
 ## Brain code map (Phase 4)
 

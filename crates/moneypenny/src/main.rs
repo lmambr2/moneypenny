@@ -195,7 +195,8 @@ async fn main() {
     let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone())
         .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
         .with_rag(Arc::clone(&rag))
-        .with_mcp(mp_mcp::McpConfig::from_env());
+        .with_mcp(mp_mcp::McpConfig::from_env())
+        .with_config_path(paths.config_path.clone());
     let voice = Arc::clone(&state.voice);
     let radio = Arc::clone(&state.radio);
     let roast = Arc::clone(&state.roast);

@@ -6,6 +6,7 @@
 
 pub mod boxes;
 pub mod catalog;
+pub mod clients;
 pub mod orders;
 
 pub use boxes::{calculate_boxes, largest_crate_that_fits, BoxBreakdown, STANDARD_CRATE_SCU};
@@ -13,6 +14,7 @@ pub use catalog::{
     find_method, find_ore, OreSpec, RefineMethod, Stability, CATALOG_AS_OF, CATALOG_DISCLAIMER,
     CATALOG_SOURCES, ORES, REFINE_METHODS,
 };
+pub use clients::{clients, score_blueprint_match, EconomyClients};
 pub use orders::{
     format_mine, format_refine, handle_econ, handle_mine, handle_refine, parse_economy_args,
     parse_workorder_args, WorkOrderArgs, WorkOrderSub,
