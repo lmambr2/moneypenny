@@ -212,8 +212,8 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "trustProxy": c.trust_proxy,
         "trustProxyHops": c.trust_proxy_hops,
         "scope": { "channelHint": "", "serverLabel": "", "virtualServerId": "" },
-        "harnessIntentAllowDangerous": false,
-        "recordingsEnabled": false,
+        "harnessIntentAllowDangerous": st.harness_allow_dangerous.load(std::sync::atomic::Ordering::SeqCst),
+        "recordingsEnabled": st.recordings_enabled.load(std::sync::atomic::Ordering::SeqCst),
         "voice": serde_json::to_value(st.voice.config()).unwrap_or_else(|_| json!({})),
         "radio": serde_json::to_value(st.radio.config()).unwrap_or_else(|_| json!({})),
         "vectorDbUrl": c.vector_db_url,
@@ -350,6 +350,17 @@ pub async fn settings_post(
         }
         st.roast.apply(next);
     }
+    if let Some(v) = body.get("recordingsEnabled").and_then(|x| x.as_bool()) {
+        st.recordings_enabled
+            .store(v, std::sync::atomic::Ordering::SeqCst);
+    }
+    if let Some(v) = body
+        .get("harnessIntentAllowDangerous")
+        .and_then(|x| x.as_bool())
+    {
+        st.harness_allow_dangerous
+            .store(v, std::sync::atomic::Ordering::SeqCst);
+    }
     if let Err(e) = persist_settings(&st, &body) {
         tracing::error!(error = %e, path = %st.config_path.display(), "config.json write failed");
         return Json(json!({
@@ -387,6 +398,8 @@ fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
         "mempalaceEnabled",
         "mempalaceUrl",
         "streamBridgeUrl",
+        "recordingsEnabled",
+        "harnessIntentAllowDangerous",
     ];
     for k in KEYS {
         if let Some(v) = body.get(*k) {
@@ -596,6 +609,4 @@ pub async fn delete_bot(_admin: AdminUser) -> Response {
         .into_response()
 }
 
-pub async fn recordings_list(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "enabled": false, "recordings": [] }))
-}
+

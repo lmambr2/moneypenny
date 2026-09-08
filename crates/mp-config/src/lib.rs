@@ -114,6 +114,10 @@ pub struct BotConfig {
     pub stream_bridge_url: String,
     #[serde(default)]
     pub rights_enabled: bool,
+    #[serde(default)]
+    pub recordings_enabled: bool,
+    #[serde(default)]
+    pub harness_intent_allow_dangerous: bool,
     #[serde(default = "default_true")]
     pub poke_commands_enabled: bool,
     #[serde(default = "default_music_opus")]
@@ -439,6 +443,17 @@ pub struct RadioConfig {
     pub station_id_lines: Vec<String>,
     #[serde(default)]
     pub time_check_timezones: Vec<String>,
+    #[serde(default)]
+    pub analyzer: RadioAnalyzer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioAnalyzer {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub on_ingest: bool,
 }
 
 fn default_every_n() -> u32 {
@@ -535,6 +550,7 @@ impl Default for RadioConfig {
             tts_voice: None,
             station_id_lines: Vec::new(),
             time_check_timezones: Vec::new(),
+            analyzer: RadioAnalyzer::default(),
         }
     }
 }
@@ -574,6 +590,8 @@ impl Default for BotConfig {
             youtube_save_enabled: false,
             stream_bridge_url: String::new(),
             rights_enabled: true,
+            recordings_enabled: false,
+            harness_intent_allow_dangerous: false,
             poke_commands_enabled: true,
             music_opus_bitrate_kbps: 64,
             music_blocked_genres: default_blocked_genres(),

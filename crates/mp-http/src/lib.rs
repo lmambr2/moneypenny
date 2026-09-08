@@ -12,6 +12,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -31,6 +32,7 @@ mod brain;
 mod command;
 mod csrf;
 mod economy_api;
+mod harness;
 mod json_song;
 mod mcp_api;
 mod music_api;
@@ -39,11 +41,13 @@ mod player_api;
 mod radio_api;
 mod rag_api;
 mod rate_limit;
+mod recordings;
 mod roast;
 mod session;
 mod spa;
 mod status_api;
 mod stubs;
+mod users_api;
 mod voice_api;
 mod ws;
 
@@ -77,6 +81,10 @@ pub struct AppState {
     pub mcp: mp_mcp::McpConfig,
     /// Rewrite worktree `data/config.json`. Empty path skips Settings persist.
     pub config_path: PathBuf,
+    pub data_dir: PathBuf,
+    pub harness: Arc<harness::HarnessStore>,
+    pub recordings_enabled: Arc<AtomicBool>,
+    pub harness_allow_dangerous: Arc<AtomicBool>,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -102,6 +110,9 @@ impl AppState {
             Arc::clone(&brain),
             roast::RoastConfig::from_bot(&config),
         );
+        let recordings_enabled = Arc::new(AtomicBool::new(config.recordings_enabled));
+        let harness_allow_dangerous =
+            Arc::new(AtomicBool::new(config.harness_intent_allow_dangerous));
         Self {
             db,
             config,
@@ -126,6 +137,10 @@ impl AppState {
             speech: None,
             mcp: mp_mcp::McpConfig::default(),
             config_path: PathBuf::new(),
+            data_dir: PathBuf::new(),
+            harness: Arc::new(harness::HarnessStore::default()),
+            recordings_enabled,
+            harness_allow_dangerous,
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
@@ -156,6 +171,7 @@ impl AppState {
         if let Some(dir) = path.parent() {
             self.radio
                 .set_bumper_dir(mp_radio::default_bumper_dir(dir));
+            self.data_dir = dir.to_path_buf();
         }
         self.config_path = path;
         self
@@ -264,7 +280,14 @@ pub fn router(state: AppState) -> Router {
             get(bot_api::settings_get).post(bot_api::settings_post),
         )
         .route("/api/bot/live", get(bot_api::live))
-        .route("/api/bot/recordings", get(bot_api::recordings_list))
+        .route(
+            "/api/bot/recordings",
+            get(recordings::recordings_list).post(recordings::recordings_upload),
+        )
+        .route(
+            "/api/bot/recordings/{name}",
+            get(recordings::recordings_get).delete(recordings::recordings_delete),
+        )
         .route("/api/bot/llm/status", get(status_api::llm_status))
         .route("/api/bot/voice/status", get(voice_api::voice_status))
         .route("/api/bot/voice/test", post(voice_api::voice_test))
@@ -280,8 +303,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bot/memory/scopes", get(status_api::memory_scopes))
         .route("/api/bot/memory/private", get(status_api::memory_private))
         .route("/api/bot/org-kg", get(status_api::org_kg_get).post(status_api::org_kg_post))
-        .route("/api/bot/harness/turns", get(stubs::harness_turns))
-        .route("/api/bot/harness/ask", post(stubs::harness_ask))
+        .route("/api/bot/harness/turns", get(harness::harness_turns))
+        .route("/api/bot/harness/ask", post(harness::harness_ask))
         .route("/api/bot/rag/eval", post(stubs::not_ported))
         .route("/api/bot/rag/query", post(rag_api::rag_query))
         .route("/api/bot/llm/ask", post(status_api::llm_ask))
@@ -300,14 +323,14 @@ pub fn router(state: AppState) -> Router {
             get(music_api::blacklist_get).post(music_api::blacklist_post),
         )
         .route("/api/music/blacklist/{id}", delete(music_api::blacklist_delete))
-        .route("/api/music/tracks/{id}/tags", get(music_api::tags_get).patch(stubs::economy_ok))
-        .route("/api/music/tracks/{id}/tags/guess", post(stubs::not_ported))
-        .route("/api/music/tracks/tags/bulk", axum::routing::patch(stubs::economy_ok))
-        .route("/api/music/tracks/{id}/rating", post(stubs::economy_ok).delete(stubs::economy_ok))
+        .route("/api/music/tracks/{id}/tags", get(music_api::tags_get).patch(music_api::tags_patch))
+        .route("/api/music/tracks/{id}/tags/guess", post(music_api::tags_guess))
+        .route("/api/music/tracks/tags/bulk", axum::routing::patch(music_api::tags_bulk))
+        .route("/api/music/tracks/{id}/rating", post(music_api::rating_post).delete(music_api::rating_delete))
         .route("/api/music/tracks/{id}", delete(stubs::not_ported))
         .route("/api/music/analyze/status", get(music_api::analyze_status))
-        .route("/api/music/analyze", post(stubs::not_ported))
-        .route("/api/music/upload", post(stubs::not_ported))
+        .route("/api/music/analyze", post(music_api::analyze_post))
+        .route("/api/music/upload", post(music_api::music_upload))
         .route("/api/bot/ace-step/generate", post(stubs::not_ported))
         .route("/api/rag/doctrine/new", post(rag_api::doctrine_new))
         .route("/api/rag/doctrine/reindex", post(rag_api::doctrine_reindex))
@@ -380,11 +403,11 @@ pub fn router(state: AppState) -> Router {
                 .put(rag_api::doctrine_put)
                 .delete(rag_api::doctrine_delete),
         )
-        .route("/api/users", get(stubs::users_list))
+        .route("/api/users", get(users_api::users_list).post(users_api::users_create))
         .route("/api/audit", get(session::audit_list))
-        .route("/api/users/{id}", delete(stubs::not_ported))
-        .route("/api/users/{id}/role", axum::routing::patch(stubs::not_ported))
-        .route("/api/users/{id}/reset-password", post(stubs::not_ported));
+        .route("/api/users/{id}", delete(users_api::users_delete))
+        .route("/api/users/{id}/role", axum::routing::patch(users_api::users_role))
+        .route("/api/users/{id}/reset-password", post(users_api::users_reset_password));
 
     let api = public
         .merge(protected)
@@ -1909,6 +1932,218 @@ mod tests {
             .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["configured"], true);
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn users_crud_and_harness_llm_disabled() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/users")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(
+                        r#"{"username":"member1","password":"password12","role":"member"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let id = v["id"].as_str().unwrap().to_string();
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/users")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["users"].as_array().unwrap().len(), 2);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/harness/ask")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"question":"hello"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["code"], "LLM_DISABLED");
+        assert_eq!(v["turn"]["error"], "LLM is not enabled");
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/users/{id}"))
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn tags_rating_upload_recordings() {
+        let (dir, mut state) = music_state();
+        state
+            .recordings_enabled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let data = std::env::temp_dir().join(format!(
+            "mp-rec-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&data).unwrap();
+        state.data_dir = data.clone();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/music/tracks/sine/rating")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"stars":5}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["rating"]["count"], 1);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/music/tracks/sine/tags")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"genre":"ambient","mood":"calm"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let boundary = "----mpup";
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"clip.mp3\"\r\nContent-Type: audio/mpeg\r\n\r\nID3fake\r\n--{boundary}--\r\n"
+        );
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/music/upload")
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{:?}", res.status());
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["success"], true, "{v}");
+
+        let b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            b"RIFF....WEBM",
+        );
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/recordings")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(format!(
+                        r#"{{"filename":"take-1.webm","dataBase64":"{b64}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED, "{:?}", res.status());
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/recordings")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["enabled"], true);
+        assert_eq!(v["recordings"][0]["filename"], "take-1.webm");
+        let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_dir_all(data);
     }
 }

@@ -144,6 +144,92 @@ impl UserStore<'_> {
             Ok(())
         })
     }
+
+    pub fn create_user(
+        &self,
+        username: &str,
+        password: &str,
+        role: UserRole,
+    ) -> Result<UserRow> {
+        let hash = hash_password(password)?;
+        let id = Uuid::new_v4().to_string();
+        let now = now_ms();
+        let role_s = role.as_str();
+        self.db.with_conn(|conn| {
+            match conn.execute(
+                "INSERT INTO users (id, username, passwordHash, createdAt, updatedAt, role)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![id, username, hash, now, now, role_s],
+            ) {
+                Ok(_) => Ok(UserRow {
+                    id,
+                    username: username.to_string(),
+                    password_hash: hash,
+                    created_at: now,
+                    updated_at: now,
+                    role,
+                }),
+                Err(rusqlite::Error::SqliteFailure(e, _))
+                    if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+                {
+                    Err(DbError::Message(format!("username taken: {username}")))
+                }
+                Err(e) => Err(e.into()),
+            }
+        })
+    }
+
+    pub fn count_admins(&self) -> Result<u32> {
+        self.db.with_conn(|conn| {
+            let n: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM users WHERE role = 'admin'",
+                [],
+                |r| r.get(0),
+            )?;
+            Ok(n as u32)
+        })
+    }
+
+    pub fn set_role_if_not_last_admin(
+        &self,
+        id: &str,
+        new_role: UserRole,
+    ) -> Result<&'static str> {
+        let Some(row) = self.find_by_id(id)? else {
+            return Ok("not_found");
+        };
+        if row.role == new_role {
+            return Ok("ok");
+        }
+        if row.role == UserRole::Admin && new_role == UserRole::Member {
+            if self.count_admins()? <= 1 {
+                return Ok("would_orphan");
+            }
+        }
+        let now = now_ms();
+        self.db.with_conn(|conn| {
+            conn.execute(
+                "UPDATE users SET role = ?1, updatedAt = ?2 WHERE id = ?3",
+                rusqlite::params![new_role.as_str(), now, id],
+            )?;
+            Ok(())
+        })?;
+        Ok("ok")
+    }
+
+    pub fn delete_if_not_last_admin(&self, id: &str) -> Result<&'static str> {
+        let Some(row) = self.find_by_id(id)? else {
+            return Ok("not_found");
+        };
+        if row.role == UserRole::Admin && self.count_admins()? <= 1 {
+            return Ok("would_orphan");
+        }
+        self.db.with_conn(|conn| {
+            conn.execute("DELETE FROM users WHERE id = ?1", rusqlite::params![id])?;
+            Ok(())
+        })?;
+        Ok("ok")
+    }
 }
 
 fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserRow> {

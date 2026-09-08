@@ -277,14 +277,14 @@ pub fn extract_session_token(header: Option<&axum::http::HeaderValue>) -> Option
     None
 }
 
-fn valid_username(s: &str) -> bool {
+pub(crate) fn valid_username(s: &str) -> bool {
     let n = s.len();
     (3..=32).contains(&n)
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
 }
 
-fn valid_password(s: &str) -> bool {
+pub(crate) fn valid_password(s: &str) -> bool {
     (8..=200).contains(&s.len())
 }
 

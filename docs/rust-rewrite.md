@@ -208,14 +208,15 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | SQLite schema + users/sessions | live | — |
 | `GET /api/health`, `/api/healthz` | live | `llm.route` stays `none` until a completion is tracked |
 | Session setup/login/cookie/CSRF | live | — |
-| Audit `GET /api/audit` | **live** `user_audit` list + insert (`admin.first_created`, `user.password_changed`, `mcp.tool*`, `economy.workorders_clear`) | user CRUD still stub |
+| Audit `GET /api/audit` | **live** `user_audit` list + insert (`admin.first_created`, `user.password_changed`, `user.created/deleted/role_changed/password_reset`, `mcp.tool*`, `economy.workorders_clear`, recordings) | — |
 | Vue `bot/web/dist` static | live if dist present | — |
 | OpenAPI JSON | frozen catalog | `/api/docs` HTML is a snapshot index |
-| Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy + Settings status probes (llm/rag/memory/stream-bridge/rights/ops/scopes) | harness/recordings/ACE-Step still empty or 503 |
+| Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy + Settings status probes (llm/rag/memory/stream-bridge/rights/ops/scopes) + harness ask/turns + user CRUD + music upload/tags/ratings + recordings | ACE-Step still empty or 503 |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
 | `!play` `!skip` `!queue` + web play | **live** local + YouTube + streams; Spotify/Tidal via sidecar `GET /resolve`; yt-library MP3 save when enabled | — |
-| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | dashboard `/harness` ask still stub |
+| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | — |
+| Dashboard harness | **live** `POST /api/bot/harness/ask` + `GET /api/bot/harness/turns` (same brain path as `/v1/turn`) | — |
 | `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; MemPalace HTTP when URL + toggle on; doctrine reindex | — |
 | Org KG `!kg` / `!diary` / `GET|POST /api/bot/org-kg` | **live** SQLite `kg_facts` + MemPalace kgRemember/kgSearch; never private rooms; Settings `kgEnabled` | SC org status plugins |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query + multipart upload + reformat + pandoc export (503 if pandoc missing) | — |

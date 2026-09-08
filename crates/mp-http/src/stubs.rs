@@ -65,50 +65,12 @@ pub async fn economy_cache(_user: AuthUser) -> Json<Value> {
 pub async fn economy_commodities(_user: AuthUser) -> Json<Value> {
     Json(json!({ "commodities": [] }))
 }
-pub async fn economy_ok(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "ok": true }))
-}
-
-
-pub async fn harness_turns(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "turns": [] }))
-}
-pub async fn harness_ask(_user: AuthUser) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": "harness ask not ported — use POST /v1/turn",
-            "turn": { "id": "stub", "error": "dashboard harness ask is later; POST /v1/turn is live (Phase 4)" }
-        })),
-    )
-        .into_response()
-}
-
 pub async fn bot_status_stub(_admin: AdminUser) -> Json<Value> {
     Json(json!({
         "ok": false,
         "configured": false,
         "message": "not ported yet",
     }))
-}
-
-pub async fn users_list(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
-    let users = st
-        .db
-        .users()
-        .list_users()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|u| {
-            json!({
-                "id": u.id,
-                "username": u.username,
-                "role": u.role.as_str(),
-                "createdAt": u.created_at,
-            })
-        })
-        .collect::<Vec<_>>();
-    Json(json!({ "users": users }))
 }
 
 pub async fn not_ported(_user: AuthUser) -> Response {

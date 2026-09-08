@@ -18,6 +18,7 @@ mod kg;
 mod memory;
 mod roast;
 mod sessions;
+mod tags;
 mod users;
 mod work_orders;
 mod yt_saved;
@@ -31,6 +32,7 @@ pub use kg::{
 pub use memory::{MemoryFact, MemoryStore};
 pub use roast::{RoastQuote, RoastStore};
 pub use sessions::{SessionStore, SessionValidation, MAX_SESSIONS_PER_USER, SESSION_TTL_MS};
+pub use tags::{RatingSummary, TagSource, TagStore, TrackTags};
 pub use users::{UserRole, UserRow, UserStore, UsernameTakenError, BCRYPT_COST};
 pub use work_orders::{aggregate, WorkOrder, WorkOrderLine, WorkOrderStore};
 pub use yt_saved::YtSavedStore;
@@ -155,6 +157,10 @@ impl Database {
 
     pub fn kg(&self) -> KgStore<'_> {
         KgStore { db: self }
+    }
+
+    pub fn tags(&self) -> TagStore<'_> {
+        TagStore { db: self }
     }
 
     pub fn sessions(&self) -> SessionStore<'_> {

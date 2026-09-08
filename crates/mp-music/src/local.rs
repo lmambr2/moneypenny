@@ -466,6 +466,82 @@ impl LocalProvider {
             .find(|s| s.track.id == id)
             .map(|s| s.track.clone())
     }
+
+    pub fn path_for_id(&self, id: &str) -> Option<PathBuf> {
+        self.ensure_indexed();
+        self.id_to_path.lock().ok()?.get(id).cloned()
+    }
+
+    /// Write into `musicDir/uploads/` and re-index. Same rules as Node `uploadSong`.
+    pub fn upload_song(&self, original_filename: &str, data: &[u8]) -> Result<Track, MusicError> {
+        let mut base = std::path::Path::new(original_filename)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("upload.bin")
+            .to_string();
+        base = base
+            .replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "-")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if base.len() > 200 {
+            base.truncate(200);
+        }
+        if base.is_empty() {
+            base = "upload.mp3".into();
+        }
+        let ext = std::path::Path::new(&base)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| format!(".{}", s.to_ascii_lowercase()))
+            .unwrap_or_default();
+        if !self.extensions.iter().any(|e| e == &ext) {
+            return Err(MusicError::Message(format!(
+                "Unsupported audio format. Allowed: {}",
+                self.extensions.join(", ")
+            )));
+        }
+        let uploads = self.music_dir.join("uploads");
+        std::fs::create_dir_all(&uploads).map_err(|e| MusicError::Message(e.to_string()))?;
+        let name_no_ext = std::path::Path::new(&base)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("upload");
+        let mut target = uploads.join(&base);
+        let mut counter = 0u32;
+        while target.exists() {
+            counter += 1;
+            if counter > 9999 {
+                return Err(MusicError::Message("Too many name collisions".into()));
+            }
+            target = uploads.join(format!("{name_no_ext} ({counter}){ext}"));
+        }
+        let tmp = PathBuf::from(format!("{}.uploading", target.display()));
+        if let Err(e) = std::fs::write(&tmp, data) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(MusicError::Message(e.to_string()));
+        }
+        if let Err(e) = std::fs::rename(&tmp, &target) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(MusicError::Message(e.to_string()));
+        }
+        self.refresh();
+        let real = target.canonicalize().unwrap_or(target.clone());
+        let id = Self::opaque_id(&real);
+        if let Some(song) = self.song_by_id(&id) {
+            return Ok(song);
+        }
+        Ok(Track {
+            id,
+            title: name_no_ext.to_string(),
+            artist: "Unknown Artist".into(),
+            album: "Unknown Album".into(),
+            platform: Platform::Local,
+            url: real.to_string_lossy().into_owned(),
+            duration: 0,
+            cover_url: String::new(),
+        })
+    }
 }
 
 impl MusicProvider for LocalProvider {
