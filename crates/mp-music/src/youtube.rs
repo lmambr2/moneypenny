@@ -16,6 +16,7 @@ use crate::url_guard::{assert_public_playback_url, is_public_playback_url};
 
 pub const YOUTUBE_MAX_DURATION_SEC: u32 = 15 * 60;
 pub const DEFAULT_DEMO_VIDEO_ID: &str = "hLOheGDwD_0";
+pub const DEFAULT_DEMO_VIDEO_URL: &str = "https://www.youtube.com/watch?v=hLOheGDwD_0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum YoutubePolicy {

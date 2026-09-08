@@ -41,7 +41,7 @@ pub use ytlibrary::{sanitize_base, YtLibrary, SAVE_SUBDIR};
 pub use track::{Platform, QueuedSong, QueueSource, Track};
 pub use youtube::{
     is_youtube_full_album_title, is_youtube_livestream_radio_title, should_block_youtube_song,
-    YoutubeClient, YoutubePolicy, DEFAULT_DEMO_VIDEO_ID,
+    YoutubeClient, YoutubePolicy, DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL,
 };
 
 #[derive(Debug, thiserror::Error)]

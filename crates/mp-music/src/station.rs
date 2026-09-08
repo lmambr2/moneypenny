@@ -257,6 +257,49 @@ impl MusicStation {
         self.replace_with_first_hit_flags(query, &HashSet::new())
     }
 
+    /// `!test` / PHASE0 demo: Ella Langley *Choosin' Texas* (`DEFAULT_DEMO_VIDEO_ID`).
+    /// Local `[videoId]` copy first, else YouTube. Sequential, play once.
+    pub fn play_demo_track(&self) -> ReplaceResult {
+        let id = crate::DEFAULT_DEMO_VIDEO_ID;
+        if let Some(track) = self.find_demo_local(id) {
+            let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
+            {
+                let mut q = self.queue.lock().expect("queue");
+                replace_queue_with_song(&mut q, queued.clone());
+            }
+            self.player.reset_failures();
+            return if self.resolve_and_play(&queued) {
+                ReplaceResult::Ok(track)
+            } else {
+                ReplaceResult::CantPlay(track)
+            };
+        }
+        self.replace_with_first_hit_flags(crate::DEFAULT_DEMO_VIDEO_URL, &HashSet::new())
+    }
+
+    fn find_demo_local(&self, video_id: &str) -> Option<Track> {
+        let tag = format!("[{video_id}]");
+        if let Some(lib) = self.yt_library.lock().expect("yt lib").as_ref() {
+            if let Some(path) = lib.lookup(video_id) {
+                if let Some(ResolveHit::Song(t)) = self.local.resolve_input(&path) {
+                    if !self.blocked(&t) {
+                        return Some(t);
+                    }
+                }
+            }
+        }
+        for t in self.local.search(video_id, 32) {
+            if self.blocked(&t) {
+                continue;
+            }
+            let blob = format!("{} {} {}", t.title, t.album, t.id);
+            if blob.contains(&tag) || blob.contains(video_id) {
+                return Some(t);
+            }
+        }
+        None
+    }
+
     pub fn replace_with_first_hit_flags(&self, query: &str, flags: &HashSet<char>) -> ReplaceResult {
         let Some(track) = self.search_first_flags(query, flags) else {
             return ReplaceResult::NoResults;

@@ -54,6 +54,7 @@ impl CommandExecutor {
             "ban" => self.cmd_ban(cmd),
             "unban" => self.cmd_unban(cmd),
             "help" => self.cmd_help(),
+            "test" => self.cmd_test(),
             other if crate::manifest::is_known_command(other) => {
                 format!("{other} is not ported yet.")
             }
@@ -436,6 +437,23 @@ impl CommandExecutor {
         format!("Not on ban list: {arg}. Try {p}ban list.")
     }
 
+    fn cmd_test(&self) -> String {
+        match self.station.play_demo_track() {
+            ReplaceResult::Ok(t) => {
+                let via = match t.platform {
+                    mp_music::Platform::Local => "local",
+                    mp_music::Platform::Youtube => "youtube",
+                    mp_music::Platform::Stream => "stream",
+                };
+                format!("Now playing: {} - {} ({via})", t.title, t.artist)
+            }
+            ReplaceResult::NoResults => {
+                format!("No results found for: {}", mp_music::DEFAULT_DEMO_VIDEO_URL)
+            }
+            ReplaceResult::CantPlay(t) => format!("Cannot play: {}", t.title),
+        }
+    }
+
     fn cmd_help(&self) -> String {
         let p = &self.prefix;
         [
@@ -449,6 +467,7 @@ impl CommandExecutor {
             &format!("{p}jump <query> ({p}go) — Jump to queue match or search+start now"),
             &format!("{p}queue ({p}list) · {p}now · {p}clear · {p}remove <n> · {p}vol <0-100> · {p}mode <seq|loop|random|rloop>"),
             &format!("{p}ban [reason] · {p}ban list · {p}unban"),
+            &format!("{p}test — Demo track (Ella Langley Choosin' Texas, local then YouTube)"),
             "",
             "Ask / memory",
             &format!("{p}ask <question> — Grounded Q&A (RAG when enabled)"),
@@ -581,6 +600,27 @@ mod tests {
         assert_eq!(skip, "Queue is empty");
         assert!(!skip.starts_with('!'));
         assert!(!skip.to_lowercase().contains("only advance"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn test_plays_local_demo_copy() {
+        let (dir, st) = tmp_station();
+        std::fs::write(
+            dir.join("Ella Langley - Choosin Texas [hLOheGDwD_0].mp3"),
+            b"fake",
+        )
+        .unwrap();
+        st.local.refresh();
+        let ex = CommandExecutor::new(st.clone(), "!");
+        let out = ex.execute(&cmd("test", "")).await.unwrap();
+        assert!(out.starts_with("Now playing:"), "{out}");
+        assert!(out.to_lowercase().contains("ella") || out.contains("hLOheGDwD_0"), "{out}");
+        assert!(out.contains("(local)"), "{out}");
+        let q = st.queue.lock().unwrap();
+        assert_eq!(q.get_mode(), PlayMode::Sequential);
+        assert_eq!(q.size(), 1);
+        drop(q);
         let _ = std::fs::remove_dir_all(dir);
     }
 
