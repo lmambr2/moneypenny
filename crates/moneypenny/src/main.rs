@@ -191,6 +191,7 @@ async fn main() {
         config.rag_top_k as usize,
     );
     rag.set_mempalace_enabled(config.mempalace_enabled);
+    rag.set_kg_enabled(config.kg_enabled);
     info!(
         rag = config.rag_enabled,
         memory = config.memory_enabled,
@@ -228,6 +229,16 @@ async fn main() {
                             text: Some(c.text),
                             classification: Some(c.classification),
                             score: Some(c.score),
+                        });
+                    }
+                }
+                if rag.kg_enabled() {
+                    for (text, source) in rag.kg.recall_for_question(&q).await {
+                        sources.push(mp_brain::TurnSource {
+                            source,
+                            text: Some(text),
+                            classification: Some("unclassified".into()),
+                            score: Some(0.85),
                         });
                     }
                 }

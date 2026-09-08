@@ -190,7 +190,7 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "ragEnabled": st.rag.as_ref().map(|r| r.rag_enabled()).unwrap_or(c.rag_enabled),
         "ragTopK": st.rag.as_ref().map(|r| r.top_k() as u32).unwrap_or(c.rag_top_k),
         "memoryEnabled": st.rag.as_ref().map(|r| r.memory_enabled()).unwrap_or(c.memory_enabled),
-        "kgEnabled": false,
+        "kgEnabled": st.rag.as_ref().map(|r| r.kg_enabled()).unwrap_or(c.kg_enabled),
         "mempalaceEnabled": st.rag.as_ref().is_some_and(|r| r.mempalace_enabled()),
         "mempalaceUrl": c.mempalace_url,
         "scOrgStatusUrl": "",
@@ -277,6 +277,9 @@ pub async fn settings_post(
         }
         if let Some(v) = body.get("memoryEnabled").and_then(|v| v.as_bool()) {
             rag.set_memory_enabled(v);
+        }
+        if let Some(v) = body.get("kgEnabled").and_then(|v| v.as_bool()) {
+            rag.set_kg_enabled(v);
         }
         if let Some(v) = body.get("ragTopK").and_then(|v| v.as_u64()) {
             rag.set_top_k(v as usize);
@@ -374,6 +377,7 @@ fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
         "ragEnabled",
         "ragTopK",
         "memoryEnabled",
+        "kgEnabled",
         "roastEnabled",
         "roastMinPresent",
         "roastCooldownMinutes",

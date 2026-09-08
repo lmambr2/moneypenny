@@ -102,6 +102,42 @@ impl MemPalaceClient {
         }
     }
 
+    pub async fn kg_remember(
+        &self,
+        fact: &str,
+        subject: &str,
+        valid_from: &str,
+        valid_until: &str,
+        diary: &str,
+    ) -> bool {
+        let url = format!("{}/v1/kg/remember", self.base);
+        match self
+            .http
+            .post(&url)
+            .timeout(self.timeout)
+            .json(&json!({
+                "fact": fact,
+                "subject": subject,
+                "validFrom": valid_from,
+                "validUntil": valid_until,
+                "diary": diary,
+            }))
+            .send()
+            .await
+        {
+            Ok(res) => res
+                .json::<Value>()
+                .await
+                .ok()
+                .and_then(|v| v.get("ok").and_then(|x| x.as_bool()))
+                .unwrap_or(false),
+            Err(e) => {
+                tracing::warn!(error = %e, "MemPalace kgRemember failed");
+                false
+            }
+        }
+    }
+
     /// Org KG search (`POST /v1/kg/search`). Never per-user `!remember` rooms.
     pub async fn kg_search(&self, query: &str, limit: u32) -> Vec<String> {
         let url = format!("{}/v1/kg/search", self.base);

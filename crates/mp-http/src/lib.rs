@@ -42,6 +42,7 @@ mod rate_limit;
 mod roast;
 mod session;
 mod spa;
+mod status_api;
 mod stubs;
 mod voice_api;
 mod ws;
@@ -95,6 +96,7 @@ impl AppState {
                 .unwrap_or_else(|_| "Moneypenny".into()),
         );
         radio.set_tts(config.voice.tts_url.clone(), config.voice.tts_voice.clone());
+        radio.set_llm(Arc::clone(&brain));
         let roast = roast::RoastRuntime::new(
             Arc::clone(&db),
             Arc::clone(&brain),
@@ -131,6 +133,7 @@ impl AppState {
 
     pub fn with_rag(mut self, rag: Arc<mp_rag::RagRuntime>) -> Self {
         self.radio.set_retrieval(Arc::clone(&rag.retrieval));
+        self.radio.set_kg(Arc::clone(&rag.kg));
         if let Some(c) = rag.mempalace.clone() {
             self.radio.set_mempalace(c);
         }
@@ -139,6 +142,7 @@ impl AppState {
     }
 
     pub fn with_brain(mut self, brain: Arc<mp_brain::BrainRuntime>) -> Self {
+        self.radio.set_llm(Arc::clone(&brain));
         self.brain = brain;
         self
     }
@@ -261,26 +265,26 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/bot/live", get(bot_api::live))
         .route("/api/bot/recordings", get(bot_api::recordings_list))
-        .route("/api/bot/llm/status", get(stubs::bot_status_stub))
+        .route("/api/bot/llm/status", get(status_api::llm_status))
         .route("/api/bot/voice/status", get(voice_api::voice_status))
         .route("/api/bot/voice/test", post(voice_api::voice_test))
         .route("/api/bot/radio/status", get(radio_api::radio_status))
         .route("/api/bot/radio/test-bumper", post(radio_api::radio_test_bumper))
-        .route("/api/bot/rag/status", get(stubs::bot_status_stub))
-        .route("/api/bot/memory/status", get(stubs::bot_status_stub))
+        .route("/api/bot/rag/status", get(status_api::rag_status))
+        .route("/api/bot/memory/status", get(status_api::memory_status))
         .route("/api/bot/ace-step/status", get(stubs::bot_status_stub))
-        .route("/api/bot/stream-bridge/status", get(stubs::bot_status_stub))
-        .route("/api/bot/ops/status", get(stubs::bot_status_stub))
-        .route("/api/bot/rights/debug", get(stubs::bot_status_stub))
+        .route("/api/bot/stream-bridge/status", get(status_api::stream_bridge_status))
+        .route("/api/bot/ops/status", get(status_api::ops_status))
+        .route("/api/bot/rights/debug", get(status_api::rights_debug))
         .route("/api/bot/voice/under-music-check", get(voice_api::under_music_check))
-        .route("/api/bot/memory/scopes", get(stubs::bot_status_stub))
-        .route("/api/bot/memory/private", get(stubs::bot_status_stub))
-        .route("/api/bot/org-kg", get(stubs::economy_ok).post(stubs::not_ported))
+        .route("/api/bot/memory/scopes", get(status_api::memory_scopes))
+        .route("/api/bot/memory/private", get(status_api::memory_private))
+        .route("/api/bot/org-kg", get(status_api::org_kg_get).post(status_api::org_kg_post))
         .route("/api/bot/harness/turns", get(stubs::harness_turns))
         .route("/api/bot/harness/ask", post(stubs::harness_ask))
         .route("/api/bot/rag/eval", post(stubs::not_ported))
-        .route("/api/bot/rag/query", post(stubs::not_ported))
-        .route("/api/bot/llm/ask", post(stubs::not_ported))
+        .route("/api/bot/rag/query", post(rag_api::rag_query))
+        .route("/api/bot/llm/ask", post(status_api::llm_ask))
         .route("/api/bot/{id}", get(bot_api::get_bot).delete(bot_api::delete_bot))
         .route("/api/bot/{id}/start", post(bot_api::start_bot))
         .route("/api/bot/{id}/stop", post(bot_api::stop_bot))
@@ -1820,5 +1824,91 @@ mod tests {
         assert!(actions.contains(&"mcp.tool"), "{v}");
         assert!(actions.contains(&"admin.first_created"), "{v}");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn org_kg_seed_list_and_status_probes() {
+        let (data, state) = rag_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/org-kg")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r#"{"fact":"Alice is the fleet commander"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{:?}", res.status());
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v["message"].as_str().unwrap_or("").contains("org KG"));
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/org-kg")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["facts"][0]["fact"], "Alice is the fleet commander");
+
+        for path in [
+            "/api/bot/llm/status",
+            "/api/bot/rag/status",
+            "/api/bot/memory/status",
+            "/api/bot/stream-bridge/status",
+            "/api/bot/rights/debug",
+            "/api/bot/ops/status",
+            "/api/bot/memory/scopes",
+        ] {
+            let res = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .header("cookie", &cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "{path}");
+        }
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/rag/status")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["configured"], true);
+        let _ = std::fs::remove_dir_all(data);
     }
 }

@@ -103,6 +103,8 @@ pub struct BotConfig {
     #[serde(default)]
     pub memory_enabled: bool,
     #[serde(default)]
+    pub kg_enabled: bool,
+    #[serde(default)]
     pub mempalace_enabled: bool,
     #[serde(default)]
     pub mempalace_url: String,
@@ -566,6 +568,7 @@ impl Default for BotConfig {
             rag_top_k: 6,
             rag_collection: "moneypenny_docs".into(),
             memory_enabled: false,
+            kg_enabled: false,
             mempalace_enabled: false,
             mempalace_url: String::new(),
             youtube_save_enabled: false,
@@ -835,6 +838,14 @@ fn apply_env(cfg: &mut BotConfig) {
             if !v.is_empty() {
                 cfg.mempalace_url = v;
             }
+        }
+    }
+    if let Ok(v) = std::env::var("KG_ENABLED") {
+        let t = v.trim();
+        if t == "1" || t.eq_ignore_ascii_case("true") {
+            cfg.kg_enabled = true;
+        } else if t == "0" || t.eq_ignore_ascii_case("false") {
+            cfg.kg_enabled = false;
         }
     }
     if let Ok(v) = std::env::var("MEMPALACE_ENABLED") {

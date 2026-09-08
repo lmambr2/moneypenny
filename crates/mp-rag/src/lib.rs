@@ -18,6 +18,7 @@ mod store;
 mod validity;
 mod vector;
 mod mempalace;
+mod kg;
 
 pub use chunk::{chunk_id, chunk_markdown, chunk_markdown_default, Chunk};
 pub use classifications::{allowed_classifications_for, DOCTRINE_LEVELS};
@@ -35,6 +36,7 @@ pub use reformat::{reformat_doctrine_markdown, should_skip_doctrine_reformat};
 pub use store::{RetrievedChunk, RetrievalStore};
 pub use validity::is_doctrine_expired;
 pub use vector::{HttpVectorStore, MemoryVectorStore, VectorStore};
+pub use kg::{KgService, DIARY_USAGE, KG_USAGE};
 pub use mempalace::MemPalaceClient;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -44,6 +46,7 @@ use std::sync::Arc;
 pub struct RagRuntime {
     pub retrieval: Arc<RetrievalStore>,
     pub doctrine: Arc<DoctrineStore>,
+    pub kg: Arc<KgService>,
     rag_enabled: AtomicBool,
     memory_enabled: AtomicBool,
     mempalace_enabled: AtomicBool,
@@ -59,14 +62,18 @@ impl RagRuntime {
         memory_enabled: bool,
         top_k: usize,
     ) -> Arc<Self> {
+        let mempalace = MemPalaceClient::from_env();
+        let kg = KgService::new(doctrine.database());
+        kg.set_mempalace(mempalace.clone(), false);
         Arc::new(Self {
             retrieval,
             doctrine,
+            kg,
             rag_enabled: AtomicBool::new(rag_enabled),
             memory_enabled: AtomicBool::new(memory_enabled),
             mempalace_enabled: AtomicBool::new(false),
             top_k: AtomicUsize::new(top_k.max(1)),
-            mempalace: MemPalaceClient::from_env(),
+            mempalace,
         })
     }
 
@@ -90,6 +97,14 @@ impl RagRuntime {
     }
     pub fn set_mempalace_enabled(&self, v: bool) {
         self.mempalace_enabled.store(v, Ordering::SeqCst);
+        self.kg
+            .set_mempalace(self.mempalace.clone(), v && self.mempalace.is_some());
+    }
+    pub fn kg_enabled(&self) -> bool {
+        self.kg.kg_enabled()
+    }
+    pub fn set_kg_enabled(&self, v: bool) {
+        self.kg.set_kg_enabled(v);
     }
     pub fn set_top_k(&self, v: usize) {
         self.top_k.store(v.max(1), Ordering::SeqCst);

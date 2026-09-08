@@ -1327,6 +1327,7 @@ dependencies = [
  "mp-rag",
  "mp-rights",
  "mp-voice",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -1366,6 +1367,7 @@ dependencies = [
 name = "mp-radio"
 version = "0.1.0"
 dependencies = [
+ "mp-brain",
  "mp-config",
  "mp-music",
  "mp-rag",

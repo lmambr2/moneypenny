@@ -211,16 +211,17 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Audit `GET /api/audit` | **live** `user_audit` list + insert (`admin.first_created`, `user.password_changed`, `mcp.tool*`, `economy.workorders_clear`) | user CRUD still stub |
 | Vue `bot/web/dist` static | live if dist present | — |
 | OpenAPI JSON | frozen catalog | `/api/docs` HTML is a snapshot index |
-| Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy | harness/recordings/ACE-Step still empty or 503 |
+| Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy + Settings status probes (llm/rag/memory/stream-bridge/rights/ops/scopes) | harness/recordings/ACE-Step still empty or 503 |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
 | `!play` `!skip` `!queue` + web play | **live** local + YouTube + streams; Spotify/Tidal via sidecar `GET /resolve`; yt-library MP3 save when enabled | — |
 | `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | dashboard `/harness` ask still stub |
-| `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; MemPalace HTTP when URL + toggle on; doctrine reindex | org KG |
+| `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; MemPalace HTTP when URL + toggle on; doctrine reindex | — |
+| Org KG `!kg` / `!diary` / `GET|POST /api/bot/org-kg` | **live** SQLite `kg_facts` + MemPalace kgRemember/kgSearch; never private rooms; Settings `kgEnabled` | SC org status plugins |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query + multipart upload + reformat + pandoc export (503 if pandoc missing) | — |
 | Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory + merge-write to this worktree `config.json` | do not write production Node `Projects/moneypenny` |
 | Inbound voice | **live** Opus decode + energy VAD (Silero ONNX stays Node-side) + HTTP STT keyword as KWS + watchword + same executor as chat (`Scope::Voice`); Piper wav airs on the shared player; `GET /api/bot/voice/under-music-check` | in-process ONNX Silero |
-| Radio | **live** director (disabled = `play_next`); local + YouTube/stream seed; `!radio` on/off/status/ops; every-N bumpers; Piper bumpers play via the same player; prerecorded dir pool (`RADIO_BUMPER_DIR` / `data/bumpers`); doctrine clip-and-speak + memory org-KG bumpers (opt-in); `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, LLM rewrite polish vs clip, analyzer |
+| Radio | **live** director (disabled = `play_next`); local + YouTube/stream seed; `!radio` on/off/status/ops; every-N bumpers; Piper bumpers play via the same player; prerecorded dir pool (`RADIO_BUMPER_DIR` / `data/bumpers`); doctrine/memory bumpers with grounded LLM rewrite (fail to clip-and-speak); `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, analyzer |
 | Moves | **live** `!move` / `!moveclient` / `!moveall` (30s confirm, max 10) / `!follow` via TS6 HTTP Query | no auto-follow |
 | Roast | **live** channel capture + `!roast` / `!roastout` / `!roastin`; LLM grade fail-open; Settings toggle | no voice-transcript capture; auto-reel needs LLM + min present |
 | Economy | **live** seed ores/methods/mine/refine + SQLite work orders; Vue `/api/economy/*`; sc-craft / UEX / sc-trade HTTP fail-soft | scrapers; disk cache SWR; ingest snapshots |

@@ -40,6 +40,9 @@ pub async fn dispatch_command(
         "remember" => Some(cmd_remember(db, rag, &parsed.args, &subject.uid)),
         "recall" => Some(cmd_recall(db, &subject.uid)),
         "forget" => Some(cmd_forget(db, &parsed.args, &subject.uid)),
+        "kg" => Some(cmd_kg(rag, rights, subject, scope, &parsed.args)),
+        "diary" => Some(cmd_diary(rag, rights, subject, scope, &parsed.args)),
+        "ops" => Some(cmd_ops(radio, rag, Some(executor.station.as_ref()), &parsed.args)),
         "ask" => Some(cmd_ask(brain, rights, subject, scope, &parsed.args).await),
         "reindex" => Some(cmd_reindex(rag, &parsed.args).await),
         "radio" => Some(cmd_radio(radio, &executor.prefix, parsed).await),
@@ -190,6 +193,75 @@ async fn cmd_radio(radio: Option<&RadioRuntime>, prefix: &str, parsed: &ParsedCo
             "Usage: {prefix}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skipbumper]"
         ),
     }
+}
+
+fn can_write_org(rights: Option<&RightsEngine>, subject: &Subject, scope: Scope) -> bool {
+    let Some(engine) = rights else {
+        return true;
+    };
+    engine.can(subject, "analyst", scope) || engine.can(subject, "agent", scope)
+}
+
+fn cmd_kg(
+    rag: Option<&mp_rag::RagRuntime>,
+    rights: Option<&RightsEngine>,
+    subject: &Subject,
+    scope: Scope,
+    args: &str,
+) -> String {
+    let Some(rag) = rag else {
+        return "Org knowledge graph is not ready.".into();
+    };
+    rag.kg
+        .handle_kg(args, Some(&subject.uid), can_write_org(rights, subject, scope))
+}
+
+fn cmd_diary(
+    rag: Option<&mp_rag::RagRuntime>,
+    rights: Option<&RightsEngine>,
+    subject: &Subject,
+    scope: Scope,
+    args: &str,
+) -> String {
+    let Some(rag) = rag else {
+        return "Org knowledge graph is not ready.".into();
+    };
+    rag.kg
+        .handle_diary(args, Some(&subject.uid), can_write_org(rights, subject, scope))
+}
+
+fn cmd_ops(
+    radio: Option<&RadioRuntime>,
+    rag: Option<&mp_rag::RagRuntime>,
+    station: Option<&mp_music::MusicStation>,
+    args: &str,
+) -> String {
+    let sub = args
+        .trim()
+        .split_whitespace()
+        .next()
+        .unwrap_or("status")
+        .to_ascii_lowercase();
+    if !matches!(sub.as_str(), "status" | "brief" | "" ) {
+        return "Usage: !ops [status] — org brief (SC plugins not ported).".into();
+    }
+    let radio_on = radio.is_some_and(|r| r.enabled());
+    let profile = radio
+        .map(|r| r.config().active_profile)
+        .unwrap_or_else(|| "—".into());
+    let now = station.and_then(|s| {
+        s.queue
+            .lock()
+            .ok()
+            .and_then(|q| q.current().map(|c| format!("{} — {}", c.name, c.artist)))
+    });
+    let kg_n = rag.map(|r| r.kg.count()).unwrap_or(0);
+    let docs = rag.map(|r| r.doctrine.list().len()).unwrap_or(0);
+    format!(
+        "📋 Ops status\nRadio: {} (profile {profile})\nNow playing: {}\nOrg KG: {kg_n} fact(s)\nDoctrine: {docs} doc(s)",
+        if radio_on { "ON" } else { "OFF" },
+        now.as_deref().unwrap_or("(nothing)"),
+    )
 }
 
 fn cmd_remember(db: &Database, rag: Option<&mp_rag::RagRuntime>, args: &str, uid: &str) -> String {

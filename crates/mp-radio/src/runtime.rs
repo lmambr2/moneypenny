@@ -165,6 +165,14 @@ impl RadioRuntime {
         self.factory.inner.set_mempalace(client);
     }
 
+    pub fn set_kg(&self, kg: std::sync::Arc<mp_rag::KgService>) {
+        self.factory.inner.set_kg(kg);
+    }
+
+    pub fn set_llm(&self, llm: std::sync::Arc<mp_brain::BrainRuntime>) {
+        self.factory.inner.set_llm(llm);
+    }
+
     pub fn on_poll(&self, humans: u32) {
         if let Some(d) = self.director.read().expect("dir").as_ref() {
             d.on_poll(humans);

@@ -7,9 +7,10 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use mp_brain::BrainRuntime;
 use mp_config::{BumperSource, RadioConfig, WheelSlot};
 use mp_music::MusicStation;
-use mp_rag::{MemPalaceClient, RetrievalStore};
+use mp_rag::{KgService, MemPalaceClient, RetrievalStore};
 use mp_voice::HttpTtsClient;
 
 use crate::director::{BuiltBumper, BumperFactory};
@@ -70,6 +71,8 @@ pub struct LiveBumperFactory {
     pub prerecorded: PrerecordedPool,
     retrieval: Mutex<Option<Arc<RetrievalStore>>>,
     mempalace: Mutex<Option<MemPalaceClient>>,
+    kg: Mutex<Option<Arc<KgService>>>,
+    llm: Mutex<Option<Arc<BrainRuntime>>>,
 }
 
 impl LiveBumperFactory {
@@ -90,6 +93,8 @@ impl LiveBumperFactory {
             prerecorded: PrerecordedPool::new(bumper_dir),
             retrieval: Mutex::new(None),
             mempalace: Mutex::new(None),
+            kg: Mutex::new(None),
+            llm: Mutex::new(None),
         }
     }
 
@@ -114,6 +119,28 @@ impl LiveBumperFactory {
 
     pub fn set_mempalace(&self, client: MemPalaceClient) {
         *self.mempalace.lock().expect("mempalace") = Some(client);
+    }
+
+    pub fn set_kg(&self, kg: Arc<KgService>) {
+        *self.kg.lock().expect("kg") = Some(kg);
+    }
+
+    pub fn set_llm(&self, llm: Arc<BrainRuntime>) {
+        *self.llm.lock().expect("llm") = Some(llm);
+    }
+
+    async fn rewrite_script(&self, material: &str, cap: usize, tone: &str) -> Option<String> {
+        let clip = clip_words(material, 120);
+        let llm = self.llm.lock().ok().and_then(|g| g.clone());
+        let llm_out = if let Some(brain) = llm {
+            brain
+                .complete_plain(&bumper_rewrite_system(cap, tone), &clip)
+                .await
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        finalize_bumper_script(&llm_out, material, cap).map(|f| f.script)
     }
 
     fn expand(&self, line: &str) -> String {
@@ -242,14 +269,15 @@ impl LiveBumperFactory {
             return None;
         };
         let cap = word_cap(cfg.max_bumper_seconds);
-        let script = speakable_clip(&material, cap)?;
+        let tone = profile.map(|p| p.bumper.tone.as_str()).unwrap_or("");
+        let script = self.rewrite_script(&material, cap, tone).await?;
         let built = self.speak(&script, "doctrine").await;
         if built.is_some() {
             tracing::info!(
                 topic = %topic_used,
                 source = %source_hit,
                 script = %script,
-                "radio: doctrine bumper built (clip-and-speak)"
+                "radio: doctrine bumper built"
             );
         }
         built
@@ -259,7 +287,11 @@ impl LiveBumperFactory {
         if !cfg.memory_broadcast_opt_in {
             return None;
         }
-        let mempalace = self.mempalace.lock().ok()?.clone()?;
+        let kg = self.kg.lock().ok().and_then(|g| g.clone());
+        let mempalace = self.mempalace.lock().ok().and_then(|g| g.clone());
+        if kg.is_none() && mempalace.is_none() {
+            return None;
+        }
         let profile = cfg.profiles.get(&cfg.active_profile);
         let topics: Vec<String> = if let Some(t) = topic_override.map(str::trim).filter(|s| !s.is_empty()) {
             vec![t.to_string()]
@@ -283,7 +315,13 @@ impl LiveBumperFactory {
             .get(nanos() as usize % topics.len().max(1))
             .cloned()
             .unwrap_or_else(|| "organization roles operations".into());
-        let hits = mempalace.kg_search(&topic, 5).await;
+        let hits = if let Some(kg) = kg {
+            kg.search_org(&topic, 5).await
+        } else if let Some(mp) = mempalace {
+            mp.kg_search(&topic, 5).await
+        } else {
+            Vec::new()
+        };
         let material = hits
             .into_iter()
             .map(|f| f.trim().to_string())
@@ -293,7 +331,8 @@ impl LiveBumperFactory {
             return None;
         };
         let cap = word_cap(cfg.max_bumper_seconds);
-        let script = speakable_clip(&material, cap)?;
+        let tone = profile.map(|p| p.bumper.tone.as_str()).unwrap_or("");
+        let script = self.rewrite_script(&material, cap, tone).await?;
         let built = self.speak(&script, "memory").await;
         if built.is_some() {
             tracing::info!(topic = %topic, script = %script, "radio: memory bumper built");
@@ -512,6 +551,123 @@ fn speakable_clip(material: &str, cap: usize) -> Option<String> {
     }
 }
 
+const GROUND_STOP: &[&str] = &[
+    "a", "an", "the", "and", "or", "of", "to", "in", "for", "on", "with", "is", "are", "was",
+    "were", "be", "as", "at", "by", "from", "that", "this", "it", "its", "our", "we", "you",
+    "your", "will", "can", "may", "not", "only", "one", "short", "radio", "bumper", "spoken",
+    "line", "announcement", "note", "please", "here", "do", "does", "did", "should", "would",
+    "could", "must",
+];
+
+fn content_tokens(text: &str) -> Vec<String> {
+    text.to_ascii_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '\'' || c == '-' {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .map(|w| w.trim_matches('\'').to_string())
+        .filter(|w| w.len() > 2 && !GROUND_STOP.contains(&w.as_str()))
+        .collect()
+}
+
+pub fn is_grounded_in_material(script: &str, material: &str) -> bool {
+    let src: std::collections::HashSet<String> = content_tokens(material).into_iter().collect();
+    let words = content_tokens(script);
+    if src.is_empty() || words.is_empty() {
+        return false;
+    }
+    let hits = words.iter().filter(|w| src.contains(*w)).count();
+    if hits >= 2 && (hits as f64) / (words.len() as f64) >= 0.2 {
+        return true;
+    }
+    words.len() <= 14 && hits >= 2 && (hits as f64) / (words.len() as f64) >= 0.35
+}
+
+pub fn clean_bumper_script(raw: &str) -> Option<String> {
+    let mut t = raw.trim().to_string();
+    if t.is_empty() {
+        return None;
+    }
+    if t.starts_with("```") {
+        t = t.trim_start_matches('`').trim().to_string();
+        if let Some(pos) = t.find("```") {
+            t = t[..pos].trim().to_string();
+        }
+    }
+    for prefix in [
+        "spoken line:",
+        "bumper:",
+        "announcement:",
+        "here's a line:",
+        "here is a line:",
+        "here's the bumper:",
+        "here is the bumper:",
+    ] {
+        if t.to_ascii_lowercase().starts_with(prefix) {
+            t = t[prefix.len()..].trim().to_string();
+        }
+    }
+    t = t
+        .trim_matches(|c: char| matches!(c, '"' | '\'' | '«' | '»'))
+        .trim()
+        .to_string();
+    if t.to_ascii_lowercase().starts_with("rewrite") {
+        if let Some(i) = t.find(['.', '!', '?']) {
+            t = t[i + 1..].trim().to_string();
+        }
+    }
+    if t.is_empty() || is_meta_bumper_script(&t) {
+        None
+    } else {
+        Some(t)
+    }
+}
+
+pub struct FinalizedBumper {
+    pub script: String,
+    #[allow(dead_code)]
+    pub from: &'static str,
+}
+
+pub fn finalize_bumper_script(llm_out: &str, material: &str, cap: usize) -> Option<FinalizedBumper> {
+    if let Some(cleaned) = clean_bumper_script(llm_out) {
+        let capped = clip_words(&cleaned, cap);
+        if is_grounded_in_material(&capped, material) {
+            return Some(FinalizedBumper {
+                script: capped,
+                from: "llm",
+            });
+        }
+    }
+    speakable_clip(material, cap).map(|script| FinalizedBumper {
+        script,
+        from: "material",
+    })
+}
+
+pub fn bumper_rewrite_system(cap: usize, tone_hint: &str) -> String {
+    let style = if tone_hint.trim().is_empty() {
+        String::new()
+    } else {
+        format!(" Voice style (never say this aloud): {}.", tone_hint.trim())
+    };
+    format!(
+        "You are on live radio. The user message is a doctrine note. \
+Reply with only the spoken words (one or two short sentences, under {cap} words). \
+Use only facts from the user message. No labels, quotes, markdown, or talk about prompts.{style}\n\n\
+Example user: The Office of Organizational Analysis provides independent analysis for the Talon Group.\n\
+Example reply: The Office of Organizational Analysis keeps Talon operations sharp with independent analysis.\n\n\
+Example user: Heavies establish the perimeter before the larger ships jump in.\n\
+Example reply: Heavies set the perimeter before the larger ships jump."
+    )
+}
+
 fn nanos() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -600,6 +756,32 @@ mod tests {
         assert!(build_from_sources(&f, &RadioConfig::default(), slot)
             .await
             .is_none());
+    }
+
+    #[test]
+    fn grounded_rewrite_accepted() {
+        let material = "Heavies establish the perimeter before jump.";
+        let out = finalize_bumper_script(
+            "Heavies set the perimeter before jump.",
+            material,
+            40,
+        )
+        .unwrap();
+        assert_eq!(out.from, "llm");
+        assert!(out.script.to_ascii_lowercase().contains("heavies"));
+    }
+
+    #[test]
+    fn ungrounded_llm_falls_back_to_material() {
+        let material = "Heavies establish the perimeter before jump. Stay tight on the lead.";
+        let out = finalize_bumper_script(
+            "The prompt asks to speak ONE short radio bumper about snacks.",
+            material,
+            40,
+        )
+        .unwrap();
+        assert_eq!(out.from, "material");
+        assert!(out.script.contains("Heavies"));
     }
 
     #[tokio::test]

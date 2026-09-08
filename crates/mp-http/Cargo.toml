@@ -20,6 +20,7 @@ mp-voice = { path = "../mp-voice" }
 mp-radio = { path = "../mp-radio" }
 mp-economy = { path = "../mp-economy" }
 mp-mcp = { path = "../mp-mcp" }
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

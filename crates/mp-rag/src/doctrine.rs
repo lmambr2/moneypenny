@@ -38,6 +38,10 @@ impl DoctrineStore {
         Ok(Self { db, dir })
     }
 
+    pub fn database(&self) -> Arc<Database> {
+        Arc::clone(&self.db)
+    }
+
     pub fn safe_name(&self, name: &str) -> Option<String> {
         let raw = name.replace('\\', "/").trim().to_string();
         if raw.is_empty() {

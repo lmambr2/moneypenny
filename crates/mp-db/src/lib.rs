@@ -14,6 +14,7 @@ use rusqlite::{Connection, OpenFlags};
 
 mod audit;
 mod history;
+mod kg;
 mod memory;
 mod roast;
 mod sessions;
@@ -23,6 +24,10 @@ mod yt_saved;
 
 pub use audit::{AuditEntry, AuditStore};
 pub use history::PlayHistoryStore;
+pub use kg::{
+    display_fact_line, extract_subject, format_kg_record, is_iso_date, parse_kg_flags, KgDateFlags,
+    KgFact, KgStore,
+};
 pub use memory::{MemoryFact, MemoryStore};
 pub use roast::{RoastQuote, RoastStore};
 pub use sessions::{SessionStore, SessionValidation, MAX_SESSIONS_PER_USER, SESSION_TTL_MS};
@@ -146,6 +151,10 @@ impl Database {
 
     pub fn audit(&self) -> AuditStore<'_> {
         AuditStore { db: self }
+    }
+
+    pub fn kg(&self) -> KgStore<'_> {
+        KgStore { db: self }
     }
 
     pub fn sessions(&self) -> SessionStore<'_> {
