@@ -13,13 +13,44 @@ MB=0
 SOURCE="unknown"
 
 if command -v rocm-smi >/dev/null 2>&1; then
-  # Prefer discrete GPU0 total VRAM (bytes). Example line:
-  #   GPU[0]: VRAM Total Memory (B): 34208743424
-  line="$(rocm-smi --showmeminfo vram 2>/dev/null | grep -i 'Total Memory (B)' | head -1 || true)"
-  if [[ "$line" =~ ([0-9]{9,}) ]]; then
-    bytes="${BASH_REMATCH[1]}"
-    MB=$((bytes / 1024 / 1024))
-    SOURCE="rocm-smi"
+  # Penny = largest non-iGPU card (Raphael / Granite Ridge / Ryzen APU skipped).
+  # Dual-R9700 later: PENNY_GPU_INDEX. One discrete card: that card, even if it is GPU[0].
+  NAME_TXT="$(rocm-smi --showproductname 2>/dev/null || true)"
+  VRAM_TXT="$(rocm-smi --showmeminfo vram 2>/dev/null || true)"
+  BEST_MB=0
+  BEST_SRC=""
+  IDX=0
+  while true; do
+    name="$(echo "$NAME_TXT" | awk -v i="$IDX" '
+      $0 ~ ("GPU\\[" i "\\][[:space:]]*: Card Series:") {
+        sub(/^.*Card Series:[[:space:]]*/, ""); print; exit
+      }
+    ')"
+    [ -n "$name" ] || break
+    line="$(echo "$VRAM_TXT" | awk -v i="$IDX" '
+      $0 ~ ("GPU\\[" i "\\][[:space:]]*: VRAM Total Memory \\(B\\):") { print; exit }
+    ')"
+    bytes=0
+    if [[ "$line" =~ ([0-9]{9,}) ]]; then
+      bytes="${BASH_REMATCH[1]}"
+    fi
+    mb=$((bytes / 1024 / 1024))
+    igpu=0
+    echo "$name" | grep -qiE 'Raphael|Granite Ridge|Phoenix|Rembrandt|Strix|Hawk Point|9800X3D|Ryzen[[:space:]]+[0-9]' && igpu=1
+    if [ -n "${PENNY_GPU_INDEX:-}" ] && [ "$IDX" = "$PENNY_GPU_INDEX" ]; then
+      BEST_MB="$mb"
+      BEST_SRC="rocm-smi-penny-$IDX"
+      break
+    fi
+    if [ "$igpu" -eq 0 ] && [ "$mb" -ge "$BEST_MB" ]; then
+      BEST_MB="$mb"
+      BEST_SRC="rocm-smi-discrete-$IDX"
+    fi
+    IDX=$((IDX + 1))
+  done
+  if [ "$BEST_MB" -gt 0 ]; then
+    MB="$BEST_MB"
+    SOURCE="$BEST_SRC"
   fi
 fi
 

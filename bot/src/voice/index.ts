@@ -1,4 +1,22 @@
 export { INSTANT_ACK_PHRASES, TtsAckCache } from "./ack-cache.js";
+export {
+  DuplexClient,
+  DuplexPcmSession,
+  KIND_CONTROL,
+  KIND_META,
+  KIND_PCM,
+  KIND_TEXT,
+} from "./duplex.js";
+export {
+  type DuplexHealth,
+  DuplexWatch,
+  type DuplexWatchKind,
+  FALLBACK_HOLD_MS,
+  parseDuplexHealth,
+  RTF_REALTIME,
+  TALKER_VRAM_IDLE_MB,
+  UNLOAD_TIMEOUT_MS,
+} from "./duplex-watch.js";
 export { matchVoiceMediaCommand } from "./media-router.js";
 export {
   isMusicSearchRouteText,

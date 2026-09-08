@@ -6,6 +6,7 @@
 #   ./scripts/voice-smoke.sh --up edge          # voice-edge then probe
 #   ./scripts/voice-smoke.sh --up server        # voice-server then probe
 #   ./scripts/voice-smoke.sh --no-tts           # STT only
+#   ./scripts/voice-smoke.sh --duplex-mock      # personaplex-mock /health + PCM WS
 #
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,14 +14,16 @@ cd "$ROOT"
 
 STT_URL="${STT_URL:-http://127.0.0.1:9000}"
 TTS_URL="${TTS_URL:-http://127.0.0.1:8880}"
+DUPLEX_URL="${DUPLEX_URL:-http://127.0.0.1:8999}"
 UP=""
 NO_TTS=0
+DUPLEX_MOCK=0
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/voice-smoke.sh [--up edge|server|mock] [--up-mock] [--no-tts] [--stt URL] [--tts URL]
+Usage: ./scripts/voice-smoke.sh [--up edge|server|mock] [--up-mock] [--duplex-mock] [--no-tts] [--stt URL] [--tts URL]
 
-Product voice is Whisper + Piper. Legacy sherpa/Kokoro were removed (V2).
+Product voice is Whisper + Piper. Duplex mock is the Talker contract (no GPU).
 EOF
 }
 
@@ -32,6 +35,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --up-mock) UP=mock; shift ;;
+    --duplex-mock) DUPLEX_MOCK=1; shift ;;
     --no-tts) NO_TTS=1; shift ;;
     --stt) STT_URL="$2"; shift 2 ;;
     --tts) TTS_URL="$2"; shift 2 ;;
@@ -43,6 +47,17 @@ while [ $# -gt 0 ]; do
     *) echo "unknown: $1" >&2; usage; exit 1 ;;
   esac
 done
+
+if [ "$DUPLEX_MOCK" -eq 1 ]; then
+  echo "Starting voice-duplex-dev (personaplex-mock)…"
+  docker compose -f docker-compose.yml --profile voice-duplex-dev up -d --build personaplex-mock
+  DUPLEX_URL="http://127.0.0.1:8999"
+  echo "Waiting for Talker mock at ${DUPLEX_URL}…"
+  for _ in $(seq 1 90); do
+    if curl -sf "${DUPLEX_URL}/health" >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+fi
 
 if [ -n "$UP" ]; then
   case "$UP" in
@@ -81,6 +96,14 @@ if [ -n "$UP" ]; then
   done
 fi
 
+if [ "$DUPLEX_MOCK" -eq 1 ] && [ -z "$UP" ]; then
+  NO_TTS=1
+  SKIP_STT=1
+else
+  SKIP_STT=0
+fi
+
+if [ "$SKIP_STT" -eq 0 ]; then
 echo "=== STT ${STT_URL}/health ==="
 if ! curl -sf "${STT_URL}/health" | tee /tmp/mp-stt-health.json; then
   echo "FAIL: STT health" >&2
@@ -89,6 +112,7 @@ fi
 echo
 python3 -c "import json,sys; j=json.load(open('/tmp/mp-stt-health.json')); sys.exit(0 if j.get('ok') else 1)" \
   || { echo "FAIL: STT not ok" >&2; exit 1; }
+fi
 
 if [ "$NO_TTS" -eq 0 ]; then
   echo "=== TTS ${TTS_URL} ==="
@@ -111,6 +135,46 @@ if [ "$NO_TTS" -eq 0 ]; then
   fi
 fi
 
+if [ "$DUPLEX_MOCK" -eq 1 ]; then
+  echo "=== Duplex ${DUPLEX_URL}/health ==="
+  if ! curl -sf "${DUPLEX_URL}/health" | tee /tmp/mp-duplex-health.json; then
+    echo "FAIL: duplex health" >&2
+    exit 1
+  fi
+  echo
+  python3 - <<'PY'
+import json, sys
+j = json.load(open("/tmp/mp-duplex-health.json"))
+if j.get("ok") is not True or j.get("engine") != "mock":
+    sys.exit(1)
+if "vram_mb" not in j:
+    sys.exit(1)
+print("OK duplex mock engine=%s loaded=%s vram_mb=%s" % (j.get("engine"), j.get("loaded"), j.get("vram_mb")))
+PY
+  echo "=== Duplex unload/warm ==="
+  curl -sf -X POST "${DUPLEX_URL}/v1/control" -H "Content-Type: application/json" \
+    -d '{"op":"unload"}' | tee /tmp/mp-duplex-unload.json
+  echo
+  python3 - <<'PY'
+import json, sys
+j = json.load(open("/tmp/mp-duplex-unload.json"))
+if j.get("ok") is not True or j.get("loaded") is not False:
+    sys.exit(1)
+if int(j.get("vram_mb") or 99) > 256:
+    sys.exit(1)
+PY
+  curl -sf -X POST "${DUPLEX_URL}/v1/control" -H "Content-Type: application/json" \
+    -d '{"op":"warm"}' >/tmp/mp-duplex-warm.json
+  python3 - <<'PY'
+import json, sys
+j = json.load(open("/tmp/mp-duplex-warm.json"))
+sys.exit(0 if j.get("loaded") is True else 1)
+PY
+fi
+
 echo
 echo "Voice smoke OK."
 echo "  sttUrl=http://stt-whisper:9000  ttsUrl=http://piper-tts:8880  textWakeFallback=true"
+if [ "$DUPLEX_MOCK" -eq 1 ]; then
+  echo "  duplexUrl=http://personaplex-mock:8999  engine=mock  (not a GPU RTF pass)"
+fi

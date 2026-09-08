@@ -323,13 +323,56 @@ export function createBotRouter(
           .json({ error: "voice.respondWithVoice must be a boolean", code: "VALIDATION_ERROR" });
         return;
       }
-      for (const key of ["sttUrl", "ttsUrl", "ttsVoice", "watchword"] as const) {
+      for (const key of [
+        "sttUrl",
+        "ttsUrl",
+        "ttsVoice",
+        "watchword",
+        "duplexUrl",
+        "duplexVoice",
+      ] as const) {
         if (key in patch && typeof patch[key] !== "string") {
           res
             .status(400)
             .json({ error: `voice.${key} must be a string`, code: "VALIDATION_ERROR" });
           return;
         }
+      }
+      if (
+        "mode" in patch &&
+        patch.mode !== undefined &&
+        patch.mode !== "cascaded" &&
+        patch.mode !== "duplex"
+      ) {
+        res.status(400).json({
+          error: "voice.mode must be cascaded or duplex",
+          code: "VALIDATION_ERROR",
+        });
+        return;
+      }
+      if (
+        "duplexWatch" in patch &&
+        patch.duplexWatch !== undefined &&
+        patch.duplexWatch !== "gated" &&
+        patch.duplexWatch !== "open"
+      ) {
+        res.status(400).json({
+          error: "voice.duplexWatch must be gated or open",
+          code: "VALIDATION_ERROR",
+        });
+        return;
+      }
+      if (
+        "duplexFallback" in patch &&
+        patch.duplexFallback !== undefined &&
+        patch.duplexFallback !== "cascaded" &&
+        patch.duplexFallback !== "none"
+      ) {
+        res.status(400).json({
+          error: "voice.duplexFallback must be cascaded or none",
+          code: "VALIDATION_ERROR",
+        });
+        return;
       }
       if ("requireWatchword" in patch && typeof patch.requireWatchword !== "boolean") {
         res

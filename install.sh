@@ -231,6 +231,8 @@ say "Host: arch=${c_b}${ARCH}${c_0}$([ "$HAS_NPU" -eq 1 ] && echo ' · RK3588 NP
 say "Suggested edition: ${c_b}${SUGGESTED_EDITION}${c_0}  (docs/editions.md)"
 if [ "$HAS_AMD" -eq 1 ] && [ -x ./scripts/detect-gpu.sh ]; then
   say "AMD tip: prefer ${c_b}host Ollama${c_0} for 12B chat + whisper.cpp Vulkan STT (docs/gpu-amd.md)"
+  DUPLEX_TIP="$(./scripts/detect-gpu.sh | awk -F= '/^recommend_duplex_reason=/{print $2; exit}')"
+  say "Duplex: cascaded default (${c_b}${DUPLEX_TIP:-unmeasured-moshicpp-rtf}${c_0}) — no NVIDIA Talker on this host"
 fi
 
 # ── 2b. text-interactive wizard (TTY) ────────────────────────────────────────

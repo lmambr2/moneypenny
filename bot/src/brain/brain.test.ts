@@ -46,6 +46,31 @@ describe("InProcessBrain", () => {
     expect(r.replyText).toBe("Sure");
   });
 
+  it("follow-up includes disposed tool results in the next user text", async () => {
+    const chatForIntent = vi.fn(async (msg: string) => {
+      if (msg.includes("Queued ambient")) {
+        return { content: "On the queue.", toolCalls: [] };
+      }
+      return {
+        content: null,
+        toolCalls: [{ name: "play_music", arguments: { query: "ambient" } }],
+      };
+    });
+    const brain = createInProcessBrain({
+      llm: { ask: async () => "", chatForIntent },
+      idFactory: () => "t-ms",
+    });
+    const r = await brain.completeTurn({
+      channel: "dashboard",
+      text: "play ambient",
+      mode: "intent",
+      toolResults: [{ name: "play_music", ok: true, result: "Queued ambient" }],
+    });
+    expect(chatForIntent.mock.calls[0][0]).toMatch(/Queued ambient/);
+    expect(r.replyText).toBe("On the queue.");
+    expect(r.toolProposals).toEqual([]);
+  });
+
   it("errors when LLM disabled", async () => {
     const brain = createInProcessBrain({ llm: null, idFactory: () => "t3" });
     const r = await brain.completeTurn({ channel: "dashboard", text: "x" });

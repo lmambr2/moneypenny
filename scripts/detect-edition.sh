@@ -11,8 +11,12 @@ if [ -e /dev/rknpu ] || [ -e /sys/class/devfreq/fdab0000.npu ]; then
   HAS_NPU=1
 fi
 HAS_NVIDIA=0
+HAS_AMD=0
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
   HAS_NVIDIA=1
+fi
+if command -v rocm-smi >/dev/null 2>&1 || [ -e /dev/kfd ] || [ -d /sys/module/amdgpu ]; then
+  HAS_AMD=1
 fi
 
 EDITION="server"
@@ -32,6 +36,8 @@ case "$ARCH" in
     EDITION="server"
     if [ "$HAS_NVIDIA" -eq 1 ]; then
       REASON="x86_64 + NVIDIA GPU"
+    elif [ "$HAS_AMD" -eq 1 ]; then
+      REASON="x86_64 + AMD GPU"
     else
       REASON="x86_64 CPU-only"
     fi
@@ -56,6 +62,7 @@ echo "edition=$EDITION"
 echo "arch=$ARCH"
 echo "npu=$HAS_NPU"
 echo "nvidia=$HAS_NVIDIA"
+echo "amd=${HAS_AMD:-0}"
 echo "reason=$REASON"
 
 if [ "$EDITION" = "sbc" ]; then

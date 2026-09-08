@@ -6,6 +6,19 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-09-07
+
+### AMD-first PersonaPlex contract (no NVIDIA)
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- `detect-edition.sh` labels AMD hosts `x86_64 + AMD GPU` (not CPU-only)
+- `detect-gpu.sh` picks Penny as the largest **discrete** card; Raphael / Granite Ridge iGPU is never Penny; `recommend_duplex=no` until moshi.cpp RTF is measured
+- `check-analyst-vram.sh` reads discrete/Penny VRAM, not the iGPU 2 GB line
+- `personaplex-mock` (`voice-duplex-dev`): `/health`, `/v1/control` unload/warm, PCM WS; `0x02` is agent caption only
+- `DuplexWatch` crash vs sticky RTF fallback (unload `ok=true, loaded=false` does not `warm()`)
+- Harness `runHarnessTurn` multi-step: disposed tool results go back into the next `completeTurn`
+- `./scripts/duplex-rtf.sh` — mock exits 2 (not a GPU pass). Default `voice.mode=cascaded`
+
 ## 2026-09-02
 
 ### Voice loop: stream, Silero, skip-LLM, dual-GPU pin

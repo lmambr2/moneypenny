@@ -6,7 +6,9 @@ Different **compose overlays, defaults, and host expectations**.
 
 **Supported hosts (now):** Orange Pi / RK3588 (**SBC**) and **x86_64 Linux** with
 **AMD** GPU (ROCm / host Ollama). NVIDIA compose paths may exist but are
-**untested**. macOS / Apple Silicon is **out of scope** for now.
+**untested** and **not** used on the production desk (no NVIDIA GPU). macOS /
+Apple Silicon is **out of scope** for now. PersonaPlex duplex on AMD is
+moshi.cpp Vulkan, **RTF-gated**; default voice remains cascaded Whisper+Piper.
 
 **Bot primary host** = whichever machine you install: **`--edition sbc`** or
 **`--edition server`**. The bot (TS client, music, rights, web UI, RAG index)

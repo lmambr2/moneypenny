@@ -23,6 +23,19 @@ describe("mergeBotConfig (M-CFG-1)", () => {
     expect(merged.voice.duckMusicVolume).toBe(defaults.voice.duckMusicVolume);
     expect(merged.voice.karaokeMode).toBe(false);
     expect(merged.voice.watchword).toBe(defaults.voice.watchword);
+    expect(merged.voice.mode).toBe("cascaded");
+    expect(merged.voice.duplexVoice).toBe("NATF2");
+  });
+
+  it("deep-merges duplex fields without dropping cascade defaults", () => {
+    const defaults = getDefaultConfig();
+    const merged = mergeBotConfig(defaults, {
+      voice: { mode: "duplex", duplexUrl: "http://personaplex:8999" },
+    } as Partial<ReturnType<typeof getDefaultConfig>>);
+    expect(merged.voice.mode).toBe("duplex");
+    expect(merged.voice.duplexUrl).toBe("http://personaplex:8999");
+    expect(merged.voice.duplexWatch).toBe("gated");
+    expect(merged.voice.sttUrl).toBe(defaults.voice.sttUrl);
   });
 
   it("deep-merges ragClaimCheck", () => {

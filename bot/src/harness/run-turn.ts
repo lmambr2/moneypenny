@@ -79,46 +79,69 @@ export async function runHarnessTurn(
     });
 
   const turnMode: TurnMode = harnessMode === "intent" ? "intent" : "ask";
-  const result = await completeTurn(
-    {
-      clientTurnId: id,
-      channel: deps.channel ?? "dashboard",
-      text: user,
-      conversationId: deps.conversationId,
-      mode: turnMode,
-      options: { includeSources: true, maxTools: 8 },
-    },
-    brain,
-  );
+  const maxTools = 8;
+  const maxRounds = 4;
+  const tools: HarnessToolRecord[] = [];
+  const replyParts: string[] = [];
+  let sources: ReturnType<typeof mapSources> = [];
+  let lastError: string | undefined;
+  let lastTurnId = id;
+  let toolResults:
+    | Array<{ name: string; ok: boolean; result?: string; error?: string }>
+    | undefined;
 
-  if (result.error && result.toolProposals.length === 0 && !result.replyText) {
-    return push(
+  for (let round = 0; round < maxRounds && tools.length < maxTools; round++) {
+    const result = await completeTurn(
       {
-        id: result.turnId || id,
-        at,
-        user,
-        reply: "",
-        sources: mapSources(result.sources),
-        tools: [],
-        error: result.error,
-        mode: harnessMode,
+        clientTurnId: id,
+        channel: deps.channel ?? "dashboard",
+        text: user,
+        conversationId: deps.conversationId,
+        mode: turnMode,
+        toolResults,
+        options: { includeSources: true, maxTools: maxTools - tools.length },
       },
-      deps,
+      brain,
     );
-  }
+    lastTurnId = result.turnId || lastTurnId;
+    if (result.sources.length) sources = mapSources(result.sources);
+    if (result.replyText.trim()) replyParts.push(result.replyText.trim());
 
-  let tools: HarnessToolRecord[] = [];
-  if (result.toolProposals.length > 0) {
+    if (
+      result.error &&
+      result.toolProposals.length === 0 &&
+      !result.replyText &&
+      tools.length === 0
+    ) {
+      return push(
+        {
+          id: lastTurnId,
+          at,
+          user,
+          reply: "",
+          sources,
+          tools: [],
+          error: result.error,
+          mode: harnessMode,
+        },
+        deps,
+      );
+    }
+    if (result.error) lastError = result.error;
+
+    if (result.toolProposals.length === 0) break;
+
+    let disposed: HarnessToolRecord[];
     if (!deps.executeTool) {
-      tools = result.toolProposals.map((p) => ({
+      disposed = result.toolProposals.map((p) => ({
         name: p.name,
         args: p.arguments ?? {},
         ok: false,
         error: "no tool executor",
       }));
     } else {
-      const disposed = await disposeToolProposals(result.toolProposals, deps.executeTool);
-      tools = disposed.map((t) => ({
+      const raw = await disposeToolProposals(result.toolProposals, deps.executeTool);
+      disposed = raw.map((t) => ({
         name: t.name,
         args: t.args,
         ok: t.ok,
@@ -126,10 +149,16 @@ export async function runHarnessTurn(
         error: t.error,
       }));
     }
+    tools.push(...disposed);
+    if (!deps.executeTool) break;
+    toolResults = disposed.map((t) => ({
+      name: t.name,
+      ok: t.ok,
+      result: t.result,
+      error: t.error,
+    }));
   }
 
-  const replyParts: string[] = [];
-  if (result.replyText.trim()) replyParts.push(result.replyText.trim());
   for (const t of tools) {
     if (t.result) replyParts.push(t.result);
     else if (t.error) replyParts.push(`${t.name}: ${t.error}`);
@@ -137,17 +166,17 @@ export async function runHarnessTurn(
 
   const reply =
     replyParts.join("\n") ||
-    (tools.length ? "(tools ran; no text)" : result.error ? "" : "(no response)");
+    (tools.length ? "(tools ran; no text)" : lastError ? "" : "(no response)");
 
   const turn: HarnessTurn = {
-    id: result.turnId || id,
+    id: lastTurnId,
     at,
     user,
     reply,
-    sources: mapSources(result.sources),
+    sources,
     tools,
     mode: harnessMode,
-    ...(result.error ? { error: result.error } : {}),
+    ...(lastError ? { error: lastError } : {}),
   };
 
   return push(turn, deps);

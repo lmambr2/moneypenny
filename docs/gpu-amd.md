@@ -4,9 +4,16 @@ Primary accelerator path for the **Server** edition. NVIDIA is untested.
 
 ## Layout
 
-Two cards is the **target** workstation (dual Radeon AI PRO R9700). Until the
-second card is installed, Penny uses the one visible GPU — do not set the
-dual-GPU pins below or you will hide the only card.
+Two discrete cards is the **target** workstation (dual Radeon AI PRO R9700).
+Until a second *dGPU* is installed, Penny uses the one visible discrete GPU —
+do not set the dual-GPU pins below or you will hide the only card.
+
+This box today is **one R9700 (32 GB) + 9800X3D Raphael iGPU (2 GB)**. The iGPU
+is **not** Penny and **not** a Talker. `scripts/detect-gpu.sh` skips Raphael /
+Granite Ridge / Ryzen APU names. `PENNY_RENDER_NODE=/dev/dri/renderD129` on
+this host is the iGPU — do not copy dual-R9700 docs blindly. Official
+PersonaPlex (NVIDIA CUDA) is not a path here; duplex stays **cascaded** until
+`scripts/duplex-rtf.sh` measures moshi.cpp Vulkan q4_k on the R9700.
 
 | Job | Where | Model |
 |---|---|---|

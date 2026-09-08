@@ -21,6 +21,13 @@ export interface TurnRequest {
   subject?: TurnSubject;
   /** Default `ask` (no tools). `intent` may return tool proposals. */
   mode?: TurnMode;
+  /** Prior disposed tools for a follow-up completeTurn (AgentRuntime multi-step). */
+  toolResults?: Array<{
+    name: string;
+    ok: boolean;
+    result?: string;
+    error?: string;
+  }>;
   options?: {
     includeSources?: boolean;
     maxTools?: number;

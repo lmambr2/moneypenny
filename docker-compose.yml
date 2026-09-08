@@ -12,6 +12,7 @@
 #   voice-edge  : Whisper STT base (RKNN NPU) + piper-tts — SBC (stt-rknn overlay)
 #   voice-server: Whisper STT medium + piper-tts — Server (whisper.cpp)
 #   voice-dev   : stt-mock only (CI)
+#   voice-duplex-dev : personaplex-mock Talker adapter (CI; no GPU)
 #   (Removed: profile "voice" / sherpa-stt / Kokoro — V2 2026-07)
 #   rag         : TurboVec vector store (services/turbovec-bridge)
 #   memory      : MemPalace semantic memory bridge
@@ -258,6 +259,23 @@ services:
     volumes:
       - whisper-models:/models
       - whisper-fw-cache:/root/.cache
+    networks:
+      - moneypenny
+
+  # PersonaPlex Talker mock — PCM/WS contract, no GPU. AMD host stays cascaded
+  # until scripts/duplex-rtf.sh measures moshi.cpp Vulkan on the discrete card.
+  personaplex-mock:
+    build:
+      context: ./services/personaplex
+      dockerfile: Dockerfile
+    profiles: ["voice-duplex-dev"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8999:8999"
+    environment:
+      - MOCK_VOICE=${MOCK_VOICE:-NATF2}
+      - MOCK_LOADED=${MOCK_LOADED:-1}
+      - MOCK_RTF=${MOCK_RTF:-0.5}
     networks:
       - moneypenny
 

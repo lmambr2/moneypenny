@@ -12,7 +12,7 @@
 | **Audience** | Senior engineers who know this repo |
 | **Related** | [`DESIGN.md`](../DESIGN.md), [`feature-roadmap.md`](feature-roadmap.md), [`brain-boundary.md`](brain-boundary.md), [`mcp-server.md`](mcp-server.md), [`gpu-amd.md`](gpu-amd.md), [`voice.md`](voice.md), [`voice-backends.md`](voice-backends.md), [`editions.md`](editions.md) |
 
-**In-flight branch this design composes with (do not pretend the tree is clean `dev`):** `feat/dual-r9700-voice-loop` @ `8638215` (`feat(voice): stream TTS, Silero, skip-LLM router, dual-GPU pin`) plus **uncommitted** work: `LlmIdleUnloader` (`bot/src/llm/idle-unload.ts`), `LlmClient.unload()` / `warm()`, pending-play-ack suppress, skip TTS when the song *is* the reply. This design must use those levers, not fight them. **Do not modify those dirty files as part of landing this document.**
+**Base branch:** `origin/dev` already includes `feat/dual-r9700-voice-loop` (`ab7e47e` / #26). Idle-unload (`LlmClient.unload` / `warm`) is still **not** on `dev` — D2/K15 must land it, not assume it. This host has **no NVIDIA GPU** (one R9700 dGPU + Raphael iGPU). Skip PR-N1. Product Talker is moshi.cpp Vulkan, RTF-gated (`scripts/duplex-rtf.sh`). PR-D1 mock + detector + harness multi-step landed on this tree.
 
 ---
 

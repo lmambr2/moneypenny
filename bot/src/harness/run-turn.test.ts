@@ -42,13 +42,18 @@ describe("runHarnessTurn (H1/H2/H5)", () => {
   });
 
   it("records tool invocations with ok/fail in intent mode", async () => {
-    const chatForIntent = vi.fn(async () => ({
-      content: "Playing something chill.",
-      toolCalls: [
-        { name: "play_music", arguments: { query: "ambient" } },
-        { name: "now_playing", arguments: {} },
-      ],
-    }));
+    const chatForIntent = vi.fn(async (msg: string) => {
+      if (String(msg).includes("Tool results:")) {
+        return { content: "Ambient is queued.", toolCalls: [] };
+      }
+      return {
+        content: "Playing something chill.",
+        toolCalls: [
+          { name: "play_music", arguments: { query: "ambient" } },
+          { name: "now_playing", arguments: {} },
+        ],
+      };
+    });
     const executeTool = vi.fn(async (name: string) => {
       if (name === "play_music") return { ok: true, result: "Queued ambient" };
       return { ok: false, error: "player offline" };
@@ -75,6 +80,29 @@ describe("runHarnessTurn (H1/H2/H5)", () => {
     });
     expect(turn.reply).toMatch(/Playing something chill/i);
     expect(turn.reply).toMatch(/Queued ambient/);
+    expect(turn.reply).toMatch(/Ambient is queued/i);
+    expect(chatForIntent).toHaveBeenCalledTimes(2);
+    expect(String(chatForIntent.mock.calls[1][0])).toMatch(/Queued ambient/);
+  });
+
+  it("follow-up completeTurn sees play_music result (AgentRuntime multi-step)", async () => {
+    const chatForIntent = vi.fn(async (msg: string) => {
+      if (String(msg).includes("Queued ambient")) {
+        return { content: "Now playing from the queue.", toolCalls: [] };
+      }
+      return {
+        content: null,
+        toolCalls: [{ name: "play_music", arguments: { query: "ambient" } }],
+      };
+    });
+    const turn = await runHarnessTurn("play ambient", "intent", {
+      llm: { ask: async () => "", chatForIntent },
+      executeTool: async () => ({ ok: true, result: "Queued ambient" }),
+      idFactory: () => "t-ms",
+      now: () => 2100,
+    });
+    expect(turn.tools).toHaveLength(1);
+    expect(turn.reply).toMatch(/Now playing from the queue/);
   });
 
   it("surfaces LLM-down as turn error not silent empty", async () => {

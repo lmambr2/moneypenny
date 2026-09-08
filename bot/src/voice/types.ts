@@ -99,6 +99,17 @@ export interface VoiceConfig {
    * Program music is not stopped unless it was paused for that TTS (savedMusic).
    */
   ttsBargeIn?: boolean;
+  /**
+   * Cascaded Whisper+Piper (default) vs PersonaPlex Talker.
+   * SBC and this AMD host stay cascaded until duplex-rtf.sh measures q4_k.
+   */
+  mode?: "cascaded" | "duplex";
+  /** Adapter HTTP base (`http://personaplex:8999`). Empty = duplex unused. */
+  duplexUrl?: string;
+  duplexWatch?: "gated" | "open";
+  /** Boot NATF2. Product Talker default after clone helper: cori-clone. */
+  duplexVoice?: string;
+  duplexFallback?: "cascaded" | "none";
 }
 
 export function defaultVoiceConfig(): VoiceConfig {
@@ -122,6 +133,11 @@ export function defaultVoiceConfig(): VoiceConfig {
     // Whisper sidecars have no KWS — text wake matching is required for "Moneypenny …".
     textWakeFallback: true,
     ttsBargeIn: true,
+    mode: "cascaded",
+    duplexUrl: "",
+    duplexWatch: "gated",
+    duplexVoice: "NATF2",
+    duplexFallback: "cascaded",
   };
 }
 

@@ -32,6 +32,12 @@ After changing voice: Settings → **Clear TTS bumper cache**, then **Pre-genera
 | **SBC** | `services/stt-rknn` | **RKNN** NPU (faster-whisper CPU if weights missing) | **`base`** (INT8) | **NPU** (`STT_DEVICE=npu`) |
 | **Server** | `services/stt-whisper-cpp` | **whisper.cpp** | `large-v3-turbo` (full `large-v3` only if turbo mangles org names) | **Vulkan** (AMD, one render node) / CPU |
 | **Dev** | `services/stt-mock` / faster-whisper | mock / CPU | **`tiny`** | CPU |
+| **Talker mock** | `services/personaplex` | mock PCM/WS | n/a | CPU (`voice-duplex-dev`) |
+
+PersonaPlex is the Server **Talker** (full-duplex ear+mouth), not user ASR and
+not the 12B. User words stay Whisper. On AMD, `recommend_duplex=no` until
+`./scripts/duplex-rtf.sh` passes on the discrete R9700. See
+[personaplex-full-harness.md](./personaplex-full-harness.md).
 
 Defaults match `resolveSttModelSelection` in `bot/src/voice/stt-models.ts`
 (`sbc` → base/rknn/int8 · `server` → large-v3-turbo/whisper-cpp · `dev` → tiny).

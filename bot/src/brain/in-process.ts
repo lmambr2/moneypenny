@@ -37,7 +37,17 @@ export function createInProcessBrain(deps: InProcessBrainDeps): BrainTransport {
   return {
     async completeTurn(req: TurnRequest): Promise<TurnResult> {
       const turnId = deps.idFactory?.() ?? defaultId();
-      const text = (req.text ?? "").trim();
+      let text = (req.text ?? "").trim();
+      if (req.toolResults && req.toolResults.length > 0) {
+        const block = req.toolResults
+          .map((t) => {
+            const status = t.ok ? "ok" : "fail";
+            const detail = t.ok ? (t.result ?? "") : (t.error ?? "");
+            return `- ${t.name}: ${status}${detail ? ` — ${detail}` : ""}`;
+          })
+          .join("\n");
+        text = `${text}\n\nTool results:\n${block}\nContinue.`.trim();
+      }
       const mode = req.mode === "intent" || req.mode === "delegate" ? req.mode : "ask";
       const includeSources = req.options?.includeSources !== false;
       const maxTools = Math.min(16, Math.max(0, req.options?.maxTools ?? 4));
