@@ -12,6 +12,7 @@ use std::sync::Mutex;
 
 use rusqlite::{Connection, OpenFlags};
 
+mod audit;
 mod history;
 mod memory;
 mod roast;
@@ -20,6 +21,7 @@ mod users;
 mod work_orders;
 mod yt_saved;
 
+pub use audit::{AuditEntry, AuditStore};
 pub use history::PlayHistoryStore;
 pub use memory::{MemoryFact, MemoryStore};
 pub use roast::{RoastQuote, RoastStore};
@@ -140,6 +142,10 @@ impl Database {
 
     pub fn users(&self) -> UserStore<'_> {
         UserStore { db: self }
+    }
+
+    pub fn audit(&self) -> AuditStore<'_> {
+        AuditStore { db: self }
     }
 
     pub fn sessions(&self) -> SessionStore<'_> {

@@ -17,11 +17,16 @@ use crate::command::dispatch_command;
 use crate::AppState;
 use mp_control::{is_known_command, parse_command};
 use mp_rights::{Scope, Subject};
-use mp_voice::TranscriptOpts;
+use mp_voice::{run_under_music_smoke, TranscriptOpts, UnderMusicConfig};
 
 pub async fn voice_status(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
     let status = st.voice.status().await;
     Json(serde_json::to_value(status).unwrap_or_else(|_| json!({})))
+}
+
+pub async fn under_music_check(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
+    let cfg = UnderMusicConfig::from_voice(&st.voice.config());
+    Json(run_under_music_smoke(&cfg))
 }
 
 #[derive(Deserialize)]

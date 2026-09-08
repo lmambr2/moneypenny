@@ -441,8 +441,15 @@ pub async fn workorders_delete_one(
     }
 }
 
-pub async fn workorders_clear(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
+pub async fn workorders_clear(State(st): State<AppState>, admin: AdminUser) -> Json<Value> {
     let n = st.db.work_orders().clear().unwrap_or(0);
+    st.db.audit().record(
+        Some(&admin.0.id),
+        Some(&admin.0.username),
+        None,
+        None,
+        "economy.workorders_clear",
+    );
     Json(json!({ "ok": true, "cleared": n }))
 }
 

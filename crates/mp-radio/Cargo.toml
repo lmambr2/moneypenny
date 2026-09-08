@@ -9,6 +9,7 @@ description = "director, clock, bumpers (Phase 7)"
 [dependencies]
 mp-config = { path = "../mp-config" }
 mp-music = { path = "../mp-music" }
+mp-rag = { path = "../mp-rag" }
 mp-voice = { path = "../mp-voice" }
 serde.workspace = true
 serde_json.workspace = true

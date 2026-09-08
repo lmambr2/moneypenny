@@ -9,9 +9,11 @@ mod classifications;
 mod doctrine;
 mod embeddings;
 mod error;
+mod export;
 mod frontmatter;
 mod ingest;
 mod normalize;
+mod reformat;
 mod store;
 mod validity;
 mod vector;
@@ -24,8 +26,12 @@ pub use doctrine::{
 };
 pub use embeddings::{Embedder, EmbeddingsClient, DEFAULT_EMBEDDING_MODEL};
 pub use error::{RagError, Result};
+pub use export::{
+    export_content_type, export_filename, export_markdown, is_pandoc_available, ExportError,
+};
 pub use frontmatter::{parse_frontmatter, DocFrontmatter};
 pub use ingest::{ingest_doctrine_doc, reindex_doctrine, reindex_sources, IngestedDoc};
+pub use reformat::{reformat_doctrine_markdown, should_skip_doctrine_reformat};
 pub use store::{RetrievedChunk, RetrievalStore};
 pub use validity::is_doctrine_expired;
 pub use vector::{HttpVectorStore, MemoryVectorStore, VectorStore};

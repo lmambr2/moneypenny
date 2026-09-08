@@ -153,6 +153,18 @@ impl RadioRuntime {
         self.factory.inner.set_tts(url, voice);
     }
 
+    pub fn set_bumper_dir(&self, dir: std::path::PathBuf) {
+        self.factory.inner.set_bumper_dir(dir);
+    }
+
+    pub fn set_retrieval(&self, retrieval: std::sync::Arc<mp_rag::RetrievalStore>) {
+        self.factory.inner.set_retrieval(retrieval);
+    }
+
+    pub fn set_mempalace(&self, client: mp_rag::MemPalaceClient) {
+        self.factory.inner.set_mempalace(client);
+    }
+
     pub fn on_poll(&self, humans: u32) {
         if let Some(d) = self.director.read().expect("dir").as_ref() {
             d.on_poll(humans);

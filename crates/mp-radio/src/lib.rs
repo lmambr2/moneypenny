@@ -7,12 +7,14 @@
 mod bumpers;
 mod clock;
 mod director;
+mod prerecorded;
 mod runtime;
 mod seed;
 
 pub use clock::{is_within_quiet_hours, parse_hhmm, FormatClock};
 pub use director::{Boundary, BuiltBumper, CueResult, RadioDirector, RadioStatus};
 pub use mp_config::{RadioConfig, RadioProfile};
+pub use prerecorded::{default_bumper_dir, PrerecordedPool};
 pub use runtime::{RadioRuntime, RadioStatusSnapshot};
 pub use seed::{program_station, seed_local_tracks};
 

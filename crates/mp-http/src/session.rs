@@ -4,13 +4,15 @@
 //! Session cookie API — `/api/session/*`. First-account-is-admin.
 
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{header, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::time::{sleep, Duration};
+
+use crate::authz::AdminUser;
 
 use crate::{clear_session_cookie, set_session_cookie, AppState};
 
@@ -78,6 +80,13 @@ pub async fn setup(State(st): State<AppState>, req: Request<Body>) -> Response {
     match st.db.users().create_first_user(&body.username, &body.password) {
         Ok(Some(user)) => match st.db.sessions().create_session(&user.id) {
             Ok((token, _)) => {
+                st.db.audit().record(
+                    Some(&user.id),
+                    Some(&user.username),
+                    Some(&user.id),
+                    Some(&user.username),
+                    "admin.first_created",
+                );
                 let body = json!({
                     "id": user.id,
                     "username": user.username,
@@ -215,12 +224,36 @@ pub async fn change_password(State(st): State<AppState>, req: Request<Body>) -> 
         tracing::error!(error = %e, "change-password");
         return internal();
     }
+    st.db.audit().record(
+        Some(&u.id),
+        Some(&u.username),
+        Some(&u.id),
+        Some(&u.username),
+        "user.password_changed",
+    );
     let current = extract_session_token(cookie.as_ref());
     let _ = st
         .db
         .sessions()
         .delete_all_for_user(&u.id, current.as_deref());
     StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct AuditQuery {
+    limit: Option<u32>,
+    offset: Option<u32>,
+}
+
+pub async fn audit_list(
+    State(st): State<AppState>,
+    _admin: AdminUser,
+    Query(q): Query<AuditQuery>,
+) -> Json<serde_json::Value> {
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).min(100_000);
+    let entries = st.db.audit().list(limit, offset).unwrap_or_default();
+    Json(json!({ "entries": entries }))
 }
 
 pub fn current_user(

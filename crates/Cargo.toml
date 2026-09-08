@@ -29,7 +29,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 audiopus = "0.2"
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws", "multipart"] }
 base64 = "0.22"
 bcrypt = "0.17"
 clap = { version = "4", features = ["derive", "env"] }

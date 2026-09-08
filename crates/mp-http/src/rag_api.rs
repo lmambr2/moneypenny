@@ -3,8 +3,8 @@
 
 //! Admin doctrine + RAG primitives. Vue Library → Doctrine.
 
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Multipart, Path, Query, State};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -13,8 +13,9 @@ use serde_json::{json, Value};
 use crate::authz::AdminUser;
 use crate::AppState;
 use mp_rag::{
-    ingest_doctrine_doc, reindex_doctrine, reindex_sources, DoctrineStore, DEFAULT_DOCTRINE_TEMPLATE,
-    MAX_DOCTRINE_FILE_BYTES,
+    export_content_type, export_filename, export_markdown, ingest_doctrine_doc, is_pandoc_available,
+    reformat_doctrine_markdown, reindex_doctrine, reindex_sources, should_skip_doctrine_reformat,
+    DoctrineStore, DEFAULT_DOCTRINE_TEMPLATE, MAX_DOCTRINE_FILE_BYTES,
 };
 
 fn no_rag() -> Response {
@@ -346,5 +347,215 @@ pub async fn rag_ingest(
             Json(json!({"error": e.to_string(), "code":"RAG_ERROR"})),
         )
             .into_response(),
+    }
+}
+
+fn is_markdown_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.ends_with(".md") || n.ends_with(".markdown")
+}
+
+/// POST /api/rag/doctrine — multipart `.md` upload (field `files`, max 20).
+pub async fn doctrine_upload(
+    State(st): State<AppState>,
+    _admin: AdminUser,
+    mut multipart: Multipart,
+) -> Response {
+    let Some(rag) = st.rag.as_ref() else {
+        return no_rag();
+    };
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(field)) => {
+                let name = field.file_name().unwrap_or("").to_string();
+                let data = match field.bytes().await {
+                    Ok(b) => b.to_vec(),
+                    Err(e) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"error": e.to_string(), "code":"VALIDATION_ERROR"})),
+                        )
+                            .into_response();
+                    }
+                };
+                files.push((name, data));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": e.to_string(), "code":"VALIDATION_ERROR"})),
+                )
+                    .into_response();
+            }
+        }
+        if files.len() > 20 {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":"Too many files (max 20 per upload)","code":"VALIDATION_ERROR"})),
+            )
+                .into_response();
+        }
+    }
+    let files: Vec<(String, Vec<u8>)> = files
+        .into_iter()
+        .filter(|(n, _)| is_markdown_name(n))
+        .collect();
+    if files.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"No .md files uploaded","code":"VALIDATION_ERROR"})),
+        )
+            .into_response();
+    }
+    let mut ingested = Vec::new();
+    let mut failed = Vec::new();
+    for (name, data) in files {
+        if data.len() > MAX_DOCTRINE_FILE_BYTES {
+            failed.push(json!({"name": name, "error": "content too large (max 15 MiB)"}));
+            continue;
+        }
+        let content = String::from_utf8_lossy(&data).into_owned();
+        match ingest_doctrine_doc(&rag.retrieval, &rag.doctrine, &name, &content).await {
+            Ok(doc) => ingested.push(doc),
+            Err(e) => failed.push(json!({"name": name, "error": e.to_string()})),
+        }
+    }
+    Json(json!({
+        "ok": !ingested.is_empty(),
+        "ingested": ingested,
+        "failed": failed,
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReformatBody {
+    sources: Option<Vec<String>>,
+}
+
+pub async fn doctrine_reformat(
+    State(st): State<AppState>,
+    _admin: AdminUser,
+    body: Option<Json<ReformatBody>>,
+) -> Response {
+    let Some(rag) = st.rag.as_ref() else {
+        return no_rag();
+    };
+    let only = body.and_then(|j| j.0.sources).unwrap_or_default();
+    let mut candidates: Vec<String> = if only.is_empty() {
+        rag.doctrine.files()
+    } else {
+        only.into_iter()
+            .filter_map(|raw| rag.doctrine.safe_name(&raw))
+            .collect()
+    };
+    let mut changed: Vec<String> = Vec::new();
+    let mut unchanged: Vec<String> = Vec::new();
+    let mut skipped: Vec<Value> = Vec::new();
+    for source in candidates.drain(..) {
+        if should_skip_doctrine_reformat(&source) {
+            skipped.push(json!({"source": source, "reason": "operator cheatsheet"}));
+            continue;
+        }
+        let Some(raw) = rag.doctrine.read_file(&source) else {
+            skipped.push(json!({"source": source, "reason": "not found"}));
+            continue;
+        };
+        let Some(next) = reformat_doctrine_markdown(&raw, &source) else {
+            unchanged.push(source);
+            continue;
+        };
+        if next.len() > MAX_DOCTRINE_FILE_BYTES {
+            skipped.push(json!({"source": source, "reason": "reformatted content too large"}));
+            continue;
+        }
+        if let Err(e) = ingest_doctrine_doc(&rag.retrieval, &rag.doctrine, &source, &next).await {
+            skipped.push(json!({"source": source, "reason": e.to_string()}));
+            continue;
+        }
+        changed.push(source);
+    }
+    Json(json!({
+        "ok": true,
+        "changed": changed.len(),
+        "unchanged": unchanged.len(),
+        "skipped": skipped,
+        "files": changed,
+        "reindexedViaIngest": changed.len(),
+        "hint": "Changed files were re-embedded on save. Use Reindex if retrieval still looks stale.",
+    }))
+    .into_response()
+}
+
+pub async fn doctrine_export_caps(_admin: AdminUser) -> Json<Value> {
+    let pandoc = is_pandoc_available();
+    Json(json!({
+        "pandoc": pandoc,
+        "formats": if pandoc { json!(["docx", "pdf"]) } else { json!([]) },
+    }))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ExportQuery {
+    format: Option<String>,
+}
+
+pub async fn doctrine_export(
+    State(st): State<AppState>,
+    _admin: AdminUser,
+    Path(source): Path<String>,
+    Query(q): Query<ExportQuery>,
+) -> Response {
+    let Some(rag) = st.rag.as_ref() else {
+        return no_rag();
+    };
+    if rag.doctrine.safe_name(&source).is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid doctrine source path","code":"VALIDATION_ERROR"})),
+        )
+            .into_response();
+    }
+    let format = match q.format.as_deref() {
+        Some("pdf") => "pdf",
+        Some("docx") | None => "docx",
+        Some(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":"format must be docx or pdf","code":"INVALID_FORMAT"})),
+            )
+                .into_response();
+        }
+    };
+    let Some(content) = rag.doctrine.read_file(&source) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"doctrine not found","code":"NOT_FOUND"})),
+        )
+            .into_response();
+    };
+    match export_markdown(&content, format) {
+        Ok(bytes) => {
+            let filename = export_filename(&source, format);
+            let mut res = (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, export_content_type(format))],
+                bytes,
+            )
+                .into_response();
+            if let Ok(cd) = header::HeaderValue::from_str(&format!(
+                "attachment; filename=\"{}\"",
+                filename.replace(['"', '\\'], "_")
+            )) {
+                res.headers_mut().insert(header::CONTENT_DISPOSITION, cd);
+            }
+            res
+        }
+        Err(e) => {
+            let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::BAD_GATEWAY);
+            (status, Json(json!({"error": e.to_string(), "code": e.code()}))).into_response()
+        }
     }
 }

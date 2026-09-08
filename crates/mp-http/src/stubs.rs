@@ -69,9 +69,7 @@ pub async fn economy_ok(_user: AuthUser) -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
-pub async fn rag_export_caps(_admin: AdminUser) -> Json<Value> {
-    Json(json!({ "pandoc": false }))
-}
+
 pub async fn harness_turns(_user: AuthUser) -> Json<Value> {
     Json(json!({ "turns": [] }))
 }
@@ -111,10 +109,6 @@ pub async fn users_list(State(st): State<AppState>, _admin: AdminUser) -> Json<V
         })
         .collect::<Vec<_>>();
     Json(json!({ "users": users }))
-}
-
-pub async fn audit_list(_admin: AdminUser) -> Json<Value> {
-    Json(json!({ "entries": [] }))
 }
 
 pub async fn not_ported(_user: AuthUser) -> Response {

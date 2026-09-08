@@ -238,6 +238,7 @@ async fn jsonrpc_tools_call(
         .or_else(|| Some(st.bot_id.clone()));
     if let Some(blocked) = check_confirm(&st.mcp, name, confirm, bot_id.clone(), started, &request_id)
     {
+        record_mcp_audit(st, name, &blocked);
         let text = serde_json::to_string(&blocked).unwrap_or_else(|_| blocked.message.clone());
         return jsonrpc_ok(
             id,
@@ -249,6 +250,7 @@ async fn jsonrpc_tools_call(
         );
     }
     let env = dispatch_mcp(st, name, &args, bot_id, started, &request_id).await;
+    record_mcp_audit(st, name, &env);
     let text = if env.message.is_empty() {
         env.code.clone()
     } else {
@@ -362,10 +364,34 @@ async fn call_tool(
         started,
         &request_id,
     ) {
+        record_mcp_audit(&st, name, &blocked);
         return Json(blocked).into_response();
     }
     let env = dispatch_mcp(&st, name, &args, bot_id, started, &request_id).await;
+    record_mcp_audit(&st, name, &env);
     Json(env).into_response()
+}
+
+fn record_mcp_audit(st: &AppState, tool_name: &str, env: &McpEnvelope<Value>) {
+    let action = if !env.ok && env.code == "PERMISSION_DENIED" {
+        "mcp.tool.denied"
+    } else if env.ok {
+        "mcp.tool"
+    } else {
+        "mcp.tool.error"
+    };
+    let actor = format!(
+        "{}|{}|mcp",
+        st.mcp.invoker_name,
+        st.mcp.default_profile.as_str()
+    );
+    st.db.audit().record(
+        Some(&st.mcp.invoker_uid),
+        Some(&actor),
+        env.meta.bot_id.as_deref(),
+        Some(tool_name),
+        action,
+    );
 }
 
 fn str_arg(args: &Value, key: &str) -> String {

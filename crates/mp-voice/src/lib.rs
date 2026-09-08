@@ -10,6 +10,7 @@ mod runtime;
 mod speak;
 mod stt;
 mod tts;
+mod under_music;
 mod vad;
 mod watchword;
 
@@ -23,6 +24,9 @@ pub use runtime::{IngestResult, VoiceRuntime};
 pub use speak::{split_spoken_sentences, text_to_spoken, tts_timeout_for_text};
 pub use stt::HttpSttClient;
 pub use tts::HttpTtsClient;
+pub use under_music::{
+    plan_under_music, run_under_music_smoke, simulate_under_music_turn, UnderMusicConfig, WakePath,
+};
 pub use vad::{to_mono_16k, SegmenterOptions, SilenceSegmenter};
 pub use watchword::{
     extract_command_segment, extract_watchword_command, is_actionable_voice_command,

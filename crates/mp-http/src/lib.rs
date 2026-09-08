@@ -5,16 +5,17 @@
 //! Axum HTTP surface. Domain bundle order matches `domain-bundles.ts`:
 //! SYSTEM → MCP (stub) → SESSION → BRAIN (`POST /v1/turn`) → STATION API → SPA → WS.
 //!
-//! Live through rewrite Phase 8: health, session/CSRF, Vue SPA, `/api/bot` +
+//! Live through rewrite Phase 9 extras: health, session/CSRF, Vue SPA, `/api/bot` +
 //! local/YouTube/stream music/player, live-status WS, `POST /v1/turn`, doctrine
-//! RAG + memory, inbound voice (STT/TTS HTTP), radio, roast, seed economy, MCP REST.
+//! RAG + memory + multipart/export/reformat, inbound voice (STT/TTS HTTP),
+//! radio bumpers, roast, seed economy, MCP REST, audit log.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderName, HeaderValue};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -129,6 +130,10 @@ impl AppState {
     }
 
     pub fn with_rag(mut self, rag: Arc<mp_rag::RagRuntime>) -> Self {
+        self.radio.set_retrieval(Arc::clone(&rag.retrieval));
+        if let Some(c) = rag.mempalace.clone() {
+            self.radio.set_mempalace(c);
+        }
         self.rag = Some(rag);
         self
     }
@@ -144,6 +149,10 @@ impl AppState {
     }
 
     pub fn with_config_path(mut self, path: PathBuf) -> Self {
+        if let Some(dir) = path.parent() {
+            self.radio
+                .set_bumper_dir(mp_radio::default_bumper_dir(dir));
+        }
         self.config_path = path;
         self
     }
@@ -263,7 +272,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bot/stream-bridge/status", get(stubs::bot_status_stub))
         .route("/api/bot/ops/status", get(stubs::bot_status_stub))
         .route("/api/bot/rights/debug", get(stubs::bot_status_stub))
-        .route("/api/bot/voice/under-music-check", get(stubs::bot_status_stub))
+        .route("/api/bot/voice/under-music-check", get(voice_api::under_music_check))
         .route("/api/bot/memory/scopes", get(stubs::bot_status_stub))
         .route("/api/bot/memory/private", get(stubs::bot_status_stub))
         .route("/api/bot/org-kg", get(stubs::economy_ok).post(stubs::not_ported))
@@ -298,7 +307,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bot/ace-step/generate", post(stubs::not_ported))
         .route("/api/rag/doctrine/new", post(rag_api::doctrine_new))
         .route("/api/rag/doctrine/reindex", post(rag_api::doctrine_reindex))
-        .route("/api/rag/doctrine/reformat", post(stubs::not_ported))
+        .route("/api/rag/doctrine/reformat", post(rag_api::doctrine_reformat))
         .route("/api/rag/query", post(rag_api::rag_query))
         .route("/api/rag/ingest", post(rag_api::rag_ingest))
         .route("/api/economy/workorders", get(economy_api::workorders_get).post(economy_api::workorders_post).delete(economy_api::workorders_clear))
@@ -351,9 +360,16 @@ pub fn router(state: AppState) -> Router {
         .route("/api/economy/craft", get(economy_api::craft))
         .route("/api/economy/blueprints", get(economy_api::blueprints))
         .route("/api/economy/trade/ships", get(economy_api::trade_ships))
-        .route("/api/rag/doctrine", get(rag_api::doctrine_list))
-        .route("/api/rag/doctrine/export/capabilities", get(stubs::rag_export_caps))
+        .route(
+            "/api/rag/doctrine",
+            get(rag_api::doctrine_list).post(rag_api::doctrine_upload),
+        )
+        .route("/api/rag/doctrine/export/capabilities", get(rag_api::doctrine_export_caps))
         .route("/api/rag/doctrine/hygiene", get(rag_api::doctrine_hygiene))
+        .route(
+            "/api/rag/doctrine/{source}/export",
+            get(rag_api::doctrine_export),
+        )
         .route(
             "/api/rag/doctrine/{source}",
             get(rag_api::doctrine_get)
@@ -361,13 +377,14 @@ pub fn router(state: AppState) -> Router {
                 .delete(rag_api::doctrine_delete),
         )
         .route("/api/users", get(stubs::users_list))
-        .route("/api/audit", get(stubs::audit_list))
+        .route("/api/audit", get(session::audit_list))
         .route("/api/users/{id}", delete(stubs::not_ported))
         .route("/api/users/{id}/role", axum::routing::patch(stubs::not_ported))
         .route("/api/users/{id}/reset-password", post(stubs::not_ported));
 
     let api = public
         .merge(protected)
+        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn(csrf::csrf_origin_check));
 
     let ws_route = Router::new().route("/ws", get(ws::upgrade));
@@ -1522,6 +1539,286 @@ mod tests {
         assert_eq!(raw["customExtra"], "keep");
         assert_eq!(raw["llmEnabled"], true);
         assert_eq!(raw["llmUrl"], "http://127.0.0.1:11434");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn audit_records_first_admin() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/audit?limit=10")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let entries = v["entries"].as_array().unwrap();
+        assert_eq!(entries[0]["action"], "admin.first_created");
+        assert_eq!(entries[0]["actorUsername"], "admin");
+    }
+
+    #[tokio::test]
+    async fn under_music_check_passes_defaults() {
+        let (app, cookie) = setup_cookie(test_app()).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bot/voice/under-music-check")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v["plan"]["textFallbackAlwaysWorks"].as_bool().unwrap());
+        let ids: Vec<&str> = v["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["id"].as_str())
+            .collect();
+        assert!(ids.contains(&"text-wake-pause"));
+        assert!(ids.contains(&"kws-path"));
+    }
+
+    fn rag_state() -> (std::path::PathBuf, AppState) {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let data = std::env::temp_dir().join(format!(
+            "mp-http-doc2-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let retrieval = Arc::new(mp_rag::RetrievalStore::new(
+            mp_rag::Embedder::Hash { dim: 16 },
+            mp_rag::VectorStore::Memory(mp_rag::MemoryVectorStore::new()),
+            "t".into(),
+            4,
+        ));
+        let doctrine = Arc::new(mp_rag::DoctrineStore::new(Arc::clone(&db), &data).unwrap());
+        let rag = mp_rag::RagRuntime::new(retrieval, doctrine, true, true, 4);
+        let state = AppState::new(db, cfg, None).with_rag(rag);
+        (data, state)
+    }
+
+    #[tokio::test]
+    async fn doctrine_reformat_and_export_caps() {
+        let (data, state) = rag_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/rag/doctrine/new")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(r##"{"source":"brief.md","content":"hello world from the hangar tonight.\n"}"##))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/rag/doctrine/reformat")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v["changed"].as_u64().unwrap() >= 1);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/rag/doctrine/export/capabilities")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v["pandoc"].is_boolean());
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/rag/doctrine/brief.md/export?format=docx")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            res.status() == StatusCode::OK
+                || res.status() == StatusCode::SERVICE_UNAVAILABLE
+                || res.status() == StatusCode::BAD_GATEWAY,
+            "{}",
+            res.status()
+        );
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn doctrine_multipart_upload() {
+        let (data, state) = rag_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+        let boundary = "----mpboundary";
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"upload.md\"\r\nContent-Type: text/markdown\r\n\r\n# Upload\n\nHeavies establish the perimeter before jump.\n\r\n--{boundary}--\r\n"
+        );
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/rag/doctrine")
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{:?}", res.status());
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["ingested"][0]["source"], "upload.md");
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/rag/doctrine")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["docs"][0]["source"], "upload.md");
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn mcp_skip_writes_audit() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let cfg = Arc::new(BotConfig::default());
+        let mcp = mp_mcp::McpConfig {
+            enabled: true,
+            token: "phase8-test".into(),
+            require_confirm: true,
+            ..mp_mcp::McpConfig::default()
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "mp-http-mcp-audit-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sine.mp3"), b"x").unwrap();
+        let station = Arc::new(mp_music::MusicStation::new(&dir, None));
+        station.set_dry_run(true);
+        let executor = Arc::new(mp_control::CommandExecutor::new(Arc::clone(&station), "!"));
+        let state = AppState::new(db, cfg, None)
+            .with_music(station, executor, None)
+            .with_mcp(mcp);
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer phase8-test")
+                    .body(Body::from(r#"{"name":"music_skip","arguments":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/audit?limit=20")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let actions: Vec<&str> = v["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["action"].as_str())
+            .collect();
+        assert!(actions.contains(&"mcp.tool"), "{v}");
+        assert!(actions.contains(&"admin.first_created"), "{v}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }
