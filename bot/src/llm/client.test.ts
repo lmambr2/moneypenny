@@ -37,4 +37,20 @@ describe("LlmClient payload", () => {
     expect(body.think).toBe(false);
     expect(body.options).toEqual({ num_ctx: 8192, flash_attention: true });
   });
+
+  it("unload posts Ollama keep_alive 0", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LlmClient({
+      baseUrl: "http://penny.example",
+      model: "gemma-test",
+      timeoutMs: 5_000,
+    });
+    await client.unload();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://penny.example/api/generate");
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({ model: "gemma-test", keep_alive: 0, stream: false });
+  });
 });

@@ -96,6 +96,15 @@ export class FallbackLlmClient {
     return this.primary.getBaseUrl();
   }
 
+  /** Unload the penny (primary) model only — never the fallback/desk daemon. */
+  async unload(): Promise<void> {
+    await this.primary.unload();
+  }
+
+  async warm(): Promise<void> {
+    await this.primary.warm();
+  }
+
   async probeHealth(): Promise<LlmEndpointHealth> {
     const primaryUrl = this.primary.getBaseUrl();
     const fallbackUrl = this.fallback?.getBaseUrl() ?? "";

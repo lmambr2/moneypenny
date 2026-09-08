@@ -21,6 +21,7 @@ import { initEconomyDiskCache } from "../economy/cache/store.js";
 import { initIngestStore } from "../economy/ingest.js";
 import { getScTradeClient } from "../economy/sc-trade.js";
 import { initWorkOrderStore } from "../economy/work-orders.js";
+import { LlmIdleUnloader } from "../llm/idle-unload.js";
 import type { Logger } from "../logger.js";
 import { MemPalaceClient } from "../memory/mempalace-client.js";
 import { buildScopesSnapshot } from "../memory/scopes.js";
@@ -51,7 +52,7 @@ import {
   createStarCitizenOrgStatusPlugin,
   ExternalStatusRegistry,
 } from "../tools/external-status.js";
-import { HttpTtsClient, type TtsProvider } from "../voice/index.js";
+import { DuplexClient, HttpTtsClient, type TtsProvider } from "../voice/index.js";
 import { defaultVoiceConfig, type VoiceConfig } from "../voice/types.js";
 import {
   defaultUnderMusicConfig,
@@ -164,6 +165,7 @@ export class BotInstance extends EventEmitter {
   private statusRegistry: ExternalStatusRegistry;
   private knowledge: KnowledgeService;
   private llm: LlmRuntime;
+  private llmIdle: LlmIdleUnloader;
   private autoFollow: AutoFollow;
   private idlePoller: IdlePoller;
   private sessionRoles: SessionRolesService;
@@ -359,6 +361,16 @@ export class BotInstance extends EventEmitter {
       onModuleChange: (module) => this.controlRouter.setLlm(module ?? undefined),
     });
     this.llm.initialize();
+    this.llmIdle = new LlmIdleUnloader({
+      getSeconds: () => this.config.llmIdleUnloadSeconds ?? 900,
+      unload: async () => {
+        await this.llm.unload();
+        await this.unloadTalkerIfDuplex();
+      },
+      // K15: join warms 12B only. Talker stays cold until watchword.
+      warm: () => this.llm.warm(),
+      logger: this.logger,
+    });
 
     this.playback = new PlaybackEngine({
       botId: this.id,
@@ -614,6 +626,7 @@ export class BotInstance extends EventEmitter {
         this.voice.refreshClientCache(clients);
         // Backup reconcile if a move notify was missed.
         this.radio.onPoll(clients, userCount);
+        this.llmIdle.onHumanCount(userCount);
         if (this.config.roastEnabled) {
           this.roast.runTick(userCount).catch(() => {});
         }
@@ -786,6 +799,7 @@ export class BotInstance extends EventEmitter {
   disconnect(): void {
     this.localDisconnect = true;
     this.idlePoller.stop();
+    this.llmIdle.stop();
     this.knowledge.stopFileDropWatcher();
     this.player.stop();
     this.voice.cleanup();
@@ -802,6 +816,18 @@ export class BotInstance extends EventEmitter {
 
   updateIdleTimeout(minutes: number): void {
     this.idlePoller.updateIdleTimeout(minutes);
+  }
+
+  /** Drop Talker weights if duplex is configured. Join does not warm Talker (K15). */
+  private async unloadTalkerIfDuplex(): Promise<void> {
+    const v = this.config.voice;
+    const url = v?.duplexUrl?.trim();
+    if (!url || v?.mode !== "duplex") return;
+    try {
+      await new DuplexClient(url).unload();
+    } catch (err) {
+      this.logger.warn({ err }, "Talker idle unload failed");
+    }
   }
 
   updateLlm(
@@ -1561,6 +1587,7 @@ export class BotInstance extends EventEmitter {
       const humans = countChannelHumans(clients, this.tsClient.getClientId());
       this.voice.refreshClientCache(clients);
       this.radio.onPoll(clients, humans);
+      this.llmIdle.onHumanCount(humans);
     } catch (err) {
       this.logger.debug?.({ err }, "radio: channel presence sync failed");
     }

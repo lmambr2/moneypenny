@@ -33,6 +33,25 @@ describe("HttpSttClient", () => {
         headers: expect.objectContaining({ "X-Client-Id": "7" }),
       }),
     );
+    expect(
+      (fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers["X-Stt-Profile"],
+    ).toBeUndefined();
+  });
+
+  it("feedStream sends X-Stt-Profile when requested", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ partial: "", final: "skip", speaking: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpSttClient({ url: "http://stt:9000" });
+    await client.feedStream(1, Buffer.from([1]), 16_000, 1, "wake");
+    expect(
+      (fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers["X-Stt-Profile"],
+    ).toBe("wake");
   });
 
   it("feedStream returns empty result on HTTP failure", async () => {

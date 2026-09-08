@@ -34,6 +34,10 @@ PORT = int(os.environ.get("PORT", "9000"))
 STT_MODEL = os.environ.get("STT_MODEL", "small").strip()
 STT_MODEL_PATH = os.environ.get("STT_MODEL_PATH", "").strip()
 STT_DEVICE = os.environ.get("STT_DEVICE", "auto").strip().lower()
+STT_MODEL_WAKE = os.environ.get("STT_MODEL_WAKE", "").strip()
+STT_DEVICE_WAKE = os.environ.get("STT_DEVICE_WAKE", "cpu").strip().lower()
+STT_MODEL_CASCADED = os.environ.get("STT_MODEL_CASCADED", "").strip()
+STT_DEVICE_CASCADED = os.environ.get("STT_DEVICE_CASCADED", "").strip().lower()
 STT_INITIAL_PROMPT = os.environ.get("STT_INITIAL_PROMPT", "").strip()
 WHISPER_BIN = os.environ.get("WHISPER_BIN", "whisper-cli").strip()
 MODELS_DIR = Path(os.environ.get("STT_MODELS_DIR", "/models"))
@@ -68,23 +72,41 @@ def _model_filename(name: str) -> str:
     return f"ggml-{n}.bin"
 
 
-def resolve_model_path() -> Path:
-    if STT_MODEL_PATH:
-        p = Path(STT_MODEL_PATH)
+def _profile_model_device(profile: str) -> tuple[str, str]:
+    """Per-request model/device. Missing wake weights fall back to process env."""
+    p = (profile or "").strip().lower()
+    if p == "wake":
+        name = STT_MODEL_WAKE or "tiny"
+        device = STT_DEVICE_WAKE or "cpu"
+        return name, device
+    if p == "cascaded":
+        name = STT_MODEL_CASCADED or STT_MODEL
+        device = STT_DEVICE_CASCADED or STT_DEVICE
+        return name, device
+    return STT_MODEL, STT_DEVICE
+
+
+def resolve_model_path_for(model_name: str = "", explicit_path: str = "") -> Path:
+    if explicit_path:
+        p = Path(explicit_path)
         if not p.is_file():
             raise FileNotFoundError(f"STT_MODEL_PATH not found: {p}")
         return p
-    p = MODELS_DIR / _model_filename(STT_MODEL)
+    name = (model_name or STT_MODEL).strip()
+    p = MODELS_DIR / _model_filename(name)
     if p.is_file():
         return p
-    # Also accept bare name in models dir
-    alt = MODELS_DIR / STT_MODEL
+    alt = MODELS_DIR / name
     if alt.is_file():
         return alt
     raise FileNotFoundError(
         f"Model not found: {p}. Download ggml weights into {MODELS_DIR} "
-        f"(e.g. ggml-{STT_MODEL}.bin) or set STT_MODEL_PATH."
+        f"(e.g. ggml-{name}.bin) or set STT_MODEL_PATH."
     )
+
+
+def resolve_model_path() -> Path:
+    return resolve_model_path_for(STT_MODEL, STT_MODEL_PATH)
 
 
 def ensure_ready() -> None:
@@ -148,14 +170,19 @@ def _write_wav(path: Path, audio, sample_rate: int) -> None:
         w.writeframes(pcm.tobytes())
 
 
-def transcribe_audio(audio, sample_rate: int = TARGET_SR) -> str:
+def transcribe_audio(audio, sample_rate: int = TARGET_SR, profile: str = "") -> str:
     import numpy as np
 
     if audio is None or len(audio) < int(0.1 * sample_rate):
         return ""
     ensure_ready()
-    model = resolve_model_path()
-    device = _resolve_device()
+    name, device_req = _profile_model_device(profile)
+    try:
+        model = resolve_model_path_for(name, STT_MODEL_PATH if not profile else "")
+    except FileNotFoundError:
+        model = resolve_model_path()
+        device_req = STT_DEVICE
+    device = device_req if device_req != "auto" else _resolve_device()
     with tempfile.TemporaryDirectory(prefix="mp-stt-") as td:
         wav = Path(td) / "utt.wav"
         _write_wav(wav, audio, sample_rate)
@@ -233,7 +260,7 @@ def _stream_state(client_id: str) -> dict[str, Any]:
 
 
 def feed_stream(
-    client_id: str, pcm: bytes, sample_rate: int, channels: int
+    client_id: str, pcm: bytes, sample_rate: int, channels: int, profile: str = ""
 ) -> dict[str, Any]:
     import numpy as np
 
@@ -269,7 +296,7 @@ def feed_stream(
     full = np.concatenate(st["chunks"]) if st["chunks"] else np.zeros(0, dtype=np.float32)
     text = ""
     try:
-        text = transcribe_audio(full, sr)
+        text = transcribe_audio(full, sr, profile)
     except Exception:
         traceback.print_exc()
     with _STREAM_LOCK:
@@ -311,6 +338,8 @@ class Handler(BaseHTTPRequestHandler):
                     "track": "server",
                     "model": STT_MODEL,
                     "device": _resolve_device(),
+                    "wakeModel": STT_MODEL_WAKE or "tiny",
+                    "cascadedModel": STT_MODEL_CASCADED or STT_MODEL,
                     "streaming": True,
                     "modelLoaded": _READY and model_ok,
                     "kws": False,
@@ -339,10 +368,11 @@ class Handler(BaseHTTPRequestHandler):
         pcm = self.rfile.read(length) if length else b""
         sr = int(self.headers.get("X-Sample-Rate", "16000") or 16000)
         ch = int(self.headers.get("X-Channels", "1") or 1)
+        profile = self.headers.get("X-Stt-Profile", "").strip().lower()
         if path == "/asr/stream":
             cid = self.headers.get("X-Client-Id", "").strip() or "0"
             try:
-                out = feed_stream(cid, pcm, sr, ch)
+                out = feed_stream(cid, pcm, sr, ch, profile)
             except Exception as e:
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})
@@ -354,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             audio, asr = pcm_s16le_to_float(pcm, sr, ch)
-            text = transcribe_audio(audio, asr)
+            text = transcribe_audio(audio, asr, profile)
         except Exception as e:
             traceback.print_exc()
             self._json(500, {"error": str(e)})

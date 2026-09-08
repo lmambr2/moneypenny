@@ -144,6 +144,16 @@ export class LlmRuntime {
     return this.module.ask(question);
   }
 
+  async unload(): Promise<void> {
+    if (!this.module) return;
+    await this.module.unload();
+  }
+
+  async warm(): Promise<void> {
+    if (!this.module) return;
+    await this.module.warm();
+  }
+
   private rebuild(): void {
     const delegateUrl = this.deps.config.llmDelegateUrl?.trim();
     const mc = this.deps.config.memoryContext ?? {};

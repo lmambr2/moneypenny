@@ -133,6 +133,15 @@ export class LlmModule {
     return !!this.delegateClient;
   }
 
+  /** Unload the penny chat model from VRAM (Ollama keep_alive 0). */
+  async unload(): Promise<void> {
+    await this.client.unload();
+  }
+
+  async warm(): Promise<void> {
+    await this.client.warm();
+  }
+
   /** Attach/replace the RAG retrieval hook at runtime (e.g. when rag is toggled). */
   setRetrieve(hook: RetrievalHook | undefined): void {
     this.retrieve = hook;

@@ -103,6 +103,11 @@ export interface BotConfig {
   llmSystemPrompt: string;
   // Sampling temperature (0 = deterministic, higher = more varied). Default 0.2.
   llmTemperature: number;
+  /**
+   * Unload the penny chat model (and Talker, if duplex) after the TS channel
+   * has been empty this many seconds. 0 disables. Default 900 (15 min).
+   */
+  llmIdleUnloadSeconds: number;
   // === Roast / community layer (ROADMAP Phase 8) ===
   // When true, the bot captures members' chat lines, LLM-grades them for cringe,
   // and auto-compiles a "greatest hits" reel when enough people are present.
@@ -295,6 +300,7 @@ export function getDefaultConfig(): BotConfig {
     llmDelegateModel: "",
     llmSystemPrompt: "",
     llmTemperature: 0.2,
+    llmIdleUnloadSeconds: 900,
     roastEnabled: false,
     roastMinPresent: 3,
     roastCooldownMinutes: 180,

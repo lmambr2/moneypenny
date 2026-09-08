@@ -32,16 +32,18 @@ export class HttpSttClient implements SttProvider {
     this.timeoutMs = opts.timeoutMs ?? 15_000;
   }
 
-  async transcribe(u: Utterance): Promise<string> {
+  async transcribe(u: Utterance, profile?: "wake" | "cascaded"): Promise<string> {
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/octet-stream",
+        "X-Sample-Rate": String(u.sampleRate),
+        "X-Channels": String(u.channels),
+      };
+      if (profile) headers["X-Stt-Profile"] = profile;
       const data = await fetchJson<{ text?: string }>(`${this.url}/asr`, {
         method: "POST",
         timeoutMs: this.timeoutMs,
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "X-Sample-Rate": String(u.sampleRate),
-          "X-Channels": String(u.channels),
-        },
+        headers,
         body: new Uint8Array(u.pcm),
       });
       const text = typeof data?.text === "string" ? data.text.trim() : "";
@@ -59,8 +61,16 @@ export class HttpSttClient implements SttProvider {
     pcm: Buffer,
     sampleRate: number,
     channels: number,
+    profile?: "wake" | "cascaded",
   ): Promise<StreamSttResult> {
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/octet-stream",
+        "X-Client-Id": String(clientId),
+        "X-Sample-Rate": String(sampleRate),
+        "X-Channels": String(channels),
+      };
+      if (profile) headers["X-Stt-Profile"] = profile;
       const data = await fetchJson<{
         partial?: string;
         final?: string | null;
@@ -72,12 +82,7 @@ export class HttpSttClient implements SttProvider {
       }>(`${this.url}/asr/stream`, {
         method: "POST",
         timeoutMs: this.timeoutMs,
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "X-Client-Id": String(clientId),
-          "X-Sample-Rate": String(sampleRate),
-          "X-Channels": String(channels),
-        },
+        headers,
         body: new Uint8Array(pcm),
       });
       const partial = typeof data?.partial === "string" ? data.partial.trim() : "";

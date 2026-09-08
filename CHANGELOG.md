@@ -18,6 +18,8 @@ assistant** authored each batch of work, since not every commit carries a
 - `DuplexWatch` crash vs sticky RTF fallback (unload `ok=true, loaded=false` does not `warm()`)
 - Harness `runHarnessTurn` multi-step: disposed tool results go back into the next `completeTurn`
 - `./scripts/duplex-rtf.sh` — mock exits 2 (not a GPU pass). Default `voice.mode=cascaded`
+- Empty-channel idle-unload (default 15 min): Ollama `keep_alive: 0` for penny chat; Talker too if `voice.mode=duplex`. Join warms 12B only
+- `X-Stt-Profile: wake|cascaded` on whisper-cpp + `HttpSttClient` (omit header = process env)
 
 ## 2026-09-02
 

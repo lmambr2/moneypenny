@@ -1,6 +1,6 @@
 import type { Logger } from "../logger.js";
 import { errorMessage } from "../util/error.js";
-import { fetchJson, fetchWithTimeout, HttpRequestError } from "../util/http.js";
+import { fetchJson, fetchVoid, fetchWithTimeout, HttpRequestError } from "../util/http.js";
 import { DEFAULT_CHAT_MODEL } from "./models.js";
 
 /**
@@ -174,6 +174,46 @@ export class LlmClient {
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+
+  getModel(): string {
+    return this.model;
+  }
+
+  /**
+   * Drop this model from Ollama VRAM (`keep_alive: 0`).
+   * 404/405 from non-Ollama OpenAI servers is ignored.
+   */
+  async unload(): Promise<void> {
+    try {
+      await fetchVoid(`${this.baseUrl}/api/generate`, {
+        method: "POST",
+        timeoutMs: 30_000,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: this.model,
+          prompt: "",
+          keep_alive: 0,
+          stream: false,
+        }),
+      });
+    } catch (err) {
+      const status = err instanceof HttpRequestError ? err.status : undefined;
+      if (status === 404 || status === 405) return;
+      throw err;
+    }
+  }
+
+  /** Tiny completion so Ollama loads weights before the first real turn. */
+  async warm(): Promise<void> {
+    await this.chat({
+      messages: [{ role: "user", content: "ok" }],
+      tools: undefined,
+      tool_choice: "none",
+      max_tokens: 1,
+      temperature: 0,
+      keepAlive: LLM_PENNY_KEEP_ALIVE,
+    });
   }
 
   private buildPayload(req: ChatCompletionRequest, stream: boolean): Record<string, unknown> {
