@@ -178,7 +178,7 @@ impl LiveSession {
             .await
             .map_err(|_| TsError::Message("connect timed out".into()))?
             .map_err(|e| TsError::Message(e.to_string()))?;
-        match tokio::time::timeout(Duration::from_secs(15), client.wait_connected(None)).await {
+        match tokio::time::timeout(Duration::from_secs(25), client.wait_connected(None)).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => tracing::warn!(error = %e, "wait_connected"),
             Err(_) => tracing::warn!("wait_connected timed out"),

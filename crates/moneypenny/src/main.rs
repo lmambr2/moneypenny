@@ -7,6 +7,7 @@
 
 mod bot;
 mod moves;
+mod phase0;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -344,6 +345,10 @@ async fn start_teamspeak(
             }
             let moves = Arc::new(moves::MoveRuntime::new(session.query().cloned()));
             let speech = speech.unwrap_or_else(|| mp_music::ChannelSpeech::new(Arc::clone(&station)));
+            let phase_ex = Arc::new(mp_control::CommandExecutor::new(
+                Arc::clone(&station),
+                prefix.clone(),
+            ));
             let loop_ = bot::BotLoop::new(
                 Arc::clone(&session),
                 Arc::clone(&station),
@@ -361,12 +366,14 @@ async fn start_teamspeak(
             let station_c = Arc::clone(&station);
             let session_r = Arc::clone(&session);
             let station_r = Arc::clone(&station);
+            let phase_r = Arc::clone(&phase_ex);
             tokio::select! {
                 _ = async {
                     match session_c.connect().await {
                         Ok(()) => {
                             info!("ts session: live (tsclient-rs)");
                             station_c.set_connected(true);
+                            crate::phase0::spawn_after_first_connect(Arc::clone(&phase_ex));
                         }
                         Err(e) => {
                             error!(error = %e, "ts connect failed — HTTP still up, will reconnect");
@@ -380,10 +387,12 @@ async fn start_teamspeak(
                 _ = driver.run(move |_id| {
                     let s = Arc::clone(&session_r);
                     let st = Arc::clone(&station_r);
+                    let ex = Arc::clone(&phase_r);
                     async move {
                         match s.reconnect().await {
                             Ok(()) => {
                                 st.set_connected(true);
+                                crate::phase0::spawn_after_first_connect(ex);
                                 Ok(())
                             }
                             Err(e) => Err(e.to_string()),
