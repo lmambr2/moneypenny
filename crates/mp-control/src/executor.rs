@@ -55,6 +55,15 @@ impl CommandExecutor {
             "unban" => self.cmd_unban(cmd),
             "help" => self.cmd_help(),
             "test" => self.cmd_test().await,
+            "playlist" => self.cmd_playlist(cmd).await,
+            "album" => self.cmd_album(cmd).await,
+            "artist" => self.cmd_artist(cmd).await,
+            "lyrics" => self.cmd_lyrics(),
+            "mute" | "kick" => format!(
+                "Usage: {}{other} <nickname|clid> — run this from TeamSpeak chat.",
+                self.prefix,
+                other = cmd.name
+            ),
             other if crate::manifest::is_known_command(other) => {
                 format!("{other} is not ported yet.")
             }
@@ -456,6 +465,97 @@ impl CommandExecutor {
         format!("Not on ban list: {arg}. Try {p}ban list.")
     }
 
+    async fn cmd_playlist(&self, cmd: &ParsedCommand) -> String {
+        let p = &self.prefix;
+        if cmd.args.trim().is_empty() {
+            return format!("Usage: {p}playlist <playlist name or ID>");
+        }
+        let Some((_pl, songs)) = self.station.local.find_playlist(&cmd.args) else {
+            return format!("Playlist is empty or not found: {}", cmd.args);
+        };
+        if songs.is_empty() {
+            return format!("Playlist is empty or not found: {}", cmd.args);
+        }
+        let n = songs.len();
+        match self
+            .station
+            .play_tracks(songs, PlayMode::Sequential)
+            .await
+        {
+            Some(first) => format!(
+                "Loaded {n} songs. Now playing: {} - {}",
+                first.name, first.artist
+            ),
+            None => format!("Playlist is empty or not found: {}", cmd.args),
+        }
+    }
+
+    async fn cmd_album(&self, cmd: &ParsedCommand) -> String {
+        let p = &self.prefix;
+        if cmd.args.trim().is_empty() {
+            return format!("Usage: {p}album <album name>");
+        }
+        let songs = self.station.local.album_songs(&cmd.args);
+        if songs.is_empty() {
+            return format!("No albums found for: {}", cmd.args);
+        }
+        let n = songs.len();
+        match self
+            .station
+            .play_tracks(songs, PlayMode::Sequential)
+            .await
+        {
+            Some(first) => format!(
+                "Loaded {n} songs. Now playing: {} - {}",
+                first.name, first.artist
+            ),
+            None => "Album is empty or not found".into(),
+        }
+    }
+
+    async fn cmd_artist(&self, cmd: &ParsedCommand) -> String {
+        let p = &self.prefix;
+        if cmd.args.trim().is_empty() {
+            return format!("Usage: {p}artist <artist name>");
+        }
+        let mut songs = self.station.local.artist_songs(&cmd.args, 50);
+        if songs.is_empty() && !cmd.flags.contains(&'l') {
+            songs = self
+                .station
+                .youtube
+                .search_async(&cmd.args, 20, mp_music::YoutubePolicy::Search)
+                .await
+                .into_iter()
+                .filter(|t| t.artist.to_ascii_lowercase().contains(&cmd.args.to_ascii_lowercase()))
+                .collect();
+            if songs.is_empty() {
+                songs = self
+                    .station
+                    .youtube
+                    .search_async(&cmd.args, 20, mp_music::YoutubePolicy::Search)
+                    .await;
+            }
+        }
+        if songs.is_empty() {
+            return format!("No results found for artist: {}", cmd.args);
+        }
+        let n = songs.len();
+        match self.station.play_tracks(songs, PlayMode::Loop).await {
+            Some(first) => format!(
+                "Artist mode: {} — {n} songs loaded. Now playing: {} - {}",
+                cmd.args, first.name, first.artist
+            ),
+            None => format!("No results found for artist: {}", cmd.args),
+        }
+    }
+
+    fn cmd_lyrics(&self) -> String {
+        let Some(cur) = self.station.queue.lock().expect("queue").current() else {
+            return "Nothing is playing".into();
+        };
+        format!("No lyrics available for {}.", cur.name)
+    }
+
     async fn cmd_test(&self) -> String {
         match self.station.play_demo_track_async().await {
             ReplaceResult::Ok(t) => {
@@ -487,16 +587,20 @@ impl CommandExecutor {
             &format!("{p}queue ({p}list) · {p}now · {p}clear · {p}remove <n> · {p}vol <0-100> · {p}mode <seq|loop|random|rloop>"),
             &format!("{p}ban [reason] · {p}ban list · {p}unban"),
             &format!("{p}test — Demo track (Ella Langley Choosin' Texas, local then YouTube)"),
+            &format!("{p}playlist <name> · {p}album <name> · {p}artist <name> · {p}lyrics"),
+            &format!("{p}rate <1-5> [song] · {p}unrate — Rate the current (or a searched) track"),
             &format!("{p}karaoke [on|off] — Keep music loud while listening (duck 80 instead of 15; karyoke/kareoke work)"),
             "",
             "Ask / memory",
             &format!("{p}ask <question> — Grounded Q&A (RAG when enabled)"),
+            &format!("{p}analyst <task> · {p}agent <task> — Delegate to the analysis model"),
             &format!("{p}remember <fact> · {p}recall · {p}forget <n|all> — Per-user memory"),
             &format!("{p}reindex [source.md] — Re-embed doctrine"),
             "",
             "Radio",
             &format!("{p}radio [on|off|status|ops <profile>] — Autonomous DJ (local seed)"),
             "",
+            &format!("{p}mute <nick|clid> · {p}kick <nick|clid> — Channel moderation"),
             &format!("{p}help — This message"),
         ]
         .join("\n")
@@ -728,5 +832,38 @@ mod tests {
             }
             from = abs + 1;
         }
+    }
+
+    #[tokio::test]
+    async fn playlist_album_artist_from_library() {
+        let (dir, st) = tmp_station();
+        let a = dir.join("rock/titanium.mp3");
+        let b = dir.join("rock/hello.mp3");
+        std::fs::write(
+            dir.join("mix.m3u"),
+            format!("{}\n{}\n", a.display(), b.display()),
+        )
+        .unwrap();
+        st.local.refresh();
+        let ex = CommandExecutor::new(st.clone(), "!");
+        let pl = ex.execute(&cmd("playlist", "mix")).await.unwrap();
+        assert!(pl.contains("Loaded 2 songs"), "{pl}");
+        let q = st.queue.lock().unwrap();
+        assert_eq!(q.size(), 2);
+        assert_eq!(q.get_mode(), PlayMode::Sequential);
+        drop(q);
+
+        let al = ex.execute(&cmd("album", "rock")).await.unwrap();
+        assert!(al.contains("Loaded"), "{al}");
+
+        let ar = ex.execute(&cmd("artist", "Unknown")).await.unwrap();
+        assert!(ar.contains("Artist mode"), "{ar}");
+        let q = st.queue.lock().unwrap();
+        assert_eq!(q.get_mode(), PlayMode::Loop);
+        drop(q);
+
+        let ly = ex.execute(&cmd("lyrics", "")).await.unwrap();
+        assert!(ly.contains("No lyrics") || ly.contains("Nothing"), "{ly}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -3,11 +3,12 @@
 
 //! Server-wide channel occupancy (Node `channel-presence.ts` / auto-follow).
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresenceClient {
     pub id: i32,
     pub channel_id: u64,
     pub client_type: i32,
+    pub nickname: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +95,7 @@ mod tests {
             id,
             channel_id: channel,
             client_type: typ,
+            nickname: format!("u{id}"),
         }
     }
 

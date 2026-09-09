@@ -63,9 +63,9 @@ pub enum McpProfile {
 impl McpProfile {
     pub fn parse(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "readonly" => Self::Readonly,
+            "admin" => Self::Admin,
             "dj" => Self::Dj,
-            _ => Self::Admin,
+            _ => Self::Readonly,
         }
     }
 
@@ -110,7 +110,7 @@ impl Default for McpConfig {
             token: String::new(),
             path: "/mcp".into(),
             bot_id: None,
-            default_profile: McpProfile::Admin,
+            default_profile: McpProfile::Readonly,
             enable_moderation: false,
             require_confirm: true,
             invoker_name: "grok-build".into(),
@@ -159,7 +159,7 @@ impl McpConfig {
             path,
             bot_id,
             default_profile: McpProfile::parse(
-                &std::env::var("MCP_DEFAULT_PROFILE").unwrap_or_else(|_| "admin".into()),
+                &std::env::var("MCP_DEFAULT_PROFILE").unwrap_or_else(|_| "readonly".into()),
             ),
             enable_moderation: env_truthy(std::env::var("MCP_ENABLE_MODERATION").ok()),
             require_confirm,
@@ -328,6 +328,14 @@ mod tests {
         assert!(check_confirm(&cfg, "music_stop", false, None, t, "r").is_some());
         assert!(check_confirm(&cfg, "music_stop", true, None, t, "r").is_none());
         assert!(check_confirm(&cfg, "music_skip", false, None, t, "r").is_none());
+    }
+
+    #[test]
+    fn profile_parse_fail_closed() {
+        assert_eq!(McpProfile::parse(""), McpProfile::Readonly);
+        assert_eq!(McpProfile::parse("nope"), McpProfile::Readonly);
+        assert_eq!(McpProfile::parse("admin"), McpProfile::Admin);
+        assert_eq!(McpConfig::default().default_profile, McpProfile::Readonly);
     }
 
     #[test]

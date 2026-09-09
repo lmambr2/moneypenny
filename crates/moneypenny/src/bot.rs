@@ -243,7 +243,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 } else {
                     format!("{}{}", self.prefix, body.trim())
                 };
-                self.handle_chat(invoker_id, invoker_uid, invoker_name, body, Vec::new())
+                let groups = self.session.groups_for(invoker_id, Vec::new()).await;
+                self.handle_chat(invoker_id, invoker_uid, invoker_name, body, groups)
                     .await
             }
             TsEvent::Disconnected { reason } => {
@@ -351,6 +352,20 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         scope: Scope,
         invoker_clid: i32,
     ) -> Option<String> {
+        if matches!(parsed.name.as_str(), "mute" | "kick") {
+            if let Some(engine) = self.rights.as_deref() {
+                if !engine.can(subject, &parsed.name, scope) {
+                    return Some(format!(
+                        "You don't have permission to use '{}'.",
+                        parsed.name
+                    ));
+                }
+            }
+            return Some(
+                self.moderation(&parsed.name, &parsed.args, subject)
+                    .await,
+            );
+        }
         if matches!(
             parsed.name.as_str(),
             "move" | "moveclient" | "moveall" | "follow"
@@ -393,6 +408,60 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         .await
     }
 
+    async fn moderation(&self, action: &str, target: &str, subject: &Subject) -> String {
+        let target = target.trim();
+        if target.is_empty() {
+            return format!("Usage: {}{action} <nickname|clid>", self.prefix);
+        }
+        if !self.session.is_connected() {
+            return "Bot is not connected — moderation skipped (music unaffected).".into();
+        }
+        let t = target.to_ascii_lowercase();
+        let own = self.session.client_id();
+        let all = self.session.list_clients().await;
+        let hit = all.iter().find(|c| {
+            if own > 0 && c.id == own {
+                return false;
+            }
+            let nick = c.nickname.to_ascii_lowercase();
+            let id = c.id.to_string();
+            id == t
+                || nick.eq_ignore_ascii_case(target)
+                || (t.len() >= 3 && nick.contains(&t))
+        });
+        let Some(hit) = hit else {
+            return format!("No client matching \"{target}\" in channel. Music unaffected.");
+        };
+        let clid = hit.id;
+        let label = if hit.nickname.is_empty() {
+            clid.to_string()
+        } else {
+            hit.nickname.clone()
+        };
+        let _ = subject;
+        if action == "kick" {
+            match self
+                .session
+                .kick_client(clid, "Moneypenny kick")
+                .await
+            {
+                Ok(()) => format!("Kicked {label} from the channel. Music unaffected."),
+                Err(e) => format!("Moderation kick failed open: {e}. Music unaffected."),
+            }
+        } else {
+            match self
+                .session
+                .poke_client(clid, "Moderation: mute")
+                .await
+            {
+                Ok(()) => format!(
+                    "Moderation: mute requested for {label} (apply via server groups if API unavailable)."
+                ),
+                Err(e) => format!("Moderation mute failed open: {e}. Music unaffected."),
+            }
+        }
+    }
+
     fn on_voice(&self, client_id: i32, codec: u8, opus: Vec<u8>) {
         self.radio.note_human_activity(client_id);
         let own = self.session.client_id();
@@ -430,6 +499,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             .unwrap_or_else(|| format!("clid:{speaker_id}"));
 
         tokio::spawn(async move {
+            let groups = session.groups_for(speaker_id, Vec::new()).await;
             let (transcript, keyword) = voice.transcribe_ex(&utt).await;
             if transcript.trim().is_empty() && keyword.is_none() {
                 tracing::info!(speaker_id, "Voice: STT returned empty transcript");
@@ -465,6 +535,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         let moves = Arc::clone(&moves);
                         let rights = rights_c.clone();
                         let uid = uid.clone();
+                        let groups = groups.clone();
                         async move {
                             let parsed = parse_command(&format!("{prefix}{cmd}"), &prefix, &aliases)?;
                             if !is_known_command(&parsed.name) {
@@ -472,7 +543,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                             }
                             let subject = Subject {
                                 uid,
-                                server_groups: Vec::new(),
+                                server_groups: groups,
                                 nickname: None,
                             };
                             if matches!(

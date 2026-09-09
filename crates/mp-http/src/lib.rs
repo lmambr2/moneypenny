@@ -1362,6 +1362,7 @@ mod tests {
             enabled: true,
             token: "phase8-test".into(),
             require_confirm: true,
+            default_profile: mp_mcp::McpProfile::Admin,
             ..mp_mcp::McpConfig::default()
         };
         let dir = std::env::temp_dir().join(format!(
@@ -1806,6 +1807,7 @@ mod tests {
             enabled: true,
             token: "phase8-test".into(),
             require_confirm: true,
+            default_profile: mp_mcp::McpProfile::Admin,
             ..mp_mcp::McpConfig::default()
         };
         let dir = std::env::temp_dir().join(format!(

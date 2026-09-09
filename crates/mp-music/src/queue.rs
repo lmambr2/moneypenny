@@ -216,6 +216,28 @@ impl PlayQueue {
         Some(self.songs[index].clone())
     }
 
+    /// Upcoming track without mutating the cursor (seq/loop only).
+    pub fn peek_next(&self) -> Option<QueuedSong> {
+        if self.songs.is_empty() {
+            return None;
+        }
+        match self.mode {
+            PlayMode::Sequential => {
+                let i = self.current_index + 1;
+                if i < 0 || i as usize >= self.songs.len() {
+                    None
+                } else {
+                    Some(self.songs[i as usize].clone())
+                }
+            }
+            PlayMode::Loop => {
+                let i = (self.current_index + 1).rem_euclid(self.songs.len() as i32);
+                Some(self.songs[i as usize].clone())
+            }
+            PlayMode::Random | PlayMode::RandomLoop => None,
+        }
+    }
+
     pub fn next(&mut self) -> Option<QueuedSong> {
         if self.songs.is_empty() {
             return None;
@@ -360,6 +382,19 @@ pub fn replace_queue_with_song(queue: &mut PlayQueue, song: QueuedSong) -> Optio
     queue.clear();
     queue.add(song);
     queue.set_mode(PlayMode::Sequential);
+    queue.play()
+}
+
+pub fn replace_queue_with_tracks(
+    queue: &mut PlayQueue,
+    songs: Vec<QueuedSong>,
+    mode: PlayMode,
+) -> Option<QueuedSong> {
+    queue.clear();
+    for s in songs {
+        queue.add(s);
+    }
+    queue.set_mode(mode);
     queue.play()
 }
 

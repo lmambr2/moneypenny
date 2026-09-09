@@ -15,6 +15,7 @@ pub const DEFAULT_EMBEDDING_MODEL: &str = "nomic-embed-text-v2-moe";
 pub enum Embedder {
     Http(EmbeddingsClient),
     Hash { dim: usize },
+    Disabled,
 }
 
 impl Embedder {
@@ -22,6 +23,9 @@ impl Embedder {
         match self {
             Self::Http(c) => c.embed(texts).await,
             Self::Hash { dim } => Ok(texts.iter().map(|t| hash_vec(t, *dim)).collect()),
+            Self::Disabled => Err(RagError::Message(
+                "EMBEDDING_URL is empty — RAG ingest/query is disabled".into(),
+            )),
         }
     }
 
@@ -29,6 +33,9 @@ impl Embedder {
         match self {
             Self::Http(c) => c.dimension().await,
             Self::Hash { dim } => Ok(*dim),
+            Self::Disabled => Err(RagError::Message(
+                "EMBEDDING_URL is empty — RAG ingest/query is disabled".into(),
+            )),
         }
     }
 
@@ -36,6 +43,7 @@ impl Embedder {
         match self {
             Self::Http(c) => c.model.as_str(),
             Self::Hash { .. } => "hash",
+            Self::Disabled => "disabled",
         }
     }
 }
@@ -152,5 +160,11 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0], v[1]);
         assert_eq!(e.dimension().await.unwrap(), 8);
+    }
+
+    #[tokio::test]
+    async fn disabled_embedder_errors() {
+        let e = Embedder::Disabled;
+        assert!(e.embed(&["x".into()]).await.is_err());
     }
 }

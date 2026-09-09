@@ -57,7 +57,21 @@ pub async fn dispatch_command(
             .await,
         ),
         "karaoke" => Some(cmd_karaoke(voice, &executor.prefix, &parsed.args)),
-        "ask" => Some(cmd_ask(brain, rights, subject, scope, &parsed.args).await),
+        "ask" => Some(cmd_ask(brain, rights, subject, scope, &parsed.args, TurnMode::Ask, "ask").await),
+        "analyst" | "agent" => Some(
+            cmd_ask(
+                brain,
+                rights,
+                subject,
+                scope,
+                &parsed.args,
+                TurnMode::Delegate,
+                parsed.name.as_str(),
+            )
+            .await,
+        ),
+        "rate" => Some(cmd_rate(db, executor, subject, parsed).await),
+        "unrate" => Some(cmd_unrate(db, executor, subject)),
         "reindex" => Some(cmd_reindex(rag, &parsed.args).await),
         "radio" => Some(cmd_radio(radio, &executor.prefix, parsed).await),
         "roast" => Some(cmd_roast(roast).await),
@@ -433,16 +447,75 @@ fn cmd_forget(db: &Database, args: &str, uid: &str) -> String {
     }
 }
 
+async fn cmd_rate(
+    db: &Database,
+    executor: &CommandExecutor,
+    subject: &Subject,
+    parsed: &ParsedCommand,
+) -> String {
+    let p = &executor.prefix;
+    let stars = parsed
+        .raw_args
+        .first()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    if !(1..=5).contains(&stars) {
+        return format!("Usage: {p}rate <1-5> [song]");
+    }
+    let query = parsed.raw_args.get(1..).unwrap_or(&[]).join(" ");
+    let target = if query.trim().is_empty() {
+        executor
+            .station
+            .queue
+            .lock()
+            .expect("queue")
+            .current()
+            .map(|s| (s.id, s.name))
+    } else {
+        executor
+            .station
+            .search_first_flags_async(&query, &parsed.flags)
+            .await
+            .map(|t| (t.id, t.title))
+    };
+    let Some((id, name)) = target else {
+        return if query.trim().is_empty() {
+            "Nothing is playing to rate.".into()
+        } else {
+            format!("No results for: {query}")
+        };
+    };
+    let rater = format!("ts:{}", subject.uid);
+    if let Err(e) = db.tags().rate(&id, &rater, stars) {
+        return format!("Could not rate: {e}");
+    }
+    format!("⭐ Rated \"{name}\" {stars}/5.")
+}
+
+fn cmd_unrate(db: &Database, executor: &CommandExecutor, subject: &Subject) -> String {
+    let Some(cur) = executor.station.queue.lock().expect("queue").current() else {
+        return "Nothing is playing to unrate.".into();
+    };
+    let rater = format!("ts:{}", subject.uid);
+    match db.tags().unrate(&cur.id, &rater) {
+        Ok(true) => format!("Removed your rating for \"{}\".", cur.name),
+        Ok(false) => format!("You hadn't rated \"{}\".", cur.name),
+        Err(e) => format!("Could not unrate: {e}"),
+    }
+}
+
 async fn cmd_ask(
     brain: &mp_brain::BrainRuntime,
     rights: Option<&RightsEngine>,
     subject: &Subject,
     scope: Scope,
     args: &str,
+    mode: TurnMode,
+    verb: &str,
 ) -> String {
     let q = args.trim();
     if q.is_empty() {
-        return "Usage: !ask <question>".into();
+        return format!("Usage: !{verb} <question>");
     }
     let allowed = allowed_classifications_for(rights, subject);
     let channel = match scope {
@@ -463,7 +536,7 @@ async fn cmd_ask(
             server_groups: Some(subject.server_groups.clone()),
             allowed_classifications: Some(allowed),
         }),
-        mode: Some(TurnMode::Ask),
+        mode: Some(mode),
         options: Some(TurnOptions {
             include_sources: Some(true),
             max_tools: None,

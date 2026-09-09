@@ -113,6 +113,21 @@ pub trait TsSessionExt: TsSession {
         &self,
         name: &str,
     ) -> impl std::future::Future<Output = Option<u64>> + Send;
+    fn groups_for(
+        &self,
+        clid: i32,
+        fallback: Vec<String>,
+    ) -> impl std::future::Future<Output = Vec<String>> + Send;
+    fn poke_client(
+        &self,
+        clid: i32,
+        message: &str,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn kick_client(
+        &self,
+        clid: i32,
+        message: &str,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
 }
 
 /// In-memory session used until Option A/B is chosen, and in tests.
@@ -189,6 +204,15 @@ impl TsSessionExt for MockSession {
     }
     async fn resolve_channel_id_by_name(&self, _name: &str) -> Option<u64> {
         None
+    }
+    async fn groups_for(&self, _clid: i32, fallback: Vec<String>) -> Vec<String> {
+        fallback
+    }
+    async fn poke_client(&self, _clid: i32, _message: &str) -> Result<()> {
+        Ok(())
+    }
+    async fn kick_client(&self, _clid: i32, _message: &str) -> Result<()> {
+        Ok(())
     }
 }
 

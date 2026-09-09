@@ -30,7 +30,7 @@ pub use ffmpeg::{
 };
 pub use local::{DeleteSongError, LocalProvider, Playlist, ResolveHit};
 pub use player::{AudioPlayer, PlayerEvent, PlayerState};
-pub use queue::{replace_queue_with_song, PlayMode, PlayQueue};
+pub use queue::{replace_queue_with_song, replace_queue_with_tracks, PlayMode, PlayQueue};
 pub use speech::{ChannelSpeech, TrackEndKind};
 pub use station::{MusicStation, ReplaceResult, UserPause};
 pub use stream::{

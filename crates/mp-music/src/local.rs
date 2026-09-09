@@ -436,6 +436,91 @@ impl LocalProvider {
             .map(|s| ResolveHit::Song(s.track.clone()))
     }
 
+    pub fn find_playlist(&self, query: &str) -> Option<(Playlist, Vec<Track>)> {
+        self.ensure_indexed();
+        let q = query.trim();
+        if q.is_empty() {
+            return None;
+        }
+        let lower = q.to_ascii_lowercase();
+        let pls = self.m3u_playlists.lock().ok()?;
+        let mut hit: Option<(PathBuf, Playlist)> = None;
+        for (path, pl) in pls.iter() {
+            if pl.id == q || pl.name.eq_ignore_ascii_case(q) {
+                hit = Some((path.clone(), pl.clone()));
+                break;
+            }
+        }
+        if hit.is_none() {
+            for (path, pl) in pls.iter() {
+                if pl.name.to_ascii_lowercase().contains(&lower) {
+                    hit = Some((path.clone(), pl.clone()));
+                    break;
+                }
+            }
+        }
+        let (path, pl) = hit?;
+        drop(pls);
+        let songs = self
+            .m3u_songs
+            .lock()
+            .ok()?
+            .get(&path)
+            .cloned()
+            .unwrap_or_default();
+        Some((pl, songs))
+    }
+
+    pub fn album_songs(&self, query: &str) -> Vec<Track> {
+        self.ensure_indexed();
+        let q = query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let songs = self.songs.lock().expect("songs");
+        let mut exact = Vec::new();
+        let mut contains = Vec::new();
+        for s in songs.iter() {
+            let a = s.track.album.to_ascii_lowercase();
+            if a == q {
+                exact.push(s.track.clone());
+            } else if a.contains(&q) {
+                contains.push(s.track.clone());
+            }
+        }
+        if exact.is_empty() {
+            contains
+        } else {
+            exact
+        }
+    }
+
+    pub fn artist_songs(&self, query: &str, limit: usize) -> Vec<Track> {
+        self.ensure_indexed();
+        let q = query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let songs = self.songs.lock().expect("songs");
+        let mut filtered: Vec<Track> = songs
+            .iter()
+            .filter(|s| s.track.artist.to_ascii_lowercase().contains(&q))
+            .map(|s| s.track.clone())
+            .collect();
+        if filtered.is_empty() {
+            filtered = songs
+                .iter()
+                .filter(|s| {
+                    s.track.title.to_ascii_lowercase().contains(&q)
+                        || s.track.album.to_ascii_lowercase().contains(&q)
+                })
+                .map(|s| s.track.clone())
+                .take(limit)
+                .collect();
+        }
+        filtered.into_iter().take(limit).collect()
+    }
+
     pub fn get_playlist_songs(&self, playlist_id: &str) -> Vec<Track> {
         self.ensure_indexed();
         let real = self

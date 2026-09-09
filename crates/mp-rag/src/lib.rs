@@ -147,7 +147,7 @@ impl RagRuntime {
 pub fn build_embedder(url: &str, model: &str) -> Embedder {
     let url = url.trim();
     if url.is_empty() {
-        return Embedder::Hash { dim: 32 };
+        return Embedder::Disabled;
     }
     Embedder::Http(EmbeddingsClient::new(url, model, 600_000))
 }

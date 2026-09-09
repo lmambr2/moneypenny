@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use crate::blacklist::PlaybackBlacklist;
 use crate::local::{LocalProvider, ResolveHit};
 use crate::player::{AudioPlayer, PlayerEvent, PlayerState};
-use crate::queue::{replace_queue_with_song, PlayMode, PlayQueue};
+use crate::queue::{replace_queue_with_song, replace_queue_with_tracks, PlayMode, PlayQueue};
 use crate::stream::{
     is_spotify_ref, is_streamable_url, is_tidal_url, stream_playback_url, stream_track, StreamBridge,
 };
@@ -34,6 +34,7 @@ pub struct MusicStation {
     yt_library: Mutex<Option<Arc<YtLibrary>>>,
     youtube_save_enabled: AtomicBool,
     connected: Mutex<bool>,
+    prefetch: Arc<Mutex<Option<(String, String)>>>,
 }
 
 impl MusicStation {
@@ -49,6 +50,7 @@ impl MusicStation {
             yt_library: Mutex::new(None),
             youtube_save_enabled: AtomicBool::new(false),
             connected: Mutex::new(true),
+            prefetch: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -272,7 +274,59 @@ impl MusicStation {
                 );
             }
         }
+        self.arm_prefetch();
         true
+    }
+
+    fn arm_prefetch(&self) {
+        let next = {
+            let q = self.queue.lock().expect("queue");
+            q.peek_next()
+        };
+        let Some(next) = next else {
+            return;
+        };
+        if next.platform != Platform::Youtube {
+            return;
+        }
+        let key = if next.id.is_empty() {
+            next.url.clone()
+        } else {
+            next.id.clone()
+        };
+        if key.is_empty() {
+            return;
+        }
+        let yt = self.youtube.clone();
+        let cache = Arc::clone(&self.prefetch);
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        tokio::task::spawn_blocking(move || {
+            if let Some(url) = yt.playback_url(&key) {
+                *cache.lock().expect("prefetch") = Some((key, url));
+            }
+        });
+    }
+
+    pub async fn play_tracks(&self, tracks: Vec<Track>, mode: PlayMode) -> Option<QueuedSong> {
+        if tracks.is_empty() {
+            return None;
+        }
+        let songs: Vec<QueuedSong> = tracks
+            .into_iter()
+            .map(|t| QueuedSong::from_track(t, QueueSource::User))
+            .collect();
+        let first = {
+            let mut q = self.queue.lock().expect("queue");
+            replace_queue_with_tracks(&mut q, songs, mode)
+        };
+        let Some(first) = first else {
+            return None;
+        };
+        self.player.reset_failures();
+        let _ = self.resolve_and_play_async(&first).await;
+        Some(first)
     }
 
     fn playback_url(&self, song: &QueuedSong) -> Option<String> {
@@ -326,6 +380,15 @@ impl MusicStation {
                 };
                 if let Some(p) = cached {
                     return Some(p);
+                }
+                {
+                    let mut g = self.prefetch.lock().expect("prefetch");
+                    if let Some((k, u)) = g.take() {
+                        if k == key {
+                            return Some(u);
+                        }
+                        *g = Some((k, u));
+                    }
                 }
                 self.youtube.playback_url_async(&key).await
             }

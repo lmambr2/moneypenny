@@ -326,6 +326,20 @@ impl LiveSession {
     pub fn is_closing(&self) -> bool {
         self.closing.load(Ordering::SeqCst)
     }
+
+    pub async fn poke_client(&self, clid: i32, message: &str) -> Result<()> {
+        let client = self.client_arc().await.ok_or(TsError::NotConnected)?;
+        tsclient_rs::poke(&client, clid, message)
+            .await
+            .map_err(|e| TsError::Message(e.to_string()))
+    }
+
+    pub async fn kick_client(&self, clid: i32, message: &str) -> Result<()> {
+        let client = self.client_arc().await.ok_or(TsError::NotConnected)?;
+        tsclient_rs::clientKick(&client, clid, tsclient_rs::KickReason::Channel, message)
+            .await
+            .map_err(|e| TsError::Message(e.to_string()))
+    }
 }
 
 fn load_or_create_identity(path: &Path) -> Result<tsclient_rs::Identity> {
@@ -398,6 +412,15 @@ impl crate::TsSessionExt for LiveSession {
     async fn resolve_channel_id_by_name(&self, name: &str) -> Option<u64> {
         LiveSession::resolve_channel_id_by_name(self, name).await
     }
+    async fn groups_for(&self, clid: i32, fallback: Vec<String>) -> Vec<String> {
+        LiveSession::groups_for(self, clid, fallback).await
+    }
+    async fn poke_client(&self, clid: i32, message: &str) -> Result<()> {
+        LiveSession::poke_client(self, clid, message).await
+    }
+    async fn kick_client(&self, clid: i32, message: &str) -> Result<()> {
+        LiveSession::kick_client(self, clid, message).await
+    }
 }
 
 fn row_to_presence(row: std::collections::HashMap<String, String>) -> Option<PresenceClient> {
@@ -419,9 +442,16 @@ fn row_to_presence(row: std::collections::HashMap<String, String>) -> Option<Pre
         .or_else(|| row.get("type"))
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    let nickname = row
+        .get("client_nickname")
+        .or_else(|| row.get("client_nick"))
+        .or_else(|| row.get("nickname"))
+        .cloned()
+        .unwrap_or_default();
     Some(PresenceClient {
         id,
         channel_id,
         client_type,
+        nickname,
     })
 }
