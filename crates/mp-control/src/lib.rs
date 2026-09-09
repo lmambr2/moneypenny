@@ -17,8 +17,8 @@ pub use executor::{
 };
 pub use manifest::{
     admin_commands, audio_commands, default_aliases, is_admin_command, is_audio_command,
-    is_known_command, parse_command, public_commands, CommandKind, CommandSpec, ParsedCommand,
-    COMMAND_MANIFEST,
+    is_known_command, karaoke_alias, parse_command, public_commands, CommandKind, CommandSpec,
+    ParsedCommand, COMMAND_MANIFEST,
 };
 pub use policy::{decide_harness_tool, HarnessToolDecision, HARNESS_DANGEROUS_TOOLS, HARNESS_SAFE_TOOLS};
 pub use tool_map::{known_llm_tool_names, source_flags, tool_call_to_command, ToolCallInput};

@@ -74,7 +74,7 @@ pub fn may_run(st: &AppState, user: &AuthUser, command: &str) -> bool {
         return true;
     }
     let Some(engine) = st.rights.as_ref() else {
-        return true;
+        return false;
     };
     let subject = mp_rights::Subject {
         uid: format!("web:{}", user.id),

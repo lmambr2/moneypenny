@@ -185,16 +185,16 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "youtubeSaveEnabled": st.station.as_ref().is_some_and(|s| s.youtube_save_enabled()),
         "musicOpusBitrateKbps": c.music_opus_bitrate_kbps,
         "musicBlockedGenres": c.music_blocked_genres,
-        "autoFollowEnabled": false,
-        "autoFollowCooldownSec": 60,
+        "autoFollowEnabled": st.follow.enabled(),
+        "autoFollowCooldownSec": st.follow.cooldown_sec(),
+        "scOrgStatusUrl": st.sc_org.url(),
+        "scOrgName": st.sc_org.name(),
         "ragEnabled": st.rag.as_ref().map(|r| r.rag_enabled()).unwrap_or(c.rag_enabled),
         "ragTopK": st.rag.as_ref().map(|r| r.top_k() as u32).unwrap_or(c.rag_top_k),
         "memoryEnabled": st.rag.as_ref().map(|r| r.memory_enabled()).unwrap_or(c.memory_enabled),
         "kgEnabled": st.rag.as_ref().map(|r| r.kg_enabled()).unwrap_or(c.kg_enabled),
         "mempalaceEnabled": st.rag.as_ref().is_some_and(|r| r.mempalace_enabled()),
         "mempalaceUrl": c.mempalace_url,
-        "scOrgStatusUrl": "",
-        "scOrgName": "",
         "aceStepEnabled": false,
         "aceStepUrl": "",
         "aceStepAutoFill": false,
@@ -232,6 +232,23 @@ pub async fn settings_post(
         if let Some(station) = st.station.as_ref() {
             station.player.set_bitrate_kbps(kbps as i32);
         }
+    }
+    if let Some(on) = body.get("autoFollowEnabled").and_then(|v| v.as_bool()) {
+        st.follow.set_enabled(on);
+    }
+    if let Some(n) = body.get("autoFollowCooldownSec").and_then(|v| v.as_u64()) {
+        st.follow.set_cooldown_sec(n);
+    }
+    if let Some(s) = body.get("scOrgStatusUrl").and_then(|v| v.as_str()) {
+        match crate::sc_org::normalize_sc_org_base_url(s) {
+            Ok(u) => st.sc_org.set_url(u),
+            Err(msg) => {
+                return Json(json!({ "ok": false, "error": msg, "code": "VALIDATION_ERROR" }));
+            }
+        }
+    }
+    if let Some(s) = body.get("scOrgName").and_then(|v| v.as_str()) {
+        st.sc_org.set_name(s.trim().to_string());
     }
     if let Some(on) = body.get("youtubeSaveEnabled").and_then(|v| v.as_bool()) {
         if let Some(station) = st.station.as_ref() {
@@ -394,6 +411,10 @@ fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
         "roastCooldownMinutes",
         "roastMinScore",
         "musicOpusBitrateKbps",
+        "autoFollowEnabled",
+        "autoFollowCooldownSec",
+        "scOrgStatusUrl",
+        "scOrgName",
         "youtubeSaveEnabled",
         "mempalaceEnabled",
         "mempalaceUrl",
@@ -558,7 +579,12 @@ pub async fn start_bot(
     if id != st.bot_id {
         return (StatusCode::NOT_FOUND, Json(json!({"error":"Bot not found"}))).into_response();
     }
-    Json(json!({ "ok": true, "message": "already managed by TS6_HOST" })).into_response()
+    Json(json!({
+        "ok": true,
+        "code": "ALREADY_MANAGED",
+        "message": "already managed by TS6_HOST"
+    }))
+    .into_response()
 }
 
 pub async fn stop_bot(
@@ -569,7 +595,15 @@ pub async fn stop_bot(
     if id != st.bot_id {
         return (StatusCode::NOT_FOUND, Json(json!({"error":"Bot not found"}))).into_response();
     }
-    Json(json!({ "ok": true, "message": "stop is a process restart in the rust runtime" })).into_response()
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "ok": false,
+            "error": "stop is a process restart in the rust runtime",
+            "code": "NOT_PORTED"
+        })),
+    )
+        .into_response()
 }
 
 pub async fn bot_config(

@@ -28,7 +28,7 @@ pub use ffmpeg::{
     build_ffmpeg_args, classify_stall, clamp_music_opus_bitrate_kbps, StallCheckInput, StallVerdict,
     FRAME_DURATION_MS, MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES, STARTUP_STALL_SEC,
 };
-pub use local::{LocalProvider, Playlist, ResolveHit};
+pub use local::{DeleteSongError, LocalProvider, Playlist, ResolveHit};
 pub use player::{AudioPlayer, PlayerEvent, PlayerState};
 pub use queue::{replace_queue_with_song, PlayMode, PlayQueue};
 pub use speech::{ChannelSpeech, TrackEndKind};

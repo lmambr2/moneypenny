@@ -89,6 +89,8 @@ pub fn build_ffmpeg_args(
         args.push("-ss".into());
         args.push(seek_seconds.to_string());
     }
+    args.push("-protocol_whitelist".into());
+    args.push("file,http,https,tcp,tls,crypto".into());
     args.push("-i".into());
     args.push(url.to_string());
     if let Some(max) = max_seconds {
@@ -127,8 +129,9 @@ mod tests {
     #[test]
     fn local_file_args() {
         let a = build_ffmpeg_args("/music/a.mp3", 0.0, None, None);
-        assert_eq!(a[0], "-i");
-        assert_eq!(a[1], "/music/a.mp3");
+        assert!(a.windows(2).any(|w| w == ["-protocol_whitelist", "file,http,https,tcp,tls,crypto"]));
+        assert!(a.windows(2).any(|w| w == ["-i", "/music/a.mp3"]));
+        assert!(!a.iter().any(|s| s.contains("concat")));
         assert!(a.windows(2).any(|w| w == ["-ar", "48000"]));
         assert!(a.windows(2).any(|w| w == ["-ac", "2"]));
         assert_eq!(a.last().unwrap(), "-");

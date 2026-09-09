@@ -5,6 +5,7 @@
 //! Phase 4: TS live session, local !play/!skip/!queue, Vue HTTP parity,
 //! POST /v1/turn (LLM proposes, executor disposes).
 
+mod auto_follow;
 mod bot;
 mod moves;
 mod phase0;
@@ -136,9 +137,15 @@ async fn main() {
     let rights = if !config.rights_enabled {
         None
     } else if let Some(v) = &config.rights {
-        mp_rights::parse_rights_config(v).map(|c| {
-            Arc::new(mp_rights::RightsEngine::new(c))
-        })
+        match mp_rights::parse_rights_config(v) {
+            Some(c) => Some(Arc::new(mp_rights::RightsEngine::new(c))),
+            None => {
+                warn!("rights JSON invalid — using admin_groups fallback (fail closed)");
+                Some(Arc::new(mp_rights::RightsEngine::new(
+                    mp_control::legacy_rights_config(&config.admin_groups),
+                )))
+            }
+        }
     } else {
         Some(Arc::new(mp_rights::RightsEngine::new(
             mp_control::legacy_rights_config(&config.admin_groups),
@@ -153,10 +160,12 @@ async fn main() {
         }
     };
 
-    let executor = Arc::new(mp_control::CommandExecutor::new(
+    let mut executor = mp_control::CommandExecutor::new(
         Arc::clone(&station),
         config.command_prefix.clone(),
-    ));
+    );
+    executor.protected_artists = config.playback_ban_protected_artists.clone();
+    let executor = Arc::new(executor);
 
     let embed_url = if config.embedding_url.trim().is_empty() {
         std::env::var("EMBEDDING_URL").unwrap_or_default()
@@ -275,6 +284,8 @@ async fn main() {
         state.brain.set_retrieve(retrieve).await;
     }
     let brain = Arc::clone(&state.brain);
+    let sc_org = Arc::clone(&state.sc_org);
+    let follow = Arc::clone(&state.follow);
     start_watchdog();
 
     let http = tokio::spawn(async move {
@@ -293,11 +304,14 @@ async fn main() {
             db: Arc::clone(&db),
             brain,
             rag: Some(rag),
+            sc_org,
         },
         voice,
         radio,
         roast,
         speech,
+        follow,
+        config.playback_ban_protected_artists.clone(),
     )
     .await;
 
@@ -315,6 +329,8 @@ async fn start_teamspeak(
     radio: Arc<mp_radio::RadioRuntime>,
     roast: Arc<mp_http::RoastRuntime>,
     speech: Option<Arc<mp_music::ChannelSpeech>>,
+    follow: Arc<mp_http::FollowRuntime>,
+    protected_artists: Vec<String>,
 ) {
     #[cfg(feature = "ts6")]
     {
@@ -345,10 +361,12 @@ async fn start_teamspeak(
             }
             let moves = Arc::new(moves::MoveRuntime::new(session.query().cloned()));
             let speech = speech.unwrap_or_else(|| mp_music::ChannelSpeech::new(Arc::clone(&station)));
-            let phase_ex = Arc::new(mp_control::CommandExecutor::new(
+            let mut phase_ex = mp_control::CommandExecutor::new(
                 Arc::clone(&station),
                 prefix.clone(),
-            ));
+            );
+            phase_ex.protected_artists = protected_artists;
+            let phase_ex = Arc::new(phase_ex);
             let loop_ = bot::BotLoop::new(
                 Arc::clone(&session),
                 Arc::clone(&station),
@@ -361,6 +379,8 @@ async fn start_teamspeak(
                 roast,
                 moves,
                 speech,
+                crate::auto_follow::AutoFollow::new(follow),
+                phase_ex.as_ref().clone(),
             );
             let session_c = Arc::clone(&session);
             let station_c = Arc::clone(&station);
@@ -402,12 +422,12 @@ async fn start_teamspeak(
             }
             return;
         }
-        let _ = (voice, radio, roast, speech);
+        let _ = (voice, radio, roast, speech, follow);
         info!("TS6_HOST empty — HTTP only (no TeamSpeak)");
     }
     #[cfg(not(feature = "ts6"))]
     {
-        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech);
+        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech, follow);
         info!("ts session: mock (built without ts6 feature)");
     }
 }

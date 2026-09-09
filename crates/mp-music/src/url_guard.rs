@@ -3,7 +3,7 @@
 
 //! SSRF guard for URLs passed to ffmpeg / yt-dlp.
 
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 
 const BLOCKED_HOSTNAMES: &[&str] = &[
     "localhost",
@@ -56,18 +56,45 @@ fn is_private_ipv4(o: [u8; 4]) -> bool {
         || a >= 224
 }
 
-fn is_blocked_ipv6(host: &str) -> bool {
-    let h = host.trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
-    if h == "::1" || h == "0:0:0:0:0:0:0:1" {
-        return true;
+fn ip_blocked(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => is_private_ipv4(v.octets()),
+        IpAddr::V6(v) => ipv6_blocked(v),
     }
-    if h.starts_with("fe80:") || h.starts_with("ff") {
-        return true;
+}
+
+fn ipv6_blocked(v: Ipv6Addr) -> bool {
+    if let Some(v4) = v.to_ipv4_mapped() {
+        return is_private_ipv4(v4.octets());
     }
-    if h.starts_with("fc") || h.starts_with("fd") {
-        return true;
+    // Deprecated IPv4-compatible (::1.2.3.4) and other embedded v4.
+    if let Some(v4) = v.to_ipv4() {
+        if is_private_ipv4(v4.octets()) {
+            return true;
+        }
     }
-    false
+    v.is_loopback()
+        || v.is_unspecified()
+        || v.is_multicast()
+        || v.is_unique_local()
+        || v.is_unicast_link_local()
+}
+
+fn host_to_ip(host: &str) -> Option<IpAddr> {
+    let h = host.trim_matches(|c| c == '[' || c == ']');
+    if let Ok(ip) = h.parse::<IpAddr>() {
+        return Some(ip);
+    }
+    if let Some(o) = parse_ipv4(h) {
+        return Some(IpAddr::V4(Ipv4Addr::new(o[0], o[1], o[2], o[3])));
+    }
+    // Decimal IPv4 (ffmpeg/curl treat http://2130706433/ as 127.0.0.1).
+    if !h.is_empty() && h.chars().all(|c| c.is_ascii_digit()) {
+        if let Ok(n) = h.parse::<u32>() {
+            return Some(IpAddr::V4(Ipv4Addr::from(n)));
+        }
+    }
+    None
 }
 
 fn host_blocked_literal(host: &str) -> bool {
@@ -78,30 +105,26 @@ fn host_blocked_literal(host: &str) -> bool {
     if BLOCKED_HOSTNAMES.contains(&h.as_str()) {
         return true;
     }
-    if let Some(o) = parse_ipv4(&h) {
-        return is_private_ipv4(o);
-    }
-    if h.contains(':') {
-        return is_blocked_ipv6(&h);
+    if let Some(ip) = host_to_ip(&h) {
+        return ip_blocked(ip);
     }
     false
 }
 
-fn parse_http_host(input: &str) -> Option<(String, String)> {
+/// Absolute http(s), no userinfo, host is not a private/reserved literal.
+pub fn parse_http_host(input: &str) -> Option<(String, String)> {
     let t = input.trim();
-    let rest = t
-        .strip_prefix("https://")
-        .or_else(|| t.strip_prefix("http://"))?;
-    let hostport = rest.split('/').next()?.split('?').next()?.trim();
-    if hostport.is_empty() {
+    let u = reqwest::Url::parse(t).ok()?;
+    if u.scheme() != "http" && u.scheme() != "https" {
         return None;
     }
-    let host = if hostport.starts_with('[') {
-        let end = hostport.find(']')?;
-        hostport[1..end].to_string()
-    } else {
-        hostport.split(':').next()?.to_string()
-    };
+    if !u.username().is_empty() || u.password().is_some() {
+        return None;
+    }
+    let host = u.host_str()?.trim().to_string();
+    if host.is_empty() {
+        return None;
+    }
     Some((host, t.to_string()))
 }
 
@@ -121,7 +144,7 @@ pub fn assert_public_playback_url(input: &str) -> bool {
     let Some((host, _)) = parse_http_host(input) else {
         return false;
     };
-    if parse_ipv4(&host).is_some() || host.contains(':') {
+    if host_to_ip(&host).is_some() {
         return true;
     }
     let lookup = format!("{host}:443").to_socket_addrs();
@@ -131,17 +154,8 @@ pub fn assert_public_playback_url(input: &str) -> bool {
     let mut any = false;
     for a in addrs {
         any = true;
-        match a.ip() {
-            IpAddr::V4(v) => {
-                if is_private_ipv4(v.octets()) {
-                    return false;
-                }
-            }
-            IpAddr::V6(v) => {
-                if is_blocked_ipv6(&v.to_string()) {
-                    return false;
-                }
-            }
+        if ip_blocked(a.ip()) {
+            return false;
         }
     }
     any
@@ -164,6 +178,38 @@ mod tests {
     #[test]
     fn allows_public_https() {
         assert!(is_public_playback_url("https://example.com/a.mp3"));
-        assert!(is_public_playback_url("https://www.youtube.com/watch?v=hLOheGDwD_0"));
+        assert!(is_public_playback_url(
+            "https://www.youtube.com/watch?v=hLOheGDwD_0"
+        ));
+    }
+
+    #[test]
+    fn rejects_userinfo_and_at_tricks() {
+        assert!(!is_public_playback_url(
+            "https://www.youtube.com:443@127.0.0.1/watch?v=x"
+        ));
+        assert!(!is_public_playback_url("http://user:pass@example.com/x"));
+        assert!(!is_public_playback_url("http://127.0.0.1@example.com/x"));
+        assert!(!is_public_playback_url("http://user@127.0.0.1/x"));
+    }
+
+    #[test]
+    fn rejects_mapped_ipv6_and_unspecified() {
+        assert!(!is_public_playback_url("http://[::ffff:127.0.0.1]/x"));
+        assert!(!is_public_playback_url("http://[::ffff:169.254.169.254]/"));
+        assert!(!is_public_playback_url("http://[::1]/x"));
+        assert!(!is_public_playback_url("http://[::]/x"));
+        assert!(!is_public_playback_url("http://[fc00::1]/x"));
+        assert!(!is_public_playback_url("http://[fe80::1]/x"));
+        assert!(!assert_public_playback_url("http://[::ffff:127.0.0.1]/a.mp3"));
+        assert!(!assert_public_playback_url(
+            "http://[::ffff:169.254.169.254]/"
+        ));
+    }
+
+    #[test]
+    fn rejects_decimal_ipv4() {
+        // 127.0.0.1
+        assert!(!is_public_playback_url("http://2130706433/x"));
     }
 }

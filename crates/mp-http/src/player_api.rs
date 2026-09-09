@@ -86,21 +86,24 @@ async fn run_named(
         flags: Default::default(),
     });
     let subject = mp_rights::Subject {
-        uid: user.id.clone(),
+        uid: format!("web:{}", user.id),
         server_groups: Vec::new(),
         nickname: Some(user.username.clone()),
     };
+    // HTTP already passed deny_unless (admin bypass / rights engine).
     Ok(crate::command::dispatch_command(
         &cmd,
         &subject,
         mp_rights::Scope::Chat,
         ex,
-        st.rights.as_deref(),
+        None,
         &st.db,
         &st.brain,
         st.rag.as_deref(),
         Some(&st.radio),
         Some(&st.roast),
+        Some(&st.voice),
+        Some(&st.sc_org),
     )
     .await
     .unwrap_or_default())
@@ -321,7 +324,7 @@ pub async fn play_at(
         )
             .into_response();
     };
-    if !station.resolve_and_play(&song) {
+    if !station.resolve_and_play_async(&song).await {
         return Json(json!({ "message": format!("Cannot play: {}", song.name) })).into_response();
     }
     record_song(&st, &song);
@@ -371,7 +374,7 @@ pub async fn play_song(
         replace_queue_with_song(&mut q, queued.clone());
     }
     station.player.reset_failures();
-    if !station.resolve_and_play(&queued) {
+    if !station.resolve_and_play_async(&queued).await {
         return Json(json!({
             "ok": false,
             "message": format!("Cannot play \"{}\" (source or region restriction)", queued.name)
@@ -420,7 +423,7 @@ pub async fn add_song(
             q.play_at(at);
         }
         station.player.reset_failures();
-        let _ = station.resolve_and_play(&queued);
+        let _ = station.resolve_and_play_async(&queued).await;
         record_song(&st, &queued);
         broadcast_state(&st);
         return Json(json!({
@@ -455,16 +458,23 @@ pub async fn play_by_id(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
-    let Some(track) = station.song_by_id_platform(song_id, plat) else {
+    let Some(track) = station.song_by_id_platform_async(song_id, plat).await else {
         return Json(json!({ "message": "Song not found" })).into_response();
     };
     let queued = QueuedSong::from_track(track, QueueSource::User);
+    let busy = station.player.get_state() != mp_music::PlayerState::Idle
+        || station.queue.lock().expect("queue").size() > 0;
+    if busy {
+        if let Err(r) = deny_unless(&st, &user, "clear") {
+            return r;
+        }
+    }
     {
         let mut q = station.queue.lock().expect("queue");
         replace_queue_with_song(&mut q, queued.clone());
     }
     station.player.reset_failures();
-    if !station.resolve_and_play(&queued) {
+    if !station.resolve_and_play_async(&queued).await {
         return Json(json!({ "ok": false, "message": format!("Cannot play: {}", queued.name) }))
             .into_response();
     }
@@ -494,7 +504,7 @@ pub async fn add_by_id(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
-    let Some(track) = station.song_by_id_platform(song_id, plat) else {
+    let Some(track) = station.song_by_id_platform_async(song_id, plat).await else {
         return Json(json!({ "message": "Song not found" })).into_response();
     };
     add_song(
@@ -546,8 +556,14 @@ pub async fn seek(
     if let Some(r) = unknown_bot(&st, &id) {
         return r;
     }
-    let pos = body.get("position").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    Json(json!({ "message": format!("Seeked to {}s", pos.floor() as i64), "seekOffset": pos }))
+    let _pos = body.get("position").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": "seek is not ported on the Rust bot",
+            "code": "NOT_PORTED"
+        })),
+    )
         .into_response()
 }
 
@@ -596,8 +612,15 @@ pub async fn profile_get(_user: AuthUser) -> Json<Value> {
     }))
 }
 
-pub async fn profile_put(_admin: AdminUser, Json(_body): Json<Value>) -> Json<Value> {
-    Json(json!({ "ok": true }))
+pub async fn profile_put(_admin: AdminUser, Json(_body): Json<Value>) -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": "player profile write is not ported on the Rust bot",
+            "code": "NOT_PORTED"
+        })),
+    )
+        .into_response()
 }
 
 fn record_current(st: &AppState) {

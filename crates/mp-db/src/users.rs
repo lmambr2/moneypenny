@@ -22,11 +22,25 @@ impl UserRole {
     }
 
     pub fn parse(s: &str) -> Self {
-        if s.eq_ignore_ascii_case("member") {
-            Self::Member
-        } else {
+        if s.eq_ignore_ascii_case("admin") {
             Self::Admin
+        } else {
+            Self::Member
         }
+    }
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::UserRole;
+
+    #[test]
+    fn parse_fail_closed() {
+        assert_eq!(UserRole::parse("admin"), UserRole::Admin);
+        assert_eq!(UserRole::parse("ADMIN"), UserRole::Admin);
+        assert_eq!(UserRole::parse("member"), UserRole::Member);
+        assert_eq!(UserRole::parse("nope"), UserRole::Member);
+        assert_eq!(UserRole::parse(""), UserRole::Member);
     }
 }
 

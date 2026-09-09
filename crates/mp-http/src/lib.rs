@@ -45,6 +45,8 @@ mod recordings;
 mod roast;
 mod session;
 mod spa;
+mod sc_org;
+mod follow;
 mod status_api;
 mod stubs;
 mod users_api;
@@ -52,7 +54,9 @@ mod voice_api;
 mod ws;
 
 pub use command::dispatch_command;
+pub use follow::FollowRuntime;
 pub use roast::RoastRuntime;
+pub use sc_org::ScOrgRuntime;
 pub use csrf::csrf_origin_check;
 pub use session::SESSION_COOKIE_NAME;
 
@@ -85,6 +89,8 @@ pub struct AppState {
     pub harness: Arc<harness::HarnessStore>,
     pub recordings_enabled: Arc<AtomicBool>,
     pub harness_allow_dangerous: Arc<AtomicBool>,
+    pub follow: Arc<FollowRuntime>,
+    pub sc_org: Arc<ScOrgRuntime>,
     login_limit: Arc<RateLimiter>,
     setup_limit: Arc<RateLimiter>,
 }
@@ -113,6 +119,15 @@ impl AppState {
         let recordings_enabled = Arc::new(AtomicBool::new(config.recordings_enabled));
         let harness_allow_dangerous =
             Arc::new(AtomicBool::new(config.harness_intent_allow_dangerous));
+        let follow = Arc::new(FollowRuntime::from_config(
+            config.auto_follow_enabled,
+            config.auto_follow_cooldown_sec,
+            config.auto_follow_afk_channels.clone(),
+        ));
+        let sc_org = Arc::new(ScOrgRuntime::from_config(
+            &config.sc_org_status_url,
+            &config.sc_org_name,
+        ));
         Self {
             db,
             config,
@@ -141,6 +156,8 @@ impl AppState {
             harness: Arc::new(harness::HarnessStore::default()),
             recordings_enabled,
             harness_allow_dangerous,
+            follow,
+            sc_org,
             login_limit: Arc::new(RateLimiter::new(5, 5.0 / 60.0)),
             setup_limit: Arc::new(RateLimiter::new(3, 3.0 / 60.0)),
         }
@@ -305,7 +322,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bot/org-kg", get(status_api::org_kg_get).post(status_api::org_kg_post))
         .route("/api/bot/harness/turns", get(harness::harness_turns))
         .route("/api/bot/harness/ask", post(harness::harness_ask))
-        .route("/api/bot/rag/eval", post(stubs::not_ported))
+        .route("/api/bot/rag/eval", post(rag_api::rag_eval))
         .route("/api/bot/rag/query", post(rag_api::rag_query))
         .route("/api/bot/llm/ask", post(status_api::llm_ask))
         .route("/api/bot/{id}", get(bot_api::get_bot).delete(bot_api::delete_bot))
@@ -327,7 +344,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/music/tracks/{id}/tags/guess", post(music_api::tags_guess))
         .route("/api/music/tracks/tags/bulk", axum::routing::patch(music_api::tags_bulk))
         .route("/api/music/tracks/{id}/rating", post(music_api::rating_post).delete(music_api::rating_delete))
-        .route("/api/music/tracks/{id}", delete(stubs::not_ported))
+        .route("/api/music/tracks/{id}", delete(music_api::track_delete))
         .route("/api/music/analyze/status", get(music_api::analyze_status))
         .route("/api/music/analyze", post(music_api::analyze_post))
         .route("/api/music/upload", post(music_api::music_upload))
@@ -2144,6 +2161,115 @@ mod tests {
         assert_eq!(v["enabled"], true);
         assert_eq!(v["recordings"][0]["filename"], "take-1.webm");
         let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn delete_track_admin_and_reject_traversal() {
+        let (dir, state) = music_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/music/tracks/foo..bar")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/music/search?platform=local&limit=20")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let id = v["songs"][0]["id"].as_str().unwrap().to_string();
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/music/tracks/{id}"))
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{:?}", res.status());
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["success"], true);
+        assert_eq!(v["deleted"], true);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/music/tracks/{id}"))
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn rag_eval_returns_report() {
+        let (data, state) = rag_state();
+        let app = router(state);
+        let (app, cookie) = setup_cookie(app).await;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bot/rag/eval")
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .header("cookie", &cookie)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{:?}", res.status());
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v.get("passed").is_some(), "{v}");
+        assert!(v.get("failed").is_some(), "{v}");
+        assert!(v["results"].as_array().unwrap().len() >= 4, "{v}");
         let _ = std::fs::remove_dir_all(data);
     }
 }

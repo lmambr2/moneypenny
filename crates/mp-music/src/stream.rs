@@ -34,7 +34,7 @@ pub fn is_youtube_url(input: &str) -> bool {
 }
 
 pub fn is_x_twitter_url(input: &str) -> bool {
-    host_matches(input, &["twitter.com", "x.com", "t.co"])
+    host_matches(input, &["twitter.com", "x.com"])
 }
 
 pub fn is_bandcamp_url(input: &str) -> bool {

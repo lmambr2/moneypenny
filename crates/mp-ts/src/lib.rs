@@ -7,6 +7,7 @@
 //! HTTP Query (`:10080` + `TS6_API_KEY`) is a separate `reqwest` client.
 
 mod reconnect;
+mod presence;
 
 #[cfg(feature = "tsclient-rs")]
 mod live;
@@ -14,6 +15,10 @@ mod live;
 mod query;
 
 pub use reconnect::{reconnect_delay_ms, ReconnectDriver, ReconnectScheduler};
+pub use presence::{
+    count_channel_humans, pick_busiest_channel, tally_channel_populations, ChannelPopulation,
+    PresenceClient,
+};
 
 #[cfg(feature = "tsclient-rs")]
 pub use live::{LiveSession, TsConnectConfig};
@@ -101,6 +106,13 @@ pub trait TsSession: Send + Sync {
 pub trait TsSessionExt: TsSession {
     fn client_id(&self) -> i32;
     fn is_connected(&self) -> bool;
+    fn channel_id(&self) -> u64;
+    fn list_clients(&self) -> impl std::future::Future<Output = Vec<PresenceClient>> + Send;
+    fn join_channel(&self, cid: u64) -> impl std::future::Future<Output = bool> + Send;
+    fn resolve_channel_id_by_name(
+        &self,
+        name: &str,
+    ) -> impl std::future::Future<Output = Option<u64>> + Send;
 }
 
 /// In-memory session used until Option A/B is chosen, and in tests.
@@ -165,6 +177,18 @@ impl TsSessionExt for MockSession {
     fn is_connected(&self) -> bool {
         self.connected
             .load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn channel_id(&self) -> u64 {
+        0
+    }
+    async fn list_clients(&self) -> Vec<PresenceClient> {
+        Vec::new()
+    }
+    async fn join_channel(&self, _cid: u64) -> bool {
+        false
+    }
+    async fn resolve_channel_id_by_name(&self, _name: &str) -> Option<u64> {
+        None
     }
 }
 

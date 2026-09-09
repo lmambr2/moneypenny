@@ -214,7 +214,7 @@ pub fn parse_workorder_args(args: &str) -> WorkOrderArgs {
     if let Some(idx) = lower.rfind(" qty:") {
         if let Ok(n) = raw[idx + 5..].trim().parse::<i64>() {
             if n > 0 {
-                qty = n;
+                qty = n.clamp(1, 999);
                 item = raw[..idx].trim().to_string();
             }
         }
@@ -222,7 +222,7 @@ pub fn parse_workorder_args(args: &str) -> WorkOrderArgs {
         let after = raw[idx + after_x_len(&raw[idx..])..].trim();
         if let Ok(n) = after.parse::<i64>() {
             if n > 0 && idx > 0 && raw[..idx].ends_with(char::is_whitespace) {
-                qty = n;
+                qty = n.clamp(1, 999);
                 item = raw[..idx].trim().to_string();
             }
         }
@@ -273,5 +273,9 @@ mod tests {
             WorkOrderSub::Done { id: 2 }
         ));
         assert!(matches!(parse_workorder_args("list").sub, WorkOrderSub::List));
+        match parse_workorder_args("quantainium qty:999999").sub {
+            WorkOrderSub::Add { qty, .. } => assert_eq!(qty, 999),
+            other => panic!("{other:?}"),
+        }
     }
 }

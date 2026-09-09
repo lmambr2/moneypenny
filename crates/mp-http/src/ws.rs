@@ -25,13 +25,8 @@ pub async fn upgrade(
         .unwrap_or("")
         .to_ascii_lowercase();
     if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-        let origin_host = origin
-            .strip_prefix("https://")
-            .or_else(|| origin.strip_prefix("http://"))
-            .and_then(|r| r.split('/').next())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if !origin_host.is_empty() && origin_host != host {
+        let origin_host = crate::csrf::host_of(origin).unwrap_or_default();
+        if origin_host.is_empty() || origin_host != host {
             return (StatusCode::FORBIDDEN, Json(json!({"error":"bad origin"}))).into_response();
         }
     }

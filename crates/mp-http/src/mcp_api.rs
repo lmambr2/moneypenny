@@ -266,9 +266,13 @@ async fn jsonrpc_tools_call(
     )
 }
 
-async fn mcp_root(State(st): State<AppState>) -> Response {
+async fn mcp_root(State(st): State<AppState>, headers: axum::http::HeaderMap) -> Response {
     if !st.mcp.enabled {
         return mcp_disabled();
+    }
+    let auth = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    if let Err(r) = authenticate(&st, auth) {
+        return r;
     }
     Json(json!({
         "ok": true,
@@ -496,11 +500,16 @@ async fn run_cmd(
         st.rag.as_deref(),
         Some(&st.radio),
         Some(&st.roast),
+        Some(&st.voice),
+        Some(&st.sc_org),
     )
     .await
     .unwrap_or_default();
     if msg.contains("don't have permission") {
         return err_envelope("PERMISSION_DENIED", msg, bot_id, started, request_id);
+    }
+    if msg.contains("not ported yet") {
+        return err_envelope("UNAVAILABLE", msg, bot_id, started, request_id);
     }
     ok_envelope(
         msg.clone(),
@@ -864,6 +873,15 @@ async fn dispatch_mcp(
             run_cmd(st, "forget", &which, McpProfile::Dj, started, request_id, bot_id).await
         }
         "rag_search" => {
+            if !profile_ok(st, McpProfile::Readonly) {
+                return err_envelope(
+                    "PERMISSION_DENIED",
+                    "rag_search requires readonly+ profile",
+                    bot_id,
+                    started,
+                    request_id,
+                );
+            }
             let q = str_arg(args, "q");
             if q.is_empty() {
                 return err_envelope("VALIDATION_ERROR", "q is required", bot_id, started, request_id);
@@ -876,7 +894,8 @@ async fn dispatch_mcp(
                 .and_then(|v| v.as_u64())
                 .unwrap_or(rag.top_k() as u64)
                 .clamp(1, 20) as usize;
-            let chunks = rag.retrieval.query(&q, Some(top_k), None).await;
+            let allowed = ["unclassified".to_string()];
+            let chunks = rag.retrieval.query(&q, Some(top_k), Some(&allowed)).await;
             let chunks_json: Vec<Value> = chunks
                 .iter()
                 .map(|c| {

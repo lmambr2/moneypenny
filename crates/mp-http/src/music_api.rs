@@ -58,7 +58,7 @@ pub async fn search(
             .collect(),
         "youtube" => station
             .youtube
-            .search(
+            .search_async(
                 &query,
                 lim as usize,
                 if mp_music::YoutubeClient::can_handle(&query) {
@@ -67,6 +67,7 @@ pub async fn search(
                     mp_music::YoutubePolicy::Search
                 },
             )
+            .await
             .iter()
             .map(track_json)
             .collect(),
@@ -107,7 +108,11 @@ pub async fn search_all(
     if let Some(stn) = st.station.as_ref() {
         if songs.len() < lim {
             let need = lim - songs.len();
-            for t in stn.youtube.search(&query, need, mp_music::YoutubePolicy::Search) {
+            for t in stn
+                .youtube
+                .search_async(&query, need, mp_music::YoutubePolicy::Search)
+                .await
+            {
                 songs.push(track_json(&t));
             }
         }
@@ -238,6 +243,50 @@ pub async fn blacklist_delete(
         let _ = bl.remove(&id);
     }
     Json(json!({ "ok": true }))
+}
+
+pub async fn track_delete(
+    State(st): State<AppState>,
+    _admin: AdminUser,
+    Path(id): Path<String>,
+) -> Response {
+    if id.is_empty() || id.contains("..") || id.contains('/') || id.contains('\\') {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"Invalid track id","code":"VALIDATION_ERROR"})),
+        )
+            .into_response();
+    }
+    let Some(station) = st.station.as_ref() else {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({"error":"Delete not supported","code":"NOT_IMPLEMENTED"})),
+        )
+            .into_response();
+    };
+    match station.local.delete_song(&id) {
+        Ok(name) => {
+            if let Err(e) = st.db.tags().remove_track(&id) {
+                tracing::warn!(error = %e, id = %id, "tag cleanup after delete failed");
+            }
+            Json(json!({ "success": true, "deleted": true, "name": name })).into_response()
+        }
+        Err(mp_music::DeleteSongError::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"Track not found","code":"NOT_FOUND"})),
+        )
+            .into_response(),
+        Err(mp_music::DeleteSongError::Forbidden) => (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error":"Refusing to delete path outside music library","code":"FORBIDDEN"})),
+        )
+            .into_response(),
+        Err(mp_music::DeleteSongError::Io(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e, "code":"INTERNAL_ERROR"})),
+        )
+            .into_response(),
+    }
 }
 
 pub async fn tags_get(

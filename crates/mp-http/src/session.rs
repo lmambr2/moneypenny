@@ -296,23 +296,28 @@ fn is_secure(req: &Request<Body>) -> bool {
 }
 
 fn client_ip(req: &Request<Body>, st: &AppState) -> String {
-    if st.config.trust_proxy {
-        if let Some(xff) = req
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-        {
-            let hops = st.config.trust_proxy_hops.max(1) as usize;
-            let parts: Vec<&str> = xff.split(',').map(|s| s.trim()).collect();
-            if !parts.is_empty() {
-                let idx = parts.len().saturating_sub(hops);
-                return parts[idx].to_string();
+    if !st.config.trust_proxy {
+        return "direct".into();
+    }
+    if let Some(xff) = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+    {
+        let hops = st.config.trust_proxy_hops.max(1) as usize;
+        let parts: Vec<&str> = xff.split(',').map(|s| s.trim()).collect();
+        if !parts.is_empty() {
+            let idx = parts.len().saturating_sub(hops);
+            let hop = parts[idx];
+            if !hop.is_empty() {
+                return hop.to_string();
             }
         }
     }
     req.headers()
         .get("x-real-ip")
         .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
         .to_string()
 }

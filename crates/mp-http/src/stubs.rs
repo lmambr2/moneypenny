@@ -24,47 +24,6 @@ pub async fn auth_status(State(st): State<AppState>, _user: AuthUser) -> Json<Va
     }))
 }
 
-#[allow(dead_code)]
-pub async fn economy_overview(_user: AuthUser) -> Json<Value> {
-    Json(json!({
-        "catalogAsOf": "",
-        "disclaimer": "Economy catalog not ported (Phase 8).",
-        "sources": [],
-        "clients": { "scCraft": false, "scTrade": false, "scTradeToken": false, "uex": false },
-        "cache": { "rootLabel": "", "backend": "none", "totalFiles": 0, "totalBytes": 0, "sources": {} },
-        "workOrders": { "available": false, "open": 0, "maxOpen": 100 },
-        "oreCount": 0,
-        "methodCount": 0,
-    }))
-}
-
-#[allow(dead_code)]
-pub async fn economy_ores(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "ores": [] }))
-}
-#[allow(dead_code)]
-pub async fn economy_methods(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "methods": [] }))
-}
-#[allow(dead_code)]
-pub async fn economy_workorders(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "orders": [], "materials": [] }))
-}
-#[allow(dead_code)]
-pub async fn economy_cache(_user: AuthUser) -> Json<Value> {
-    Json(json!({
-        "rootLabel": "",
-        "backend": "none",
-        "totalFiles": 0,
-        "totalBytes": 0,
-        "sources": {},
-        "lastRefresh": null,
-    }))
-}
-#[allow(dead_code)]
-pub async fn economy_commodities(_user: AuthUser) -> Json<Value> {
-    Json(json!({ "commodities": [] }))
-}
 pub async fn bot_status_stub(_admin: AdminUser) -> Json<Value> {
     Json(json!({
         "ok": false,

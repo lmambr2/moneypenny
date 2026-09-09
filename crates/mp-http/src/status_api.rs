@@ -186,7 +186,12 @@ pub async fn rights_debug(
 }
 
 pub async fn ops_status(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
-    Json(json!({ "text": ops_brief(&st) }))
+    let mut text = ops_brief(&st);
+    for r in st.sc_org.get_all().await {
+        text.push('\n');
+        text.push_str(&format!("{} {}: {}", if r.ok { "✓" } else { "○" }, r.label, r.text));
+    }
+    Json(json!({ "text": text }))
 }
 
 pub(crate) fn ops_brief(st: &AppState) -> String {

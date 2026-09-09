@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use mp_db::Database;
 
+use crate::blacklist::extract_video_id;
 use crate::youtube::YoutubeClient;
 
 pub const SAVE_SUBDIR: &str = "youtube";
@@ -29,21 +30,20 @@ impl YtLibrary {
     }
 
     pub fn lookup(&self, video_id: &str) -> Option<String> {
-        if video_id.is_empty() {
-            return None;
-        }
-        if let Ok(Some(p)) = self.db.yt_saved().lookup(video_id) {
+        let video_id = extract_video_id(video_id)?;
+        if let Ok(Some(p)) = self.db.yt_saved().lookup(&video_id) {
             if Path::new(&p).is_file() {
                 return Some(p);
             }
         }
-        find_saved_on_disk(&self.music_dir, video_id)
+        find_saved_on_disk(&self.music_dir, &video_id)
     }
 
     pub fn save_in_background(&self, video_id: String, title: String, artist: String, duration: u32) {
-        if video_id.is_empty() {
+        let Some(video_id) = extract_video_id(&video_id) else {
+            // X/Bandcamp page URLs are not safe -o template stems.
             return;
-        }
+        };
         if self.lookup(&video_id).is_some() {
             return;
         }
@@ -78,9 +78,7 @@ impl YtLibrary {
 }
 
 pub fn find_saved_on_disk(music_dir: &Path, video_id: &str) -> Option<String> {
-    if video_id.is_empty() {
-        return None;
-    }
+    let video_id = extract_video_id(video_id)?;
     let dir = music_dir.join(SAVE_SUBDIR);
     let tag = format!("[{video_id}]");
     let rd = std::fs::read_dir(&dir).ok()?;
@@ -123,7 +121,17 @@ pub fn sanitize_base(artist: &str, title: &str, video_id: &str) -> String {
     } else {
         safe
     };
-    format!("{} [{video_id}]", if safe.is_empty() { video_id } else { &safe })
+    let id = extract_video_id(video_id).unwrap_or_else(|| {
+        video_id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(11)
+            .collect()
+    });
+    if id.is_empty() {
+        return safe;
+    }
+    format!("{} [{id}]", if safe.is_empty() { id.as_str() } else { &safe })
 }
 
 #[cfg(test)]
@@ -136,5 +144,15 @@ mod tests {
         assert!(b.contains("[hLOheGDwD_0]"));
         assert!(!b.contains('/'));
         assert!(!b.contains('?'));
+    }
+
+    #[test]
+    fn save_id_rejects_path_injection() {
+        assert!(extract_video_id("https://x.com/../../../../tmp/pwn").is_none());
+        assert!(extract_video_id("https://x.com/%(id)s").is_none());
+        let b = sanitize_base("a", "b", "https://x.com/../../tmp/x");
+        assert!(!b.contains(".."));
+        assert!(!b.contains('/'));
+        assert!(!b.contains('%'));
     }
 }

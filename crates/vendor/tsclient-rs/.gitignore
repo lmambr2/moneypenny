@@ -1,0 +1,11 @@
+teamspeak-js/
+teamspeak-music-bot/
+teamspeak-go/
+/target
+AGENTS.md
+.DS_Store
+.cargo-ok
+.cargo_vcs_info.json
+Cargo.toml.orig
+Cargo.lock
+.github/

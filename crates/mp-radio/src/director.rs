@@ -224,7 +224,10 @@ impl<F: BumperFactory> RadioDirector<F> {
                 return Boundary::Advanced { song };
             }
         }
-        let cued = self.inner.lock().expect("radio").cued.is_some();
+        let cued = {
+            let g = self.inner.lock().expect("radio");
+            g.cued.is_some()
+        };
         if cued && self.fire_cued(&cfg).await {
             return Boundary::Bumper {
                 label: self
@@ -328,7 +331,10 @@ impl<F: BumperFactory> RadioDirector<F> {
     }
 
     async fn fire_cued(&self, cfg: &RadioConfig) -> bool {
-        let cue = self.inner.lock().expect("radio").cued.take();
+        let cue = {
+            let mut g = self.inner.lock().expect("radio");
+            g.cued.take()
+        };
         let Some(cue) = cue else {
             return false;
         };

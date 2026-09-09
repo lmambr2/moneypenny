@@ -14,8 +14,8 @@ use crate::authz::{AdminUser, AuthUser};
 use crate::AppState;
 use mp_db::WorkOrderLine;
 use mp_economy::{
-    calculate_boxes, find_method, find_ore, largest_crate_that_fits, Stability, CATALOG_AS_OF,
-    CATALOG_DISCLAIMER, CATALOG_SOURCES, MAX_OPEN_WORK_ORDERS, ORES, REFINE_METHODS,
+    calculate_boxes, craft_bom_lines, find_method, find_ore, largest_crate_that_fits, Stability,
+    CATALOG_AS_OF, CATALOG_DISCLAIMER, CATALOG_SOURCES, MAX_OPEN_WORK_ORDERS, ORES, REFINE_METHODS,
 };
 
 fn sidecar_off(which: &str) -> Response {
@@ -236,8 +236,14 @@ pub async fn mine(Query(q): Query<Q>, _user: AuthUser) -> Response {
         .then_some(ore.default_method)
         .or(Some(q.method.trim()))
         .and_then(find_method)
-        .or_else(|| find_method(ore.default_method))
-        .unwrap();
+        .or_else(|| find_method(ore.default_method));
+    let Some(method) = method else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error":"ore method catalog is incomplete","code":"INTERNAL_ERROR"})),
+        )
+            .into_response();
+    };
     let clock = match (ore.stability, ore.refine_within_min) {
         (Stability::Critical, Some(m)) => format!("⚠ refine within ~{m} min or it sours"),
         (Stability::Volatile, Some(m)) => format!("⚠ volatile — prefer refine within ~{m} min"),
@@ -286,9 +292,14 @@ pub async fn refine(Query(q): Query<Q>, _user: AuthUser) -> Response {
             .into_response();
     };
     let scu = q.scu.filter(|n| n.is_finite() && *n > 0.0).unwrap_or(32.0);
-    let method = find_method(q.method.trim())
-        .or_else(|| find_method(ore.default_method))
-        .unwrap();
+    let Some(method) = find_method(q.method.trim()).or_else(|| find_method(ore.default_method))
+    else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error":"ore method catalog is incomplete","code":"INTERNAL_ERROR"})),
+        )
+            .into_response();
+    };
     let out = (scu * method.yield_rate * 10.0).round() / 10.0;
     Json(json!({
         "ore": {
@@ -378,11 +389,19 @@ pub async fn workorders_post(
             amount: qty as f64,
             unit: "SCU".into(),
         }]
+    } else if let Some(bom) = craft_bom_lines(&item, qty as u32).await {
+        bom.into_iter()
+            .map(|(material, amount, unit)| WorkOrderLine {
+                material,
+                amount,
+                unit,
+            })
+            .collect()
     } else {
         return (
-            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::NOT_FOUND,
             Json(json!({
-                "error": "sc-craft not ported — save a seed ore (e.g. Quantainium) as a shopping line"
+                "error": "No seed-ore or sc-craft match for that name"
             })),
         )
             .into_response();
@@ -519,7 +538,7 @@ pub async fn craft(Query(q): Query<Q>, _user: AuthUser) -> Response {
     if !c.sc_craft.is_enabled() {
         return sidecar_off("sc-craft");
     }
-    let qty = q.qty.filter(|n| *n >= 1).unwrap_or(1);
+    let qty = q.qty.filter(|n| *n >= 1).unwrap_or(1).min(999);
     match c.sc_craft.resolve(query, qty.max(1)).await {
         Some(v) => Json(v).into_response(),
         None => (

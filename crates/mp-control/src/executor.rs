@@ -36,25 +36,25 @@ impl CommandExecutor {
             return Some("Bot is not connected to TeamSpeak".into());
         }
         let out = match cmd.name.as_str() {
-            "play" => self.cmd_play(cmd),
-            "add" => self.cmd_add(cmd),
-            "playnext" | "pn" => self.cmd_playnext(cmd),
+            "play" => self.cmd_play(cmd).await,
+            "add" => self.cmd_add(cmd).await,
+            "playnext" | "pn" => self.cmd_playnext(cmd).await,
             "pause" => self.station.pause_playback(),
             "resume" => self.station.resume_playback(),
             "stop" => self.cmd_stop(),
-            "next" | "skip" => self.cmd_skip(),
-            "jump" | "go" => self.cmd_jump(cmd),
-            "prev" => self.cmd_prev(),
+            "next" | "skip" => self.cmd_skip().await,
+            "jump" | "go" => self.cmd_jump(cmd).await,
+            "prev" => self.cmd_prev().await,
             "vol" => self.cmd_vol(cmd),
             "now" => self.cmd_now(),
             "queue" | "list" => self.cmd_queue(),
             "clear" => self.cmd_clear(),
             "remove" => self.cmd_remove(cmd),
             "mode" => self.cmd_mode(cmd),
-            "ban" => self.cmd_ban(cmd),
+            "ban" => self.cmd_ban(cmd).await,
             "unban" => self.cmd_unban(cmd),
             "help" => self.cmd_help(),
-            "test" => self.cmd_test(),
+            "test" => self.cmd_test().await,
             other if crate::manifest::is_known_command(other) => {
                 format!("{other} is not ported yet.")
             }
@@ -66,22 +66,30 @@ impl CommandExecutor {
         Some(out)
     }
 
-    fn cmd_play(&self, cmd: &ParsedCommand) -> String {
+    async fn cmd_play(&self, cmd: &ParsedCommand) -> String {
         if cmd.args.is_empty() {
             return format!("Usage: {}play <song name or URL>", self.prefix);
         }
-        match self.station.replace_with_first_hit_flags(&cmd.args, &cmd.flags) {
+        match self
+            .station
+            .replace_with_first_hit_flags_async(&cmd.args, &cmd.flags)
+            .await
+        {
             ReplaceResult::Ok(t) => format!("Now playing: {} - {}", t.title, t.artist),
             ReplaceResult::NoResults => format!("No results found for: {}", cmd.args),
             ReplaceResult::CantPlay(t) => format!("Cannot play: {}", t.title),
         }
     }
 
-    fn cmd_add(&self, cmd: &ParsedCommand) -> String {
+    async fn cmd_add(&self, cmd: &ParsedCommand) -> String {
         if cmd.args.is_empty() {
             return format!("Usage: {}add <song name>", self.prefix);
         }
-        let Some(track) = self.station.search_first_flags(&cmd.args, &cmd.flags) else {
+        let Some(track) = self
+            .station
+            .search_first_flags_async(&cmd.args, &cmd.flags)
+            .await
+        else {
             return format!("No results found for: {}", cmd.args);
         };
         let was_idle = self.station.player.get_state() == mp_music::PlayerState::Idle;
@@ -96,7 +104,7 @@ impl CommandExecutor {
                 q.play_at(at);
             }
             self.station.player.reset_failures();
-            let _ = self.station.resolve_and_play(&queued);
+            let _ = self.station.resolve_and_play_async(&queued).await;
             return format!("Now playing: {} - {}", track.title, track.artist);
         }
         let cur = self.station.queue.lock().expect("queue").get_current_index();
@@ -111,11 +119,15 @@ impl CommandExecutor {
         )
     }
 
-    fn cmd_playnext(&self, cmd: &ParsedCommand) -> String {
+    async fn cmd_playnext(&self, cmd: &ParsedCommand) -> String {
         if cmd.args.is_empty() {
             return format!("Usage: {}playnext <song name>", self.prefix);
         }
-        let Some(track) = self.station.search_first_flags(&cmd.args, &cmd.flags) else {
+        let Some(track) = self
+            .station
+            .search_first_flags_async(&cmd.args, &cmd.flags)
+            .await
+        else {
             return format!("No results found for: {}", cmd.args);
         };
         let was_idle = self.station.player.get_state() == mp_music::PlayerState::Idle;
@@ -135,7 +147,7 @@ impl CommandExecutor {
                 q.play_at(inserted_at);
             }
             self.station.player.reset_failures();
-            if !self.station.resolve_and_play(&queued) {
+            if !self.station.resolve_and_play_async(&queued).await {
                 return format!("Cannot play: {}", track.title);
             }
             return format!("Now playing: {} - {}", track.title, track.artist);
@@ -151,20 +163,20 @@ impl CommandExecutor {
     }
 
     /// Bare advance only. Args ignored. Never emit a prefix-led usage string.
-    fn cmd_skip(&self) -> String {
+    async fn cmd_skip(&self) -> String {
         self.station.clear_user_pause();
-        self.advance_one_track()
+        self.advance_one_track().await
     }
 
-    fn advance_one_track(&self) -> String {
-        let current = self.station.play_next();
+    async fn advance_one_track(&self) -> String {
+        let current = self.station.play_next_async().await;
         match current {
             Some(s) => format!("Skipped — now playing: {} - {}", s.name, s.artist),
             None => "Queue is empty".into(),
         }
     }
 
-    fn cmd_jump(&self, cmd: &ParsedCommand) -> String {
+    async fn cmd_jump(&self, cmd: &ParsedCommand) -> String {
         self.station.clear_user_pause();
         let query = cmd.args.trim();
         let p = &self.prefix;
@@ -173,8 +185,11 @@ impl CommandExecutor {
                 "Usage: {p}jump <query|url> — start that track now (or {p}go). Bare advance: {p}skip."
             );
         }
-        if let Some(idx) = find_queue_index_by_query(&self.station.queue.lock().expect("queue"), query)
-        {
+        let idx = {
+            let q = self.station.queue.lock().expect("queue");
+            find_queue_index_by_query(&q, query)
+        };
+        if let Some(idx) = idx {
             let song = {
                 let mut q = self.station.queue.lock().expect("queue");
                 q.play_at(idx)
@@ -183,7 +198,7 @@ impl CommandExecutor {
                 return "Queue is empty".into();
             };
             self.station.player.reset_failures();
-            if !self.station.resolve_and_play(&song) {
+            if !self.station.resolve_and_play_async(&song).await {
                 return format!("Cannot play: {}", song.name);
             }
             return format!("Jumped to: {} - {}", song.name, song.artist);
@@ -193,16 +208,20 @@ impl CommandExecutor {
             .as_ref()
             .is_some_and(|c| song_matches_query(c, query))
         {
-            return self.advance_one_track();
+            return self.advance_one_track().await;
         }
-        let Some(track) = self.station.search_first_flags(query, &cmd.flags) else {
+        let Some(track) = self
+            .station
+            .search_first_flags_async(query, &cmd.flags)
+            .await
+        else {
             return format!("No results found for: {query}");
         };
         if current
             .as_ref()
             .is_some_and(|c| is_same_playback_track(c, &track.id, &track.title, &track.artist))
         {
-            return self.advance_one_track();
+            return self.advance_one_track().await;
         }
         let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
         let was_idle = {
@@ -226,13 +245,13 @@ impl CommandExecutor {
             return format!("Cannot play: {}", track.title);
         };
         self.station.player.reset_failures();
-        if !self.station.resolve_and_play(&target) {
+        if !self.station.resolve_and_play_async(&target).await {
             return format!("Cannot play: {}", track.title);
         }
         format!("Now playing: {} - {}", track.title, track.artist)
     }
 
-    fn cmd_prev(&self) -> String {
+    async fn cmd_prev(&self) -> String {
         for _ in 0..4 {
             let prev = {
                 let mut q = self.station.queue.lock().expect("queue");
@@ -241,7 +260,7 @@ impl CommandExecutor {
             let Some(prev) = prev else {
                 return "No previous song".into();
             };
-            if self.station.resolve_and_play(&prev) {
+            if self.station.resolve_and_play_async(&prev).await {
                 return format!("Now playing: {} - {}", prev.name, prev.artist);
             }
         }
@@ -326,7 +345,7 @@ impl CommandExecutor {
         format!("Play mode set to: {}", cmd.args.trim())
     }
 
-    fn cmd_ban(&self, cmd: &ParsedCommand) -> String {
+    async fn cmd_ban(&self, cmd: &ParsedCommand) -> String {
         let Some(bl) = self.station.blacklist.as_ref() else {
             return "Playback ban list is not available.".into();
         };
@@ -393,7 +412,7 @@ impl CommandExecutor {
                 None,
             );
         }
-        let next_msg = self.cmd_skip();
+        let next_msg = self.cmd_skip().await;
         format!("Banned: {} — {}. {next_msg}", song.name, song.artist)
     }
 
@@ -437,8 +456,8 @@ impl CommandExecutor {
         format!("Not on ban list: {arg}. Try {p}ban list.")
     }
 
-    fn cmd_test(&self) -> String {
-        match self.station.play_demo_track() {
+    async fn cmd_test(&self) -> String {
+        match self.station.play_demo_track_async().await {
             ReplaceResult::Ok(t) => {
                 let via = match t.platform {
                     mp_music::Platform::Local => "local",
@@ -468,6 +487,7 @@ impl CommandExecutor {
             &format!("{p}queue ({p}list) · {p}now · {p}clear · {p}remove <n> · {p}vol <0-100> · {p}mode <seq|loop|random|rloop>"),
             &format!("{p}ban [reason] · {p}ban list · {p}unban"),
             &format!("{p}test — Demo track (Ella Langley Choosin' Texas, local then YouTube)"),
+            &format!("{p}karaoke [on|off] — Keep music loud while listening (duck 80 instead of 15; karyoke/kareoke work)"),
             "",
             "Ask / memory",
             &format!("{p}ask <question> — Grounded Q&A (RAG when enabled)"),

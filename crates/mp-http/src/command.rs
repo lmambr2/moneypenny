@@ -7,14 +7,16 @@ use mp_brain::{TurnChannel, TurnMode, TurnOptions, TurnRequest, TurnSubject};
 use mp_control::{CommandExecutor, ParsedCommand};
 use mp_db::{Database, WorkOrderLine};
 use mp_economy::{
-    find_ore, handle_econ, handle_mine, handle_refine, parse_workorder_args, WorkOrderSub,
-    MAX_OPEN_WORK_ORDERS,
+    craft_bom_lines, find_ore, handle_craft, handle_econ_live, handle_mine, handle_refine,
+    handle_trade, parse_workorder_args, WorkOrderSub, MAX_OPEN_WORK_ORDERS,
 };
 use mp_rag::allowed_classifications_for;
 use mp_radio::{Boundary, CueResult, RadioRuntime};
 use mp_rights::{RightsEngine, Scope, Subject};
+use mp_voice::VoiceRuntime;
 
 use crate::roast::RoastRuntime;
+use crate::sc_org::ScOrgRuntime;
 
 pub async fn dispatch_command(
     parsed: &ParsedCommand,
@@ -27,6 +29,8 @@ pub async fn dispatch_command(
     rag: Option<&mp_rag::RagRuntime>,
     radio: Option<&RadioRuntime>,
     roast: Option<&RoastRuntime>,
+    voice: Option<&VoiceRuntime>,
+    sc_org: Option<&ScOrgRuntime>,
 ) -> Option<String> {
     if let Some(engine) = rights {
         if !engine.can(subject, &parsed.name, scope) {
@@ -42,7 +46,17 @@ pub async fn dispatch_command(
         "forget" => Some(cmd_forget(db, &parsed.args, &subject.uid)),
         "kg" => Some(cmd_kg(rag, rights, subject, scope, &parsed.args)),
         "diary" => Some(cmd_diary(rag, rights, subject, scope, &parsed.args)),
-        "ops" => Some(cmd_ops(radio, rag, Some(executor.station.as_ref()), &parsed.args)),
+        "ops" => Some(
+            cmd_ops(
+                radio,
+                rag,
+                Some(executor.station.as_ref()),
+                sc_org,
+                &parsed.args,
+            )
+            .await,
+        ),
+        "karaoke" => Some(cmd_karaoke(voice, &executor.prefix, &parsed.args)),
         "ask" => Some(cmd_ask(brain, rights, subject, scope, &parsed.args).await),
         "reindex" => Some(cmd_reindex(rag, &parsed.args).await),
         "radio" => Some(cmd_radio(radio, &executor.prefix, parsed).await),
@@ -51,19 +65,17 @@ pub async fn dispatch_command(
         "roastin" => Some(cmd_roastin(roast, &subject.uid)),
         "mine" => Some(handle_mine(&parsed.args, &executor.prefix)),
         "refine" => Some(handle_refine(&parsed.args, &executor.prefix)),
-        "econ" => Some(handle_econ(&parsed.args, &executor.prefix)),
-        "craft" => Some(format!(
-            "Craft lookup is not ported (no sc-craft HTTP). Seed catalog: {}mine / {}refine / {}econ ores",
-            executor.prefix, executor.prefix, executor.prefix
-        )),
-        "trade" => Some(
-            "Trade lookup is not ported (no sc-trade token/HTTP). Seed catalog: !econ ores".into(),
+        "econ" => Some(handle_econ_live(&parsed.args, &executor.prefix).await),
+        "craft" => Some(handle_craft(&parsed.args, &executor.prefix).await),
+        "trade" => Some(handle_trade(&parsed.args, &executor.prefix).await),
+        "workorder" => Some(
+            cmd_workorder(db, rights, subject, scope, &executor.prefix, &parsed.args).await,
         ),
-        "workorder" => Some(cmd_workorder(db, rights, subject, scope, &executor.prefix, &parsed.args)),
         "work-items" | "workitems" => Some(cmd_work_items(db, &executor.prefix)),
         "skip" | "next" => {
             if let Some(r) = radio {
                 if r.enabled() {
+                    executor.station.clear_user_pause();
                     return Some(skip_via_radio(r).await);
                 }
             }
@@ -230,21 +242,39 @@ fn cmd_diary(
         .handle_diary(args, Some(&subject.uid), can_write_org(rights, subject, scope))
 }
 
-fn cmd_ops(
+fn cmd_karaoke(voice: Option<&VoiceRuntime>, prefix: &str, args: &str) -> String {
+    let sub = args
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let current = voice.map(|v| v.karaoke_mode()).unwrap_or(false);
+    if sub.is_empty() || sub == "status" {
+        return if current {
+            "Karaoke ON — music stays loud while listening (duck 80).".into()
+        } else {
+            "Karaoke OFF — normal voice duck.".into()
+        };
+    }
+    if sub != "on" && sub != "off" {
+        return format!("Usage: {prefix}karaoke [on|off]");
+    }
+    let on = sub == "on";
+    if let Some(v) = voice {
+        v.set_karaoke_mode(on);
+    }
+    if on {
+        "Karaoke ON — music stays loud while listening.".into()
+    } else {
+        "Karaoke OFF — back to normal duck.".into()
+    }
+}
+
+fn ops_local_brief(
     radio: Option<&RadioRuntime>,
     rag: Option<&mp_rag::RagRuntime>,
     station: Option<&mp_music::MusicStation>,
-    args: &str,
 ) -> String {
-    let sub = args
-        .trim()
-        .split_whitespace()
-        .next()
-        .unwrap_or("status")
-        .to_ascii_lowercase();
-    if !matches!(sub.as_str(), "status" | "brief" | "" ) {
-        return "Usage: !ops [status] — org brief (SC plugins not ported).".into();
-    }
     let radio_on = radio.is_some_and(|r| r.enabled());
     let profile = radio
         .map(|r| r.config().active_profile)
@@ -262,6 +292,80 @@ fn cmd_ops(
         if radio_on { "ON" } else { "OFF" },
         now.as_deref().unwrap_or("(nothing)"),
     )
+}
+
+async fn cmd_ops(
+    radio: Option<&RadioRuntime>,
+    rag: Option<&mp_rag::RagRuntime>,
+    station: Option<&mp_music::MusicStation>,
+    sc_org: Option<&ScOrgRuntime>,
+    args: &str,
+) -> String {
+    let sub = args
+        .trim()
+        .split_whitespace()
+        .next()
+        .unwrap_or("status")
+        .to_ascii_lowercase();
+    let Some(org) = sc_org else {
+        if matches!(sub.as_str(), "status" | "brief" | "") {
+            return ops_local_brief(radio, rag, station);
+        }
+        return "Usage: !ops [status|brief|sc|host|members|fleet|list] — org brief + external status (fail-open).".into();
+    };
+    match sub.as_str() {
+        "list" => "Status sources: sc-org (Star Citizen org status), host (Host health)".into(),
+        "sc" | "star-citizen" => {
+            let r = org.get_plugin("sc-org").await;
+            format!("{} {}: {}", if r.ok { "✓" } else { "○" }, r.label, r.text)
+        }
+        "host" => {
+            let r = org.get_plugin("host").await;
+            format!("{} {}: {}", if r.ok { "✓" } else { "○" }, r.label, r.text)
+        }
+        "members" => org.members_text().await,
+        "fleet" => org.fleet_text().await,
+        "brief" => {
+            let mut parts = Vec::new();
+            if let Some(rag) = rag {
+                let facts = rag.kg.list_facts(3);
+                if facts.is_empty() {
+                    parts.push("Org KG: (empty — !kg remember <fact>)".into());
+                } else {
+                    parts.push(format!(
+                        "Org KG: {}",
+                        facts
+                            .iter()
+                            .map(|f| f.fact.as_str())
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    ));
+                }
+            }
+            let sc = org.get_plugin("sc-org").await;
+            parts.push(format!("{} {}: {}", if sc.ok { "✓" } else { "○" }, sc.label, sc.text));
+            if parts.is_empty() {
+                "No brief available.".into()
+            } else {
+                parts.join("\n")
+            }
+        }
+        "status" | "" => {
+            let mut lines = vec![ops_local_brief(radio, rag, station)];
+            for r in org.get_all().await {
+                lines.push(format!("{} {}: {}", if r.ok { "✓" } else { "○" }, r.label, r.text));
+            }
+            lines.join("\n")
+        }
+        other => {
+            let r = org.get_plugin(other).await;
+            if r.ok || r.id == other {
+                format!("{} {}: {}", if r.ok { "✓" } else { "○" }, r.label, r.text)
+            } else {
+                "Usage: !ops [status|brief|sc|host|members|fleet|list] — org brief + external status (fail-open).".into()
+            }
+        }
+    }
 }
 
 fn cmd_remember(db: &Database, rag: Option<&mp_rag::RagRuntime>, args: &str, uid: &str) -> String {
@@ -427,7 +531,7 @@ fn cmd_roastin(roast: Option<&RoastRuntime>, uid: &str) -> String {
     roast.handle_opt_in(uid)
 }
 
-fn cmd_workorder(
+async fn cmd_workorder(
     db: &Database,
     rights: Option<&RightsEngine>,
     subject: &Subject,
@@ -442,7 +546,7 @@ fn cmd_workorder(
             format!("{prefix}work-items — org totals from open work orders"),
             format!("{prefix}workorder list · {prefix}workorder done <id>"),
             format!("{prefix}workorder clear — wipe board (admin / workorder.clear)"),
-            "Craft blueprint BOMs need sc-craft (not ported).".to_string(),
+            format!("Craft blueprint BOMs: {prefix}craft <name> (sc-craft.tools, fail-soft)."),
         ]
         .join("\n"),
         WorkOrderSub::List => {
@@ -490,23 +594,38 @@ fn cmd_workorder(
                     "Too many open work orders (max {MAX_OPEN_WORK_ORDERS}). Mark some done first."
                 );
             }
-            let Some(ore) = find_ore(&item) else {
+            let qty = qty.clamp(1, 999);
+            let (label, lines) = if let Some(ore) = find_ore(&item) {
+                (
+                    ore.name.to_string(),
+                    vec![WorkOrderLine {
+                        material: ore.name.to_string(),
+                        amount: qty as f64,
+                        unit: "SCU".into(),
+                    }],
+                )
+            } else if let Some(bom) = craft_bom_lines(&item, qty as u32).await {
+                (
+                    item.clone(),
+                    bom.into_iter()
+                        .map(|(material, amount, unit)| WorkOrderLine {
+                            material,
+                            amount,
+                            unit,
+                        })
+                        .collect(),
+                )
+            } else {
                 return format!(
-                    "No seed-ore match for \"{item}\" (craft blueprints need sc-craft, not ported). Try {prefix}econ ores."
+                    "No seed-ore or sc-craft match for \"{item}\". Try {prefix}econ ores or {prefix}econ blueprints <name>."
                 );
             };
-            let lines = vec![WorkOrderLine {
-                material: ore.name.to_string(),
-                amount: qty as f64,
-                unit: "SCU".into(),
-            }];
             match db
                 .work_orders()
-                .add(ore.name, qty, &lines, Some(subject.uid.as_str()))
+                .add(&label, qty, &lines, Some(subject.uid.as_str()))
             {
                 Ok(id) => format!(
-                    "Okay — {qty}× {} takes {}. Saved as work order #{id}.\nOrg totals: {prefix}work-items",
-                    ore.name,
+                    "Okay — {qty}× {label} takes {}. Saved as work order #{id}.\nOrg totals: {prefix}work-items",
                     format_lines(&lines)
                 ),
                 Err(e) => format!("Couldn't save work order: {e}"),

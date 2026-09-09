@@ -65,7 +65,9 @@ impl AudioPlayer {
         if let Some(ref mut e) = enc {
             let _ = e.set_bitrate_bps((MUSIC_OPUS_BITRATE_KBPS_DEFAULT * 1000) as i32);
         }
-        let (events, _) = broadcast::channel(256);
+        // ~40s of 20ms frames. Chat/yt-dlp must not be able to overflow this
+        // while the bot loop is busy — Lagged = dropped Opus = stutter.
+        let (events, _) = broadcast::channel(2048);
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 state: PlayerState::Idle,

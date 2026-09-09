@@ -4,7 +4,7 @@
 //! Option A live session: tsclient-rs + HTTP Query groups.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,7 +12,9 @@ use tokio::sync::{broadcast, Mutex};
 use tsclient_rs::{self, Client, ClientOptions, EventMap};
 
 use crate::query::QueryClient;
-use crate::{OpusPacket, Result, Target, TsError, TsEvent, TsSession, CODEC_OPUS_MUSIC};
+use crate::{
+    OpusPacket, PresenceClient, Result, Target, TsError, TsEvent, TsSession, CODEC_OPUS_MUSIC,
+};
 
 #[derive(Clone, Debug)]
 pub struct TsConnectConfig {
@@ -62,6 +64,7 @@ pub struct LiveSession {
     _keep: broadcast::Receiver<TsEvent>,
     client: Mutex<Option<Arc<Client>>>,
     client_id: AtomicI32,
+    channel_id: AtomicU64,
     connected: AtomicBool,
     config: TsConnectConfig,
     query: Option<QueryClient>,
@@ -77,6 +80,7 @@ impl LiveSession {
             _keep: keep,
             client: Mutex::new(None),
             client_id: AtomicI32::new(0),
+            channel_id: AtomicU64::new(0),
             connected: AtomicBool::new(false),
             config,
             query,
@@ -190,6 +194,7 @@ impl LiveSession {
             ));
         }
         self.client_id.store(clid, Ordering::SeqCst);
+        self.channel_id.store(client.channel_id(), Ordering::SeqCst);
         self.connected.store(true, Ordering::SeqCst);
         *self.client.lock().await = Some(Arc::new(client));
         tracing::info!(client_id = clid, "ts connected");
@@ -205,6 +210,7 @@ impl LiveSession {
         }
         self.connected.store(false, Ordering::SeqCst);
         self.client_id.store(0, Ordering::SeqCst);
+        self.channel_id.store(0, Ordering::SeqCst);
         self.connect().await
     }
 
@@ -220,8 +226,101 @@ impl LiveSession {
         self.client_id.load(Ordering::SeqCst)
     }
 
+    pub fn channel_id(&self) -> u64 {
+        self.channel_id.load(Ordering::SeqCst)
+    }
+
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
+    }
+
+    async fn client_arc(&self) -> Option<Arc<Client>> {
+        self.client.lock().await.as_ref().cloned()
+    }
+
+    pub async fn list_clients(&self) -> Vec<PresenceClient> {
+        let Some(c) = self.client_arc().await else {
+            return Vec::new();
+        };
+        match c.exec_command_with_response("clientlist", 4000).await {
+            Ok(rows) => rows.into_iter().filter_map(row_to_presence).collect(),
+            Err(e) => {
+                tracing::debug!(error = %e, "clientlist failed");
+                Vec::new()
+            }
+        }
+    }
+
+    pub async fn join_channel(&self, cid: u64) -> bool {
+        if cid == 0 {
+            return false;
+        }
+        if self.channel_id() == cid {
+            return true;
+        }
+        let clid = self.client_id();
+        let Some(c) = self.client_arc().await else {
+            return false;
+        };
+        let cmd = if clid > 0 {
+            format!("clientmove clid={clid} cid={cid}")
+        } else {
+            format!("clientmove cid={cid}")
+        };
+        match c.exec_command(&cmd, 4000).await {
+            Ok(()) => {
+                self.channel_id.store(cid, Ordering::SeqCst);
+                true
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("770") || msg.to_ascii_lowercase().contains("already") {
+                    self.channel_id.store(cid, Ordering::SeqCst);
+                    return true;
+                }
+                tracing::debug!(error = %msg, cid, "join_channel failed");
+                false
+            }
+        }
+    }
+
+    pub async fn resolve_channel_id_by_name(&self, name: &str) -> Option<u64> {
+        let q = name.trim();
+        if q.is_empty() {
+            return None;
+        }
+        if let Some(qc) = self.query.as_ref() {
+            if let Ok(ch) = qc.resolve_channel(q).await {
+                return Some(ch.cid);
+            }
+        }
+        let c = self.client_arc().await?;
+        let rows = c.exec_command_with_response("channellist", 4000).await.ok()?;
+        let lower = q.to_ascii_lowercase();
+        let mut start: Option<u64> = None;
+        let mut contains: Option<u64> = None;
+        for row in rows {
+            let cid = row
+                .get("cid")
+                .or_else(|| row.get("channel_id"))
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let n = row
+                .get("channel_name")
+                .or_else(|| row.get("name"))
+                .cloned()
+                .unwrap_or_default();
+            if n.eq_ignore_ascii_case(q) {
+                return Some(cid);
+            }
+            let nl = n.to_ascii_lowercase();
+            if start.is_none() && nl.starts_with(&lower) {
+                start = Some(cid);
+            } else if contains.is_none() && nl.contains(&lower) {
+                contains = Some(cid);
+            }
+        }
+        start.or(contains)
     }
 
     pub fn is_closing(&self) -> bool {
@@ -248,19 +347,18 @@ fn load_or_create_identity(path: &Path) -> Result<tsclient_rs::Identity> {
 
 impl TsSession for LiveSession {
     async fn send_text(&self, target: Target, body: &str) -> Result<()> {
-        let guard = self.client.lock().await;
-        let client = guard.as_ref().ok_or(TsError::NotConnected)?;
+        let client = self.client_arc().await.ok_or(TsError::NotConnected)?;
         let (mode, id) = match target {
             Target::Channel => (2, client.channel_id()),
             Target::Client { id } => (1, id as u64),
             Target::Poke { id } => {
-                tsclient_rs::poke(client, id, body)
+                tsclient_rs::poke(&client, id, body)
                     .await
                     .map_err(|e| TsError::Message(e.to_string()))?;
                 return Ok(());
             }
         };
-        tsclient_rs::sendTextMessage(client, mode, id, body)
+        tsclient_rs::sendTextMessage(&client, mode, id, body)
             .await
             .map_err(|e| TsError::Message(e.to_string()))
     }
@@ -270,8 +368,7 @@ impl TsSession for LiveSession {
     }
 
     async fn send_opus(&self, pkt: OpusPacket) -> Result<()> {
-        let guard = self.client.lock().await;
-        let client = guard.as_ref().ok_or(TsError::NotConnected)?;
+        let client = self.client_arc().await.ok_or(TsError::NotConnected)?;
         let codec = if pkt.codec == 0 {
             i32::from(CODEC_OPUS_MUSIC)
         } else {
@@ -289,4 +386,42 @@ impl crate::TsSessionExt for LiveSession {
     fn is_connected(&self) -> bool {
         LiveSession::is_connected(self)
     }
+    fn channel_id(&self) -> u64 {
+        LiveSession::channel_id(self)
+    }
+    async fn list_clients(&self) -> Vec<PresenceClient> {
+        LiveSession::list_clients(self).await
+    }
+    async fn join_channel(&self, cid: u64) -> bool {
+        LiveSession::join_channel(self, cid).await
+    }
+    async fn resolve_channel_id_by_name(&self, name: &str) -> Option<u64> {
+        LiveSession::resolve_channel_id_by_name(self, name).await
+    }
+}
+
+fn row_to_presence(row: std::collections::HashMap<String, String>) -> Option<PresenceClient> {
+    let id = row
+        .get("clid")
+        .or_else(|| row.get("client_id"))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if id == 0 {
+        return None;
+    }
+    let channel_id = row
+        .get("cid")
+        .or_else(|| row.get("client_channel_id"))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let client_type = row
+        .get("client_type")
+        .or_else(|| row.get("type"))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    Some(PresenceClient {
+        id,
+        channel_id,
+        client_type,
+    })
 }

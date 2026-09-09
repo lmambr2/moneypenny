@@ -19,6 +19,7 @@ mod validity;
 mod vector;
 mod mempalace;
 mod kg;
+mod eval;
 
 pub use chunk::{chunk_id, chunk_markdown, chunk_markdown_default, Chunk};
 pub use classifications::{allowed_classifications_for, DOCTRINE_LEVELS};
@@ -38,6 +39,10 @@ pub use validity::is_doctrine_expired;
 pub use vector::{HttpVectorStore, MemoryVectorStore, VectorStore};
 pub use kg::{KgService, DIARY_USAGE, KG_USAGE};
 pub use mempalace::MemPalaceClient;
+pub use eval::{
+    compute_memory_axes, default_eval_cases, run_eval_case, run_eval_loop, EvalAxes, EvalCase,
+    EvalCaseResult, EvalExpect, EvalHit, EvalReport,
+};
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -108,6 +113,34 @@ impl RagRuntime {
     }
     pub fn set_top_k(&self, v: usize) {
         self.top_k.store(v.max(1), Ordering::SeqCst);
+    }
+
+    /// Scripted doctrine + org-memory probes (dashboard Harness → RAG eval).
+    pub async fn run_eval(&self, cases: Option<Vec<EvalCase>>) -> EvalReport {
+        let cases = cases.unwrap_or_else(default_eval_cases);
+        let mut doctrine = Vec::with_capacity(cases.len());
+        let mut org = Vec::with_capacity(cases.len());
+        for c in &cases {
+            let hits = if self.rag_enabled() {
+                let allowed = vec!["unclassified".to_string()];
+                self.retrieval
+                    .query(&c.query, Some(self.top_k()), Some(&allowed))
+                    .await
+                    .into_iter()
+                    .map(|h| EvalHit {
+                        text: h.text,
+                        source: h.source,
+                        score: Some(h.score),
+                        classification: Some(h.classification),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            doctrine.push(hits);
+            org.push(self.kg.search_org(&c.query, 8).await);
+        }
+        run_eval_loop(&cases, &doctrine, &org)
     }
 }
 

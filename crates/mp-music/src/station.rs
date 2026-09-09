@@ -84,50 +84,34 @@ impl MusicStation {
         self.search_first_flags(query, &HashSet::new())
     }
 
-    /// `-l` local only, `-y` YouTube, `-s` stream. Else: URL auto-route, then local, then ytsearch.
-    pub fn search_first_flags(&self, query: &str, flags: &HashSet<char>) -> Option<Track> {
-        let q = query.trim();
-        if q.is_empty() {
-            return None;
-        }
+    /// Local + URL routing. None means "fall through to yt-dlp".
+    fn search_local_and_urls(&self, q: &str, flags: &HashSet<char>) -> Result<Option<Track>, ()> {
         if flags.contains(&'s') {
-            return stream_track(q)
+            return Ok(stream_track(q)
                 .or_else(|| self.stream_bridge.resolve_track(q))
-                .filter(|t| !self.blocked(t));
+                .filter(|t| !self.blocked(t)));
         }
         if flags.contains(&'y') {
-            return self
-                .youtube
-                .search(q, 1, if YoutubeClient::can_handle(q) {
-                    YoutubePolicy::Explicit
-                } else {
-                    YoutubePolicy::Search
-                })
-                .into_iter()
-                .find(|t| !self.blocked(t));
+            return Err(());
         }
         if !flags.contains(&'l') && YoutubeClient::can_handle(q) {
-            return self
-                .youtube
-                .search(q, 1, YoutubePolicy::Explicit)
-                .into_iter()
-                .find(|t| !self.blocked(t));
+            return Err(());
         }
         if !flags.contains(&'l') && (is_spotify_ref(q) || is_tidal_url(q)) {
             if let Some(t) = self.stream_bridge.resolve_track(q).filter(|t| !self.blocked(t)) {
-                return Some(t);
+                return Ok(Some(t));
             }
         }
         if !flags.contains(&'l') && is_streamable_url(q) {
-            return stream_track(q).filter(|t| !self.blocked(t));
+            return Ok(stream_track(q).filter(|t| !self.blocked(t)));
         }
         if !flags.contains(&'y') {
             if let Some(hit) = self.local.resolve_input(q) {
                 match hit {
-                    ResolveHit::Song(t) if !self.blocked(&t) => return Some(t),
+                    ResolveHit::Song(t) if !self.blocked(&t) => return Ok(Some(t)),
                     ResolveHit::Playlist { songs, .. } => {
                         if let Some(t) = songs.into_iter().find(|t| !self.blocked(t)) {
-                            return Some(t);
+                            return Ok(Some(t));
                         }
                     }
                     ResolveHit::Song(_) => {}
@@ -135,17 +119,61 @@ impl MusicStation {
             }
             for t in self.local.search(q, 16) {
                 if !self.blocked(&t) {
-                    return Some(t);
+                    return Ok(Some(t));
                 }
             }
         }
         if flags.contains(&'l') {
+            return Ok(None);
+        }
+        Err(())
+    }
+
+    fn youtube_search_policy(q: &str, flags: &HashSet<char>) -> YoutubePolicy {
+        if flags.contains(&'y') {
+            if YoutubeClient::can_handle(q) {
+                YoutubePolicy::Explicit
+            } else {
+                YoutubePolicy::Search
+            }
+        } else if YoutubeClient::can_handle(q) {
+            YoutubePolicy::Explicit
+        } else {
+            YoutubePolicy::Search
+        }
+    }
+
+    /// `-l` local only, `-y` YouTube, `-s` stream. Else: URL auto-route, then local, then ytsearch.
+    pub fn search_first_flags(&self, query: &str, flags: &HashSet<char>) -> Option<Track> {
+        let q = query.trim();
+        if q.is_empty() {
             return None;
         }
-        self.youtube
-            .search(q, 1, YoutubePolicy::Search)
-            .into_iter()
-            .find(|t| !self.blocked(t))
+        match self.search_local_and_urls(q, flags) {
+            Ok(hit) => hit,
+            Err(()) => self
+                .youtube
+                .search(q, 1, Self::youtube_search_policy(q, flags))
+                .into_iter()
+                .find(|t| !self.blocked(t)),
+        }
+    }
+
+    /// Same as `search_first_flags` but yt-dlp runs on a blocking pool.
+    pub async fn search_first_flags_async(&self, query: &str, flags: &HashSet<char>) -> Option<Track> {
+        let q = query.trim();
+        if q.is_empty() {
+            return None;
+        }
+        match self.search_local_and_urls(q, flags) {
+            Ok(hit) => hit,
+            Err(()) => self
+                .youtube
+                .search_async(q, 1, Self::youtube_search_policy(q, flags))
+                .await
+                .into_iter()
+                .find(|t| !self.blocked(t)),
+        }
     }
 
     fn blocked(&self, t: &Track) -> bool {
@@ -169,8 +197,30 @@ impl MusicStation {
         }
     }
 
+    pub async fn song_by_id_platform_async(&self, song_id: &str, platform: Platform) -> Option<Track> {
+        let id = song_id.trim();
+        if id.is_empty() {
+            return None;
+        }
+        match platform {
+            Platform::Local => self.local.song_by_id(id).filter(|t| !self.blocked(t)),
+            Platform::Youtube => self
+                .youtube
+                .detail_async(id)
+                .await
+                .filter(|t| !self.blocked(t)),
+            Platform::Stream => stream_track(id)
+                .or_else(|| self.stream_bridge.resolve_track(id))
+                .filter(|t| !self.blocked(t)),
+        }
+    }
+
     pub fn resolve_and_play(&self, song: &QueuedSong) -> bool {
         self.play_song_at(song, 0.0)
+    }
+
+    pub async fn resolve_and_play_async(&self, song: &QueuedSong) -> bool {
+        self.play_song_at_async(song, 0.0).await
     }
 
     pub fn play_song_at(&self, song: &QueuedSong, elapsed: f64) -> bool {
@@ -188,8 +238,30 @@ impl MusicStation {
             Some(u) => u,
             None => return false,
         };
+        self.start_playback(song, &url, elapsed)
+    }
+
+    pub async fn play_song_at_async(&self, song: &QueuedSong, elapsed: f64) -> bool {
+        if !self.is_connected() {
+            tracing::warn!(id = %song.id, "play_song_at while disconnected");
+            return false;
+        }
+        if self.blacklist.as_ref().is_some_and(|bl| {
+            bl.is_blacklisted(Some(&song.id), Some(&song.name), Some(&song.artist))
+        }) {
+            tracing::info!(id = %song.id, name = %song.name, "blacklist blocked track");
+            return false;
+        }
+        let url = match self.playback_url_async(song).await {
+            Some(u) => u,
+            None => return false,
+        };
+        self.start_playback(song, &url, elapsed)
+    }
+
+    fn start_playback(&self, song: &QueuedSong, url: &str, elapsed: f64) -> bool {
         self.player.reset_failures();
-        self.player.play(&url, elapsed.max(0.0), song.duration as f64);
+        self.player.play(url, elapsed.max(0.0), song.duration as f64);
         if song.platform == Platform::Youtube && self.youtube_save_enabled() {
             if let Some(lib) = self.yt_library.lock().expect("yt lib").clone() {
                 lib.save_in_background(
@@ -206,12 +278,15 @@ impl MusicStation {
     fn playback_url(&self, song: &QueuedSong) -> Option<String> {
         match song.platform {
             Platform::Local => {
-                if !song.url.is_empty() && !song.url.starts_with("http://") && !song.url.starts_with("https://")
-                {
-                    return Some(song.url.clone());
-                }
+                // Never trust client `url` (play-song body used to pass
+                // `/etc/passwd` / `file:` / `concat:` straight to ffmpeg).
+                let key = if !song.id.is_empty() {
+                    song.id.as_str()
+                } else {
+                    song.url.as_str()
+                };
                 self.local
-                    .get_song_url(&song.id)
+                    .get_song_url(key)
                     .map(|p| p.to_string_lossy().into_owned())
             }
             Platform::Youtube => {
@@ -236,21 +311,69 @@ impl MusicStation {
         }
     }
 
-    pub fn play_next(&self) -> Option<QueuedSong> {
-        let next = {
-            let mut q = self.queue.lock().expect("queue");
-            q.next()
-        };
-        match next {
-            Some(song) => {
-                if self.resolve_and_play(&song) {
-                    Some(song)
+    async fn playback_url_async(&self, song: &QueuedSong) -> Option<String> {
+        match song.platform {
+            Platform::Local => self.playback_url(song),
+            Platform::Youtube => {
+                let key = if song.id.is_empty() {
+                    song.url.clone()
                 } else {
-                    self.play_next()
+                    song.id.clone()
+                };
+                let cached = {
+                    let g = self.yt_library.lock().expect("yt lib");
+                    g.as_ref().and_then(|lib| lib.lookup(&key))
+                };
+                if let Some(p) = cached {
+                    return Some(p);
                 }
+                self.youtube.playback_url_async(&key).await
             }
-            None => None,
+            Platform::Stream => self.playback_url(song),
         }
+    }
+
+    fn play_next_attempts(&self) -> usize {
+        self.queue
+            .lock()
+            .expect("queue")
+            .size()
+            .saturating_add(1)
+            .clamp(1, 32)
+    }
+
+    pub fn play_next(&self) -> Option<QueuedSong> {
+        let max = self.play_next_attempts();
+        for _ in 0..max {
+            let next = {
+                let mut q = self.queue.lock().expect("queue");
+                q.next()
+            };
+            let Some(song) = next else {
+                return None;
+            };
+            if self.resolve_and_play(&song) {
+                return Some(song);
+            }
+        }
+        None
+    }
+
+    pub async fn play_next_async(&self) -> Option<QueuedSong> {
+        let max = self.play_next_attempts();
+        for _ in 0..max {
+            let next = {
+                let mut q = self.queue.lock().expect("queue");
+                q.next()
+            };
+            let Some(song) = next else {
+                return None;
+            };
+            if self.resolve_and_play_async(&song).await {
+                return Some(song);
+            }
+        }
+        None
     }
 
     pub fn replace_with_first_hit(&self, query: &str) -> ReplaceResult {
@@ -275,6 +398,25 @@ impl MusicStation {
             };
         }
         self.replace_with_first_hit_flags(crate::DEFAULT_DEMO_VIDEO_URL, &HashSet::new())
+    }
+
+    pub async fn play_demo_track_async(&self) -> ReplaceResult {
+        let id = crate::DEFAULT_DEMO_VIDEO_ID;
+        if let Some(track) = self.find_demo_local(id) {
+            let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
+            {
+                let mut q = self.queue.lock().expect("queue");
+                replace_queue_with_song(&mut q, queued.clone());
+            }
+            self.player.reset_failures();
+            return if self.resolve_and_play_async(&queued).await {
+                ReplaceResult::Ok(track)
+            } else {
+                ReplaceResult::CantPlay(track)
+            };
+        }
+        self.replace_with_first_hit_flags_async(crate::DEFAULT_DEMO_VIDEO_URL, &HashSet::new())
+            .await
     }
 
     fn find_demo_local(&self, video_id: &str) -> Option<Track> {
@@ -311,6 +453,27 @@ impl MusicStation {
         }
         self.player.reset_failures();
         if self.resolve_and_play(&queued) {
+            ReplaceResult::Ok(track)
+        } else {
+            ReplaceResult::CantPlay(track)
+        }
+    }
+
+    pub async fn replace_with_first_hit_flags_async(
+        &self,
+        query: &str,
+        flags: &HashSet<char>,
+    ) -> ReplaceResult {
+        let Some(track) = self.search_first_flags_async(query, flags).await else {
+            return ReplaceResult::NoResults;
+        };
+        let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
+        {
+            let mut q = self.queue.lock().expect("queue");
+            replace_queue_with_song(&mut q, queued.clone());
+        }
+        self.player.reset_failures();
+        if self.resolve_and_play_async(&queued).await {
             ReplaceResult::Ok(track)
         } else {
             ReplaceResult::CantPlay(track)

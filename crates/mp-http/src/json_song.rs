@@ -31,10 +31,20 @@ pub fn queued_json(s: &QueuedSong) -> Value {
 
 pub fn queued_from_body(v: &Value) -> Option<QueuedSong> {
     let id = v.get("id")?.as_str()?.to_string();
-    let platform = v
+    if id.is_empty() {
+        return None;
+    }
+    let platform = match v
         .get("platform")
         .and_then(|x| x.as_str())
-        .unwrap_or("local");
+        .unwrap_or("local")
+        .trim()
+    {
+        "local" => mp_music::Platform::Local,
+        "youtube" => mp_music::Platform::Youtube,
+        "stream" => mp_music::Platform::Stream,
+        _ => return None,
+    };
     Some(QueuedSong {
         id,
         name: v
@@ -58,7 +68,7 @@ pub fn queued_from_body(v: &Value) -> Option<QueuedSong> {
             .and_then(|x| x.as_str())
             .unwrap_or("")
             .to_string(),
-        platform: mp_music::Platform::parse(platform),
+        platform,
         url: v
             .get("url")
             .and_then(|x| x.as_str())
@@ -66,4 +76,22 @@ pub fn queued_from_body(v: &Value) -> Option<QueuedSong> {
             .to_string(),
         source: mp_music::QueueSource::User,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn rejects_unknown_platform() {
+        assert!(queued_from_body(&json!({"id": "x", "platform": "file"})).is_none());
+        assert!(queued_from_body(&json!({"id": "x", "platform": "concat"})).is_none());
+        assert_eq!(
+            queued_from_body(&json!({"id": "x", "platform": "local"}))
+                .unwrap()
+                .platform,
+            mp_music::Platform::Local
+        );
+    }
 }

@@ -13,6 +13,13 @@ use sha1::{Digest, Sha1};
 use crate::track::{Platform, Track};
 use crate::{MusicError, MusicProvider};
 
+#[derive(Debug)]
+pub enum DeleteSongError {
+    NotFound,
+    Forbidden,
+    Io(String),
+}
+
 fn lexical_normalize(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in path.components() {
@@ -472,6 +479,51 @@ impl LocalProvider {
         self.id_to_path.lock().ok()?.get(id).cloned()
     }
 
+    /// Delete a track from disk by opaque public id (admin web UI).
+    /// Realpath must stay under MUSIC_DIR; re-index after unlink.
+    pub fn delete_song(&self, song_id: &str) -> Result<String, DeleteSongError> {
+        if song_id.is_empty()
+            || song_id.contains("..")
+            || song_id.contains('/')
+            || song_id.contains('\\')
+        {
+            return Err(DeleteSongError::NotFound);
+        }
+        self.ensure_indexed();
+        let abs = self
+            .id_to_path
+            .lock()
+            .expect("id")
+            .get(song_id)
+            .cloned()
+            .ok_or(DeleteSongError::NotFound)?;
+        let real = std::fs::canonicalize(&abs).map_err(|_| DeleteSongError::NotFound)?;
+        let real_base =
+            std::fs::canonicalize(&self.music_dir).map_err(|_| DeleteSongError::NotFound)?;
+        if real == real_base {
+            return Err(DeleteSongError::Forbidden);
+        }
+        if !Self::contained(&real, &real_base) {
+            tracing::warn!(id = %song_id, "deleteSong blocked outside music dir");
+            return Err(DeleteSongError::Forbidden);
+        }
+        let name = self
+            .song_by_id(song_id)
+            .map(|t| t.title)
+            .unwrap_or_else(|| {
+                real.file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| song_id.to_string())
+            });
+        match std::fs::remove_file(&real) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(DeleteSongError::Io(e.to_string())),
+        }
+        self.refresh();
+        Ok(name)
+    }
+
     /// Write into `musicDir/uploads/` and re-index. Same rules as Node `uploadSong`.
     pub fn upload_song(&self, original_filename: &str, data: &[u8]) -> Result<Track, MusicError> {
         let mut base = std::path::Path::new(original_filename)
@@ -606,6 +658,30 @@ mod tests {
         let (dir, p) = tmp_lib();
         let hit = p.resolve_input("test1");
         assert!(matches!(hit, Some(ResolveHit::Song(_))));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn delete_song_removes_file_and_index() {
+        let (dir, p) = tmp_lib();
+        let hit = p.resolve_input("music/rock/test1.mp3");
+        let Some(ResolveHit::Song(t)) = hit else {
+            panic!("expected song");
+        };
+        let name = p.delete_song(&t.id).unwrap();
+        assert!(name.contains("test1"));
+        assert!(p.song_by_id(&t.id).is_none());
+        assert!(!dir.join("music/rock/test1.mp3").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn delete_song_unknown_id() {
+        let (dir, p) = tmp_lib();
+        assert!(matches!(
+            p.delete_song("not-a-real-id"),
+            Err(DeleteSongError::NotFound)
+        ));
         let _ = std::fs::remove_dir_all(dir);
     }
 

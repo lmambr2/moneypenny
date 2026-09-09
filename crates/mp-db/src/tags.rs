@@ -256,6 +256,21 @@ impl TagStore<'_> {
         Ok(n > 0)
     }
 
+    /// Drop tag + rating rows for a track (library file deleted).
+    pub fn remove_track(&self, track_key: &str) -> Result<()> {
+        self.db.with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM track_ratings WHERE track_key = ?1",
+                rusqlite::params![track_key],
+            )?;
+            conn.execute(
+                "DELETE FROM track_tags WHERE track_key = ?1",
+                rusqlite::params![track_key],
+            )?;
+            Ok(())
+        })
+    }
+
     fn recompute_rating(&self, track_key: &str) -> Result<()> {
         let now = now_ms();
         self.db.with_conn(|conn| {
@@ -362,6 +377,8 @@ mod tests {
         assert!((r.avg - 3.0).abs() < 0.01);
         assert!(db.tags().unrate("t", "web:a").unwrap());
         let r = db.tags().get_rating("t").unwrap();
+        db.tags().remove_track("t").unwrap();
+        assert!(db.tags().get("t").unwrap().is_none());
         assert_eq!(r.count, 1);
         assert!((r.avg - 2.0).abs() < 0.01);
     }

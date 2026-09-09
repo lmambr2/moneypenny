@@ -13,6 +13,7 @@ use mp_control::{
 use mp_db::Database;
 use mp_http::{dispatch_command, RoastRuntime};
 use mp_music::{ChannelSpeech, MusicStation, PlayerEvent, QueuedSong, TrackEndKind};
+use crate::auto_follow::AutoFollow;
 use crate::moves::MoveRuntime;
 use mp_rights::{RightsEngine, Scope, Subject};
 use mp_ts::{OpusPacket, Target, TsEvent, TsSession, TsSessionExt, CODEC_OPUS_MUSIC};
@@ -27,6 +28,7 @@ pub struct BotServices {
     pub db: Arc<Database>,
     pub brain: Arc<mp_brain::BrainRuntime>,
     pub rag: Option<Arc<mp_rag::RagRuntime>>,
+    pub sc_org: Arc<mp_http::ScOrgRuntime>,
 }
 
 pub struct BotLoop<S> {
@@ -42,7 +44,31 @@ pub struct BotLoop<S> {
     roast: Arc<RoastRuntime>,
     moves: Arc<MoveRuntime>,
     speech: Arc<ChannelSpeech>,
-    humans: std::sync::Mutex<std::collections::HashSet<i32>>,
+    humans: Arc<std::sync::Mutex<std::collections::HashSet<i32>>>,
+    follow: Arc<AutoFollow>,
+    reply_dedupe: Arc<std::sync::Mutex<Option<(String, Instant)>>>,
+}
+
+impl<S> Clone for BotLoop<S> {
+    fn clone(&self) -> Self {
+        Self {
+            session: Arc::clone(&self.session),
+            executor: self.executor.clone(),
+            station: Arc::clone(&self.station),
+            rights: self.rights.clone(),
+            prefix: self.prefix.clone(),
+            aliases: self.aliases.clone(),
+            services: self.services.clone(),
+            voice: Arc::clone(&self.voice),
+            radio: Arc::clone(&self.radio),
+            roast: Arc::clone(&self.roast),
+            moves: Arc::clone(&self.moves),
+            speech: Arc::clone(&self.speech),
+            humans: Arc::clone(&self.humans),
+            follow: Arc::clone(&self.follow),
+            reply_dedupe: Arc::clone(&self.reply_dedupe),
+        }
+    }
 }
 
 impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
@@ -58,12 +84,13 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         roast: Arc<RoastRuntime>,
         moves: Arc<MoveRuntime>,
         speech: Arc<ChannelSpeech>,
+        follow: AutoFollow,
+        executor: CommandExecutor,
     ) -> Self {
         let mut aliases = aliases;
         if aliases.is_empty() {
             aliases = default_aliases();
         }
-        let executor = CommandExecutor::new(Arc::clone(&station), prefix.clone());
         Self {
             session,
             executor,
@@ -77,40 +104,22 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             roast,
             moves,
             speech,
-            humans: std::sync::Mutex::new(std::collections::HashSet::new()),
+            humans: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            follow: Arc::new(follow),
+            reply_dedupe: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
     pub async fn run(self) {
         let mut events = self.session.subscribe();
         let mut frames = self.station.subscribe_player();
-        let mut last_reply: Option<(String, Instant)> = None;
         let mut roast_tick = tokio::time::interval(Duration::from_secs(30));
         roast_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         roast_tick.tick().await;
         info!("bot loop listening for chat");
         loop {
             tokio::select! {
-                ev = events.recv() => {
-                    match ev {
-                        Ok(ev) => {
-                            if let Some(text) = self.handle_event(ev).await {
-                                if should_dedupe(&last_reply, &text) {
-                                    warn!(preview = %text.chars().take(80).collect::<String>(), "suppressing identical channel reply");
-                                    continue;
-                                }
-                                last_reply = Some((text.clone(), Instant::now()));
-                                if let Err(e) = self.session.send_text(Target::Channel, &text).await {
-                                    warn!(error = %e, "send_text failed");
-                                }
-                            }
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            warn!(skipped = n, "ts event lagged");
-                        }
-                        Err(_) => break,
-                    }
-                }
+                biased;
                 frame = frames.recv() => {
                     match frame {
                         Ok(PlayerEvent::Frame(opus)) => {
@@ -124,39 +133,90 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 info!("tts playback ended");
                                 continue;
                             }
-                            match self.radio.on_track_boundary().await {
-                                Boundary::Bumper { label } => {
-                                    info!(label = %label, "radio bumper after track end");
+                            let this = self.clone();
+                            tokio::spawn(async move {
+                                if this.radio.enabled() {
+                                    match this.radio.on_track_boundary().await {
+                                        Boundary::Bumper { label } => {
+                                            info!(label = %label, "radio bumper after track end");
+                                        }
+                                        Boundary::Advanced { song: Some(name) } => {
+                                            info!(name = %name, "advanced after track end");
+                                        }
+                                        Boundary::Advanced { song: None } => {}
+                                    }
+                                } else if let Some(s) = this.station.play_next_async().await {
+                                    info!(name = %format!("{} - {}", s.name, s.artist), "advanced after track end");
                                 }
-                                Boundary::Advanced { song: Some(name) } => {
-                                    info!(name = %name, "advanced after track end");
-                                }
-                                Boundary::Advanced { song: None } => {}
-                            }
+                            });
                         }
                         Ok(PlayerEvent::Error(e)) => {
                             self.speech.on_player_error();
                             warn!(error = %e, "player");
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(skipped = n, "audio frames lagged — playback may stutter");
+                        }
                         Err(_) => {
                             frames = self.station.subscribe_player();
                         }
                     }
                 }
-                _ = roast_tick.tick() => {
-                    let n = self.humans.lock().expect("humans").len() as u32;
-                    if let Some(reel) = self.roast.run_tick(n).await {
-                        if should_dedupe(&last_reply, &reel) {
-                            continue;
+                ev = events.recv() => {
+                    match ev {
+                        Ok(ev) => {
+                            let spawn_cmd = matches!(
+                                ev,
+                                TsEvent::TextMessage { .. } | TsEvent::Poke { .. }
+                            );
+                            if spawn_cmd {
+                                let this = self.clone();
+                                tokio::spawn(async move {
+                                    if let Some(text) = this.handle_event(ev).await {
+                                        this.reply_channel(text).await;
+                                    }
+                                });
+                            } else if let Some(text) = self.handle_event(ev).await {
+                                self.reply_channel(text).await;
+                            }
                         }
-                        last_reply = Some((reel.clone(), Instant::now()));
-                        if let Err(e) = self.session.send_text(Target::Channel, &reel).await {
-                            warn!(error = %e, "roast reel send_text failed");
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(skipped = n, "ts event lagged");
                         }
+                        Err(_) => break,
                     }
                 }
+                _ = roast_tick.tick() => {
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        let all = this.session.list_clients().await;
+                        let n = if all.is_empty() {
+                            this.humans.lock().expect("humans").len() as u32
+                        } else {
+                            AutoFollow::humans_in_own(&*this.session, &all)
+                        };
+                        this.radio.on_poll(n);
+                        let _ = this.follow.maybe_follow(&*this.session, n).await;
+                        if let Some(reel) = this.roast.run_tick(n).await {
+                            this.reply_channel(reel).await;
+                        }
+                    });
+                }
             }
+        }
+    }
+
+    async fn reply_channel(&self, text: String) {
+        {
+            let mut last = self.reply_dedupe.lock().expect("dedupe");
+            if should_dedupe(&*last, &text) {
+                warn!(preview = %text.chars().take(80).collect::<String>(), "suppressing identical channel reply");
+                return;
+            }
+            *last = Some((text.clone(), Instant::now()));
+        }
+        if let Err(e) = self.session.send_text(Target::Channel, &text).await {
+            warn!(error = %e, "send_text failed");
         }
     }
 
@@ -327,6 +387,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             self.services.rag.as_deref(),
             Some(&self.radio),
             Some(&self.roast),
+            Some(&self.voice),
+            Some(&self.services.sc_org),
         )
         .await
     }
@@ -398,6 +460,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         let aliases = aliases.clone();
                         let radio = Arc::clone(&radio);
                         let roast = Arc::clone(&roast);
+                        let voice_rt = Arc::clone(&voice);
+                        let sc_org = Arc::clone(&services.sc_org);
                         let moves = Arc::clone(&moves);
                         let rights = rights_c.clone();
                         let uid = uid.clone();
@@ -447,6 +511,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 services.rag.as_deref(),
                                 Some(&radio),
                                 Some(&roast),
+                                Some(&voice_rt),
+                                Some(&sc_org),
                             )
                             .await
                         }

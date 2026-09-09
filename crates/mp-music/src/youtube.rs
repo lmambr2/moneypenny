@@ -146,6 +146,33 @@ impl YoutubeClient {
         Some(audio)
     }
 
+    /// yt-dlp is process-wait. Run it off the bot loop so Opus frames keep sending.
+    pub async fn search_async(&self, query: &str, limit: usize, policy: YoutubePolicy) -> Vec<Track> {
+        let this = self.clone();
+        let q = query.to_string();
+        tokio::task::spawn_blocking(move || this.search(&q, limit, policy))
+            .await
+            .unwrap_or_default()
+    }
+
+    pub async fn detail_async(&self, song_id: &str) -> Option<Track> {
+        let this = self.clone();
+        let id = song_id.to_string();
+        tokio::task::spawn_blocking(move || this.detail(&id))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    pub async fn playback_url_async(&self, song_id: &str) -> Option<String> {
+        let this = self.clone();
+        let id = song_id.to_string();
+        tokio::task::spawn_blocking(move || this.playback_url(&id))
+            .await
+            .ok()
+            .flatten()
+    }
+
     /// Download audio as tagged MP3. Never used on the skip path.
     pub fn download_audio_mp3(&self, song_id: &str, out_dir: &Path, base_name: &str) -> Option<String> {
         let bin = self.bin.as_ref()?;
@@ -460,7 +487,8 @@ fn run_yt_dlp(bin: &Path, args: &[String], timeout: Duration) -> Option<String> 
     let run = || {
         use std::io::Read;
         let mut cmd = std::process::Command::new(bin);
-        cmd.args(args)
+        cmd.arg("--ignore-config")
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

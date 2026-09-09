@@ -41,7 +41,7 @@ fn host_of_header(value: Option<&axum::http::HeaderValue>) -> Option<String> {
     host_of(raw)
 }
 
-fn host_of(url: &str) -> Option<String> {
+pub(crate) fn host_of(url: &str) -> Option<String> {
     // Origin is an absolute URL. Some browsers send the literal "null".
     if url.eq_ignore_ascii_case("null") || url.is_empty() {
         return None;
@@ -72,5 +72,6 @@ mod tests {
             Some("music.example.com".into())
         );
         assert_eq!(host_of("null"), None);
+        assert_eq!(host_of(""), None);
     }
 }

@@ -83,8 +83,21 @@ impl VoiceRuntime {
     pub fn apply(&self, cfg: VoiceConfig) {
         let mut cfg = cfg;
         cfg.listen_window_ms = cfg.listen_window_ms.max(MIN_LISTEN_WINDOW_MS);
+        let prev = self.config();
+        let rebuild = needs_pipeline_rebuild(&prev, &cfg);
         *self.config.write().expect("voice cfg") = cfg;
-        self.reconfigure();
+        if rebuild {
+            self.reconfigure();
+        }
+    }
+
+    /// Live karaoke on/off — does not restart STT/TTS.
+    pub fn set_karaoke_mode(&self, on: bool) {
+        self.config.write().expect("voice cfg").karaoke_mode = on;
+    }
+
+    pub fn karaoke_mode(&self) -> bool {
+        self.config().karaoke_mode
     }
 
     pub fn set_aliases(&self, aliases: HashMap<String, String>) {
@@ -342,4 +355,17 @@ fn pcm_duration_ms(pcm: &[u8], sample_rate: u32, channels: u32) -> f64 {
     let ch = channels.max(1) as f64;
     let samples = (pcm.len() as f64) / 2.0 / ch;
     samples / sample_rate as f64 * 1000.0
+}
+
+fn needs_pipeline_rebuild(prev: &VoiceConfig, next: &VoiceConfig) -> bool {
+    prev.enabled != next.enabled
+        || prev.stt_url != next.stt_url
+        || prev.tts_url != next.tts_url
+        || prev.tts_voice != next.tts_voice
+        || prev.watchword != next.watchword
+        || prev.require_watchword != next.require_watchword
+        || prev.vad_backend != next.vad_backend
+        || prev.energy_threshold != next.energy_threshold
+        || prev.listen_window_ms != next.listen_window_ms
+        || prev.text_wake_fallback != next.text_wake_fallback
 }

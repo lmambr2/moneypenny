@@ -24,6 +24,8 @@ pub enum ConfigError {
     },
     #[error("invalid config JSON: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("config root must be a JSON object")]
+    NotObject,
 }
 
 pub type Result<T> = std::result::Result<T, ConfigError>;
@@ -112,7 +114,7 @@ pub struct BotConfig {
     pub youtube_save_enabled: bool,
     #[serde(default)]
     pub stream_bridge_url: String,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub rights_enabled: bool,
     #[serde(default)]
     pub recordings_enabled: bool,
@@ -124,6 +126,16 @@ pub struct BotConfig {
     pub music_opus_bitrate_kbps: u32,
     #[serde(default = "default_blocked_genres")]
     pub music_blocked_genres: Vec<String>,
+    #[serde(default)]
+    pub auto_follow_enabled: bool,
+    #[serde(default = "default_afk_channels")]
+    pub auto_follow_afk_channels: Vec<String>,
+    #[serde(default = "default_auto_follow_cooldown")]
+    pub auto_follow_cooldown_sec: u64,
+    #[serde(default)]
+    pub sc_org_status_url: String,
+    #[serde(default)]
+    pub sc_org_name: String,
     /// Inbound voice loop (rewrite Phase 6). Nested object matches Node `config.voice`.
     #[serde(default)]
     pub voice: VoiceConfig,
@@ -221,6 +233,9 @@ fn default_aliases() -> HashMap<String, String> {
         ("p".into(), "play".into()),
         ("s".into(), "skip".into()),
         ("n".into(), "skip".into()),
+        ("karyoke".into(), "karaoke".into()),
+        ("kareoke".into(), "karaoke".into()),
+        ("karoke".into(), "karaoke".into()),
     ])
 }
 fn default_trust_proxy_hops() -> u32 {
@@ -231,6 +246,15 @@ fn default_true() -> bool {
 }
 fn default_music_opus() -> u32 {
     64
+}
+fn default_auto_follow_cooldown() -> u64 {
+    60
+}
+fn default_afk_channels() -> Vec<String> {
+    ["AFK", "Away", "AFK / Away"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
 }
 fn default_blocked_genres() -> Vec<String> {
     DEFAULT_MUSIC_BLOCKED_GENRES
@@ -595,6 +619,11 @@ impl Default for BotConfig {
             poke_commands_enabled: true,
             music_opus_bitrate_kbps: 64,
             music_blocked_genres: default_blocked_genres(),
+            auto_follow_enabled: false,
+            auto_follow_afk_channels: default_afk_channels(),
+            auto_follow_cooldown_sec: 60,
+            sc_org_status_url: String::new(),
+            sc_org_name: String::new(),
             voice: VoiceConfig::default(),
             radio: RadioConfig::default(),
             roast_enabled: false,
@@ -675,7 +704,8 @@ pub fn save_config_merge(path: &Path, patch: &Value) -> Result<()> {
         return Ok(());
     }
     let mut root = match fs::read_to_string(path) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|_| json_object()),
+        Ok(raw) if raw.trim().is_empty() => json_object(),
+        Ok(raw) => serde_json::from_str(&raw)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => json_object(),
         Err(source) => {
             return Err(ConfigError::Io {
@@ -685,7 +715,7 @@ pub fn save_config_merge(path: &Path, patch: &Value) -> Result<()> {
         }
     };
     if !root.is_object() {
-        root = json_object();
+        return Err(ConfigError::NotObject);
     }
     merge_json_objects(&mut root, patch);
     if let Some(parent) = path.parent() {
@@ -697,7 +727,15 @@ pub fn save_config_merge(path: &Path, patch: &Value) -> Result<()> {
         }
     }
     let pretty = serde_json::to_string_pretty(&root)?;
-    fs::write(path, format!("{pretty}\n")).map_err(|source| ConfigError::Io {
+    let tmp = match path.file_name() {
+        Some(n) => path.with_file_name(format!("{}.tmp", n.to_string_lossy())),
+        None => path.with_extension("tmp"),
+    };
+    fs::write(&tmp, format!("{pretty}\n")).map_err(|source| ConfigError::Io {
+        path: tmp.clone(),
+        source,
+    })?;
+    fs::rename(&tmp, path).map_err(|source| ConfigError::Io {
         path: path.to_path_buf(),
         source,
     })?;
@@ -872,6 +910,20 @@ fn apply_env(cfg: &mut BotConfig) {
             cfg.mempalace_enabled = true;
         }
     }
+    if cfg.sc_org_status_url.is_empty() {
+        if let Ok(v) = std::env::var("SC_ORG_STATUS_URL") {
+            if !v.is_empty() {
+                cfg.sc_org_status_url = v;
+            }
+        }
+    }
+    if cfg.sc_org_name.is_empty() {
+        if let Ok(v) = std::env::var("SC_ORG_NAME") {
+            if !v.is_empty() {
+                cfg.sc_org_name = v;
+            }
+        }
+    }
     if let Ok(v) = std::env::var("YOUTUBE_SAVE_ENABLED") {
         let t = v.trim();
         if t == "1" || t.eq_ignore_ascii_case("true") {
@@ -907,6 +959,8 @@ mod tests {
         assert_eq!(c.command_prefix, "!");
         assert_eq!(c.command_aliases.get("p").map(String::as_str), Some("play"));
         assert!(c.rights_enabled);
+        let empty: BotConfig = serde_json::from_str("{}").unwrap();
+        assert!(empty.rights_enabled);
         assert_eq!(c.music_opus_bitrate_kbps, 64);
         assert!(c.music_blocked_genres.iter().any(|g| g == "rap"));
         assert!(!c.voice.enabled);
@@ -971,6 +1025,17 @@ mod tests {
     #[test]
     fn empty_path_is_noop() {
         save_config_merge(Path::new(""), &serde_json::json!({"llmEnabled": true})).unwrap();
+    }
+
+    #[test]
+    fn merge_rejects_invalid_json_without_clobber() {
+        let dir = std::env::temp_dir().join(format!("mp-config-bad-{}", uuid_like()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, "not-json {").unwrap();
+        assert!(save_config_merge(&path, &serde_json::json!({"llmEnabled": true})).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "not-json {");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     fn uuid_like() -> u64 {

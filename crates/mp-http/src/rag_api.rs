@@ -206,6 +206,13 @@ pub async fn doctrine_put(
         )
             .into_response();
     }
+    if content.len() > MAX_DOCTRINE_FILE_BYTES {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({"error":"content too large (max 15 MiB)","code":"VALIDATION_ERROR"})),
+        )
+            .into_response();
+    }
     match ingest_doctrine_doc(&rag.retrieval, &rag.doctrine, &source, &content).await {
         Ok(ingested) => Json(json!({ "ok": true, "ingested": ingested })).into_response(),
         Err(e) => (
@@ -311,6 +318,27 @@ pub async fn rag_query(
         )
             .into_response(),
     }
+}
+
+#[derive(Deserialize)]
+pub(crate) struct EvalBody {
+    cases: Option<Vec<mp_rag::EvalCase>>,
+}
+
+pub async fn rag_eval(
+    State(st): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<EvalBody>,
+) -> Response {
+    let Some(rag) = st.rag.as_ref() else {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error":"No bot instance available","code":"NO_BOT"})),
+        )
+            .into_response();
+    };
+    let report = rag.run_eval(body.cases).await;
+    Json(report).into_response()
 }
 
 #[derive(Deserialize)]

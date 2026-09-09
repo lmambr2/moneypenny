@@ -48,6 +48,7 @@ pub const COMMAND_MANIFEST: &[CommandSpec] = &[
     spec("list", CommandKind::Delegated, false, false),
     spec("artist", CommandKind::Delegated, false, true),
     spec("test", CommandKind::Delegated, false, true),
+    spec("karaoke", CommandKind::Delegated, false, false),
     spec("lyrics", CommandKind::Delegated, false, false),
     spec("vote", CommandKind::Delegated, false, false),
     spec("help", CommandKind::Delegated, false, false),
@@ -165,6 +166,15 @@ pub struct ParsedCommand {
     pub flags: HashSet<char>,
 }
 
+/// Common karaoke misspellings — `!karyoke` must not fall through to LLM.
+pub fn karaoke_alias(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "karyoke" | "kareoke" | "karaok" | "karaokee" | "karaokay" | "karaokey"
+        | "carryoke" | "carioke" | "karoke" | "karaoake" => "karaoke",
+        _ => return None,
+    })
+}
+
 pub fn parse_command(
     message: &str,
     prefix: &str,
@@ -179,9 +189,13 @@ pub fn parse_command(
         return None;
     }
     let parts: Vec<&str> = without.split_whitespace().collect();
-    let mut name = parts[0].to_lowercase();
+    let mut name = parts[0]
+        .trim_end_matches(|c: char| matches!(c, '.' | ',' | '!' | '?' | ';' | ':'))
+        .to_lowercase();
     if let Some(alias) = aliases.get(&name) {
         name = alias.clone();
+    } else if let Some(k) = karaoke_alias(&name) {
+        name = k.to_string();
     }
     let mut flags = HashSet::new();
     let mut arg_parts = Vec::new();
@@ -206,6 +220,9 @@ pub fn default_aliases() -> HashMap<String, String> {
         ("p".into(), "play".into()),
         ("s".into(), "skip".into()),
         ("n".into(), "skip".into()),
+        ("karyoke".into(), "karaoke".into()),
+        ("kareoke".into(), "karaoke".into()),
+        ("karoke".into(), "karaoke".into()),
     ])
 }
 
@@ -232,6 +249,15 @@ mod tests {
     fn non_command_is_none() {
         assert!(parse_command("hello world", "!", &HashMap::new()).is_none());
         assert!(parse_command("", "!", &HashMap::new()).is_none());
+    }
+
+    #[test]
+    fn karaoke_typos_map() {
+        let r = parse_command("!karyoke on", "!", &HashMap::new()).unwrap();
+        assert_eq!(r.name, "karaoke");
+        assert_eq!(r.args, "on");
+        let r = parse_command("!karoke", "!", &HashMap::new()).unwrap();
+        assert_eq!(r.name, "karaoke");
     }
 
     #[test]

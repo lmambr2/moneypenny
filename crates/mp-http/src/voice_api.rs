@@ -74,6 +74,8 @@ pub async fn voice_test(
     let rights = st.rights.clone();
     let radio = Arc::clone(&st.radio);
     let roast = Arc::clone(&st.roast);
+    let voice_rt = Arc::clone(&st.voice);
+    let sc_org = Arc::clone(&st.sc_org);
 
     let turn = st
         .voice
@@ -95,6 +97,8 @@ pub async fn voice_test(
                 let aliases = aliases.clone();
                 let radio = Arc::clone(&radio);
                 let roast = Arc::clone(&roast);
+                let voice_rt = Arc::clone(&voice_rt);
+                let sc_org = Arc::clone(&sc_org);
                 async move {
                     let parsed = parse_command(&format!("{prefix}{cmd}"), &prefix, &aliases)?;
                     if !is_known_command(&parsed.name) {
@@ -116,6 +120,8 @@ pub async fn voice_test(
                         rag.as_deref(),
                         Some(&radio),
                         Some(&roast),
+                        Some(&voice_rt),
+                        Some(&sc_org),
                     )
                     .await
                 }
