@@ -238,7 +238,7 @@ export class LlmClient {
     if (req.think !== undefined) payload.think = req.think;
     // vLLM Qwen3.8 (Radiance): top-level enable_thinking is ignored; kwargs
     // skip the think block. llama.cpp / Ollama ignore unknown fields.
-    payload.chat_template_kwargs = { enable_thinking: req.think !== true };
+    payload.chat_template_kwargs = { enable_thinking: req.think === true };
     const options: Record<string, unknown> = {};
     if (req.numCtx) options.num_ctx = req.numCtx;
     if (req.flashAttention) options.flash_attention = true;
