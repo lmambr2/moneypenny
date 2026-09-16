@@ -6,11 +6,11 @@ import {
 } from "./auto-dj-repeat.js";
 
 describe("normalizeAutoDjRepeat", () => {
-  it("defaults to 1 play / 12h when unset", () => {
+  it("defaults to 1 play / 24h when unset", () => {
     expect(normalizeAutoDjRepeat(undefined)).toEqual({
       enabled: true,
       maxPlays: 1,
-      cooldownHours: 12,
+      cooldownHours: 24,
     });
   });
 

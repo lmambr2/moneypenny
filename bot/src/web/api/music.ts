@@ -53,8 +53,8 @@ export interface MusicRouterOptions {
 }
 
 const MAX_SEARCH_LIMIT = 50;
-/** Library browse (empty local search) can be larger — UI uses a scroll panel. */
-const MAX_LIBRARY_LIST = 2000;
+/** Library browse (empty local search). 5511+ local files must not clip at 2000. */
+const MAX_LIBRARY_LIST = 50_000;
 
 function parseSearchLimit(raw: unknown, fallback = 20): number {
   const n = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
@@ -205,9 +205,13 @@ export function createMusicRouter(
   // Full local library list for the Library page scroll panel.
   router.get("/library", async (req, res) => {
     try {
-      const lim = parseLibraryLimit(req.query.limit, 2000);
+      const lim = parseLibraryLimit(req.query.limit, MAX_LIBRARY_LIST);
       const result = await localProvider.search("", lim);
-      res.json({ songs: result.songs ?? [], count: result.songs?.length ?? 0 });
+      let total = result.songs?.length ?? 0;
+      if ("getTrackCount" in localProvider && typeof localProvider.getTrackCount === "function") {
+        total = await localProvider.getTrackCount();
+      }
+      res.json({ songs: result.songs ?? [], count: result.songs?.length ?? 0, total });
     } catch (err) {
       logger.error({ err }, "Library list failed");
       res.status(500).json({ error: "internal error", code: "INTERNAL_ERROR" });

@@ -1,10 +1,17 @@
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as musicMetadata from "music-metadata";
 import type { TagStore } from "../radio/tag-store.js";
 import { tagsFromEmbeddedCommon } from "./embedded-tags.js";
+import {
+  isInLocalHourWindow,
+  type LocalHourWindow,
+  msUntilWindowCloses,
+  msUntilWindowOpens,
+} from "./enrich-window.js";
 import type {
   AuthStatus,
   LyricLine,
@@ -27,10 +34,30 @@ export interface LocalProviderOptions {
    * with source="embedded" (docs/radio.md §9.1). Never clobbers higher sources.
    */
   tagStore?: TagStore;
+  /**
+   * Persist ID3 title/artist/album/duration so daytime restarts do not re-parse.
+   * JSON next to the bot DB.
+   */
+  metadataCachePath?: string;
+  /**
+   * When set, ID3 parseFile only runs inside this local-hour window (default
+   * production: 02:00–07:00). Tests omit this so waitForMetadata still works.
+   */
+  enrichWindow?: LocalHourWindow;
+  now?: () => Date;
+  setTimeoutFn?: typeof setTimeout;
 }
 
 interface IndexedSong extends Song {
   absolutePath: string;
+}
+
+interface CachedMeta {
+  name: string;
+  artist: string;
+  album: string;
+  duration: number;
+  mtimeMs: number;
 }
 
 export class LocalProvider implements MusicProvider {
@@ -40,6 +67,9 @@ export class LocalProvider implements MusicProvider {
   private songs: IndexedSong[] = [];
   private indexed = false;
   private indexingPromise: Promise<void> | null = null;
+  private metadataPromise: Promise<void> | null = null;
+  /** Cached realpath of musicDir — avoid 5k realpath(musicDir) calls at index. */
+  private musicDirReal: string | null = null;
   // Opaque public ID -> real filesystem path. Keeps absolute paths out of every
   // field that crosses the API (audit F-2); getSongUrl resolves back through it.
   private idToPath = new Map<string, string>();
@@ -48,11 +78,22 @@ export class LocalProvider implements MusicProvider {
   private readonly supportedExtensions: Set<string>;
   private readonly excludedIds?: () => Set<string>;
   private readonly tagStore?: TagStore;
+  private readonly metadataCachePath?: string;
+  private readonly enrichWindow?: LocalHourWindow;
+  private readonly nowFn: () => Date;
+  private readonly setTimeoutFn: typeof setTimeout;
+  private metaCache = new Map<string, CachedMeta>();
+  private enrichTimer: ReturnType<typeof setTimeout> | null = null;
+  private enrichGeneration = 0;
 
   constructor(options: LocalProviderOptions) {
     this.musicDir = path.resolve(options.musicDir);
     this.excludedIds = options.excludedIds;
     this.tagStore = options.tagStore;
+    this.metadataCachePath = options.metadataCachePath;
+    this.enrichWindow = options.enrichWindow;
+    this.nowFn = options.now ?? (() => new Date());
+    this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
     this.supportedExtensions = new Set(
       (
         options.extensions ?? [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"]
@@ -75,7 +116,7 @@ export class LocalProvider implements MusicProvider {
     return createHash("sha1").update(realPath).digest("hex");
   }
 
-  private async ensureIndexed(): Promise<void> {
+  async ensureIndexed(): Promise<void> {
     if (this.indexed) return;
     if (this.indexingPromise) {
       await this.indexingPromise;
@@ -87,6 +128,12 @@ export class LocalProvider implements MusicProvider {
     this.indexed = true;
   }
 
+  /** Tests / tag seeding: wait until ID3 parse has caught up. */
+  async waitForMetadata(): Promise<void> {
+    await this.ensureIndexed();
+    if (this.metadataPromise) await this.metadataPromise;
+  }
+
   private async scanDirectory(): Promise<void> {
     this.songs = [];
     this.idToPath.clear();
@@ -94,10 +141,202 @@ export class LocalProvider implements MusicProvider {
     this.m3uPlaylists.clear();
     this.m3uSongs.clear();
     try {
-      await this.walk(this.musicDir);
-      console.log(`[LocalProvider] Indexed ${this.songs.length} tracks from ${this.musicDir}`);
+      this.musicDirReal = await fs.realpath(this.musicDir);
+      const files: string[] = [];
+      await this.collectAudioFiles(this.musicDir, files);
+      for (const p of files) await this.indexFileFast(p);
+      console.log(`[LocalProvider] Indexed ${this.songs.length} tracks from ${this.musicDir} (filename)`);
+      await this.loadAndApplyMetadataCache();
+      this.scheduleOrStartEnrich();
     } catch (err) {
       console.error("[LocalProvider] Failed to scan music directory:", err);
+    }
+  }
+
+  private async collectAudioFiles(dir: string, out: string[], depth = 0): Promise<void> {
+    if (depth > LocalProvider.MAX_WALK_DEPTH) return;
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        let st: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+          st = await fs.stat(fullPath);
+        } catch {
+          continue;
+        }
+        if (st.isFile()) out.push(fullPath);
+        continue;
+      }
+      if (entry.isDirectory()) {
+        await this.collectAudioFiles(fullPath, out, depth + 1);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (this.supportedExtensions.has(ext) || ext === ".m3u" || ext === ".m3u8") {
+          out.push(fullPath);
+        }
+      }
+    }
+  }
+
+  private async indexFileFast(absolutePath: string): Promise<void> {
+    const ext = path.extname(absolutePath).toLowerCase();
+    if (ext === ".m3u" || ext === ".m3u8") {
+      await this.indexM3uFile(absolutePath);
+      return;
+    }
+    if (!this.supportedExtensions.has(ext)) return;
+    try {
+      const realPath = await fs.realpath(absolutePath);
+      const realDir = this.musicDirReal ?? (await fs.realpath(this.musicDir));
+      if (!realPath.startsWith(realDir + path.sep) && realPath !== realDir) return;
+      const id = this.opaqueId(realPath);
+      this.idToPath.set(id, realPath);
+      const base = path.basename(realPath, path.extname(realPath));
+      this.songs.push({
+        id,
+        name: base,
+        artist: "Unknown Artist",
+        album: "Unknown Album",
+        duration: 0,
+        coverUrl: "",
+        platform: "local",
+        absolutePath: realPath,
+      });
+    } catch {
+      /* skip unreadable */
+    }
+  }
+
+  private shouldEnrichNow(): boolean {
+    if (!this.enrichWindow) return true;
+    return isInLocalHourWindow(this.nowFn(), this.enrichWindow);
+  }
+
+  private scheduleOrStartEnrich(): void {
+    if (this.enrichTimer) {
+      clearTimeout(this.enrichTimer);
+      this.enrichTimer = null;
+    }
+    const gen = ++this.enrichGeneration;
+    if (this.shouldEnrichNow()) {
+      this.metadataPromise = this.enrichMetadata(gen);
+      return;
+    }
+    this.armNightEnrich(gen);
+  }
+
+  private armNightEnrich(gen: number): void {
+    if (!this.enrichWindow) return;
+    if (this.enrichTimer) clearTimeout(this.enrichTimer);
+    const wait = msUntilWindowOpens(this.nowFn(), this.enrichWindow);
+    const hours = Math.max(0, wait / 3_600_000);
+    console.log(
+      `[LocalProvider] ID3 enrich deferred ${hours.toFixed(1)}h until ${String(this.enrichWindow.startHour).padStart(2, "0")}:00 local`,
+    );
+    this.enrichTimer = this.setTimeoutFn(() => {
+      if (gen !== this.enrichGeneration) return;
+      this.metadataPromise = this.enrichMetadata(gen);
+    }, wait);
+    this.enrichTimer.unref?.();
+  }
+
+  private async loadAndApplyMetadataCache(): Promise<void> {
+    const p = this.metadataCachePath;
+    if (!p) return;
+    try {
+      const raw = await fs.readFile(p, "utf8");
+      const parsed = JSON.parse(raw) as { v?: number; songs?: Record<string, CachedMeta> };
+      if (parsed.v !== 1 || !parsed.songs) return;
+      this.metaCache = new Map(Object.entries(parsed.songs));
+      for (const song of this.songs) {
+        const hit = this.metaCache.get(song.id);
+        if (!hit) continue;
+        song.name = hit.name || song.name;
+        song.artist = hit.artist || song.artist;
+        song.album = hit.album || song.album;
+        if (hit.duration > 0) song.duration = hit.duration;
+      }
+      console.log(`[LocalProvider] Applied ID3 cache (${this.metaCache.size} entries)`);
+    } catch {
+      /* missing or corrupt — filename stubs stay until overnight enrich */
+    }
+  }
+
+  private persistMetadataCache(): void {
+    const p = this.metadataCachePath;
+    if (!p) return;
+    try {
+      const songs: Record<string, CachedMeta> = {};
+      for (const [id, row] of this.metaCache) songs[id] = row;
+      const tmp = `${p}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify({ v: 1, songs }), "utf8");
+      renameSync(tmp, p);
+    } catch (err) {
+      console.warn("[LocalProvider] Failed to persist ID3 cache:", err);
+    }
+  }
+
+  private async enrichMetadata(gen: number): Promise<void> {
+    let i = 0;
+    let parsed = 0;
+    console.log(`[LocalProvider] ID3 enrich starting (${this.songs.length} tracks)`);
+    for (const song of this.songs) {
+      if (gen !== this.enrichGeneration) return;
+      if (this.enrichWindow && !isInLocalHourWindow(this.nowFn(), this.enrichWindow)) {
+        this.persistMetadataCache();
+        console.log(`[LocalProvider] ID3 enrich paused (outside 02:00–07:00); parsed ${parsed}`);
+        this.armNightEnrich(gen);
+        return;
+      }
+      try {
+        const st = await fs.stat(song.absolutePath);
+        const cached = this.metaCache.get(song.id);
+        if (cached && Math.abs(cached.mtimeMs - st.mtimeMs) < 2) {
+          continue;
+        }
+        const metadata = await musicMetadata.parseFile(song.absolutePath, {
+          duration: true,
+          skipCovers: true,
+        });
+        const common = metadata.common;
+        song.name = common.title || song.name;
+        song.artist = common.artist || common.albumartist || song.artist;
+        song.album = common.album || song.album;
+        song.duration = Math.round(metadata.format.duration || 0);
+        this.seedEmbeddedTags(song.id, common);
+        this.metaCache.set(song.id, {
+          name: song.name,
+          artist: song.artist,
+          album: song.album,
+          duration: song.duration,
+          mtimeMs: st.mtimeMs,
+        });
+        parsed++;
+      } catch {
+        /* keep filename stub */
+      }
+      i++;
+      if (i % 32 === 0) await new Promise<void>((r) => setImmediate(r));
+      if (parsed > 0 && parsed % 256 === 0) this.persistMetadataCache();
+    }
+    this.persistMetadataCache();
+    console.log(`[LocalProvider] Metadata enrich finished (${this.songs.length} tracks, parsed ${parsed})`);
+    if (this.enrichWindow) {
+      const now = this.nowFn();
+      if (isInLocalHourWindow(now, this.enrichWindow)) {
+        const wait = msUntilWindowCloses(now, this.enrichWindow) + 60_000;
+        if (this.enrichTimer) clearTimeout(this.enrichTimer);
+        this.enrichTimer = this.setTimeoutFn(() => this.armNightEnrich(gen), wait);
+        this.enrichTimer.unref?.();
+      } else {
+        this.armNightEnrich(gen);
+      }
     }
   }
 

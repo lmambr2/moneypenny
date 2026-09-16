@@ -73,7 +73,9 @@ export async function searchFirstWithFallback(
   const genreActive = blockedGenres === undefined || (blockedGenres?.length ?? 0) > 0;
   const blActive = !!blacklist;
   // Wide page: genre filters + YT dump filters burn through top hits quickly.
-  const fetchLimit = Math.max(limit, genreActive || blActive ? 16 : 8, 12);
+  // !play (limit 1) only needs a handful of YT hits — ytsearch16 is ~5s of lag.
+  const fetchLimit =
+    limit <= 1 ? 5 : Math.max(limit, genreActive || blActive ? 16 : 8, 12);
 
   const pick = (
     provider: MusicProvider,

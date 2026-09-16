@@ -316,6 +316,8 @@ export class BotManager extends EventEmitter {
       }
     }
 
+    const playbackState = oldBot.exportPlaybackState();
+
     // Always tear down the outgoing instance before creating a replacement.
     // Covers three cases:
     //   1. oldBot is fully connected (manual restart)
@@ -368,7 +370,17 @@ export class BotManager extends EventEmitter {
       });
       this.bots.set(id, bot);
       this.emit("botInstance", bot);
-      await connectWithTimeout(bot, 15_000, this.logger);
+      try {
+        await connectWithTimeout(bot, 15_000, this.logger);
+      } finally {
+        if (playbackState.queue.songs.length > 0) {
+          try {
+            await bot.importPlaybackState(playbackState);
+          } catch (err) {
+            this.logger.warn({ err, botId: id }, "Failed to restore queue after reconnect");
+          }
+        }
+      }
       const after = this.database.getBotInstances().find((i) => i.id === id);
       if (opts?.fromReconnect) {
         if (!after?.autoStart) {
@@ -439,19 +451,16 @@ export class BotManager extends EventEmitter {
 
       // Only auto-connect bots that have autoStart enabled
       if (saved.autoStart) {
-        bot
-          .connect()
-          .then(() => {
-            // Persist identity after successful connection for future restarts
-            this.persistBotIdentity(saved, bot);
-            this.logger.info({ botId: saved.id, name: saved.name }, "Auto-connected saved bot");
-          })
-          .catch((err) => {
-            this.logger.error(
-              { err, botId: saved.id, name: saved.name },
-              "Failed to auto-connect bot (start manually from Settings)",
-            );
-          });
+        try {
+          await connectWithTimeout(bot, 15_000, this.logger);
+          this.persistBotIdentity(saved, bot);
+          this.logger.info({ botId: saved.id, name: saved.name }, "Auto-connected saved bot");
+        } catch (err) {
+          this.logger.error(
+            { err, botId: saved.id, name: saved.name },
+            "Failed to auto-connect bot (watchdog will retry)",
+          );
+        }
 
         // Stagger connections to avoid overwhelming the TS server
         await new Promise((resolve) => setTimeout(resolve, 1000));

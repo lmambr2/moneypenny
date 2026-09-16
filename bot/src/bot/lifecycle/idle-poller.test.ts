@@ -86,4 +86,28 @@ describe("IdlePoller", () => {
     expect(onDisconnect).not.toHaveBeenCalled();
     poller.stop();
   });
+
+  it("does not treat a clientlist timeout as an empty channel", async () => {
+    const onDisconnect = vi.fn();
+    const onPoll = vi.fn();
+    const poller = new IdlePoller({
+      config: { idleTimeoutMinutes: 1 } as any,
+      logger: { info: vi.fn() } as any,
+      tsClient: {
+        getClientId: () => 1,
+        getClientsInChannel: vi.fn().mockRejectedValue(new Error("command timeout: clientlist")),
+      },
+      isConnected: () => true,
+      onDisconnect,
+      onPoll,
+      pollIntervalMs: 1000,
+    });
+
+    poller.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onPoll).not.toHaveBeenCalled();
+    expect(onDisconnect).not.toHaveBeenCalled();
+    poller.stop();
+  });
 });

@@ -54,6 +54,21 @@ export function filterClientsInChannel<T extends { id?: number; channelID?: unkn
   return all.filter((c) => sameChannelId(c.channelID, myChannelId));
 }
 
+/**
+ * A successful clientlist plus unknown own cid must not look like an empty
+ * channel (radio alone-stop / idle disconnect). Throw so callers keep last known presence.
+ */
+export function assertKnownChannelPresence<T>(
+  all: T[],
+  inChannel: T[],
+  myChannelId: bigint,
+): T[] {
+  if (myChannelId === 0n && all.length > 0) {
+    throw new Error("own channel id unknown; refusing empty presence");
+  }
+  return inChannel;
+}
+
 /** A channel and how many humans are sitting in it. */
 export interface ChannelPopulation {
   channelId: bigint;

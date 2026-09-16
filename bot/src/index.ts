@@ -15,6 +15,12 @@ import { initWorkOrderStore } from "./economy/work-orders.js";
 import { createWebServer } from "./http/index.js";
 import { warmLlmModels } from "./llm/warmup.js";
 import { createLogger } from "./logger.js";
+import {
+  isInLocalHourWindow,
+  msUntilWindowCloses,
+  msUntilWindowOpens,
+  NIGHT_INDEX_WINDOW,
+} from "./music/enrich-window.js";
 import { LocalProvider } from "./music/local.js";
 import { PlaybackBlacklist } from "./music/playback-blacklist.js";
 import { StreamProvider } from "./music/stream.js";
@@ -134,7 +140,11 @@ async function main() {
     musicDir,
     excludedIds: () => tagStore.bumperKeySet(), // hide bumper-flagged assets from music search (§9.2)
     tagStore, // seed genre/BPM/key from embedded ID3 on index/refresh (§9.1)
+    metadataCachePath: path.join(DATA_DIR, "local-metadata.json"),
+    enrichWindow: NIGHT_INDEX_WINDOW,
   });
+  // Filename index in the background so the first !play is not stalled on ID3.
+  void localProvider.ensureIndexed();
   const youtubeProvider = new YouTubeProvider();
   const streamProvider = new StreamProvider({
     // Default / Settings bridge (historically one URL for both services).
@@ -155,14 +165,33 @@ async function main() {
     logger,
   });
   if (config.radio.analyzer?.enabled) {
-    void (async () => {
+    const runAnalyzer = async () => {
       try {
         const res = await radioAnalyzer.analyzeAll(await localProvider.listForAnalysis());
-        logger.info(res, "radio analyzer: startup pass complete");
+        logger.info(res, "radio analyzer: night pass complete");
       } catch (err) {
-        logger.warn({ err }, "radio analyzer: startup pass failed");
+        logger.warn({ err }, "radio analyzer: night pass failed");
       }
-    })();
+    };
+    const armAnalyzer = () => {
+      const wait = msUntilWindowOpens(new Date(), NIGHT_INDEX_WINDOW);
+      if (wait > 0) {
+        logger.info(
+          { waitHours: +(wait / 3_600_000).toFixed(1), window: "02:00-07:00" },
+          "radio analyzer deferred until night window",
+        );
+      }
+      setTimeout(() => {
+        void runAnalyzer().finally(() => {
+          const now = new Date();
+          const untilClose = isInLocalHourWindow(now, NIGHT_INDEX_WINDOW)
+            ? msUntilWindowCloses(now, NIGHT_INDEX_WINDOW) + 60_000
+            : 60_000;
+          setTimeout(armAnalyzer, untilClose);
+        });
+      }, wait);
+    };
+    armAnalyzer();
   }
 
   // Retrieval / RAG substrate (ROADMAP Phase 5). Off unless ragEnabled. Endpoint

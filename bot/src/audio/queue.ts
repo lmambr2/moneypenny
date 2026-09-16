@@ -343,4 +343,37 @@ export class PlayQueue {
   unplayedCount(): number {
     return this.songs.length - this.playedIndices.size;
   }
+
+  /**
+   * Copy queue + playhead for reconnect. Drops resolved `url` so YouTube CDN
+   * hops are re-fetched instead of reused after a session rebuild.
+   */
+  snapshot(): PlayQueueSnapshot {
+    return {
+      songs: this.songs.map(({ url: _url, ...rest }) => ({ ...rest })),
+      currentIndex: this.currentIndex,
+      mode: this.mode,
+      playedIndices: [...this.playedIndices],
+      history: [...this.history],
+      forwardStack: [...this.forwardStack],
+    };
+  }
+
+  restore(snap: PlayQueueSnapshot): void {
+    this.songs = snap.songs.map((s) => ({ ...s }));
+    this.currentIndex = snap.currentIndex;
+    this.mode = snap.mode;
+    this.playedIndices = new Set(snap.playedIndices);
+    this.history = [...snap.history];
+    this.forwardStack = [...snap.forwardStack];
+  }
+}
+
+export interface PlayQueueSnapshot {
+  songs: QueuedSong[];
+  currentIndex: number;
+  mode: PlayMode;
+  playedIndices: number[];
+  history: number[];
+  forwardStack: number[];
 }

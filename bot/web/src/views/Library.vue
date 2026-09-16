@@ -6,7 +6,7 @@
     <section class="section">
       <h2 class="section-title">
         Local Music Library
-        <span v-if="libraryTracks.length > 0" class="section-count">{{ libraryTracks.length }}</span>
+        <span v-if="libraryTotal > 0" class="section-count">{{ libraryTotal }}</span>
       </h2>
 
       <!-- Upload from web UI (admin only; non-admins get 403 which is toasted).
@@ -116,7 +116,7 @@
             placeholder="Filter by title, artist, or album…"
           />
           <span class="library-filter-count">
-            {{ filteredLibraryTracks.length }} / {{ libraryTracks.length }}
+            {{ filteredLibraryTracks.length }} / {{ libraryTotal }}
           </span>
         </div>
         <div v-if="filteredLibraryTracks.length === 0" class="empty">
@@ -671,6 +671,7 @@ async function runGenerate() {
 
 /** Full local library for the scrollable Library panel (not the Home recent sample). */
 const libraryTracks = ref<Song[]>([]);
+const libraryTotal = ref(0);
 const libraryLoading = ref(true);
 const libraryFilter = ref('');
 const filteredLibraryTracks = computed(() => {
@@ -687,16 +688,18 @@ const filteredLibraryTracks = computed(() => {
 async function loadLibraryTracks() {
   libraryLoading.value = true;
   try {
-    const res = await api.get('/api/music/library', { params: { limit: 2000 } });
+    const res = await api.get('/api/music/library', { params: { limit: 50000 } });
     libraryTracks.value = res.data?.songs ?? [];
+    libraryTotal.value = Number(res.data?.total) || libraryTracks.value.length;
     // Keep Home/recent sample in sync with first slice when empty or after refresh.
     if (libraryTracks.value.length) {
       store.localRecent = libraryTracks.value.slice(0, 20);
-      store.localTrackCount = libraryTracks.value.length;
+      store.localTrackCount = libraryTotal.value;
     }
   } catch {
     // Fall back to the small home sample so the page is not empty.
     libraryTracks.value = [...(store.localRecent || [])];
+    libraryTotal.value = store.localTrackCount || libraryTracks.value.length;
   } finally {
     libraryLoading.value = false;
   }

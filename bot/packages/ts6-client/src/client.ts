@@ -23,6 +23,7 @@ import {
 } from "@honeybbq/teamspeak-client";
 import {
   asChannelId,
+  assertKnownChannelPresence,
   filterClientsInChannel,
   resolveOwnChannelId as resolveOwnChannelIdPure,
 } from "./channel-presence.js";
@@ -623,13 +624,16 @@ export class TS3Client extends EventEmitter {
           "getClientsInChannel: empty after channel filter (presence may be wrong)",
         );
       }
+      inChannel = assertKnownChannelPresence(allClients, inChannel, myChannelId);
       if (this.httpQuery && inChannel.length > 0) {
         inChannel = await this.enrichClientServerGroups(inChannel);
       }
       return inChannel;
     } catch (err) {
+      // Must throw: returning [] made radio/idle treat a timeout as "only the bot
+      // left" (stop music, clear queue, disconnect) while humans were still there.
       this.logger.warn({ err }, "getClientsInChannel failed");
-      return [];
+      throw err;
     }
   }
 
@@ -646,7 +650,7 @@ export class TS3Client extends EventEmitter {
       return await listClients(this.client);
     } catch (err) {
       this.logger.warn({ err }, "getAllClients failed");
-      return [];
+      throw err;
     }
   }
 
@@ -684,6 +688,7 @@ export class TS3Client extends EventEmitter {
    * HTTP Query `clientlist?sid=N&-groups` endpoint returns them.
    */
   private async enrichClientServerGroups(clients: ClientInfo[]): Promise<ClientInfo[]> {
+    if (this.httpQuery!.isCoolingDown()) return clients;
     const sid = this.options.virtualServerId ?? 1;
     try {
       const res = await this.httpQuery!.clientListWithGroups(sid);
@@ -773,10 +778,12 @@ export class TS3Client extends EventEmitter {
       );
       return [];
     }
+    if (q.isCoolingDown()) return [];
     try {
+      const sid = this.options.virtualServerId ?? 1;
       const res = await q.request(
         "GET",
-        `/1/ftgetfilelist?sid=1&cid=${channelID}&cpw=&path=${encodeURIComponent(path)}`,
+        `/${sid}/ftgetfilelist?sid=${sid}&cid=${channelID}&cpw=&path=${encodeURIComponent(path)}`,
       );
       const files = parseFtFileList(extractFileRows(res.body));
       this.logger.debug(
@@ -878,14 +885,25 @@ export class TS3Client extends EventEmitter {
     if (!this.client) return [];
     const myClid = this.clientId;
 
+    let allClients: ClientInfo[];
     try {
-      // Prefer full-client clientlist so we can resolve our channel from self-row.
-      const allClients = await listClients(this.client);
-      const myChannelId = await this.resolveOwnChannelId(allClients);
-      const myCidNum = Number(myChannelId);
+      allClients = await listClients(this.client);
+    } catch (err) {
+      this.logger.warn({ err }, "listClientsInCurrentChannel failed");
+      return [];
+    }
+    const myChannelId = await this.resolveOwnChannelId(allClients);
+    const myCidNum = Number(myChannelId);
+    const fromFullClient = (): QueryClient[] =>
+      parseClientRows(
+        filterClientsInChannel(allClients, myChannelId)
+          .filter((c) => c.id !== myClid)
+          .map((c) => ({ clid: String(c.id), client_nickname: c.nickname })),
+      );
 
-      const httpQuery = this.httpQuery;
-      if (httpQuery && myCidNum > 0) {
+    const httpQuery = this.httpQuery;
+    if (httpQuery && myCidNum > 0 && !httpQuery.isCoolingDown()) {
+      try {
         const res = await httpQuery.clientList();
         const rows = extractQueryRows(res.body);
         const out: QueryClient[] = [];
@@ -897,18 +915,16 @@ export class TS3Client extends EventEmitter {
           if (cid !== myCidNum || clid === myClid) continue;
           out.push({ clid, nickname });
         }
-        if (out.length > 0 || myCidNum > 0) return out;
+        if (out.length > 0) return out;
+      } catch (err) {
+        this.logger.warn(
+          { err },
+          "listClientsInCurrentChannel query failed — using full-client list",
+        );
       }
-
-      return parseClientRows(
-        filterClientsInChannel(allClients, myChannelId)
-          .filter((c) => c.id !== myClid)
-          .map((c) => ({ clid: String(c.id), client_nickname: c.nickname })),
-      );
-    } catch (err) {
-      this.logger.warn({ err }, "listClientsInCurrentChannel failed");
-      return [];
     }
+
+    return fromFullClient();
   }
 
   /** The server host (needed for file transfer TCP connections). */

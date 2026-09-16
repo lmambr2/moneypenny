@@ -67,6 +67,15 @@ describe("tool-map (PR-A3)", () => {
     expect(sourceFlags("auto").size).toBe(0);
   });
 
+  it("queue with youtube source sets the -y flag", () => {
+    const cmd = toolCallToCommand({
+      name: "queue",
+      arguments: { query: "Faithfully", source: "youtube" },
+    });
+    expect(cmd?.name).toBe("add");
+    expect(cmd?.flags.has("y")).toBe(true);
+  });
+
   it("play_music with stream source sets the -s flag (not local default)", () => {
     const cmd = toolCallToCommand({
       name: "play_music",

@@ -9,6 +9,10 @@ import {
   buildFfmpegArgs,
   classifyStall,
   cleanupTempDir,
+  decideStallAction,
+  isNearEndOfTrack,
+  lateFrameDropCount,
+  MAX_STALL_RESUMES,
   MIN_STALL_GRACE_SEC,
   STARTUP_STALL_SEC,
 } from "./player.js";
@@ -25,6 +29,13 @@ describe("buildFfmpegArgs", () => {
     const url = "https://example.com/song.mp3";
     const args = buildFfmpegArgs(url, 0);
     expect(args).not.toContain("-headers");
+  });
+
+  it("quiets stderr so unread stats cannot deadlock ffmpeg", () => {
+    const args = buildFfmpegArgs("/tmp/song.mp3", 0);
+    expect(args).toContain("-nostats");
+    expect(args).toContain("-hide_banner");
+    expect(args[args.indexOf("-loglevel") + 1]).toBe("error");
   });
 
   it("includes resilient reconnect flags for all URLs", () => {
@@ -85,6 +96,33 @@ describe("buildFfmpegArgs", () => {
   it("omits -af when filter is empty", () => {
     expect(buildFfmpegArgs("/tmp/a.mp3", 0, { audioFilter: "  " })).not.toContain("-af");
     expect(buildFfmpegArgs("/tmp/a.mp3", 0)).not.toContain("-af");
+  });
+});
+
+describe("lateFrameDropCount", () => {
+  it("does not drop when on time or one frame late", () => {
+    expect(lateFrameDropCount(0)).toBe(0);
+    expect(lateFrameDropCount(20)).toBe(0);
+    expect(lateFrameDropCount(40)).toBe(0);
+    expect(lateFrameDropCount(41)).toBe(1);
+  });
+
+  it("drops extra frames when the loop is hundreds of ms behind", () => {
+    expect(lateFrameDropCount(200)).toBe(9);
+    expect(lateFrameDropCount(10_000)).toBe(50);
+  });
+});
+
+describe("isNearEndOfTrack", () => {
+  it("is false when duration is unknown", () => {
+    expect(isNearEndOfTrack(0, 45)).toBe(false);
+    expect(isNearEndOfTrack(0, 600)).toBe(false);
+  });
+
+  it("is true only in the last 5s of a known-length track", () => {
+    expect(isNearEndOfTrack(180, 170)).toBe(false);
+    expect(isNearEndOfTrack(180, 175)).toBe(true);
+    expect(isNearEndOfTrack(180, 180)).toBe(true);
   });
 });
 
@@ -169,6 +207,55 @@ describe("classifyStall (audit A1)", () => {
         hasDecodedAudio: true,
       }),
     ).toBe("continue");
+  });
+
+  it("resumes a mid-track stall instead of skipping the song", () => {
+    expect(
+      decideStallAction({
+        verdict: "mid_track_stall",
+        stallResumes: 0,
+        remainingSec: 90,
+        hasUrl: true,
+      }),
+    ).toBe("resume");
+  });
+
+  it("resumes when duration is unknown (YouTube duration 0)", () => {
+    expect(
+      decideStallAction({
+        verdict: "mid_track_stall",
+        stallResumes: 0,
+        remainingSec: Number.POSITIVE_INFINITY,
+        hasUrl: true,
+      }),
+    ).toBe("resume");
+  });
+
+  it("ends after too many stall resumes or when the song is almost over", () => {
+    expect(
+      decideStallAction({
+        verdict: "mid_track_stall",
+        stallResumes: MAX_STALL_RESUMES,
+        remainingSec: 90,
+        hasUrl: true,
+      }),
+    ).toBe("end");
+    expect(
+      decideStallAction({
+        verdict: "mid_track_stall",
+        stallResumes: 0,
+        remainingSec: 5,
+        hasUrl: true,
+      }),
+    ).toBe("end");
+    expect(
+      decideStallAction({
+        verdict: "near_end_stall",
+        stallResumes: 0,
+        remainingSec: 90,
+        hasUrl: true,
+      }),
+    ).toBe("end");
   });
 
   it("prefers the near-end verdict when both conditions hold", () => {

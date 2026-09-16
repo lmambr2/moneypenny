@@ -129,7 +129,7 @@ export interface RadioConfig {
    * Auto-DJ play-count cooldown (dead-air restock / profile program only).
    * If a song was played `maxPlays`+ times within the last `cooldownHours`,
    * it is skipped when building the radio pool. Manual !play is unaffected.
-   * Default: maxPlays 1, cooldownHours 12 (once played → out for 12h).
+   * Default: maxPlays 1, cooldownHours 24 (once played → out for 24h).
    */
   autoDjRepeat?: {
     enabled?: boolean;
@@ -235,7 +235,7 @@ export function defaultRadioConfig(): RadioConfig {
       },
     },
     ratingWeight: { enabled: true, exponent: 1, maxRatio: 3 },
-    autoDjRepeat: { enabled: true, maxPlays: 1, cooldownHours: 12 },
+    autoDjRepeat: { enabled: true, maxPlays: 1, cooldownHours: 24 },
     harmonicSequencing: false,
     // Separation + energy bias on for Auto-DJ; no-ops when meta is missing.
     smartRotation: {

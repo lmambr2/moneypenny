@@ -1,5 +1,6 @@
 import http from "node:http";
 import https from "node:https";
+import { QueryCooldown } from "./query-cooldown.js";
 
 export interface HttpQueryOptions {
   host: string;
@@ -72,6 +73,7 @@ export class HttpQueryError extends Error {
  */
 export class TS6HttpQuery {
   private options: Required<HttpQueryOptions>;
+  private cooldown = new QueryCooldown();
 
   constructor(options: HttpQueryOptions) {
     this.options = {
@@ -84,7 +86,31 @@ export class TS6HttpQuery {
     };
   }
 
+  isCoolingDown(): boolean {
+    return this.cooldown.active;
+  }
+
   async request(
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<HttpQueryResult> {
+    if (this.cooldown.active) {
+      throw new Error("TS6 HTTP Query cooldown");
+    }
+    try {
+      const result = await this.requestOnce(method, path, body);
+      if (result.status === 401 || result.status === 403) {
+        this.cooldown.noteFailure(new Error(`${result.status} unauthorized`));
+      }
+      return result;
+    } catch (err) {
+      this.cooldown.noteFailure(err);
+      throw err;
+    }
+  }
+
+  private requestOnce(
     method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: Record<string, unknown>,

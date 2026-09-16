@@ -104,10 +104,33 @@ export class RadioDirector {
    * would kill the first play mid-flight.
    */
   private autoProgramInFlight = false;
+  /**
+   * !play / !test own the channel until this timestamp. Dead-air restock would
+   * otherwise jump to a seed (AC/DC) when a YouTube stream underruns mid-track.
+   */
+  private suppressAutoProgramUntil = 0;
   /** Last bumper that actually started playing — used by `!radio pin` (§6.5). */
   private lastPlayed: LastPlayedBumper | null = null;
 
   constructor(private deps: RadioDirectorDeps) {}
+
+  /**
+   * Operator asked for a specific song. Cancel pending dead-air restock and
+   * hold auto-DJ until the requested track should have finished.
+   */
+  noteUserPlayback(durationSec?: number): void {
+    this.cancelDeadAir();
+    const holdSec =
+      typeof durationSec === "number" && Number.isFinite(durationSec) && durationSec > 0
+        ? durationSec + 15
+        : 4 * 60;
+    this.suppressAutoProgramUntil = this.now() + holdSec * 1000;
+    this.deps.logger.info({ holdSec }, "radio: holding auto-program for user playback");
+  }
+
+  private autoProgramSuppressed(): boolean {
+    return this.now() < this.suppressAutoProgramUntil;
+  }
 
   private now(): number {
     return (this.deps.now ?? Date.now)();
@@ -450,6 +473,16 @@ export class RadioDirector {
       }
     }
     // With empty-stop on: only auto-program when someone is present.
+    // User !play/!test holds restock so a mid-track YouTube underrun cannot
+    // replace their song with a seed (lobby hard-rock → AC/DC).
+    if (this.autoProgramSuppressed()) {
+      const wait = Math.max(1, this.suppressAutoProgramUntil - this.now());
+      this.deadAirHandle = this.setTimer(() => {
+        void this.fillDeadAir();
+      }, wait);
+      this.deps.logger.info({ waitMs: wait }, "radio: dead air deferred — user playback hold");
+      return;
+    }
     if (allowRestock && (await this.tryAutoProgram())) return;
     // Re-arm when we might still want fill (listeners, or legacy keep-playing).
     if (anyonePresent || this.emptyStopSeconds(cfg) < 0) this.armDeadAir();
@@ -543,6 +576,7 @@ export class RadioDirector {
     if (!this.deps.autoProgram) return false;
     if (this.autoProgramInFlight) return false;
     if (this.deps.isUserPaused?.()) return false;
+    if (this.autoProgramSuppressed()) return false;
     const cfg = this.deps.getConfig();
     // Don't restock when alone (unless alone-stop disabled).
     if (this.emptyStopSeconds(cfg) >= 0 && this.aloneHumanCount() < 1) {

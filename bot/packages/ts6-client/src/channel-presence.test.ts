@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   asChannelId,
+  assertKnownChannelPresence,
   filterClientsInChannel,
   resolveOwnChannelId,
   sameChannelId,
@@ -70,5 +71,14 @@ describe("filterClientsInChannel", () => {
         .map((c) => c.id)
         .sort(),
     ).toEqual([48, 54, 58]);
+  });
+
+  it("refuses to treat unknown own cid as an empty channel", () => {
+    const all = [
+      { id: 1, channelID: 770n },
+      { id: 2, channelID: 770n },
+    ];
+    expect(() => assertKnownChannelPresence(all, [], 0n)).toThrow(/own channel id unknown/);
+    expect(assertKnownChannelPresence(all, all, 770n)).toEqual(all);
   });
 });

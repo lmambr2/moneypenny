@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { dirname, isAbsolute, join } from "node:path";
 import { TS3Client, type TS3ClientOptions, type TS3TextMessage } from "@moneypenny/ts6-client";
 import { AudioPlayer } from "../audio/player.js";
-import { type PlayMode, PlayQueue, type QueuedSong } from "../audio/queue.js";
+import { type PlayMode, PlayQueue, type PlayQueueSnapshot, type QueuedSong } from "../audio/queue.js";
 import { registerBotCommandHandlers } from "../control/register-handlers.js";
 import { ControlRouter } from "../control/router.js";
 import type { AvatarStore } from "../data/avatars.js";
@@ -453,6 +453,7 @@ export class BotInstance extends EventEmitter {
         getLastPlayedBumper: () => this.radio.getLastPlayedBumper(),
         onTrackBoundary: () => this.radio.onTrackBoundary(),
         status: () => this.radio.status(),
+        noteUserPlayback: (durationSec) => this.radio.noteUserPlayback(durationSec),
       },
       speakRadioStatus: () => this.speakRadioStatus(),
       getBumperDir: () => this.resolveBumperDir(dirname(this.database.db.name)),
@@ -1568,8 +1569,41 @@ export class BotInstance extends EventEmitter {
     this.playback.setVolume(volume);
   }
 
-  async resolveAndPlay(song: QueuedSong): Promise<boolean> {
-    return this.playback.resolveAndPlay(song);
+  async resolveAndPlay(
+    song: QueuedSong,
+    opts?: { seekSeconds?: number; skipHistory?: boolean },
+  ): Promise<boolean> {
+    return this.playback.resolveAndPlay(song, opts);
+  }
+
+  /** Queue + playhead for watchdog/startBot rebuild (new BotInstance, empty queue). */
+  exportPlaybackState(): {
+    queue: PlayQueueSnapshot;
+    elapsed: number;
+    playing: boolean;
+  } {
+    const state = this.player.getState();
+    return {
+      queue: this.queue.snapshot(),
+      elapsed: this.player.getElapsed(),
+      playing: state === "playing" || state === "paused",
+    };
+  }
+
+  async importPlaybackState(state: {
+    queue: PlayQueueSnapshot;
+    elapsed: number;
+    playing: boolean;
+  }): Promise<void> {
+    if (!state.queue.songs.length) return;
+    this.queue.restore(state.queue);
+    const song = this.queue.current();
+    if (!song || !state.playing || !this.connected) return;
+    this.player.resetFailures();
+    await this.playback.resolveAndPlay(song, {
+      seekSeconds: Math.max(0, Math.floor(state.elapsed)),
+      skipHistory: true,
+    });
   }
 
   /**

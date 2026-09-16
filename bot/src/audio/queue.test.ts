@@ -21,6 +21,21 @@ describe("PlayQueue", () => {
     queue = new PlayQueue();
   });
 
+  it("snapshot drops resolved urls and restore replays the playhead", () => {
+    queue.add(makeSong("1", "A"));
+    queue.add(makeSong("2", "B"));
+    queue.playAt(1);
+    const snap = queue.snapshot();
+    expect(snap.songs.every((s) => s.url === undefined)).toBe(true);
+    expect(snap.currentIndex).toBe(1);
+
+    const other = new PlayQueue();
+    other.restore(snap);
+    expect(other.current()?.id).toBe("2");
+    expect(other.size()).toBe(2);
+    expect(other.getMode()).toBe(queue.getMode());
+  });
+
   it("starts empty", () => {
     expect(queue.isEmpty()).toBe(true);
     expect(queue.current()).toBeNull();

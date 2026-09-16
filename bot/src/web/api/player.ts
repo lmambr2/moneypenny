@@ -111,7 +111,11 @@ export function createPlayerRouter(
     res: Response,
     command: string,
   ): Promise<boolean> => {
-    if (!req.user || (await bot.canWebUserRunCommand(req.user, command))) return true;
+    if (!req.user) {
+      permissionDenied(res, "Not authenticated.");
+      return false;
+    }
+    if (await bot.canWebUserRunCommand(req.user, command)) return true;
     logger.info(
       {
         surface: "web",
@@ -128,6 +132,15 @@ export function createPlayerRouter(
     );
     permissionDenied(res, `You don't have permission to use '${command}'.`);
     return false;
+  };
+
+  const denyIfDemoLocked = async (
+    bot: BotInstance,
+    req: Request,
+    res: Response,
+  ): Promise<boolean> => {
+    if (typeof bot.isDemoTestPlaying !== "function" || !bot.isDemoTestPlaying()) return true;
+    return denyUnless(bot, req, res, "test.skip");
   };
 
   const logPlayerApi = (
@@ -303,6 +316,7 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       if (!(await denyUnless(bot, req, res, "play"))) return;
+      if (!(await denyIfDemoLocked(bot, req, res))) return;
       const { index } = req.body;
       if (typeof index !== "number" || index < 0) {
         res.status(400).json({ error: "index is required", code: "VALIDATION_ERROR" });
@@ -343,7 +357,11 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       const { playlistId, platform } = req.body;
-      const cmd = parseCommand(`!playlist ${platformFlag(platform)} ${playlistId}`.trim(), "!")!;
+      if (typeof playlistId !== "string" || !playlistId.trim()) {
+        res.status(400).json({ error: "playlistId is required", code: "VALIDATION_ERROR" });
+        return;
+      }
+      const cmd = parseCommand(`!playlist ${platformFlag(platform)} ${playlistId.trim()}`.trim(), "!")!;
       await runRoutedCommand(bot, req, res, cmd);
     } catch (err) {
       logger.error({ err }, "Player API error");
@@ -359,21 +377,26 @@ export function createPlayerRouter(
       // Replacing the live queue is disruptive — require clear + playlist rights (F7).
       if (!(await denyUnless(bot, req, res, "playlist"))) return;
       if (!(await denyUnless(bot, req, res, "clear"))) return;
+      if (!(await denyIfDemoLocked(bot, req, res))) return;
       const { playlistId, platform } = req.body;
+      if (typeof playlistId !== "string" || !playlistId.trim()) {
+        res.status(400).json({ error: "playlistId is required", code: "VALIDATION_ERROR" });
+        return;
+      }
       const plat = parsePlatformOrDefault(platform, res);
       if (!plat) return;
       // Use the bot's own provider lookup — it already knows about youtube,
       // which the router's constructor params did not.
       const provider = bot.getProviderFor(plat);
 
-      bot.getPlayer().stop();
-      bot.getPlayer().resetFailures();
-
-      const songs = await provider.getPlaylistSongs(playlistId);
+      const songs = await provider.getPlaylistSongs(playlistId.trim());
       if (songs.length === 0) {
         res.json({ message: "Playlist is empty" });
         return;
       }
+
+      bot.getPlayer().stop();
+      bot.getPlayer().resetFailures();
 
       const { started, playing, count } = await loadAndPlay(bot, songs, provider.platform);
       const loadedMsg = `${count} tracks loaded`;
@@ -394,19 +417,24 @@ export function createPlayerRouter(
       const bot = requireBot(req);
       if (!(await denyUnless(bot, req, res, "album"))) return;
       if (!(await denyUnless(bot, req, res, "clear"))) return;
+      if (!(await denyIfDemoLocked(bot, req, res))) return;
       const { albumId, platform } = req.body;
+      if (typeof albumId !== "string" || !albumId.trim()) {
+        res.status(400).json({ error: "albumId is required", code: "VALIDATION_ERROR" });
+        return;
+      }
       const plat = parsePlatformOrDefault(platform, res);
       if (!plat) return;
       const provider = bot.getProviderFor(plat);
 
-      bot.getPlayer().stop();
-      bot.getPlayer().resetFailures();
-
-      const songs = await provider.getAlbumSongs(albumId);
+      const songs = await provider.getAlbumSongs(albumId.trim());
       if (songs.length === 0) {
         res.json({ message: "Album is empty" });
         return;
       }
+
+      bot.getPlayer().stop();
+      bot.getPlayer().resetFailures();
 
       const { started, playing, count } = await loadAndPlay(bot, songs, provider.platform);
       const loadedMsg = `${count} tracks loaded`;
@@ -426,6 +454,7 @@ export function createPlayerRouter(
     try {
       const bot = requireBot(req);
       if (!(await denyUnless(bot, req, res, "play"))) return;
+      if (!(await denyIfDemoLocked(bot, req, res))) return;
       // clear-queue semantics when something is already playing
       const player = bot.getPlayer() as { getState?: () => string };
       const queue = bot.getQueueManager() as { size?: () => number };

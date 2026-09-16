@@ -21,7 +21,7 @@ export interface RadioProfileEdit {
 }
 
 /** Display rounding of the bot default ⅔ external ratio. */
-export const DEFAULT_SEED_EXTERNAL_PCT = Math.round((2 / 3) * 100);
+export const DEFAULT_SEED_EXTERNAL_PCT = 20;
 
 export function emptyRadioProfileEdit(name: string): RadioProfileEdit {
   return {
@@ -117,7 +117,7 @@ export function profileFromApi(key: string, raw: unknown): RadioProfileEdit {
   const extRatio =
     typeof music.seedExternalRatio === 'number' && Number.isFinite(music.seedExternalRatio)
       ? music.seedExternalRatio
-      : 2 / 3;
+      : 0.2;
   return {
     name: typeof p.name === 'string' && p.name.trim() ? p.name : key,
     seedQueriesText: linesToText(music.seedQueries),

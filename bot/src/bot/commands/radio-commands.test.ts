@@ -183,6 +183,18 @@ describe("mixLocalAndExternalSeeds", () => {
     ).toHaveLength(5);
   });
 
+  it("default 20% external yields about one in five YouTube tracks", () => {
+    const out = mixLocalAndExternalSeeds(local(40), ext(40), {
+      ...noShuffle,
+      externalRatio: 0.2,
+      cap: 20,
+    });
+    expect(out).toHaveLength(20);
+    const externals = out.filter((s) => s.platform === "youtube").length;
+    expect(externals).toBeGreaterThanOrEqual(3);
+    expect(externals).toBeLessThanOrEqual(5);
+  });
+
   it("mixes both sides toward the ratio when both are plentiful", () => {
     const out = mixLocalAndExternalSeeds(local(20), ext(20), {
       ...noShuffle,

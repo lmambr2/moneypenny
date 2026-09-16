@@ -18,6 +18,7 @@ function makeExecutor(
     profileManager: {} as any,
     tsClient: {
       getClientsInChannel: vi.fn(),
+      getAllClients: vi.fn(async () => []),
       joinChannel: vi.fn(),
       getClientChannelId: vi.fn(),
       getChannelId: vi.fn(() => 0n),

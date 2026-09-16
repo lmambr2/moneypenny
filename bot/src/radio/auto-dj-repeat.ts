@@ -13,7 +13,7 @@ export type AutoDjRepeatPolicy = {
    * Example: maxPlays=3 → first two plays still allow auto-DJ; third blocks.
    */
   maxPlays?: number;
-  /** Rolling window length in hours (default 12). */
+  /** Rolling window length in hours (default 24). */
   cooldownHours?: number;
 };
 
@@ -26,7 +26,7 @@ export type NormalizedAutoDjRepeat = {
 export const DEFAULT_AUTO_DJ_REPEAT: NormalizedAutoDjRepeat = {
   enabled: true,
   maxPlays: 1,
-  cooldownHours: 12,
+  cooldownHours: 24,
 };
 
 /** Normalize config; invalid/missing numbers fall back to defaults. */

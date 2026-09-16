@@ -77,6 +77,11 @@ export function buildFfmpegArgs(
   const args: string[] = [];
   const isHttp = /^https?:\/\//i.test(url);
 
+  // Default ffmpeg writes stats to stderr every 0.5s. If stderr is piped and
+  // unread, the OS pipe fills and ffmpeg blocks — stdout PCM dies and the
+  // player reports mid_track_stall partway through the song.
+  args.push("-hide_banner", "-nostats", "-loglevel", "error");
+
   if (isHttp) {
     args.push(
       "-reconnect",
@@ -111,6 +116,34 @@ export function buildFfmpegArgs(
 }
 
 export type StallVerdict = "continue" | "near_end_stall" | "mid_track_stall";
+export type StallAction = "continue" | "resume" | "end";
+
+/** Seek-resume a stalled song this many times before giving up and advancing. */
+export const MAX_STALL_RESUMES = 3;
+/** Don't resume if the track is about to end anyway. */
+export const STALL_RESUME_MIN_REMAINING_SEC = 8;
+
+/**
+ * Mid-track PCM starve should resume the same URL at elapsed, not skip.
+ * Near-end / exhausted resumes / no URL → end (existing trackEnd path).
+ */
+export function decideStallAction(input: {
+  verdict: StallVerdict;
+  stallResumes: number;
+  remainingSec: number;
+  hasUrl: boolean;
+}): StallAction {
+  if (input.verdict === "continue") return "continue";
+  if (
+    input.verdict === "mid_track_stall" &&
+    input.hasUrl &&
+    input.stallResumes < MAX_STALL_RESUMES &&
+    input.remainingSec > STALL_RESUME_MIN_REMAINING_SEC
+  ) {
+    return "resume";
+  }
+  return "end";
+}
 
 export interface StallCheckInput {
   /** Consecutive frame ticks that found less than one frame buffered. */
@@ -130,6 +163,16 @@ export interface StallCheckInput {
   wallElapsedSec: number;
   /** True once at least one PCM frame was decoded this play(). */
   hasDecodedAudio?: boolean;
+}
+
+/**
+ * True only for known-length tracks in the last 5s. Unknown duration (YouTube
+ * streams often report 0) must NOT be treated as "near the end" after 45s —
+ * a brief CDN underrun then looks like EOS and radio restocks over the song.
+ */
+export function isNearEndOfTrack(durationSec: number, elapsedSec: number): boolean {
+  if (!(durationSec > 0) || !Number.isFinite(elapsedSec)) return false;
+  return durationSec - elapsedSec <= 5;
 }
 
 /** Grace period before a mid-track stall can fire (after audio has started). */
@@ -178,7 +221,18 @@ export interface PlayerEvents {
 
 export type PlayerState = "idle" | "playing" | "paused";
 
-const FRAME_DURATION_MS = 20;
+export const FRAME_DURATION_MS = 20;
+/** If the event loop is later than this, drop PCM instead of bursting UDP (TS jitter lag). */
+export const MAX_CATCHUP_BEHIND_MS = 80;
+
+/**
+ * Extra 20ms frames to discard when the loop ran late. Keep one frame to send now.
+ * Caps at 50 so a multi-second stall does not wipe the whole buffer in one tick.
+ */
+export function lateFrameDropCount(behindMs: number, frameMs = FRAME_DURATION_MS): number {
+  if (!(behindMs > frameMs * 2)) return 0;
+  return Math.min(50, Math.floor(behindMs / frameMs) - 1);
+}
 
 export class AudioPlayer extends EventEmitter {
   private ffmpeg: ChildProcess | null = null;
@@ -211,6 +265,11 @@ export class AudioPlayer extends EventEmitter {
   private downloader: ChildProcess | null = null;
   private currentTempDir: string | null = null;
   private emptyFrameAttempts = 0;
+  /** Seek-resumes of the current URL after mid_track_stall (reset on a new play). */
+  private stallResumes = 0;
+  private resumingFromStall = false;
+  /** Last ffmpeg stderr chunk — unread stderr used to deadlock the decoder. */
+  private ffmpegStderrTail = "";
   private static readonly MAX_EMPTY_ATTEMPTS = 250; // ~5s of the 20ms frame loop (extra fault tolerance)
   /**
    * Absolute mid-track stall: empty buffer for this many frame ticks while FFmpeg
@@ -286,7 +345,10 @@ export class AudioPlayer extends EventEmitter {
     opts?: { volumePctFloor?: number; maxSeconds?: number | null },
   ): void {
     // 1. Stop all current playback; bump sessionId to invalidate stale callbacks.
+    const keepResumes = this.resumingFromStall;
     this.stop();
+    if (!keepResumes) this.stallResumes = 0;
+    this.resumingFromStall = false;
     // Per-play volume floor (radio speech): spoken audio must not ride the
     // music fader into inaudibility — effective volume is max(slider, floor)
     // for THIS playback only; cleared by stop()/the next play().
@@ -321,12 +383,20 @@ export class AudioPlayer extends EventEmitter {
 
     const ffmpegBin = getFfmpegCommand();
     this.ffmpeg = spawn(ffmpegBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    this.ffmpegStderrTail = "";
 
     const currentPid = this.ffmpeg.pid;
     if (currentPid) {
       globalActivePids.add(currentPid);
       this.logger.debug({ pid: currentPid, sessionId: currentSessionId }, "FFmpeg spawned");
     }
+
+    // Must drain stderr. Unread pipe → ffmpeg blocks on log writes → no PCM.
+    this.ffmpeg.stderr!.on("data", (chunk: Buffer) => {
+      if (this.sessionId !== currentSessionId) return;
+      const text = chunk.toString("utf8");
+      this.ffmpegStderrTail = (this.ffmpegStderrTail + text).slice(-1500);
+    });
 
     this.ffmpeg.stdout!.on("data", (chunk: Buffer) => {
       // 2. Strictly check sessionId to keep old-process data out of a new playback request.
@@ -449,10 +519,28 @@ export class AudioPlayer extends EventEmitter {
   private scheduleNextFrame(): void {
     if (!this.frameLoopRunning) return;
     const loopSessionId = this.sessionId;
+    const now = performance.now();
+    const behind = now - this.nextFrameTime;
+    if (behind > MAX_CATCHUP_BEHIND_MS) {
+      const drop = lateFrameDropCount(behind);
+      let dropped = 0;
+      for (let i = 0; i < drop; i++) {
+        if (!this.takePcmFrame()) break;
+        this.framesPlayed++;
+        dropped++;
+      }
+      this.nextFrameTime = now;
+      if (dropped > 0) {
+        this.logger.debug(
+          { behindMs: Math.round(behind), dropped },
+          "audio: dropped late frames to stay real-time",
+        );
+      }
+    }
     this.nextFrameTime += FRAME_DURATION_MS;
     const delay = Math.max(0, this.nextFrameTime - performance.now());
 
-    setTimeout(() => {
+    const run = (): void => {
       // This check prevents a stale timer callback from running logic for a new session.
       if (loopSessionId !== this.sessionId || !this.frameLoopRunning) return;
 
@@ -466,10 +554,7 @@ export class AudioPlayer extends EventEmitter {
       //           unknown, require a minimum elapsed time so slow buffer fill at
       //           start does not look like "track ended" and restart the song.
       const elapsed = this.getElapsed();
-      const isNearEnd =
-        this.currentSongDuration > 0
-          ? this.currentSongDuration - elapsed <= 5 // less than 5s from the end
-          : elapsed >= 45; // unknown duration: only after ~45s of wall play time
+      const isNearEnd = isNearEndOfTrack(this.currentSongDuration, elapsed);
 
       if (this.ffmpeg !== null && this.pcmBuffered < PCM_FRAME_BYTES) {
         this.emptyFrameAttempts++;
@@ -487,6 +572,16 @@ export class AudioPlayer extends EventEmitter {
         });
 
         if (verdict !== "continue") {
+          const remaining =
+            this.currentSongDuration > 0
+              ? this.currentSongDuration - elapsed
+              : Number.POSITIVE_INFINITY;
+          const action = decideStallAction({
+            verdict,
+            stallResumes: this.stallResumes,
+            remainingSec: remaining,
+            hasUrl: this.currentUrl.length > 0,
+          });
           this.logger.info(
             {
               sessionId: this.sessionId,
@@ -494,14 +589,25 @@ export class AudioPlayer extends EventEmitter {
               bufferSize: this.pcmBuffered,
               elapsed: Math.round(elapsed),
               duration: this.currentSongDuration,
-              remaining: Math.round(this.currentSongDuration - elapsed),
+              remaining: Number.isFinite(remaining) ? Math.round(remaining) : null,
               reason: verdict,
+              action,
+              stallResumes: this.stallResumes,
+              stderr: this.ffmpegStderrTail.slice(-400) || undefined,
             },
-            verdict === "mid_track_stall"
-              ? "FFmpeg stalled mid-track (no PCM) — ending track"
-              : "FFmpeg stopped outputting data near end, ending track",
+            action === "resume"
+              ? "FFmpeg stalled mid-track (no PCM) — resuming from elapsed"
+              : verdict === "mid_track_stall"
+                ? "FFmpeg stalled mid-track (no PCM) — ending track"
+                : "FFmpeg stopped outputting data near end, ending track",
           );
           this.frameLoopRunning = false;
+          if (action === "resume") {
+            this.stallResumes++;
+            this.resumingFromStall = true;
+            this.seek(Math.max(0, elapsed));
+            return;
+          }
           if (this.state !== "idle") {
             this.state = "idle";
             // Clean up the FFmpeg process
@@ -535,7 +641,10 @@ export class AudioPlayer extends EventEmitter {
         return;
       }
       this.scheduleNextFrame();
-    }, delay);
+    };
+
+    if (delay <= 0) setImmediate(run);
+    else setTimeout(run, delay);
   }
 
   /** Drain exactly one Opus-frame of PCM from the chunk list (no full-buffer concat). */

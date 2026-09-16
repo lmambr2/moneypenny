@@ -69,7 +69,8 @@ const EXTERNAL_SEED_SUFFIX = "official audio";
 const SEED_MAX_PER_ARTIST = 2;
 const DEFAULT_SEED_SOURCES: Array<"local" | "youtube" | "stream"> = ["local", "youtube"];
 /** ~33% library / ~66% external (YouTube / stream URLs) when both have hits. */
-const DEFAULT_SEED_EXTERNAL_RATIO = 2 / 3;
+/** Target YouTube/stream share of a seed pool. 0.2 = 80% local / 20% external. */
+const DEFAULT_SEED_EXTERNAL_RATIO = 0.2;
 
 export type RadioSeedSource = "local" | "youtube" | "stream";
 
@@ -286,7 +287,7 @@ export function mixLocalAndExternalSeeds<T extends { id: string; platform?: stri
   if (locals.length === 0) return exts.slice(0, cap);
   if (exts.length === 0) return locals.slice(0, cap);
 
-  // Target split e.g. ratio=2/3 → ~33% local / ~66% external when both sides are full.
+  // Target split e.g. ratio=0.2 → ~80% local / ~20% external when both sides are full.
   let maxExt = Math.round(cap * ratio);
   if (ratio > 0 && exts.length > 0) maxExt = Math.max(1, maxExt);
   if (ratio < 1 && locals.length > 0) maxExt = Math.min(maxExt, cap - 1);
@@ -794,7 +795,7 @@ export class RadioCommands {
 
   /**
    * Expand profile seedQueries into a mixed auto-DJ pool.
-   * - Default sources: local + youtube (~33% / ~66% when both hit)
+   * - Default sources: local + youtube (~80% / ~20% when both hit)
    * - stream source: Spotify/Tidal/Icecast **URLs** in a seed line (bridge)
    * - Multi-hit per seed; drop multi-hour / full-album titles
    * - Soft anti-repeat + shuffle; thin library → more external
@@ -860,7 +861,7 @@ export class RadioCommands {
     // No usable hits — sample the local library (still no mega-mix lock-in).
     // Prefer a RANDOM sample: empty seedQueries + walk-order search("") only
     // ever saw the first ~60 filenames, so mid/late alphabet artists never
-    // auto-DJ'd even with a full library (and 1-play/12h cooldown burned the
+    // auto-DJ'd even with a full library (and 1-play/24h cooldown burned the
     // few that did).
     if (localById.size === 0 && sources.includes("local")) {
       try {

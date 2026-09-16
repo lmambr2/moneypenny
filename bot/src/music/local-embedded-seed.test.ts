@@ -45,6 +45,7 @@ describe("LocalProvider embedded seed on index", () => {
   it("upserts source=embedded tags from parsed metadata", async () => {
     const store = new TagStore({ db: new Database(":memory:") });
     const provider = new LocalProvider({ musicDir: tmpDir, tagStore: store });
+    await provider.waitForMetadata();
     const songs = await provider.search("");
     expect(songs.songs.length).toBe(1);
     const id = songs.songs[0]!.id;
@@ -61,6 +62,7 @@ describe("LocalProvider embedded seed on index", () => {
   it("does not clobber manual tags on re-index", async () => {
     const store = new TagStore({ db: new Database(":memory:") });
     const provider = new LocalProvider({ musicDir: tmpDir, tagStore: store });
+    await provider.waitForMetadata();
     const songs = await provider.search("");
     const id = songs.songs[0]!.id;
     store.upsert(id, { genre: "manual-rock", mood: "dark" }, "manual");

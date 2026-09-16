@@ -163,7 +163,7 @@ export class PlaybackEngine {
       this.opts.queue.setMode?.(PlayMode.Sequential);
       this.opts.queue.play();
       this.opts.player.resetFailures();
-      // !test must not burn auto-DJ anti-repeat (maxPlays/12h) — otherwise the
+      // !test must not burn auto-DJ anti-repeat (maxPlays/24h) — otherwise the
       // demo track (and any artist it belongs to in a thin pool) never re-enters
       // radio after a few !test smokes.
       const ok = await this.resolveAndPlay(this.opts.queue.current()!, { skipHistory: true });

@@ -19,8 +19,8 @@ stars + bulk/LLM guess, `!radio pin`.
 tee, relay-in, Spotify/Tidal playlist expand via stream bridge (fail-open).
 **Music color** (`radio.audioColor`: am/fm/… ffmpeg on music only).
 **Bumper prewarm** (`!radio prewarm`, Settings **Pre-generate bumpers**).
-**2026-07 polish:** alone-stop; `!add` ahead of radio fill; seed mix **~33% local /
-~66% YouTube** (`seedSources`, `seedExternalRatio`); bumper meta-instruction
+**2026-07 polish:** alone-stop; `!add` ahead of radio fill; seed mix **~80% local /
+~20% YouTube** (`seedSources`, `seedExternalRatio`); bumper meta-instruction
 filter; TTS barge-in + reconnect/transport self-heal.
 **ACE-Step** radio auto-fill / `!radio gen` / `!generate` when enabled —
 [ace-step.md](./ace-step.md), [ace-step-host.md](./ace-step-host.md).
@@ -463,9 +463,9 @@ Colonel Moneypenny — dry, poised British colonel-and-secretary wit; mock-forma
 
 | Profile field | Purpose |
 |---|---|
-| `music.seedQueries` | Multi-hit search for auto-program; default **~33% local / ~66% YouTube** (mega-mix filtered) |
+| `music.seedQueries` | Multi-hit search for auto-program; default **~80% local / ~20% YouTube** (mega-mix filtered) |
 | `music.seedSources` | Optional `["local","youtube","stream"]` (default local+youtube). `stream` = Spotify/Tidal/Icecast **URLs** in a seed line |
-| `music.seedExternalRatio` | Target non-local share of seed pool (0–1; default **⅔**) |
+| `music.seedExternalRatio` | Target non-local share of seed pool (0–1; default **0.2**) |
 | `music.playlistRefs` / `select` / `relayUrl` | Primary music pool (playlist refs still best for Tidal/Spotify catalogs) |
 | `music.shuffle` | Shuffle programmed pool |
 | `music.aceStepAutoFill` | If true, ACE-Step when pool empty (service must be on); `false` never; omit → global `aceStepAutoFill` |

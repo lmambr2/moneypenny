@@ -252,6 +252,7 @@ export class BotProfileManager {
       const text = song ? `${song.name} - ${song.artist} [${song.album}]` : "";
       const httpQuery = this.tsClient.getHttpQuery();
       if (httpQuery) {
+        if (httpQuery.isCoolingDown()) return;
         // TS6 HTTP API: send the raw (unescaped) text. clientUpdate
         // throws HttpQueryError on non-2xx so a silent 400/403 cannot
         // be misreported as success.
@@ -320,6 +321,7 @@ export class BotProfileManager {
     try {
       const httpQuery = this.tsClient.getHttpQuery();
       if (httpQuery) {
+        if (httpQuery.isCoolingDown()) return;
         // TS6: send raw values as JSON. Throws HttpQueryError on 4xx/5xx.
         const result = await httpQuery.clientUpdate(rawProps);
         this.logger.info(

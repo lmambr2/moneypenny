@@ -79,10 +79,12 @@ describe("music router", () => {
 
   it("GET /library lists local tracks with a high limit", async () => {
     const { app, local } = build();
+    Object.assign(local, { getTrackCount: vi.fn(async () => 5511) });
     const res = await request(app).get("/library").query({ limit: "100" });
     expect(res.status).toBe(200);
     expect(local.search).toHaveBeenCalledWith("", 100);
     expect(res.body.songs).toHaveLength(1);
+    expect(res.body.total).toBe(5511);
   });
 
   it("DELETE /tracks/:id admin deletes via deleteSong", async () => {

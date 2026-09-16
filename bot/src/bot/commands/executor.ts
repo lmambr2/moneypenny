@@ -32,7 +32,9 @@ export interface CommandExecutorDeps {
     | "getChannelId"
     | "moveClientToChannel"
     | "listClientsInCurrentChannel"
-  >;
+  > & {
+    getAllClients?: TS3Client["getAllClients"];
+  };
   isConnected: () => boolean;
   playNext: (maxRetries?: number) => Promise<boolean>;
   getProvider: (flags: Set<string>, query?: string) => MusicProvider;
@@ -47,6 +49,8 @@ export interface CommandExecutorDeps {
     /** Manual skip = a track boundary: wheel advances, due/cued bumpers fire. */
     onTrackBoundary(): Promise<"bumper" | "advanced">;
     status(): { songsUntilBumper: number | null; cuePending: boolean; skipNextPending: boolean };
+    /** Hold auto-DJ restock while a !play/!test song should still be on air. */
+    noteUserPlayback?(durationSec?: number): void;
   };
   /** V3 spoken radio status (optional). */
   speakRadioStatus?: () => Promise<string>;
@@ -232,6 +236,7 @@ export class CommandExecutor {
     this.deps.player.resetFailures();
     const ok = await this.deps.playback.resolveAndPlay(this.deps.queue.current()!);
     if (!ok) return { ok: false, reason: "cantplay", song };
+    this.deps.radio?.noteUserPlayback?.(song.duration);
     return { ok: true, song };
   }
 
@@ -712,7 +717,12 @@ export class CommandExecutor {
       return "The !test demo track can only be skipped by Chairman or server admin (not by vote).";
     }
     this.deps.playback.recordVote(msg.invokerUid);
-    const clients = await this.deps.tsClient.getClientsInChannel();
+    let clients: Awaited<ReturnType<TS3Client["getClientsInChannel"]>>;
+    try {
+      clients = await this.deps.tsClient.getClientsInChannel();
+    } catch {
+      return "Can't count listeners right now (TeamSpeak timed out). Try the vote again in a moment.";
+    }
     const totalUsers = clients.length - 1;
     const needed = Math.max(1, Math.ceil(totalUsers / 2));
     const votes = this.deps.playback.voteCount;
@@ -807,7 +817,16 @@ export class CommandExecutor {
     if (!this.deps.isConnected()) return "Bot is not connected to TeamSpeak.";
     const clid = Number.parseInt(msg.invokerId, 10);
     if (!Number.isFinite(clid)) return "Could not resolve your client id.";
-    const channelId = await this.deps.tsClient.getClientChannelId(clid);
+    let channelId: bigint | null = null;
+    try {
+      const all = await this.deps.tsClient.getAllClients?.();
+      const row = all?.find((c) => c.id === clid);
+      const raw = row?.channelID;
+      if (raw != null && String(raw) !== "0") channelId = BigInt(String(raw));
+    } catch {
+      /* Query / full-client miss — try HTTP clientinfo next */
+    }
+    if (!channelId) channelId = await this.deps.tsClient.getClientChannelId(clid);
     if (!channelId) return "Could not find your channel.";
     const alreadyHere = this.deps.tsClient.getChannelId() === channelId;
     const ok = await this.deps.tsClient.joinChannelById(channelId);
@@ -898,7 +917,9 @@ export class CommandExecutor {
     if (!this.deps.isConnected()) {
       return "Bot is not connected to TeamSpeak — start it from the web UI first.";
     }
-    return this.deps.playback.playDemoTrack();
+    const msg = await this.deps.playback.playDemoTrack();
+    this.deps.radio?.noteUserPlayback?.(this.deps.queue.current()?.duration);
+    return msg;
   }
 }
 

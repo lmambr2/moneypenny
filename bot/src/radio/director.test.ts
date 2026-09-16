@@ -445,6 +445,20 @@ describe("RadioDirector", () => {
       expect(h.autoProgram).toHaveBeenCalledTimes(1); // music is NOT a broadcast — restocked anyway
     });
 
+    it("does not restock over a user !play while the hold is active", async () => {
+      h = harness({ minPresentToBroadcast: 5 });
+      h.director.onPoll([], 1);
+      h.setQueueHasMore(false);
+      h.autoProgram.mockResolvedValue(true);
+      h.director.noteUserPlayback(180);
+
+      await h.director.onTrackBoundary();
+      h.setPlayerState("idle");
+      h.fireTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.autoProgram).not.toHaveBeenCalled();
+    });
+
     it("re-arms and retries when nothing can play (no profile either)", async () => {
       h = harness({ minPresentToBroadcast: 5 });
       h.director.onPoll([], 1);

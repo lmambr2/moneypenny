@@ -46,7 +46,10 @@ export const SPECIAL_TOOL_MAPPERS: Record<string, ToolMapper> = {
     const query = String(a.query ?? "").trim();
     if (!query) return null;
     // §9 queue(query) = add to the end of the queue without interrupting.
-    return make("add", query);
+    return {
+      ...make("add", query),
+      flags: sourceFlags(typeof a.source === "string" ? a.source : undefined),
+    };
   },
   select_tracks: (a) => {
     // Gemma on NPU often picks select_tracks for plain "play jazz" — map a lone
