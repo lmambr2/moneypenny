@@ -53,7 +53,7 @@ Usage: ./install.sh [options]
   --interactive                force the text wizard
   --non-interactive, -y        no prompts; use flags + auto defaults
   --edition <sbc|server|auto>  Product edition (default: auto)
-  --llm <npu|ollama|mock|URL>  LLM backend (default: ollama; npu opt-in on SBC)
+  --llm <npu|ollama|llamacpp|mock|URL>  LLM backend (default: ollama; AMD server → llamacpp; npu opt-in on SBC)
   --model <name>               LLM model (sbc: E2B GGUF; server: 12B QAT; npu: npu-llm)
   --with-voice                 Whisper+Piper by edition (edge/server)
   --with-voice-edge            force Pi Whisper base (RKNN NPU) + piper
@@ -230,7 +230,7 @@ fi
 say "Host: arch=${c_b}${ARCH}${c_0}$([ "$HAS_NPU" -eq 1 ] && echo ' · RK3588 NPU')$([ "$HAS_NVIDIA" -eq 1 ] && echo ' · NVIDIA')$([ "$HAS_AMD" -eq 1 ] && echo ' · AMD/ROCm')"
 say "Suggested edition: ${c_b}${SUGGESTED_EDITION}${c_0}  (docs/editions.md)"
 if [ "$HAS_AMD" -eq 1 ] && [ -x ./scripts/detect-gpu.sh ]; then
-  say "AMD tip: prefer ${c_b}host Ollama${c_0} for 12B chat + whisper.cpp Vulkan STT (docs/gpu-amd.md)"
+  say "AMD tip: dual R9700 → ${c_b}Radiance Qwen3.8${c_0} on the infer GPU; single card → host Ollama / llama.cpp HIP 12B (docs/gpu-amd.md)"
   DUPLEX_TIP="$(./scripts/detect-gpu.sh | awk -F= '/^recommend_duplex_reason=/{print $2; exit}')"
   say "Duplex: cascaded default (${c_b}${DUPLEX_TIP:-unmeasured-moshicpp-rtf}${c_0}) — no NVIDIA Talker on this host"
 fi
@@ -265,8 +265,11 @@ run_wizard() {
   # LLM
   if [ "$FLAG_LLM" -eq 0 ]; then
     local llm_keys=() llm_labels=()
-    llm_keys+=(ollama);  llm_labels+=("Ollama on this host (default — E2B on SBC, 12B on Server)")
-    llm_keys+=(external); llm_labels+=("External / LAN Ollama URL (split-brain — recommended for SBC)")
+    if [ "$ed_now" = "server" ] && [ "$HAS_AMD" -eq 1 ]; then
+      llm_keys+=(llamacpp); llm_labels+=("Host llama.cpp HIP (12B QAT + MTP — recommended on R9700)")
+    fi
+    llm_keys+=(ollama);  llm_labels+=("Ollama on this host (E2B on SBC, fallback 12B on Server)")
+    llm_keys+=(external); llm_labels+=("External / LAN OpenAI-compatible URL (split-brain — recommended for SBC)")
     if [ "$HAS_NPU" -eq 1 ] || [ "$ed_now" = "sbc" ]; then
       llm_keys+=(npu); llm_labels+=("NPU rkllama offline (opt-in; not day-to-day chat)")
     fi
@@ -277,6 +280,7 @@ run_wizard() {
     local llm_choice="${llm_keys[$((REPLY - 1))]}"
     case "$llm_choice" in
       ollama) LLM=ollama ;;
+      llamacpp) LLM=llamacpp ;;
       external)
         ask_line "LAN Ollama base URL (no trailing path)" "http://192.168.1.10:11434"
         LLM="$REPLY"
@@ -404,8 +408,13 @@ case "$EDITION" in
 esac
 
 if [ "$LLM" = "auto" ]; then
-  # Ollama is the default on both editions. NPU is opt-in (--llm npu).
-  LLM="ollama"
+  # AMD Server: llama.cpp HIP + QAT + MTP. Everyone else: Ollama.
+  # NPU is opt-in (--llm npu).
+  if [ "$EDITION" = "server" ] && [ "$HAS_AMD" -eq 1 ]; then
+    LLM="llamacpp"
+  else
+    LLM="ollama"
+  fi
 fi
 
 LLM_URL=""; PROFILES=("core")
@@ -430,6 +439,11 @@ case "$LLM" in
     fi
     LLM_URL="http://ollama:11434"; PROFILES+=("ollama")
     say "LLM backend: ${c_b}Ollama${c_0}, model ${MODEL}" ;;
+  llamacpp)
+    : "${MODEL:=gemma4:12b}"
+    LLM_URL="http://127.0.0.1:11434"
+    say "LLM backend: ${c_b}host llama.cpp HIP${c_0}, model ${MODEL} (docs/gpu-amd.md)"
+    ;;
   http://*|https://*)
     LLM_URL="$LLM"
     : "${MODEL:=hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL}"
@@ -437,7 +451,7 @@ case "$LLM" in
       PROFILES+=("ollama")
     fi
     say "LLM backend: ${c_b}external${c_0} ($LLM_URL), model ${MODEL}"; LLM="external" ;;
-  *) die "Invalid --llm '$LLM' (use npu|ollama|mock|http(s)://URL)" ;;
+  *) die "Invalid --llm '$LLM' (use npu|ollama|llamacpp|mock|http(s)://URL)" ;;
 esac
 if [ "$WITH_VOICE" -eq 1 ]; then
   if [ -z "$VOICE_PROFILE" ]; then
@@ -490,7 +504,8 @@ if [ "$WITH_RAG" -eq 1 ]; then
       EMBED_MODEL="nomic-embed-text-v2-moe"
     fi
   fi
-  if [ "$LLM" = "external" ] && [[ ! " ${PROFILES[*]} " =~ " ollama " ]]; then
+  if { [ "$LLM" = "external" ] || [ "$LLM" = "llamacpp" ]; } \
+    && [[ ! " ${PROFILES[*]} " =~ " ollama " ]]; then
     PROFILES+=("ollama")
   fi
   say "RAG: ${c_b}TurboVec${c_0} + embedding model ${EMBED_MODEL}"
@@ -576,12 +591,18 @@ esac
 if [[ " ${PROFILES[*]} " =~ " npu " ]] && [ -f docker-compose.npu.yml ]; then
   COMPOSE_FILE_VAL="${COMPOSE_FILE_VAL}:docker-compose.npu.yml"
 fi
+if [ "$LLM" = "llamacpp" ] && [ -f docker-compose.server.llamacpp.yml ]; then
+  COMPOSE_FILE_VAL="${COMPOSE_FILE_VAL}:docker-compose.server.llamacpp.yml"
+fi
 set_env COMPOSE_FILE "$COMPOSE_FILE_VAL"
 set_env COMPOSE_PROFILES "$(IFS=,; echo "${PROFILES[*]}")"
 if [ "$WITH_RAG" -eq 1 ]; then
   set_env VECTOR_DB_URL "http://turbovec:6333"
   set_env EMBEDDING_MODEL "$EMBED_MODEL"
-  if [ "$EDITION" = "sbc" ]; then
+  if [ "$LLM" = "llamacpp" ]; then
+    # Host llama-server owns :11434; CPU Ollama embeddings on :11435.
+    set_env EMBEDDING_URL "http://127.0.0.1:11435"
+  elif [ "$EDITION" = "sbc" ]; then
     set_env EMBEDDING_URL "http://ollama:11434"
     set_env EMBEDDING_TIMEOUT_MS "600000"
   else
@@ -662,8 +683,22 @@ else
 fi
 ok "Containers up."
 
-# ── 8. pull the Ollama model ─────────────────────────────────────────────────
-if [ "$LLM" = "ollama" ]; then
+# ── 8. pull models ───────────────────────────────────────────────────────────
+if [ "$LLM" = "llamacpp" ]; then
+  say "Host llama.cpp: build HIP + download QAT GGUFs (docs/gpu-amd.md)"
+  warn "  ./scripts/build-llama-cpp-hip.sh"
+  warn "  ./scripts/download-gemma4-qat-gguf.sh"
+  warn "  ./scripts/install-llama-server.sh"
+  if [ "$WITH_RAG" -eq 1 ]; then
+    say "Pulling embedding model '${EMBED_MODEL}' into CPU Ollama on :11435…"
+    for i in 1 2 3 4 5; do
+      dc exec -T ollama ollama --version >/dev/null 2>&1 && break
+      sleep 3
+    done
+    dc exec -T ollama ollama pull "$EMBED_MODEL" && ok "Embedding model ready." \
+      || warn "Pull later: docker compose --profile ollama exec ollama ollama pull $EMBED_MODEL"
+  fi
+elif [ "$LLM" = "ollama" ]; then
   say "Pulling Ollama model '${MODEL}' (first time downloads ~2.6 GB)…"
   for i in 1 2 3 4 5; do
     dc exec -T ollama ollama --version >/dev/null 2>&1 && break
@@ -695,7 +730,7 @@ if [ "$EDITION" = "sbc" ] && { [ "$LLM" = "ollama" ] || [ "$LLM" = "external" ];
   echo "  ${c_d}SBC tip: llmUrl → LAN 12B (e.g. http://192.168.1.89:11434); E2B is offline fallback (docs/remote-llm.md).${c_0}"
 fi
 if [ "$EDITION" = "server" ] && [ "$HAS_AMD" -eq 1 ]; then
-  echo "  ${c_d}AMD: host Ollama for chat; ./scripts/download-whisper-ggml.sh; docs/gpu-amd.md${c_0}"
+  echo "  ${c_d}AMD: host llama.cpp HIP 12B QAT+MTP; whisper.cpp Vulkan; docs/gpu-amd.md${c_0}"
   echo "  ${c_d}31B analyst: ./scripts/check-analyst-vram.sh then Settings toggle (off by default).${c_0}"
 fi
 if [ "$WITH_VOICE" -eq 1 ] && [ "${VOICE_PROFILE:-}" != "legacy" ]; then

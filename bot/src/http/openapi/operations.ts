@@ -162,6 +162,7 @@ export const API_OPERATIONS: ApiOperation[] = [
   op("post", "/api/bot/rag/eval", "RAG eval harness", ["bot"], "admin"),
   op("get", "/api/bot/stream-bridge/status", "Stream bridge status", ["bot"], "admin"),
   op("get", "/api/bot/llm/status", "LLM status", ["bot"], "admin"),
+  op("get", "/api/bot/llm/models", "LLM model catalog", ["bot"], "admin"),
   op("post", "/api/bot/llm/ask", "LLM ask", ["bot"], "admin"),
   op("get", "/api/bot/rights/debug", "Rights debug", ["bot"], "admin"),
   op("post", "/api/bot/harness/ask", "Harness turn", ["bot"], "admin"),

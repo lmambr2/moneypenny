@@ -1,9 +1,10 @@
-# Optional ROCm Ollama for Server edition (when host Ollama is not used).
+# Optional ROCm Ollama for Server edition (fallback when host llama.cpp is not used).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.server.yml \
 #     -f docker-compose.server.rocm.yml --profile ollama up -d
 #
-# Prefer host Ollama on AMD (docs/gpu-amd.md). This overlay is the container path.
+# Prefer host llama.cpp HIP on AMD (docs/gpu-amd.md). This overlay is the
+# container Ollama path. Do not run it on the same GPU as llama-server.
 
 services:
   ollama:

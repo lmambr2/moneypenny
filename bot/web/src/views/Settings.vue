@@ -338,6 +338,7 @@
         <div class="preset-row">
           <select v-model="ai.llmPreset" class="input" @change="applyLlmPreset">
             <option value="custom">Custom</option>
+            <option value="local_radiance">Local — Radiance Qwen3.8 (R9700)</option>
             <option value="local_ollama">Local — ollama (Orange Pi, recommended)</option>
             <option value="local_rkllama">Local — RKLLama (NPU)</option>
             <option value="remote_chat_local_embed">Remote chat (LAN) + local embeddings (Pi)</option>
@@ -350,23 +351,82 @@
       <div v-if="ai.llmEnabled" class="form-row" style="margin: 8px 0 4px">
         <div class="form-group" style="flex:2">
           <label>Chat completions URL</label>
-          <input v-model="ai.llmUrl" class="input" placeholder="http://ollama:11434" @input="ai.llmPreset = 'custom'" />
+          <input v-model="ai.llmUrl" class="input" placeholder="http://127.0.0.1:8080" @input="onPrimaryUrlInput" />
+          <div class="profile-toggle-hint">Origin only — do not append <code>/v1</code>.</div>
         </div>
-        <div class="form-group" style="flex:1">
-          <label>Chat model</label>
-          <input v-model="ai.llmModel" class="input" placeholder="hf.co/unsloth/gemma-4-…" @input="ai.llmPreset = 'custom'" />
+      </div>
+
+      <div v-if="ai.llmEnabled" id="llm-models" class="llm-model-panel">
+        <div class="llm-model-panel-head">
+          <span
+            class="llm-dot"
+            :class="primaryCatalog.available ? 'ok' : (ai.llmUrl.trim() ? 'warn' : 'off')"
+          />
+          <div class="llm-model-panel-title">
+            <strong>{{ ai.llmModel || 'No model selected' }}</strong>
+            <span class="llm-model-panel-sub">{{ primaryEndpointHint }}</span>
+          </div>
         </div>
+        <dl class="llm-model-facts">
+          <div>
+            <dt>Engine</dt>
+            <dd>{{ selectedPrimary?.ownedBy || (primaryCatalog.available ? '—' : primaryCatalog.error || 'offline') }}</dd>
+          </div>
+          <div>
+            <dt>Context</dt>
+            <dd>{{ formatModelCtx(selectedPrimary?.maxModelLen) || '—' }}</dd>
+          </div>
+          <div>
+            <dt>Checkpoint</dt>
+            <dd class="mono">{{ selectedPrimary?.root || '—' }}</dd>
+          </div>
+        </dl>
+        <div v-if="primaryAliases.length" class="llm-alias-row">
+          <span class="llm-alias-label">Also served</span>
+          <button
+            v-for="a in primaryAliases"
+            :key="a.id"
+            type="button"
+            class="llm-alias-chip"
+            :class="{ active: a.id === ai.llmModel }"
+            @click="selectPrimaryModel(a.id)"
+          >
+            {{ a.id }}
+          </button>
+        </div>
+        <label class="llm-model-select-label">Chat model</label>
+        <LlmModelSelect
+          :model-value="ai.llmModel"
+          :models="primaryCatalog.models"
+          :loading="primaryCatalog.loading"
+          :can-reload="!!ai.llmUrl.trim()"
+          placeholder="Qwen3.8"
+          @update:model-value="selectPrimaryModel"
+          @reload="loadPrimaryCatalog"
+        />
+        <p v-if="primaryCatalog.error && !primaryCatalog.available" class="profile-toggle-hint">
+          Catalog: {{ primaryCatalog.error }}. You can still type a model id.
+        </p>
       </div>
 
       <div v-if="ai.llmEnabled" class="form-row" style="margin: 4px 0">
         <div class="form-group" style="flex:2">
           <label>Fallback chat URL <span style="opacity:.6">(optional — Pi ollama when primary is down)</span></label>
-          <input v-model="ai.llmFallbackUrl" class="input" placeholder="http://ollama:11434" @input="ai.llmPreset = 'custom'" />
+          <input v-model="ai.llmFallbackUrl" class="input" placeholder="http://ollama:11434" @input="onFallbackUrlInput" />
         </div>
-        <div class="form-group" style="flex:1">
-          <label>Fallback model</label>
-          <input v-model="ai.llmFallbackModel" class="input" placeholder="hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL" @input="ai.llmPreset = 'custom'" />
-        </div>
+      </div>
+      <div v-if="ai.llmEnabled" class="form-group" style="margin: 4px 0 8px">
+        <label>Fallback model</label>
+        <LlmModelSelect
+          :model-value="ai.llmFallbackModel"
+          :models="fallbackCatalog.models"
+          :loading="fallbackCatalog.loading"
+          :can-reload="!!ai.llmFallbackUrl.trim()"
+          placeholder="gemma4:12b"
+          label="Fallback model"
+          @update:model-value="onFallbackModel"
+          @reload="loadFallbackCatalog"
+        />
       </div>
 
       <!-- Analyst 31B: opt-in only — keeps 12B chat from competing for VRAM unless enabled -->
@@ -390,7 +450,16 @@
         </div>
         <div class="form-group" style="flex:1">
           <label>Delegate model</label>
-          <input v-model="ai.llmDelegateModel" class="input" placeholder="hf.co/unsloth/gemma-4-31B-it-qat-GGUF:UD-Q4_K_XL" @input="ai.llmPreset = 'custom'" />
+          <LlmModelSelect
+            :model-value="ai.llmDelegateModel"
+            :models="delegateCatalog.models"
+            :loading="delegateCatalog.loading"
+            :can-reload="!!ai.llmDelegateUrl.trim()"
+            placeholder="hf.co/unsloth/gemma-4-31B-it-qat-GGUF:UD-Q4_K_XL"
+            label="Delegate model"
+            @update:model-value="onDelegateModel"
+            @reload="loadDelegateCatalog"
+          />
         </div>
       </div>
 
@@ -731,7 +800,7 @@
         <div
           class="form-group"
           style="flex:1"
-          title="Rolling window in hours. With max plays 1 and 12h, a track that just played stays out of auto-DJ for 12 hours."
+          title="Rolling window in hours. With max plays 1 and 24h, a track that just played stays out of auto-DJ for 24 hours."
         >
           <label>Auto-DJ cooldown (hours)</label>
           <input
@@ -1812,10 +1881,17 @@
 
 <script setup lang="ts">
 import { Icon } from '@iconify/vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../api/axios.js';
+import {
+  formatModelCtx,
+  modelAliases,
+  type LlmCatalog,
+  type LlmCatalogModel,
+} from '../api/llm-catalog.js';
 import AvatarUpload from '../components/AvatarUpload.vue';
 import CustomAvatarRow from '../components/CustomAvatarRow.vue';
+import LlmModelSelect from '../components/LlmModelSelect.vue';
 import { useSession } from '../composables/useSession.js';
 import { usePlayerStore } from '../stores/player.js';
 import {
@@ -2054,6 +2130,7 @@ async function saveAutoFollow() {
 // --- AI & Permissions (admin only) ---
 type LlmPresetId =
   | 'custom'
+  | 'local_radiance'
   | 'local_ollama'
   | 'local_rkllama'
   | 'remote_chat_local_embed'
@@ -2081,6 +2158,18 @@ const LLM_PRESETS: Record<
     llmDelegateModel: '',
     embeddingUrl: '',
     embeddingModel: '',
+  },
+  // Dual R9700 workstation: Radiance vLLM on the infer card (:8080). Origin
+  // only — the bot appends /v1/chat/completions. Embeddings stay on CPU ollama.
+  local_radiance: {
+    llmUrl: 'http://127.0.0.1:8080',
+    llmModel: 'Qwen3.8',
+    llmFallbackUrl: 'http://127.0.0.1:11434',
+    llmFallbackModel: 'gemma4:12b',
+    llmDelegateUrl: '',
+    llmDelegateModel: '',
+    embeddingUrl: 'http://127.0.0.1:11435',
+    embeddingModel: 'nomic-embed-text-v2-moe',
   },
   local_ollama: {
     llmUrl: 'http://ollama:11434',
@@ -2207,7 +2296,7 @@ const ai = reactive({
   radioRatingWeight: true,
   /** Auto-DJ: block tracks with ≥ N plays in the last H hours. */
   radioAutoDjMaxPlays: 1,
-  radioAutoDjCooldownHours: 12,
+  radioAutoDjCooldownHours: 24,
   radioHarmonicSequencing: false,
   radioAudioColor: 'off' as 'off' | 'am' | 'fm' | 'telephone' | 'vinyl' | 'lofi',
   radioAnalyzerEnabled: false,
@@ -2558,7 +2647,7 @@ async function loadAiSettings() {
       const maxP = Number(rep.maxPlays);
       const coolH = Number(rep.cooldownHours);
       ai.radioAutoDjMaxPlays = Number.isFinite(maxP) && maxP >= 1 ? Math.floor(maxP) : 1;
-      ai.radioAutoDjCooldownHours = Number.isFinite(coolH) && coolH > 0 ? coolH : 12;
+      ai.radioAutoDjCooldownHours = Number.isFinite(coolH) && coolH > 0 ? coolH : 24;
     }
     ai.radioHarmonicSequencing = !!radio.harmonicSequencing;
     ai.radioAudioColor = (
@@ -2588,7 +2677,12 @@ async function loadAiSettings() {
   } catch (e) {
     console.error('Settings load/save failed', e);
   }
-  if (ai.llmEnabled) refreshLlmStatus();
+  if (ai.llmEnabled) {
+    refreshLlmStatus();
+    void loadPrimaryCatalog();
+    void loadFallbackCatalog();
+    if (ai.llmAnalystEnabled) void loadDelegateCatalog();
+  }
   if (ai.ragEnabled) refreshRagStatus();
   if (ai.streamBridgeUrl.trim()) refreshBridgeStatus();
   if (ai.mempalaceEnabled && ai.mempalaceUrl.trim()) refreshMemPalaceStatus();
@@ -2647,6 +2741,9 @@ function applyLlmPreset() {
   ai.llmDelegateModel = '';
   ai.embeddingUrl = preset.embeddingUrl;
   ai.embeddingModel = preset.embeddingModel;
+  void loadPrimaryCatalog();
+  void loadFallbackCatalog();
+  Object.assign(delegateCatalog, emptyCatalog());
 }
 
 async function refreshRagStatus() {
@@ -2958,6 +3055,105 @@ async function testVoiceTurn() {
   }
 }
 
+type CatalogState = LlmCatalog & { loading: boolean };
+
+function emptyCatalog(): CatalogState {
+  return { url: '', available: false, models: [], loading: false };
+}
+
+const primaryCatalog = reactive<CatalogState>(emptyCatalog());
+const fallbackCatalog = reactive<CatalogState>(emptyCatalog());
+const delegateCatalog = reactive<CatalogState>(emptyCatalog());
+
+const selectedPrimary = computed<LlmCatalogModel | undefined>(() =>
+  primaryCatalog.models.find((m) => m.id === ai.llmModel),
+);
+const primaryAliases = computed(() => modelAliases(primaryCatalog, ai.llmModel));
+const primaryEndpointHint = computed(() => {
+  const u = ai.llmUrl.trim() || primaryCatalog.url;
+  if (!u) return 'Set a chat URL';
+  if (primaryCatalog.loading) return `${u} · loading`;
+  if (primaryCatalog.available) return `${u} · ${primaryCatalog.models.length} model(s)`;
+  return `${u} · unreachable`;
+});
+
+let primaryUrlTimer: ReturnType<typeof setTimeout> | null = null;
+let fallbackUrlTimer: ReturnType<typeof setTimeout> | null = null;
+let delegateUrlTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function fetchCatalogFor(url: string, target: CatalogState): Promise<void> {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    Object.assign(target, emptyCatalog());
+    return;
+  }
+  target.loading = true;
+  try {
+    const res = await api.get('/api/bot/llm/models', { params: { url: trimmed } });
+    const cat = (res.data?.catalog ?? res.data) as LlmCatalog;
+    target.url = cat.url ?? trimmed;
+    target.available = !!cat.available;
+    target.error = cat.error;
+    target.models = Array.isArray(cat.models) ? cat.models : [];
+  } catch {
+    target.url = trimmed;
+    target.available = false;
+    target.error = 'catalog request failed';
+    target.models = [];
+  } finally {
+    target.loading = false;
+  }
+}
+
+function loadPrimaryCatalog() {
+  return fetchCatalogFor(ai.llmUrl, primaryCatalog);
+}
+function loadFallbackCatalog() {
+  return fetchCatalogFor(ai.llmFallbackUrl, fallbackCatalog);
+}
+function loadDelegateCatalog() {
+  return fetchCatalogFor(ai.llmDelegateUrl, delegateCatalog);
+}
+
+function onPrimaryUrlInput() {
+  ai.llmPreset = 'custom';
+  if (primaryUrlTimer) clearTimeout(primaryUrlTimer);
+  primaryUrlTimer = setTimeout(() => {
+    void loadPrimaryCatalog();
+  }, 400);
+}
+function onFallbackUrlInput() {
+  ai.llmPreset = 'custom';
+  if (fallbackUrlTimer) clearTimeout(fallbackUrlTimer);
+  fallbackUrlTimer = setTimeout(() => {
+    void loadFallbackCatalog();
+  }, 400);
+}
+
+function selectPrimaryModel(id: string) {
+  ai.llmModel = id;
+  ai.llmPreset = 'custom';
+}
+function onFallbackModel(id: string) {
+  ai.llmFallbackModel = id;
+  ai.llmPreset = 'custom';
+}
+function onDelegateModel(id: string) {
+  ai.llmDelegateModel = id;
+  ai.llmPreset = 'custom';
+}
+
+watch(
+  () => ai.llmDelegateUrl,
+  (url) => {
+    if (!ai.llmAnalystEnabled) return;
+    if (delegateUrlTimer) clearTimeout(delegateUrlTimer);
+    delegateUrlTimer = setTimeout(() => {
+      void fetchCatalogFor(url, delegateCatalog);
+    }, 400);
+  },
+);
+
 // --- LLM live status + test box ---
 const llm = reactive({
   configured: false,
@@ -3185,7 +3381,7 @@ async function saveAiSettings() {
         autoDjRepeat: {
           enabled: true,
           maxPlays: Math.max(1, Math.min(100, Math.floor(Number(ai.radioAutoDjMaxPlays) || 1))),
-          cooldownHours: Math.max(0.25, Math.min(720, Number(ai.radioAutoDjCooldownHours) || 12)),
+          cooldownHours: Math.max(0.25, Math.min(720, Number(ai.radioAutoDjCooldownHours) || 24)),
         },
         harmonicSequencing: ai.radioHarmonicSequencing,
         audioColor: ai.radioAudioColor,
@@ -3203,7 +3399,12 @@ async function saveAiSettings() {
       },
     });
     aiSuccess.value = 'Saved. Applied to running bots.';
-    if (ai.llmEnabled) refreshLlmStatus();
+    if (ai.llmEnabled) {
+      refreshLlmStatus();
+      void loadPrimaryCatalog();
+      void loadFallbackCatalog();
+      if (ai.llmAnalystEnabled) void loadDelegateCatalog();
+    }
     if (ai.ragEnabled) refreshRagStatus();
     if (ai.streamBridgeUrl.trim()) refreshBridgeStatus();
     if (ai.mempalaceEnabled && ai.mempalaceUrl.trim()) refreshMemPalaceStatus();
@@ -4296,4 +4497,85 @@ onMounted(() => {
   line-height: 1.45;
 }
 .preset-row { display: flex; gap: 8px; align-items: center; }
+
+.llm-model-panel {
+  margin: 8px 0 12px;
+  padding: 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+.llm-model-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.llm-model-panel-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.llm-model-panel-title strong {
+  font-size: 15px;
+  color: var(--text-primary);
+}
+.llm-model-panel-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.llm-model-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 8px 16px;
+  margin: 0 0 12px;
+}
+.llm-model-facts dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+.llm-model-facts dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.llm-model-facts .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+.llm-alias-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+.llm-alias-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}
+.llm-alias-chip {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--hover-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.llm-alias-chip.active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.llm-model-select-label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
 </style>

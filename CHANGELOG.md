@@ -6,6 +6,17 @@ This project is developed with AI coding assistants; this log records **which
 assistant** authored each batch of work, since not every commit carries a
 `Co-Authored-By` trailer. Attribution here is the source of truth.
 
+## 2026-09-15
+
+### Dual-R9700 Radiance as workstation chat
+**Author: Grok (xAI), driven by Lane Ambrose.**
+
+- Day-to-day chat on this workstation is **Radiance vLLM** `Qwen3.8` (AMD Quark MXFP4) on the infer R9700 `:8080`
+- Settings preset **Local — Radiance Qwen3.8 (R9700)**; live model catalog (`GET /api/bot/llm/models`) + navbar selector
+- CPU Ollama embeddings `:11435` (`nomic-embed-text-v2-moe`, 768-d)
+- Whisper.cpp Vulkan on the **display** GPU + Piper CPU (`docker-compose.voice-radiance.yml`)
+- llama.cpp HIP 12B QAT+MTP remains the single-GPU path (`scripts/serve-llama-cpp-gemma4.sh`)
+
 ## 2026-09-07
 
 ### AMD-first PersonaPlex contract (no NVIDIA)

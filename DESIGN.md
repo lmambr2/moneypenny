@@ -16,18 +16,18 @@
 |---|---|---|
 | Hardware | RK3588 arm64, 16 GB | x86_64 Linux (**AMD** first; NVIDIA untested) |
 | Bot primary host | **Yes** if `--edition sbc` | **Yes** if `--edition server` |
-| Role | Full bot stack on Pi; E2B offline backup | Full bot stack on x86; host Ollama + optional TS6 |
-| Chat default | LAN Gemma 4 **12B** (local E2B fallback) | Host Ollama **12B**; **31B analyst opt-in** (VRAM) |
-| Embeddings | On bot host (`nomic-embed-text-v2-moe`) | On bot host (`bge-large-en-v1.5` default) |
-| STT | Whisper **tiny** → **RKNN** next | **whisper.cpp Vulkan** on AMD |
-| TTS | Piper `en_GB-southern_english_female-low` | Same |
+| Role | Full bot stack on Pi; E2B offline backup | Full bot stack on x86; Radiance or llama.cpp HIP + optional TS6 |
+| Chat default | LAN **Qwen3.8** (Radiance) or Gemma 4 **12B** (local E2B fallback) | Dual-R9700: **Radiance Qwen3.8** on the infer GPU. Single GPU: llama.cpp HIP **12B QAT+MTP** |
+| Embeddings | On bot host (`nomic-embed-text-v2-moe`) | On bot host. Dual-R9700: CPU Ollama `:11435` + nomic **768-d** (match TurboVec) |
+| STT | Whisper **tiny** → **RKNN** next | **whisper.cpp Vulkan** on AMD (display GPU when Radiance owns infer) |
+| TTS | Piper `en_GB-cori-medium` | Same |
 | NPU | **RKNN Whisper** priority; offline chat opt-in | N/A |
 | Not supported now | — | macOS / Apple Silicon |
 | Compose | `docker-compose.yml` + `docker-compose.sbc.yml` | + `docker-compose.server.yml` |
 | Install | `./install.sh --edition sbc` | `./install.sh --edition server` |
 
-**Topology A (production):** SBC runs bot + TurboVec + embeddings + tiny STT; Server runs Ollama 12B/31B.  
-**Topology B:** Server all-in-one (no Pi).  
+**Topology A (production):** SBC runs bot + TurboVec + embeddings + edge STT; Server runs Radiance Qwen3.8 (or llama.cpp 12B).  
+**Topology B:** Server all-in-one (no Pi). Dual-R9700 workstation: Radiance on infer, Whisper on display, embeddings CPU.  
 **Topology C:** SBC offline-only (slow E2B or opt-in NPU).
 
 ---
@@ -44,7 +44,7 @@ Workloads are placed by edition:
 | Compute | SBC (RK3588) | Server (x86) |
 |---|---|---|
 | **Bot + music + rights + RAG index** | Always | Always (all-in-one) or none (LLM-only host) |
-| **Chat / tool-calling** | Prefer LAN 12B; E2B fallback | Local 12B (+ 31B delegate) |
+| **Chat / tool-calling** | Prefer LAN Radiance / 12B; E2B fallback | Radiance Qwen3.8 or local 12B |
 | **Embeddings + TurboVec** | On-device | On-device |
 | **STT** | Whisper **base** (RKNN NPU; faster-whisper CPU fallback) | Whisper **medium** (Vulkan on AMD; large-v3 optional) |
 | **TTS** | Piper British female | Piper British female |
@@ -82,7 +82,7 @@ Workloads are placed by edition:
 
 ### Server edition
 - **CPU:** x86_64 Linux, 32 GB+ RAM recommended for 12B QAT.
-- **GPU:** **AMD** preferred (host Ollama ROCm + whisper.cpp Vulkan). NVIDIA paths untested.
+- **GPU:** **AMD** preferred (Radiance vLLM on dual R9700; llama.cpp HIP 12B on a single card; whisper.cpp Vulkan). NVIDIA paths untested.
 - **OS:** Docker-capable Linux with Compose v2. **macOS out of scope** for now.
 
 ### Shared
@@ -99,8 +99,10 @@ Workloads are placed by edition:
 | TS6 web query | 10080 | TCP | |
 | TS6 SSH query | 10022 | TCP | |
 | Bot web UI / API | 3000 | TCP | **localhost or LAN-only; see §11** |
-| Ollama | 11434 | TCP | localhost; LAN only if split-brain |
-| rkllama (optional NPU) | 8080 | TCP | localhost |
+| Radiance vLLM (dual R9700 chat) | 8080 | TCP | localhost. **Not** rkllama — NPU rkllama is SBC-only |
+| llama.cpp / Ollama chat | 11434 | TCP | localhost; LAN only if split-brain. Single-GPU AMD chat = host llama-server |
+| CPU Ollama embeddings | 11435 | TCP | localhost. Required when chat owns `:8080` or `:11434` |
+| rkllama (optional NPU) | 8080 | TCP | localhost, **SBC only** — conflicts with Radiance if both bind 8080 |
 | stt-whisper | 9000 | TCP | localhost |
 | piper-tts | 8880 | TCP | localhost |
 | TurboVec (turbovec-bridge) | 6333 | TCP | internal compose network |
@@ -187,7 +189,7 @@ Design rule: **never put the model between a user and the skip button.** Core tr
 |---|---|---|---|---|
 | Voice server | TeamSpeak 6 Server | voice + chat | Proprietary, free ≤32 slots | optional compose profile |
 | Bot base | fork of `teamspeak-music-bot` | TS6 client, queue, web UI, auth | MIT | our fork |
-| LLM (primary) | Ollama OpenAI `/v1` | chat + tools; 12B server / E2B SBC | MIT | edition defaults differ |
+| LLM (primary) | OpenAI `/v1` (Radiance or llama.cpp/Ollama) | chat + tools; Qwen3.8 / 12B server / E2B SBC | MIT | edition defaults differ |
 | LLM (SBC opt) | rkllama + `.rkllm` | offline NPU chat fallback | OSS | not day-to-day |
 | Embeddings | ollama `nomic-embed-text-v2-moe` / `bge-large-en-v1.5` | RAG vectors | — | SBC / Server; see docs/rag-embeddings.md |
 | Vector DB | TurboVec bridge | doc chunks | MIT (bridge) + TurboQuant | profile `rag`; Qdrant-shaped REST |
@@ -195,7 +197,7 @@ Design rule: **never put the model between a user and the skip button.** Core tr
 | Music: youtube | YouTube provider | yt-dlp | MIT | `execFile` |
 | Music: stream | **StreamProvider** | HTTP/Icecast + optional Tidal bridge | our code | §7 |
 | STT | **Whisper** via `stt-whisper` | ASR ladder tiny→large-v3 | MIT (faster-whisper) | canonical; sherpa = legacy |
-| TTS | **Piper** via `piper-tts` | British female speech | MIT | `en_GB-southern_english_female-low` |
+| TTS | **Piper** via `piper-tts` | British female speech | MIT | `en_GB-cori-medium` |
 | Pattern source (reimplement only) | TS3AudioBot | local-first + rights | OSL-3.0 | **patterns, not code** |
 | Pattern source (reimplement only) | Bettehem ts3-musicbot | stream-bridge concept | GPL-3.0 | **concept, not code** |
 
@@ -271,7 +273,7 @@ Replace the base's flat `PUBLIC_COMMANDS` / `ADMIN_COMMANDS` sets with a **decla
 
 ## 10. Voice Pipeline (Phase 2)
 
-- **STT + VAD:** sherpa-onnx on CPU. Circular-buffer + VAD end-pointing (KokoDOS pattern) on the bot's inbound channel audio. Transcript → the same control router (§4) — simple commands matched deterministically, fuzzy ones to the LLM.
+- **STT + VAD:** Whisper HTTP sidecar (`stt-whisper`) + in-bot VAD. Transcript → the same control router (§4) — simple commands matched deterministically, fuzzy ones to the LLM. (sherpa-onnx was removed in V2.)
 - **TTS:** **Piper** (`piper-tts` sidecar) is production TTS. (Kokoro-FastAPI is historical; do not reintroduce as the default path — see AGENTS.md.)
 - **Inbound capture:** `@honeybbq/teamspeak-client` emits per-speaker `voiceData` (wired via `TS3Client`); Opus→PCM decode runs in `bot/src/bot/voice/session.ts` with hardened packet splitting (`bot/src/audio/opus-voice.ts`). Round-trip latency and live TS6 codec edge cases still need operator validation on hardware.
 
@@ -293,7 +295,7 @@ Replace the base's flat `PUBLIC_COMMANDS` / `ADMIN_COMMANDS` sets with a **decla
 - Zoo RKNN ladder: tiny / base / medium only (no Rockchip `small`). See [docs/voice-backends.md](./docs/voice-backends.md).
 
 ### TTS
-- **Canonical: Piper** `en_GB-southern_english_female-low` via HTTP sidecar (`piper-tts`).
+- **Canonical: Piper** `en_GB-cori-medium` via HTTP sidecar (`piper-tts`). Do not default to GPU TTS (Kokoro/XTTS) — they fight Radiance or the compositor.
 
 ### Putting it on the silicon (SBC)
 NPU → Whisper base (RKNN STT). CPU → bot + music + Piper TTS + ollama E2B/embed + TurboVec. Chat LLM usually on LAN Server. Optional NPU LLM (`rkllama`) only for offline opt-in.

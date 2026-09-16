@@ -1,0 +1,34 @@
+# Host llama.cpp owns chat on :11434. Keep Docker Ollama for embeddings only.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml \
+#     -f docker-compose.server.llamacpp.yml \
+#     --profile core --profile ollama --profile rag --profile voice-server up -d
+#
+# Bot: RKLLAMA_URL=http://127.0.0.1:11434  RKLLAMA_MODEL=gemma4:12b
+# Do not run GPU Ollama and llama.cpp on the same card.
+services:
+  bot:
+    environment:
+      - RKLLAMA_URL=${RKLLAMA_URL:-http://127.0.0.1:11434}
+      - RKLLAMA_MODEL=${RKLLAMA_MODEL:-gemma4:12b}
+      # Embeddings stay on compose Ollama (CPU). Chat is host llama-server.
+      - EMBEDDING_URL=${EMBEDDING_URL:-http://127.0.0.1:11435}
+
+  ollama:
+    ports: !override
+      - "127.0.0.1:11435:11434"
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      # CPU embeddings — do not claim the R9700.
+      - OLLAMA_LLM_LIBRARY=cpu
+      - HIP_VISIBLE_DEVICES=
+      - ROCR_VISIBLE_DEVICES=
+      - CUDA_VISIBLE_DEVICES=
+
+  stt-whisper:
+    environment:
+      # Vulkan 0 = renderD128 (display). 1 = renderD129 (compute).
+      - GGML_VK_VISIBLE_DEVICES=${GGML_VK_VISIBLE_DEVICES:-1}
+      - STT_MODEL=${STT_MODEL:-medium}
+      - STT_DEVICE=${STT_DEVICE:-vulkan}

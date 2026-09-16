@@ -128,6 +128,13 @@ describe("backlog API: hardening + live + recordings", () => {
     expect(ok.body.configured).toBe(true);
   });
 
+  it("GET /llm/models is admin-only", async () => {
+    const denied = await request(app).get("/api/bot/llm/models").set("Cookie", memberCookie);
+    expect(denied.status).toBe(403);
+    const ok = await request(app).get("/api/bot/llm/models").set("Cookie", adminCookie);
+    expect(ok.status).toBe(200);
+  });
+
   it("GET /live is readable by members (G3)", async () => {
     const res = await request(app).get("/api/bot/live").set("Cookie", memberCookie);
     expect(res.status).toBe(200);

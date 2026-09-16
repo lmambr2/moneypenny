@@ -5,7 +5,7 @@ Point **chat / tool-calling / roast grading** at a faster host while keeping
 `embeddingUrl` in Settings → AI & Permissions.
 
 This is the **recommended production topology**: **SBC edition** on the Orange
-Pi + **Server** Ollama (or full Server edition) on the LAN. See
+Pi + **Server** Radiance / llama.cpp (or full Server edition) on the LAN. See
 [editions.md](./editions.md).
 
 ## When to use this
@@ -24,51 +24,51 @@ music intent, roast grading, and voice LLM replies.
 ## Split-brain layout (Topology A)
 
 ```
-SBC edition (docker)                Server / LAN Ollama
-├─ bot ──chat/tools──► http://192.168.x.x:11434  (gemma-4-12B QAT)
+SBC edition (docker)                Server / LAN workstation
+├─ bot ──chat/tools──► http://192.168.x.x:8080   (Radiance Qwen3.8)
+│                   or http://192.168.x.x:11434  (llama.cpp 12B)
 ├─ ollama ─embed────► http://ollama:11434        (nomic-embed-text-v2-moe)
 ├─ turbovec          (vectors stay on SBC)
-└─ stt-whisper tiny + piper-tts
+└─ stt-whisper + piper-tts
 ```
 
 Embeddings stay on the SBC. Chat uses the Server.
 
 ## Workstation prep
 
-**Requires Ollama ≥ 0.30** (Gemma 4 `gemma4` architecture). If `ollama --version`
-shows 0.23.x from `/usr/local/bin/ollama`, run
-`sudo ./scripts/upgrade-ollama-for-gemma4.sh` on the workstation (uses the pacman
-`/usr/bin/ollama` binary).
+**AMD Server (recommended):** on the dual-R9700 workstation, **Radiance vLLM**
+Qwen3.8-27B MXFP4 on `:8080` (`llmModel: Qwen3.8`). Settings preset
+**Local — Radiance Qwen3.8 (R9700)**. Origin is `http://127.0.0.1:8080` without
+`/v1`. See [gpu-amd.md](./gpu-amd.md).
 
-1. Install [Ollama](https://ollama.com) and pull a tool-capable model:
+**Gemma 4 12B fallback:** host **llama.cpp HIP** QAT + MTP on `:11434`
+(`llmModel: gemma4:12b`) and leave it as `llmFallbackUrl`.
 
-   ```bash
-   ollama pull hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
-   ```
+```bash
+./scripts/build-llama-cpp-hip.sh
+./scripts/download-gemma4-qat-gguf.sh
+./scripts/install-llama-server.sh
+# Firewall: allow TCP 11434 from the Pi only
+curl http://127.0.0.1:11434/v1/models
+```
 
-2. Confirm Ollama listens on the LAN (default on Linux is `*:11434`):
+**Ollama fallback** (no HIP build, or CPU-only): Ollama ≥ 0.30 (Gemma 4
+`gemma4` architecture). If `ollama --version` shows 0.23.x from
+`/usr/local/bin/ollama`, run `sudo ./scripts/upgrade-ollama-for-gemma4.sh`.
 
-   ```bash
-   ss -tlnp | grep 11434
-   curl http://127.0.0.1:11434/api/tags
-   ```
+```bash
+ollama pull hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
+ss -tlnp | grep 11434
+curl http://127.0.0.1:11434/v1/chat/completions -d '{
+  "model":"hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL",
+  "messages":[{"role":"user","content":"play jazz"}],
+  "tools":[{"type":"function","function":{"name":"play_music","description":"Play","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}],
+  "tool_choice":"auto"
+}'
+```
 
-3. **Firewall:** allow TCP `11434` from the Pi's IP only (UFW example):
-
-   ```bash
-   sudo ufw allow from 192.168.x.x to any port 11434 proto tcp
-   ```
-
-4. Verify tool-calling (required for spoken/chat music control):
-
-   ```bash
-   curl http://127.0.0.1:11434/v1/chat/completions -d '{
-     "model":"hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL",
-     "messages":[{"role":"user","content":"play jazz"}],
-     "tools":[{"type":"function","function":{"name":"play_music","description":"Play","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}],
-     "tool_choice":"auto"
-   }'
-   ```
+Do **not** run GPU Ollama and llama.cpp on the same card. Embeddings stay on
+CPU Ollama `:11435` when llama.cpp owns `:11434`.
 
 ## SBC configuration
 
@@ -78,8 +78,8 @@ Settings → AI & Permissions (or `bot/data/config.json`):
 ```json
 {
   "llmEnabled": true,
-  "llmUrl": "http://192.168.x.x:11434",
-  "llmModel": "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL",
+  "llmUrl": "http://192.168.x.x:8080",
+  "llmModel": "Qwen3.8",
   "llmFallbackUrl": "http://ollama:11434",
   "llmFallbackModel": "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL",
   "embeddingUrl": "http://ollama:11434",

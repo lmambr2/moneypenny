@@ -4,7 +4,7 @@ import { join } from "node:path";
 import cookieParser from "cookie-parser";
 import express from "express";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type BotConfig, getDefaultConfig } from "../../data/config.js";
 import { type BotDatabase, createDatabase } from "../../data/database.js";
 import { createSessionStore } from "../../data/sessions.js";
@@ -576,6 +576,42 @@ describe("bot settings router", () => {
       .set("Cookie", adminCookie)
       .send({ question: "  " });
     expect(res.status).toBe(400);
+  });
+
+  it("GET /llm/models is admin-only and lists OpenAI models", async () => {
+    config.llmUrl = "http://127.0.0.1:8080";
+    config.llmModel = "Qwen3.8";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/v1/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                { id: "Qwen3.8", owned_by: "vllm", max_model_len: 32768 },
+                { id: "Qwen3.6", owned_by: "vllm", max_model_len: 32768 },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("no", { status: 404 });
+      }),
+    );
+    try {
+      const denied = await request(app).get("/api/bot/llm/models").set("Cookie", memberCookie);
+      expect(denied.status).toBe(403);
+      const ok = await request(app).get("/api/bot/llm/models").set("Cookie", adminCookie);
+      expect(ok.status).toBe(200);
+      expect(ok.body.selected.primary).toBe("Qwen3.8");
+      expect(ok.body.primary.available).toBe(true);
+      expect(ok.body.primary.models.map((m: { id: string }) => m.id)).toEqual([
+        "Qwen3.6",
+        "Qwen3.8",
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   // Tests for the new requireAdmin guards on privileged player controls.

@@ -185,7 +185,7 @@ echo "recommend_duplex_reason=$RECOMMEND_DUPLEX_REASON"
 echo "recommend_speech=$RECOMMEND_SPEECH"
 
 if [ "$GPU" = "amd" ]; then
-  echo "recommend_llm=host-ollama"
+  echo "recommend_llm=host-llamacpp-hip"
   echo "recommend_stt=whisper-cpp-vulkan"
   echo "docs=docs/gpu-amd.md"
 elif [ "$GPU" = "nvidia" ]; then

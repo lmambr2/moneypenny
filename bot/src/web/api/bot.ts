@@ -16,6 +16,7 @@ import {
   safeRecordingBasename,
   writeRecording,
 } from "../../data/recordings.js";
+import { fetchLlmCatalog } from "../../llm/catalog.js";
 import type { Logger } from "../../logger.js";
 import { defaultRadioConfig, parseAudioColorPreset, type RadioConfig } from "../../radio/index.js";
 import { isRightsConfig } from "../../rights/index.js";
@@ -1140,6 +1141,46 @@ export function createBotRouter(
       return;
     }
     res.json(await bot.getLlmStatus());
+  });
+
+  // GET /api/bot/llm/models — live catalog from the OpenAI-compatible origin.
+  // ?url=… lists a draft endpoint (admin-typed). Otherwise lists primary /
+  // fallback / delegate from saved settings.
+  router.get("/llm/models", requireAdmin, async (req, res) => {
+    const urlQ = typeof req.query.url === "string" ? req.query.url.trim() : "";
+    const role = typeof req.query.role === "string" ? req.query.role.trim() : "";
+    if (urlQ) {
+      res.json({ catalog: await fetchLlmCatalog(urlQ) });
+      return;
+    }
+    const primaryUrl = config.llmUrl?.trim() || "";
+    const fallbackUrl = config.llmFallbackUrl?.trim() || "";
+    const delegateUrl = config.llmDelegateUrl?.trim() || "";
+    const pick = role === "fallback" ? fallbackUrl : role === "delegate" ? delegateUrl : primaryUrl;
+    if (role === "primary" || role === "fallback" || role === "delegate") {
+      res.json({
+        role,
+        catalog: pick ? await fetchLlmCatalog(pick) : { url: "", available: false, models: [] },
+      });
+      return;
+    }
+    const [primary, fallback, delegate] = await Promise.all([
+      primaryUrl
+        ? fetchLlmCatalog(primaryUrl)
+        : Promise.resolve({ url: "", available: false, models: [] }),
+      fallbackUrl ? fetchLlmCatalog(fallbackUrl) : Promise.resolve(null),
+      delegateUrl ? fetchLlmCatalog(delegateUrl) : Promise.resolve(null),
+    ]);
+    res.json({
+      selected: {
+        primary: config.llmModel ?? "",
+        fallback: config.llmFallbackModel ?? "",
+        delegate: config.llmDelegateModel ?? "",
+      },
+      primary,
+      fallback,
+      delegate,
+    });
   });
 
   // GET /api/bot/rights/debug?uid=...&groups=105,106 — effective rights for a subject

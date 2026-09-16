@@ -89,6 +89,36 @@
         </div>
       </div>
 
+      <div v-if="session.isAdmin.value && llmChip.model" class="llm-chip" ref="llmChipRef">
+        <button
+          class="llm-chip-btn"
+          :class="{ live: llmChip.available }"
+          :title="llmChip.url ? `${llmChip.model} @ ${llmChip.url}` : llmChip.model"
+          @click="llmMenuOpen = !llmMenuOpen"
+        >
+          <span class="llm-chip-dot" :class="{ ok: llmChip.available }" />
+          <span class="llm-chip-name">{{ llmChip.model }}</span>
+          <Icon icon="mdi:chevron-down" class="bot-chevron" :class="{ rotated: llmMenuOpen }" />
+        </button>
+        <div v-if="llmMenuOpen" class="llm-chip-menu">
+          <div class="llm-chip-menu-head">Chat model</div>
+          <button
+            v-for="m in llmChip.models"
+            :key="m.id"
+            class="llm-chip-item"
+            :class="{ active: m.id === llmChip.model }"
+            @click="applyNavModel(m.id)"
+          >
+            {{ m.id }}
+            <span v-if="m.maxModelLen" class="llm-chip-ctx">{{ formatModelCtx(m.maxModelLen) }}</span>
+          </button>
+          <p v-if="!llmChip.models.length" class="llm-chip-empty">No catalog from the endpoint.</p>
+          <RouterLink class="llm-chip-settings" to="/settings#llm-models" @click="llmMenuOpen = false">
+            Model settings
+          </RouterLink>
+        </div>
+      </div>
+
       <RouterLink to="/settings" class="settings-btn">
         <Icon icon="mdi:cog" />
       </RouterLink>
@@ -128,9 +158,10 @@
 
 <script setup lang="ts">
 import { Icon } from '@iconify/vue';
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api/axios.js';
+import { formatModelCtx, type LlmCatalogModel } from '../api/llm-catalog.js';
 import { useSession } from '../composables/useSession.js';
 import { usePlayerStore } from '../stores/player.js';
 
@@ -145,6 +176,41 @@ async function onLogout() {
 const activeBot = computed(() => store.activeBot);
 const dropdownOpen = ref(false);
 const selectorRef = ref<HTMLElement | null>(null);
+const llmChipRef = ref<HTMLElement | null>(null);
+const llmMenuOpen = ref(false);
+const llmChip = reactive({
+  model: '',
+  url: '',
+  available: false,
+  models: [] as LlmCatalogModel[],
+});
+
+async function refreshLlmChip() {
+  if (!session.isAdmin.value) return;
+  try {
+    const res = await api.get('/api/bot/llm/models');
+    llmChip.model = res.data?.selected?.primary ?? '';
+    llmChip.url = res.data?.primary?.url ?? '';
+    llmChip.available = !!res.data?.primary?.available;
+    llmChip.models = Array.isArray(res.data?.primary?.models) ? res.data.primary.models : [];
+  } catch {
+    llmChip.model = '';
+    llmChip.available = false;
+    llmChip.models = [];
+  }
+}
+
+async function applyNavModel(id: string) {
+  llmChip.model = id;
+  llmMenuOpen.value = false;
+  try {
+    await api.post('/api/bot/settings', { llmModel: id });
+    store.notify(`Chat model: ${id}`, 'info');
+  } catch {
+    store.notify('Could not switch model', 'error');
+    await refreshLlmChip();
+  }
+}
 const togglingBots = ref<Record<string, boolean>>({});
 const linkInputRef = ref<HTMLInputElement | null>(null);
 const publicBaseUrl = ref<string | null>(null);
@@ -252,7 +318,18 @@ function onClickOutside(e: MouseEvent) {
   if (selectorRef.value && !selectorRef.value.contains(e.target as Node)) {
     dropdownOpen.value = false;
   }
+  if (llmChipRef.value && !llmChipRef.value.contains(e.target as Node)) {
+    llmMenuOpen.value = false;
+  }
 }
+
+watch(
+  () => session.isAdmin.value,
+  (admin) => {
+    if (admin) void refreshLlmChip();
+  },
+  { immediate: true },
+);
 
 onMounted(() => {
   document.addEventListener('click', onClickOutside);
@@ -323,6 +400,94 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.llm-chip {
+  position: relative;
+}
+.llm-chip-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--hover-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 14rem;
+  &.live { border-color: color-mix(in srgb, #4caf7a 50%, var(--border-color)); }
+}
+.llm-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-tertiary);
+  &.ok { background: #4caf7a; }
+}
+.llm-chip-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 16rem;
+  max-height: 22rem;
+  overflow: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  padding: 8px;
+  z-index: 20;
+}
+.llm-chip-menu-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  padding: 4px 8px 8px;
+}
+.llm-chip-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  cursor: pointer;
+  &:hover { background: var(--hover-bg); }
+  &.active { color: var(--color-primary); }
+}
+.llm-chip-ctx {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.llm-chip-empty {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.llm-chip-settings {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--color-primary);
+}
+@media (max-width: 768px) {
+  .llm-chip { display: none; }
 }
 
 .bot-status {

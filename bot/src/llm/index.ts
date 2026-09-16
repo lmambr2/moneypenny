@@ -496,7 +496,7 @@ export class LlmModule {
         return { content: msg.content, toolCalls: parsed };
       }
 
-      const content = msg?.content?.trim() || null;
+      const content = (msg ? extractAssistantText(msg) : "") || null;
       if (content) this.record(conversationId, userMessage, content);
       return { content };
     } catch (err) {

@@ -22,10 +22,18 @@ export const LLM_VOICE_NUM_CTX = 8192;
 export const LLM_ASK_NUM_CTX = 32_768;
 
 export interface LlmClientOptions {
-  baseUrl?: string; // RKLLama OpenAI-compatible endpoint, e.g. http://localhost:8080
+  baseUrl?: string; // OpenAI-compatible origin (no /v1). e.g. http://127.0.0.1:8080
   model?: string;
   timeoutMs?: number;
   logger?: Logger;
+}
+
+/**
+ * Settings / docs sometimes paste the OpenAI base (`…/v1`). This client always
+ * appends `/v1/chat/completions`, so a trailing `/v1` would 404 as `/v1/v1/…`.
+ */
+export function normalizeLlmBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "").replace(/\/v1$/i, "");
 }
 
 export interface ChatMessage {
@@ -161,9 +169,8 @@ export class LlmClient {
   private logger?: Logger;
 
   constructor(options: LlmClientOptions = {}) {
-    this.baseUrl = (options.baseUrl || process.env.RKLLAMA_URL || "http://localhost:8080").replace(
-      /\/$/,
-      "",
+    this.baseUrl = normalizeLlmBaseUrl(
+      options.baseUrl || process.env.RKLLAMA_URL || "http://localhost:8080",
     );
     this.model = options.model || process.env.RKLLAMA_MODEL || DEFAULT_CHAT_MODEL;
     // 180s: on the Pi, !ask chains embed (nomic/bge) then chat (Gemma).
@@ -229,6 +236,9 @@ export class LlmClient {
       keep_alive: req.keepAlive ?? LLM_PENNY_KEEP_ALIVE,
     };
     if (req.think !== undefined) payload.think = req.think;
+    // vLLM Qwen3.8 (Radiance): top-level enable_thinking is ignored; kwargs
+    // skip the think block. llama.cpp / Ollama ignore unknown fields.
+    payload.chat_template_kwargs = { enable_thinking: req.think !== true };
     const options: Record<string, unknown> = {};
     if (req.numCtx) options.num_ctx = req.numCtx;
     if (req.flashAttention) options.flash_attention = true;

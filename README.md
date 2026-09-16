@@ -33,8 +33,8 @@ tests passing (175 + 4 test files).
 
 | Edition | Bot primary host | Chat | Voice |
 |---------|------------------|------|-------|
-| **SBC** | Orange Pi 5 Max (RK3588) | LAN Gemma 4 **12B** (E2B offline fallback) | Whisper **base** (RKNN NPU) + Piper |
-| **Server** | x86_64 Linux (**AMD** first; NVIDIA untested) | **Host Ollama** Gemma 4 **12B** (+ 31B if headroom) | whisper.cpp **Vulkan** (AMD) + Piper |
+| **SBC** | Orange Pi 5 Max (RK3588) | LAN chat (Radiance Qwen3.8 or Gemma 4 **12B**; E2B offline fallback) | Whisper **base** (RKNN NPU) + Piper |
+| **Server** | x86_64 Linux (**AMD** first; NVIDIA untested) | Dual-R9700: **Radiance Qwen3.8** on the infer GPU. Single-GPU: llama.cpp HIP Gemma 4 **12B** | whisper.cpp **Vulkan** (display GPU when Radiance owns infer) + Piper CPU |
 
 **Bot runs on the machine you install** (`--edition sbc` or `server`). Embeddings +
 TurboVec (vector store) stay on that host. See [docs/editions.md](./docs/editions.md),
@@ -52,7 +52,7 @@ TurboVec (vector store) stay on that host. See [docs/editions.md](./docs/edition
 - **Direct streams** — any http(s)/Icecast URL.
 
 **AI — entirely local (NPU/CPU/LAN), no cloud**
-- `!ask <question>` — fast Gemma answers; fuzzy natural-language requests drive music via tool-calls.
+- `!ask <question>` — local OpenAI-compatible chat (Radiance **Qwen3.8** on dual-R9700, else Gemma 4 12B); fuzzy natural-language requests drive music via tool-calls.
 - `!analyst <task>` / `!agent <task>` — route heavy analysis to a **second** LAN model (e.g. Gemma 4 31B on a GPU box); same doctrine grounding as `!ask`. Configure delegate URL/model in Settings or see **[docs/remote-llm.md](./docs/remote-llm.md)** (DESIGN §R1).
 - **Split-brain inference** — chat/tool-calling on a LAN workstation (`llmUrl`), embeddings + TurboVec on the Pi, Pi ollama as fallback when the LAN host is down.
 - **Document RAG / knowledge base** — load `.md` doctrine four ways: the web UI (Library → Doctrine), a `git push` wiki, a manual file drop, or **dragging files into a TeamSpeak `moneypenny-drop` channel** (`.md` → knowledge base, audio → music library). `!ask` and `!analyst` answers are grounded and carry a `📎 Sources:` footer. **Rank-gated**: classified docs (frontmatter `classification:`) stay hidden from members without the matching `doctrine:<level>` right. → **[docs/rag-ingestion.md](./docs/rag-ingestion.md)**
@@ -135,8 +135,8 @@ curl -fsSL https://raw.githubusercontent.com/lmambr2/moneypenny/main/install.sh 
 
 | Host | Edition | Defaults |
 |------|---------|----------|
-| Orange Pi / RK3588 | **sbc** | E2B offline fallback; Whisper base (NPU); point `llmUrl` at LAN 12B |
-| x86_64 Linux (**AMD**) | **server** | host Ollama Gemma 4 12B; whisper.cpp Vulkan; optional TS6 |
+| Orange Pi / RK3588 | **sbc** | E2B offline fallback; Whisper base (NPU); point `llmUrl` at the LAN workstation |
+| x86_64 Linux (**AMD**) | **server** | dual-R9700: Radiance Qwen3.8 + CPU embeddings `:11435` + Whisper on the display GPU; lighter box: llama.cpp HIP 12B |
 | Either | `--llm npu` | rkllama on SBC only (offline opt-in) |
 
 Installer installs Docker if needed, writes `.env` + `COMPOSE_FILE` for the
@@ -476,8 +476,8 @@ See [docs/remote-llm.md](./docs/remote-llm.md) for split-brain + analyst presets
 **Voice**
 - `voice.enabled`
 - `voice.respondWithVoice`
-- `voice.sttUrl` (`http://stt-whisper:9000`)
-- `voice.ttsUrl` (`http://piper-tts:8880`)
+- `voice.sttUrl` (`http://127.0.0.1:9000` on a host bot; `http://stt-whisper:9000` in compose)
+- `voice.ttsUrl` (`http://127.0.0.1:8880` / `http://piper-tts:8880`)
 - `voice.ttsVoice` (`en_GB-cori-high` — British Piper high, medium fallback; [samples](https://rhasspy.github.io/piper-samples/))
 - `voice.textWakeFallback` (**true** for Whisper — no KWS)
 
@@ -521,7 +521,7 @@ See **[ROADMAP.md](./ROADMAP.md)** for the status of Phases 4–8.
 - **[docs/editions.md](./docs/editions.md)** — SBC vs Server product matrix and topologies
 - **[docs/BUILD.md](./docs/BUILD.md)** — near-term build list (poke commands, ACE-Step, …)
 - **[docs/ace-step.md](./docs/ace-step.md)** — ACE-Step music gen design · **[docs/ace-step-host.md](./docs/ace-step-host.md)** host/GPU setup
-- **[docs/gpu-amd.md](./docs/gpu-amd.md)** — AMD Server: host Ollama + whisper.cpp Vulkan
+- **[docs/gpu-amd.md](./docs/gpu-amd.md)** — AMD Server: dual-R9700 Radiance Qwen3.8; llama.cpp HIP 12B on a single card
 - **[RELEASES.md](./RELEASES.md)** — how release tarballs are built and installed
 - **[DESIGN.md](./DESIGN.md)** — architecture (v3), rights (§8), hardening (§11), phased plan (§13)
 - **[ROADMAP.md](./ROADMAP.md)** — phase status (4–8) and the org-AI direction
@@ -554,5 +554,5 @@ It is derived from [ZHANGTIANYAO1/teamspeak-music-bot](https://github.com/ZHANGT
 
 **Server edition**
 - x86_64 Linux, 32 GB+ RAM recommended for Gemma 4 12B QAT
-- **AMD** GPU preferred (host Ollama ROCm + whisper.cpp Vulkan); NVIDIA untested
+- **AMD** GPU preferred (Radiance on dual R9700, or llama.cpp HIP 12B); NVIDIA untested
 - macOS / Apple Silicon: **out of scope** for now

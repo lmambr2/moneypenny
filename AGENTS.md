@@ -16,7 +16,7 @@ This file guides AI coding assistants working in this repo. Follow it unless the
 
 This is **not** “a frontend and a backend.” It is a **multi-part system** with explicit owners. Fix bugs at the **owner** layer, not in a shim one level down.
 
-**Product editions (one bot, two packs):** **SBC** (`docker-compose.sbc.yml`) and **Server** (`docker-compose.server.yml`). Same TypeScript contracts; different defaults for LLM size, STT model, and host role. See `docs/editions.md`, `RELEASES.md`. Do not reintroduce “NPU is primary chat” framing — LAN/Server 12B is day-to-day; NPU is offline opt-in.
+**Product editions (one bot, two packs):** **SBC** (`docker-compose.sbc.yml`) and **Server** (`docker-compose.server.yml`). Same TypeScript contracts; different defaults for LLM size, STT model, and host role. See `docs/editions.md`, `RELEASES.md`. Do not reintroduce “NPU is primary chat” framing. Dual-R9700 day-to-day chat is **Radiance Qwen3.8** on the infer GPU; single-GPU AMD is llama.cpp HIP 12B; NPU is offline opt-in.
 
 ### A. Bot process (single Node.js app — `bot/`)
 
@@ -58,7 +58,7 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 |---------|---------|----------|
 | `bot` | `core` | The Node app (A + B built-in) |
 | `ollama` / `rkllama` | `ollama` / `npu` | OpenAI-compatible `/v1` LLM (`npu` = SBC offline only) |
-| `stt-whisper`, `piper-tts` | `voice-edge` / `voice-server` | Dual-track STT: SBC=`stt-rknn`, Server=`stt-whisper-cpp` + Piper (`docs/voice-backends.md`). **No** sherpa/Kokoro (V2). |
+| `stt-whisper`, `piper-tts` | `voice-edge` / `voice-server` | Dual-track STT: SBC=`stt-rknn`, Server=`stt-whisper-cpp` + Piper. Dual-R9700: also `docker-compose.voice-radiance.yml` (Whisper on the **display** GPU). **No** sherpa/Kokoro (V2). |
 | `stt-mock` | `voice-dev` | CI-only STT stub |
 | `personaplex-mock` | `voice-duplex-dev` | Talker PCM/WS mock (`GET /health`, `POST /v1/control`, `ws /v1/pcm`). No GPU. AMD product Talker is later moshi.cpp Vulkan, RTF-gated. |
 | `turbovec` | `rag` | Vector DB (TurboQuant; replaces Qdrant) |
@@ -70,7 +70,7 @@ Optional profiles. The bot reaches them via URLs in config/env — **not** in-pr
 
 | Path | Owns |
 |------|------|
-| `install.sh --edition`, `docker-compose.yml` + `.sbc.yml` / `.server.yml` | Edition deploy topology |
+| `install.sh --edition`, `docker-compose.yml` + `.sbc.yml` / `.server.yml` / `.voice-radiance.yml` | Edition deploy topology |
 | `scripts/detect-edition.sh`, `scripts/package-release.sh` | Edition detect + release tarballs |
 | `scripts/` | Phase 0, voice smoke, doctrine sync, CI validate |
 | `host-setup/` | NPU driver prep (SBC opt-in) |
@@ -130,6 +130,13 @@ Examples:
 When you hit a failure mode — especially one an LLM “fixed” wrong — add a **one-line entry** here so future sessions avoid it.
 
 <!-- Format: `- [YYYY-MM-DD] <pattern> → <correct owner/fix>` -->
+
+- [2026-09-12] `getClientsInChannel` / `getAllClients` catching `CommandTimeoutError` and returning `[]` made radio alone-stop + idle disconnect fire while humans were still in the channel (`idle timeout` drop on ts.beardforce.com). → Rethrow transport errors; idle poller / presence sync already ignore them and keep last known count. HTTP Query timeouts use `QueryCooldown` so file-drop + group enrich do not 5s-stall every poll.
+- [2026-09-12] Songs cut off mid-track (`FFmpeg stalled mid-track (no PCM)` at 10s underrun) — ffmpeg stderr was `pipe` and never drained, so stats filled the OS pipe and the decoder blocked; the stall path then emitted `trackEnd` and radio skipped. → Drain stderr, `-nostats -loglevel error`, and seek-resume the same URL from elapsed (`decideStallAction`) instead of advancing.
+- [2026-09-12] HTTP Query cooldown lived only on group-enrich + file-drop; profile `clientupdate`, `clientinfo`, `clientmove`, and `!moveall` still 5s-stalled every call when port 10080 is firewalled. → Cooldown belongs on `TS6HttpQuery.request`. `listClientsInCurrentChannel` must fall back to the full-client list already fetched. Unknown own cid (`0n`) must throw, not return `[]`.
+- [2026-09-12] `loadSavedBots` fire-and-forgot `connect()` with no deadline; watchdog rebuilt a new `BotInstance` after 30s and dropped the queue. → `connectWithTimeout` on boot; snapshot/restore the queue across `startBot`.
+- [2026-09-12] Dashboard Library hard-capped `GET /api/music/library` at 2000, so 5511 local files showed as 2000/2000. → Raise the list cap and return `total` from `getTrackCount()`.
+- [2026-09-12] ID3 `parseFile` on 5k tracks at boot contended with daytime use (SC). → Filename index always; ID3 + key/BPM analyzer only 02:00–07:00 local; persist `data/local-metadata.json` so titles survive a restart.
 
 - [2026-06-20] Listing a channel's files via full-client `ftgetfilelist` + `execCommandWithResponse` silently returns empty — `@honeybbq/teamspeak-client` surfaces only 8 notification types and `notifychannelfilelist` isn't one. → On **TS6 6.0.0-beta11** WebQuery also returns `5120 out-of-scope` for `ftgetfilelist` (no file-transfer scope exists). **Unverified on beta12** — the compose pin moved to beta12 without re-testing this call; the client side is unchanged (`@honeybbq/teamspeak-client` 0.2.3 still surfaces the same 8 notification types, no `ftgetfilelist`), but if beta12 added a file-transfer scope the disk-mount workaround below is no longer needed. Re-test before relying on either path. **Co-located deploy:** bind-mount the TS `files/` tree (`TS6_FILES_DIR`, `ingest/file-drop-disk.ts`) and scan `virtualserver_<sid>/channel_<cid>/` on disk. **Remote / protocol-correct:** patch `@honeybbq/teamspeak-client` to surface `notifychannelfilelist` (see `docs/honeybbq-ts6-file-list-patch-plan.md`). Tests mocking `listChannelFiles` hid both boundaries.
 - [2026-06-20] Web Player API calling `bot.executeCommand()` bypasses `ControlRouter` rank gating that TS chat and voice use. → Route HTTP commands through `BotInstance.executeRoutedCommand()` + `ControlRouter.executeParsedCommand()`; direct song/queue endpoints call `canWebUserRunCommand()`.

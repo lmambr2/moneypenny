@@ -101,7 +101,7 @@ git checkout vX.Y.Z   # or dev
 | ollama | ollama | E2B fallback + nomic-embed-text-v2-moe |
 | turbovec | rag | vectors on-device (TurboQuant) |
 | stt-whisper | voice-edge | `STT_MODEL=base` (RKNN NPU) |
-| piper-tts | voice-edge | southern English female |
+| piper-tts | voice-edge | `en_GB-cori-medium` |
 | rkllama | npu | **opt-in** offline chat only |
 
 ### Server edition
@@ -109,9 +109,11 @@ git checkout vX.Y.Z   # or dev
 | Service | Profile | Default |
 |---------|---------|---------|
 | bot | core | always |
-| ollama | ollama | Gemma 4 **12B** (+ embed) |
+| Radiance (host docker) | — | Dual-R9700: **Qwen3.8** MXFP4 on the infer GPU (`:8080`) |
+| llama.cpp (host) | — | Single-GPU AMD: Gemma 4 **12B QAT + MTP** (`gemma4:12b` on `:11434`) |
+| ollama | ollama | embeddings (CPU `:11435`, nomic 768-d) or Ollama fallback chat |
 | turbovec | rag | on-device (TurboQuant) |
-| stt-whisper | voice-server | `medium` (Vulkan on AMD; large-v3 optional) |
+| stt-whisper | voice-server | `medium` Vulkan; **display** GPU when Radiance owns infer (`voice-radiance` overlay) |
 | piper-tts | voice-server | same British voice |
 
 ---

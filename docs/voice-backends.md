@@ -71,7 +71,7 @@ export STT_MODEL=base STT_BACKEND=rknn STT_DEVICE=npu
 docker compose -f docker-compose.yml -f docker-compose.sbc.yml \
   --profile voice-edge up -d --build
 
-# Server (AMD / CachyOS) — medium on Vulkan
+# Server (AMD / CachyOS) — medium on Vulkan (single GPU, or display GPU)
 export STT_MODEL=medium STT_DEVICE=vulkan WHISPER_VULKAN=1
 export RENDER_GID=$(getent group render | cut -d: -f3)
 export VIDEO_GID=$(getent group video | cut -d: -f3)
@@ -79,6 +79,40 @@ export VIDEO_GID=$(getent group video | cut -d: -f3)
 docker compose -f docker-compose.yml -f docker-compose.server.yml \
   --profile voice-server up -d --build
 ```
+
+### Dual R9700 + Radiance (infer GPU full)
+
+Whisper must **not** share the infer card. Use the overlay (Vulkan device **0** =
+display / `renderD128`):
+
+```bash
+export GGML_VK_VISIBLE_DEVICES=0
+docker compose -f docker-compose.yml -f docker-compose.server.yml \
+  -f docker-compose.voice-radiance.yml --profile voice-server \
+  up -d --build stt-whisper piper-tts
+```
+
+Host bot: `voice.sttUrl=http://127.0.0.1:9000`, `voice.ttsUrl=http://127.0.0.1:8880`.
+
+A spare **5700 XT eGPU** is optional: dedicated Whisper (even `large-v3`), still
+Vulkan, never Radiance. Identify it by PCI / unique_id.
+
+## Why Whisper + Piper (and not the trendy replacements)
+
+The bot only speaks HTTP (`POST /asr`, `POST /v1/audio/speech`). Swapping
+engines is a sidecar change, not a bot rewrite — but most “better” models
+fail this box:
+
+| Temptation | Why not here |
+|---|---|
+| NVIDIA Parakeet / Canary / faster-whisper CUDA | CUDA. This host is AMD. |
+| Moonshine / sherpa-stt | Removed in V2. Fast, weaker command ASR. |
+| GPU TTS (Kokoro, XTTS, Chatterbox, Orpheus) | Fights Radiance or the compositor. Kokoro was deleted as the default on purpose. |
+| LLM-as-TTS on the infer card | Steals Qwen decode. |
+
+Stay on **whisper.cpp Vulkan** (upgrade path: `large-v3-turbo` on the display
+GPU or a 5700 XT) and **Piper CPU** (`en_GB-cori-medium`). Piper *high* is the
+cheap quality bump if cori-medium is thin — still CPU, same sidecar.
 
 Smoke: `./scripts/voice-smoke.sh` · `./scripts/voice-profile.sh`
 

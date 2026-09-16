@@ -102,7 +102,7 @@ Or env (optional): `ACE_STEP_URL=http://192.168.1.89:7865` when `aceStepEnabled`
 
 - Bot enforces **1 concurrent** gen.
 - Keep **31B analyst** and ACE-Step from thrashing: prefer not running both full-blast.
-- See [gpu-amd.md](./gpu-amd.md) for host Ollama notes.
+- See [gpu-amd.md](./gpu-amd.md) for the host llama.cpp HIP VRAM budget.
 
 ---
 

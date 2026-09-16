@@ -112,6 +112,28 @@ describe("LlmModule history", () => {
     expect(requests[1].messages.map((m) => m.role)).toEqual(["system", "user"]);
   });
 
+  it("chatForIntent salvages Gemma reasoning when content is empty", async () => {
+    const { client } = fakeClient(() => ({
+      id: "x",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: "",
+            reasoning:
+              "* picking a command\nPlay the lobby hard-rock block until someone skips.",
+          },
+          finish_reason: "stop",
+        },
+      ],
+    }));
+    const mod = new LlmModule({ client: client as any });
+    const r = await mod.chatForIntent("keep the rock going", "room");
+    expect(r.content).toMatch(/lobby hard-rock/i);
+    expect(r.toolCalls).toBeUndefined();
+  });
+
   it("ask salvages Gemma reasoning when content is empty", async () => {
     const { client } = fakeClient(() => ({
       id: "x",

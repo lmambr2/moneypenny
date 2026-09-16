@@ -1,0 +1,36 @@
+# Dual-R9700 + Radiance: Whisper on the *display* GPU, Piper on CPU.
+# Infer card is full of Qwen3.8 MXFP4 — do not set GGML_VK_VISIBLE_DEVICES=1.
+#
+#   export RENDER_GID=$(getent group render | cut -d: -f3)
+#   export VIDEO_GID=$(getent group video | cut -d: -f3)
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml \
+#     -f docker-compose.voice-radiance.yml --profile voice-server \
+#     up -d --build stt-whisper piper-tts
+#
+services:
+  stt-whisper:
+    environment:
+      - STT_MODEL=${STT_MODEL:-medium}
+      - STT_DEVICE=${STT_DEVICE:-vulkan}
+      - STT_BACKEND=whisper-cpp
+      - STT_EAGER_LOAD=1
+      - STT_MODELS_DIR=/models
+      # HIP 0 / renderD128 = display R9700 (03:00.0)
+      - GGML_VK_VISIBLE_DEVICES=${GGML_VK_VISIBLE_DEVICES:-0}
+    volumes:
+      - ./models/whisper-cpp:/models:ro
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:-987}"
+      - "${VIDEO_GID:-983}"
+
+  piper-tts:
+    environment:
+      - PIPER_VOICE=${PIPER_VOICE:-en_GB-cori-medium}
+      - PIPER_MODEL=${PIPER_MODEL:-/models/en_GB-cori-medium.onnx}
+      - PIPER_MODELS_DIR=/models
+      # CPU only — never HIP/Vulkan.
+      - HIP_VISIBLE_DEVICES=
+      - ROCR_VISIBLE_DEVICES=
+      - GGML_VK_VISIBLE_DEVICES=

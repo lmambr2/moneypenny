@@ -2,18 +2,25 @@
 
 Primary accelerator path for the **Server** edition. NVIDIA is untested.
 
+
+**This workstation (2026-09-15):** two R9700s are in the box. Day-to-day **chat is
+Radiance vLLM Qwen3.8** (AMD Quark MXFP4) on the infer UUID at `:8080`, not
+Ollama 12B. Whisper.cpp Vulkan runs on the **display** GPU. Embeddings are CPU
+Ollama `:11435` (`nomic-embed-text-v2-moe`, 768-d). Dual-Ollama penny/desk below
+is the fallback layout if Radiance is down. See [Qwen3.8 Radiance](#qwen38-radiance-infer-r9700).
+
 ## Layout
 
 Two discrete cards is the **target** workstation (dual Radeon AI PRO R9700).
 Until a second *dGPU* is installed, Penny uses the one visible discrete GPU —
 do not set the dual-GPU pins below or you will hide the only card.
 
-This box today is **one R9700 (32 GB) + 9800X3D Raphael iGPU (2 GB)**. The iGPU
-is **not** Penny and **not** a Talker. `scripts/detect-gpu.sh` skips Raphael /
-Granite Ridge / Ryzen APU names. `PENNY_RENDER_NODE=/dev/dri/renderD129` on
-this host is the iGPU — do not copy dual-R9700 docs blindly. Official
+This box now has **two R9700s (32 GB each) + a disabled/unused Raphael iGPU**.
+Identify cards by **PCI / ROCm UUID**, not `GPU 0`. Display = `0000:03:00.0`
+(`GPU-fc88d268d1867ded`). Infer / Penny = `0000:07:00.0` (`GPU-e8d920aa6c70376b`).
+`scripts/detect-gpu.sh` still skips Raphael / Granite Ridge iGPU names. Official
 PersonaPlex (NVIDIA CUDA) is not a path here; duplex stays **cascaded** until
-`scripts/duplex-rtf.sh` measures moshi.cpp Vulkan q4_k on the R9700.
+`scripts/duplex-rtf.sh` measures moshi.cpp Vulkan q4_k.
 
 | Job | Where | Model |
 |---|---|---|
@@ -140,3 +147,174 @@ Do not measure a GPU TTS sidecar until 12B Q8 + Whisper turbo are resident.
 ./install.sh --edition server --with-rag --with-voice
 ./scripts/detect-gpu.sh
 ```
+
+## Qwen3.8 Radiance (infer R9700)
+
+On this dual-R9700 workstation the **primary chat/tools** path is vLLM Radiance
+MXFP4 on the **infer** card, not llama.cpp 12B. That changes where STT and
+embeddings live: the infer card is full (~29 GB of 32 GB). Do not share it.
+
+| Piece | Where | Why |
+|---|---|---|
+| **Chat / tools** | Radiance `:8080` on **infer** UUID | Qwen3.8 MXFP4 + DFlash2 |
+| **Embeddings / RAG** | CPU Ollama `:11435` (`nomic-embed-text-v2-moe`, 768-d) | Matches TurboVec; never vLLM; never either GPU |
+| **Vector store** | TurboVec `:6333` | Already on disk at `bot/data/turbovec` |
+| **STT** | whisper.cpp Vulkan **medium** on the **display** card (`GGML_VK_VISIBLE_DEVICES=0`) | Infer has ~3 GB free — medium will OOM or hitch decode |
+| **TTS** | Piper **CPU** `en_GB-cori-medium` | Do not GPU-offload |
+
+| | |
+|---|---|
+| Serve | `~/radiance/serve.sh` (solo, `ROCR_VISIBLE_DEVICES=$INFER_UUID`) |
+| Image | `stilldeadcode/vllm-radiance:0.9.3` |
+| Origin | `http://127.0.0.1:8080` — **no `/v1`**; the bot appends `/v1/chat/completions` |
+| Model | `Qwen3.8` |
+| Settings preset | **Local — Radiance Qwen3.8 (R9700)** |
+| Fallback | llama.cpp Gemma 12B on `:11434` if that unit is up |
+| Embeddings unit | `systemctl --user start ollama-embed` (`127.0.0.1:11435`) |
+
+Do **not** tensor-parallel onto the display GPU unless `/tmp/mp-allow-display-gpu`
+exists. Do **not** start the system `ollama.service`: it pins the infer UUID and
+points `OLLAMA_MODELS` at `/Mandragora/models` (broken). Do not load llama.cpp
+HIP 12B on the infer UUID while Radiance is up.
+
+The bot sends `chat_template_kwargs.enable_thinking=false` so Qwen does not
+burn the reply budget on a think block (voice + `!ask` latency).
+
+Compose overlay so Docker Ollama does not steal :11434 or the GPU:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml \
+  -f docker-compose.server.llamacpp.yml \
+  --profile core --profile ollama --profile rag --profile voice-server up -d
+```
+
+### Flag reasons
+
+| Flag | Reason |
+|------|--------|
+| UD-Q4_K_XL / Google QAT Q4_0 | QAT was trained for this bit-width. Do not requant to Q3. |
+| `--spec-type draft-mtp` + n-max 2 | First measure n-max 2. n-max 4 is faster when accept rate stays >0.65; drop to 2 if voice replies get garbled. |
+| `--parallel 1` | Voice is single-stream. Extra slots steal KV. |
+| `-c 16384` | TS commands + RAG snippets. 32K is optional. 128K is wasted on a secretary bot and inflates KV. |
+| `--cache-type-k/v q8_0` | Cuts KV ~2× vs f16 with almost no quality loss. Use q4_0 only if Whisper OOMs you. |
+| `--reasoning off` | Thinking mode doubles tokens and kills barge-in latency. |
+| No mmproj / no audio projector | Separate Whisper/Piper already exist. |
+
+## Whisper + Piper on the same card
+
+MoneyPenny server STT is whisper.cpp Vulkan **medium**. Keep it that way.
+
+```bash
+export GGML_VK_VISIBLE_DEVICES=1
+export STT_MODEL=medium
+export STT_DEVICE=vulkan
+# do not jump to large-v3 on a shared 32 GB card until the LLM is stable
+```
+
+If VRAM spikes when both are hot:
+
+1. Drop LLM ctx to 8192
+2. KV `q4_0`
+3. MTP n-max 2
+4. Only then consider Whisper `base` instead of `medium`
+
+Piper stays on CPU.
+
+Host groups for `/dev/dri` (Arch / CachyOS GIDs are often ~987/983, not Debian
+992/44):
+
+```bash
+export RENDER_GID=$(getent group render | cut -d: -f3)
+export VIDEO_GID=$(getent group video | cut -d: -f3)
+./scripts/download-whisper-ggml.sh --dir ./models/whisper-cpp medium
+```
+
+## What not to do on one R9700
+
+- Serve `google/gemma-4-12B-it` BF16 in vLLM (~25 GB weights). Whisper dies.
+- Use a non-QAT Q4_0 / IQ3 “to save VRAM.” You already fit. Quality is the
+  scarce resource, not gigabytes.
+- Leave thinking mode on.
+- Load 131K context “because the card can.” Voice + RAG does not need it; KV
+  will fight Whisper.
+- Run Ollama and llama.cpp both claiming the GPU.
+- Compile llama.cpp HIP and expect Ollama’s bundled ROCm binary to pick up MTP.
+
+## Optional: vLLM on this one card
+
+Use Google’s official compressed-tensors QAT, not BF16:
+
+```text
+google/gemma-4-12B-it-qat-w4a16-ct
+```
+
+```bash
+vllm serve google/gemma-4-12B-it-qat-w4a16-ct \
+  --max-model-len 16384 \
+  --gpu-memory-utilization 0.55 \
+  --enable-auto-tool-choice \
+  --reasoning-parser gemma4 \
+  --tool-call-parser gemma4 \
+  --limit-mm-per-prompt '{"image":0,"audio":0}' \
+  --attention-backend TRITON_ATTN
+```
+
+`--gpu-memory-utilization 0.55` leaves ~14 GB for Vulkan Whisper + graphs.
+Full 0.90 will evict STT.
+
+vLLM wins later if you add a second card or concurrent chat. For phase 0/1
+voice, llama.cpp + MTP is the better single-stream path.
+
+This host has **two** R9700s. DRM `cardN` swaps; pin by PCI / by-path:
+
+| Role | PCI | by-path render | HIP/ROCR | Vulkan |
+|------|-----|----------------|----------|--------|
+| Display (Hyprland, DP-4 Dell) | `0000:03:00.0` | `renderD128` | **0 — never** | 0 |
+| Compute (no monitor) | `0000:07:00.0` | `renderD129` | **1** | 1 |
+
+`scripts/lib/llama-cpp-env.sh` `pin_rocm_compute_gpu` refuses `renderD128`.
+Do not run `rocminfo`, `llama-server`, or `llama-bench` unpinned — that wakes
+the idle card and DRM-hotplugs Hyprland. Do not split 12B across both cards.
+
+## 31B analyst
+
+Do **not** enable 31B until `./scripts/check-analyst-vram.sh` says OK (or you
+accept model swap). 32 GB is **not** enough for 12B + 31B + Whisper resident.
+
+| Approx free VRAM | Action |
+|------------------|--------|
+| &lt; 20 GB | 12B only |
+| 20–24 GB | 31B only with swap (unload 12B) |
+| ≥ ~48 GB | optional concurrent (32 GB + Whisper OOMs) |
+
+## Bench protocol (~30 minutes)
+
+```bash
+./scripts/bench-llama-cpp-gemma4.sh
+```
+
+Pass criteria for a secretary bot:
+
+- Decode ≥ 60 tok/s with thinking off (you should beat this)
+- TTFT &lt; 150 ms on an 8K prompt
+- Whisper still healthy under music (`./scripts/voice-under-music-check.sh`)
+- `amd-smi` / `rocm-smi` peak &lt; 24 GB so you have a buffer
+
+## Installer
+
+```bash
+./install.sh --edition server --llm llamacpp --with-rag --with-voice
+./scripts/detect-gpu.sh
+```
+
+## Fallback: host Ollama (ROCm)
+
+Only if llama.cpp is blocked:
+
+```bash
+ollama serve
+ollama pull hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
+```
+
+Docker `ollama/ollama:rocm` (`docker-compose.server.rocm.yml`) is the same
+fallback, not the default.

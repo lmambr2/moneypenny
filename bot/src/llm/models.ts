@@ -1,5 +1,8 @@
-/** Canonical Gemma 4 model tags — prefer these over Qwen/other families. */
+/** Canonical Gemma 4 model tags — Pi / llama.cpp 12B path. */
 export const GEMMA4_E2B_QAT = "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL" as const;
+
+/** Workstation Radiance vLLM served-model-name (`stilldeadcode/vllm-radiance`, :8080). */
+export const QWEN38_RADIANCE = "Qwen3.8" as const;
 
 export const GEMMA4_12B_QAT = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL" as const;
 

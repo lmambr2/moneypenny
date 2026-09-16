@@ -31,8 +31,9 @@ export const MUSIC_CONTROL_TOOLS = [
           },
           source: {
             type: "string",
-            enum: ["local", "youtube", "auto"],
-            description: "Preferred source. Default 'auto' (Local first, then YouTube).",
+            enum: ["local", "youtube", "stream", "auto"],
+            description:
+              "Preferred source. Default 'auto' (Local first, then YouTube). Use 'stream' for Icecast/Spotify/Tidal URLs.",
           },
         },
         required: ["query"],
@@ -140,6 +141,11 @@ export const MUSIC_CONTROL_TOOLS = [
         type: "object",
         properties: {
           query: { type: "string", description: "Song, artist, or playlist description / URL" },
+          source: {
+            type: "string",
+            enum: ["local", "youtube", "stream", "auto"],
+            description: "Preferred source. Default 'auto'. Use 'stream' for Icecast/Spotify/Tidal URLs.",
+          },
         },
         required: ["query"],
       },
