@@ -16,10 +16,13 @@ pub struct BrainRuntime {
     inner: RwLock<Inner>,
 }
 
+pub type PlainHook = std::sync::Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>;
+
 struct Inner {
     settings: LlmSettings,
     transport: BrainTransport,
     retrieve: Option<RetrieveFn>,
+    plain_hook: Option<PlainHook>,
 }
 
 impl BrainRuntime {
@@ -30,6 +33,7 @@ impl BrainRuntime {
                 settings,
                 transport,
                 retrieve: None,
+                plain_hook: None,
             }),
         })
     }
@@ -40,6 +44,7 @@ impl BrainRuntime {
                 settings: LlmSettings::default(),
                 transport,
                 retrieve: None,
+                plain_hook: None,
             }),
         })
     }
@@ -59,20 +64,66 @@ impl BrainRuntime {
 
     /// Custom-system completion (roast grader). Never used on skip.
     /// Returns None when LLM is disabled or the request fails (fail-open).
+    pub async fn set_delta_hook(&self, hook: Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>) {
+        let transport = self.inner.read().await.transport.clone();
+        if let crate::factory::BrainTransport::InProcess(brain) = transport {
+            brain.set_delta_hook(hook);
+        }
+    }
+
+    pub async fn set_plain_hook(&self, hook: Option<PlainHook>) {
+        self.inner.write().await.plain_hook = hook;
+    }
+
     pub async fn complete_plain(&self, system: &str, user: &str) -> Option<String> {
-        let settings = {
+        let (settings, hook) = {
             let g = self.inner.read().await;
             if !g.settings.enabled {
                 return None;
             }
-            g.settings.clone()
+            (g.settings.clone(), g.plain_hook.clone())
         };
+        if let Some(hook) = hook {
+            return hook(system, user)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
         let llm = crate::llm::OpenAiLlm::from_settings(&settings);
         llm.complete_system(system, user)
             .await
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
+    }
+
+    /// Ollama keep_alive 0. No-op when the chat model is disabled. 404/405 ignored.
+    pub async fn unload(&self) {
+        let settings = {
+            let g = self.inner.read().await;
+            if !g.settings.enabled || g.settings.url.trim().is_empty() {
+                return;
+            }
+            g.settings.clone()
+        };
+        let llm = crate::llm::OpenAiLlm::from_settings(&settings);
+        if let Err(e) = llm.unload().await {
+            tracing::warn!(error = %e, "LLM idle unload failed");
+        }
+    }
+
+    /// One-token warm after a human rejoins an unloaded channel.
+    pub async fn warm(&self) {
+        let settings = {
+            let g = self.inner.read().await;
+            if !g.settings.enabled || g.settings.url.trim().is_empty() {
+                return;
+            }
+            g.settings.clone()
+        };
+        let llm = crate::llm::OpenAiLlm::from_settings(&settings);
+        if let Err(e) = llm.warm().await {
+            tracing::warn!(error = %e, "LLM idle warm failed");
+        }
     }
 
     pub async fn llm_snapshot(&self) -> (bool, String, String) {

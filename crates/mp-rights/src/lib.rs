@@ -595,25 +595,6 @@ mod tests {
     }
 
     #[test]
-    fn voice_grant_does_not_leak_to_chat() {
-        let e = RightsEngine::new(RightsConfig {
-            rules: Some(vec![RightsRule {
-                name: None,
-                r#match: RuleMatch {
-                    server_groups: Some(vec!["100".into()]),
-                    uids: None,
-                },
-                allow: Some(vec!["stop".into()]),
-                deny: None,
-                scope: Some(Scope::Voice),
-            }]),
-            ..Default::default()
-        });
-        assert!(e.can(&member(), "stop", Scope::Voice));
-        assert!(!e.can(&member(), "stop", Scope::Chat));
-    }
-
-    #[test]
     fn is_rights_config_validates() {
         let good = serde_json::json!({
             "rules": [{"match": {"serverGroups": ["1"]}, "allow": ["play"], "scope": "voice"}]

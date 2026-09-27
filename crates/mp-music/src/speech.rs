@@ -4,6 +4,7 @@
 //! Park music, play a TTS wav on the shared player, restore on TrackEnd.
 //! Skip never waits on this path — commands dispose first, then we air.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,6 +26,8 @@ struct Inner {
     suppress: bool,
     suppress_at: Option<Instant>,
     path: Option<PathBuf>,
+    pending: VecDeque<PathBuf>,
+    clip_gen: u64,
 }
 
 pub struct ChannelSpeech {
@@ -51,6 +54,8 @@ impl ChannelSpeech {
                 suppress: false,
                 suppress_at: None,
                 path: None,
+                pending: VecDeque::new(),
+                clip_gen: 0,
             }),
             speaking: AtomicBool::new(false),
             generation: AtomicU64::new(0),
@@ -62,7 +67,17 @@ impl ChannelSpeech {
     }
 
     /// `hold_queue`: pause/stop acks — do not restore music after the wav.
+    /// Replaces anything already queued.
     pub fn speak(&self, audio: &[u8], format: &str, hold_queue: bool) {
+        self.air(audio, format, hold_queue, true);
+    }
+
+    /// Later sentences of one reply wait until the clip already airing ends.
+    pub fn enqueue_sentence(&self, audio: &[u8], format: &str) {
+        self.air(audio, format, false, false);
+    }
+
+    fn air(&self, audio: &[u8], format: &str, hold_queue: bool, interrupt: bool) {
         if audio.is_empty() {
             return;
         }
@@ -77,8 +92,13 @@ impl ChannelSpeech {
                 return;
             }
         };
+        schedule_unlink(path.clone(), Duration::from_secs(120));
 
         let mut g = self.inner.lock().expect("speech");
+        if !interrupt && self.speaking.load(Ordering::SeqCst) {
+            g.pending.push_back(path);
+            return;
+        }
         if hold_queue {
             g.saved = None;
             g.suppress = true;
@@ -86,7 +106,7 @@ impl ChannelSpeech {
             if self.station.player.is_stt_ducked() {
                 self.station.player.restore_from_stt_duck();
             }
-        } else {
+        } else if g.saved.is_none() {
             g.suppress = false;
             g.suppress_at = None;
             if self.station.player.is_stt_ducked() {
@@ -94,22 +114,35 @@ impl ChannelSpeech {
             }
             g.saved = park_current(&self.station);
         }
+        g.pending.clear();
         if let Some(old) = g.path.replace(path.clone()) {
             let _ = std::fs::remove_file(old);
         }
+        let clip = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        g.clip_gen = clip;
         drop(g);
+        self.start_clip(&path);
+    }
 
-        self.generation.fetch_add(1, Ordering::SeqCst);
+    fn start_clip(&self, path: &std::path::Path) {
         self.speaking.store(true, Ordering::SeqCst);
         self.station.player.reset_failures();
-        tracing::info!(path = %path.display(), hold_queue, "tts: airing in channel");
+        tracing::info!(path = %path.display(), "tts: airing in channel");
         self.station.player.play(path.to_str().unwrap_or(""), 0.0, 0.0);
-        schedule_unlink(path, Duration::from_secs(120));
     }
 
     /// Call from the player TrackEnd handler. Restores parked music when needed.
     pub fn on_track_end(&self) -> TrackEndKind {
         let mut g = self.inner.lock().expect("speech");
+        if g.clip_gen != self.generation.load(Ordering::SeqCst) {
+            return TrackEndKind::Tts;
+        }
+        if let Some(next) = g.pending.pop_front() {
+            g.path = Some(next.clone());
+            drop(g);
+            self.start_clip(&next);
+            return TrackEndKind::Tts;
+        }
         let speaking = self.speaking.swap(false, Ordering::SeqCst);
         if g.suppress {
             let fresh = g
@@ -201,7 +234,6 @@ fn schedule_unlink(path: PathBuf, after: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queue::PlayQueue;
     use crate::track::{Platform, QueueSource, QueuedSong};
 
     fn song(id: &str) -> QueuedSong {
@@ -277,7 +309,22 @@ mod tests {
     }
 
     #[test]
-    fn unused_queue_touch() {
-        let _ = PlayQueue::new();
+    fn queued_sentence_plays_after_the_clip_already_airing() {
+        let dir = std::env::temp_dir().join(format!("mp-speech-q-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let station = Arc::new(MusicStation::new(&dir, None));
+        station.set_dry_run(true);
+        station.set_connected(true);
+        let speech = ChannelSpeech::new(Arc::clone(&station));
+        speech.enqueue_sentence(b"RIFF one", "wav");
+        let first = station.player.loaded_url();
+        speech.enqueue_sentence(b"RIFF two", "wav");
+        assert_eq!(station.player.loaded_url(), first);
+        assert_eq!(speech.on_track_end(), TrackEndKind::Tts);
+        assert_ne!(station.player.loaded_url(), first);
+        assert!(speech.is_speaking());
+        assert_eq!(speech.on_track_end(), TrackEndKind::Tts);
+        assert!(!speech.is_speaking());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

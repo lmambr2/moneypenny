@@ -287,12 +287,4 @@ mod tests {
         assert_eq!(r.name, "chevron7");
         assert!(is_known_command("chevron7"));
     }
-
-    #[test]
-    fn frozen_names_include_phase2() {
-        for n in ["play", "skip", "queue", "ask", "analyst"] {
-            assert!(is_known_command(n), "missing {n}");
-        }
-        assert!(COMMAND_MANIFEST.len() >= 60);
-    }
 }

@@ -97,6 +97,52 @@ pub fn text_to_spoken(raw: &str) -> String {
         .join(" ")
 }
 
+/// Complete sentences from a growing LLM buffer. The first item is what TTS starts on.
+pub fn push_stream_delta(buf: &mut String, delta: &str) -> Vec<String> {
+    buf.push_str(delta);
+    let mut sentences = Vec::new();
+    let mut last = 0usize;
+    let chars: Vec<(usize, char)> = buf.char_indices().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let (idx, ch) = chars[i];
+        if matches!(ch, '.' | '!' | '?' | '…') {
+            let end = idx + ch.len_utf8();
+            let next_is_break = chars.get(i + 1).is_none_or(|(_, n)| n.is_whitespace());
+            if next_is_break {
+                let piece = buf[last..end].trim();
+                if !piece.is_empty() {
+                    sentences.push(piece.to_string());
+                }
+                last = chars.get(i + 1).map(|(n, _)| *n).unwrap_or(buf.len());
+                while chars.get(i + 1).is_some_and(|(_, n)| n.is_whitespace()) {
+                    i += 1;
+                    last = chars.get(i + 1).map(|(n, _)| *n).unwrap_or(buf.len());
+                }
+            }
+        }
+        i += 1;
+    }
+    if last > 0 {
+        *buf = buf[last..].to_string();
+    }
+    sentences
+}
+
+/// Spoken chunks for TTS. The first chunk is the first sentence, with the Sources footer removed.
+pub fn tts_speak_chunks(reply: &str) -> Vec<String> {
+    let spoken = text_to_spoken(reply);
+    if spoken.is_empty() {
+        return Vec::new();
+    }
+    let mut buf = String::new();
+    let mut sentences = push_stream_delta(&mut buf, &spoken);
+    if !buf.trim().is_empty() {
+        sentences.push(buf.trim().to_string());
+    }
+    sentences
+}
+
 pub fn split_spoken_sentences(text: &str) -> Vec<String> {
     let spoken = text_to_spoken(text);
     if spoken.is_empty() {
@@ -134,5 +180,22 @@ mod tests {
         let s = text_to_spoken("**Hello** team.\n\n📎 Sources: combat.md");
         assert!(s.to_lowercase().starts_with("hello"));
         assert!(!s.to_lowercase().contains("sources"));
+    }
+
+    #[test]
+    fn first_tts_chunk_is_the_first_sentence_without_sources() {
+        let chunks = tts_speak_chunks("Hello team. More later.\n\n📎 Sources: combat.md");
+        assert_eq!(chunks.first().map(String::as_str), Some("Hello team."));
+        assert!(chunks.iter().all(|c| !c.to_lowercase().contains("sources")));
+        assert!(chunks.len() >= 2);
+    }
+
+    #[test]
+    fn stream_emits_a_sentence_as_soon_as_it_closes() {
+        let mut buf = String::new();
+        assert!(push_stream_delta(&mut buf, "Hello").is_empty());
+        let ready = push_stream_delta(&mut buf, " team. Still");
+        assert_eq!(ready, vec!["Hello team.".to_string()]);
+        assert!(buf.contains("Still"));
     }
 }

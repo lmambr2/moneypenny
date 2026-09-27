@@ -10,12 +10,15 @@ use std::sync::{Arc, Mutex};
 use crate::blacklist::PlaybackBlacklist;
 use crate::local::{LocalProvider, ResolveHit};
 use crate::player::{AudioPlayer, PlayerEvent, PlayerState};
-use crate::queue::{replace_queue_with_song, replace_queue_with_tracks, PlayMode, PlayQueue};
+use crate::queue::{PlayMode, PlayQueue, replace_queue_with_song, replace_queue_with_tracks};
 use crate::stream::{
-    is_spotify_ref, is_streamable_url, is_tidal_url, stream_playback_url, stream_track, StreamBridge,
+    StreamBridge, is_spotify_ref, is_streamable_url, is_tidal_url, stream_playback_url,
+    stream_track,
 };
-use crate::track::{Platform, QueuedSong, QueueSource, Track};
-use crate::youtube::{YoutubeClient, YoutubePolicy};
+use crate::track::{Platform, QueueSource, QueuedSong, Track};
+use crate::youtube::{
+    SG1_THEME_URL, SG1_THEME_VIDEO_ID, YoutubeClient, YoutubePolicy, is_demo_test_track,
+};
 use crate::ytlibrary::YtLibrary;
 
 pub struct UserPause {
@@ -35,10 +38,34 @@ pub struct MusicStation {
     youtube_save_enabled: AtomicBool,
     connected: Mutex<bool>,
     prefetch: Arc<Mutex<Option<(String, String)>>>,
+    votes: Mutex<VoteState>,
+}
+
+struct VoteState {
+    song_id: String,
+    uids: HashSet<String>,
+}
+
+/// Who can be counted for a `!vote` majority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoteAudience {
+    /// Dashboard, MCP, or any caller that is not a TeamSpeak user.
+    NotOnTeamspeak,
+    /// clientlist failed or the bot's channel id is unknown.
+    Uncounted,
+    /// Listeners in the bot's channel, excluding the bot.
+    Listeners(u32),
+}
+
+pub fn vote_needed(listeners_excluding_bot: u32) -> u32 {
+    ((listeners_excluding_bot + 1) / 2).max(1)
 }
 
 impl MusicStation {
-    pub fn new(music_dir: impl AsRef<std::path::Path>, blacklist: Option<Arc<PlaybackBlacklist>>) -> Self {
+    pub fn new(
+        music_dir: impl AsRef<std::path::Path>,
+        blacklist: Option<Arc<PlaybackBlacklist>>,
+    ) -> Self {
         Self {
             queue: Mutex::new(PlayQueue::new()),
             player: AudioPlayer::new(),
@@ -51,6 +78,10 @@ impl MusicStation {
             youtube_save_enabled: AtomicBool::new(false),
             connected: Mutex::new(true),
             prefetch: Arc::new(Mutex::new(None)),
+            votes: Mutex::new(VoteState {
+                song_id: String::new(),
+                uids: HashSet::new(),
+            }),
         }
     }
 
@@ -72,6 +103,127 @@ impl MusicStation {
 
     pub fn is_connected(&self) -> bool {
         *self.connected.lock().expect("conn")
+    }
+
+    fn current_song_id(&self) -> String {
+        self.queue
+            .lock()
+            .expect("queue")
+            .current()
+            .map(|s| s.id)
+            .unwrap_or_default()
+    }
+
+    pub fn is_demo_playing(&self) -> bool {
+        let q = self.queue.lock().expect("queue");
+        q.current()
+            .is_some_and(|s| is_demo_test_track(&s.id, &s.name, &s.album))
+    }
+
+    fn record_vote(&self, uid: &str) -> usize {
+        let song_id = self.current_song_id();
+        let mut g = self.votes.lock().expect("votes");
+        if g.song_id != song_id {
+            g.uids.clear();
+            g.song_id = song_id;
+        }
+        g.uids.insert(uid.to_string());
+        g.uids.len()
+    }
+
+    fn clear_votes(&self) {
+        self.votes.lock().expect("votes").uids.clear();
+    }
+
+    /// Majority skip. The demo track is not votable. A failed headcount still
+    /// records the uid so the next successful count includes it.
+    pub async fn cast_vote(&self, uid: &str, audience: VoteAudience) -> String {
+        if self.is_demo_playing() {
+            return "The !test demo track can only be skipped by Chairman or server admin (not by vote).".into();
+        }
+        match audience {
+            VoteAudience::NotOnTeamspeak => "Vote can only be used in TeamSpeak".into(),
+            VoteAudience::Uncounted => {
+                self.record_vote(uid);
+                "Can't count listeners right now (TeamSpeak timed out). Try the vote again in a moment.".into()
+            }
+            VoteAudience::Listeners(n) => {
+                let votes = self.record_vote(uid);
+                let needed = vote_needed(n) as usize;
+                if votes >= needed {
+                    self.clear_votes();
+                    let _ = self.play_next_async().await;
+                    format!("Vote passed ({votes}/{needed}). Skipping to next song.")
+                } else {
+                    format!(
+                        "Vote to skip: {votes}/{needed} (need {} more)",
+                        needed - votes
+                    )
+                }
+            }
+        }
+    }
+
+    /// `!chevron7` — local `[aafGXNWHGaw]` first, then YouTube.
+    pub async fn play_chevron7(&self) -> String {
+        if let Some(track) = self.find_local_by_video_id(SG1_THEME_VIDEO_ID) {
+            let queued = QueuedSong::from_track(track, QueueSource::User);
+            {
+                let mut q = self.queue.lock().expect("queue");
+                replace_queue_with_song(&mut q, queued.clone());
+            }
+            self.player.reset_failures();
+            if self.resolve_and_play_async(&queued).await {
+                return "Chevron seven... locked! 🌌 Dialing the SG-1 theme (local).".into();
+            }
+        }
+        let attempts: [(&str, &[char]); 3] = [
+            (SG1_THEME_URL, &['y']),
+            ("Stargate SG-1 Opening season 1-2-3 HD", &['y']),
+            ("Stargate SG-1 theme official", &[]),
+        ];
+        for (query, flags) in attempts {
+            let set: HashSet<char> = flags.iter().copied().collect();
+            if let ReplaceResult::Ok(_) = self.replace_with_first_hit_flags_async(query, &set).await
+            {
+                return "Chevron seven... locked! 🌌 Dialing the SG-1 theme.".into();
+            }
+        }
+        "Chevron seven won't engage — SG-1 theme not in library and YouTube resolve failed.".into()
+    }
+
+    /// Append local library ids. Starts at the first insert when the player is idle.
+    /// Returns how many ids resolved to a file.
+    pub async fn enqueue_local_ids(&self, ids: &[String]) -> usize {
+        let tracks: Vec<Track> = ids
+            .iter()
+            .filter_map(|id| self.local.song_by_id(id))
+            .collect();
+        let queued = tracks.len();
+        if queued == 0 {
+            return 0;
+        }
+        let was_idle = self.player.get_state() == PlayerState::Idle;
+        let started = {
+            let mut q = self.queue.lock().expect("queue");
+            let mut first_at = None;
+            for t in tracks {
+                let at = q.add(QueuedSong::from_track(t, QueueSource::User));
+                if first_at.is_none() {
+                    first_at = Some(at);
+                }
+            }
+            if was_idle {
+                first_at.and_then(|at| q.play_at(at))
+            } else {
+                None
+            }
+        };
+        if let Some(song) = started {
+            self.player.reset_failures();
+            let _ = self.resolve_and_play_async(&song).await;
+        }
+        queued
     }
 
     pub fn set_dry_run(&self, dry: bool) {
@@ -100,7 +252,11 @@ impl MusicStation {
             return Err(());
         }
         if !flags.contains(&'l') && (is_spotify_ref(q) || is_tidal_url(q)) {
-            if let Some(t) = self.stream_bridge.resolve_track(q).filter(|t| !self.blocked(t)) {
+            if let Some(t) = self
+                .stream_bridge
+                .resolve_track(q)
+                .filter(|t| !self.blocked(t))
+            {
                 return Ok(Some(t));
             }
         }
@@ -162,7 +318,11 @@ impl MusicStation {
     }
 
     /// Same as `search_first_flags` but yt-dlp runs on a blocking pool.
-    pub async fn search_first_flags_async(&self, query: &str, flags: &HashSet<char>) -> Option<Track> {
+    pub async fn search_first_flags_async(
+        &self,
+        query: &str,
+        flags: &HashSet<char>,
+    ) -> Option<Track> {
         let q = query.trim();
         if q.is_empty() {
             return None;
@@ -179,9 +339,9 @@ impl MusicStation {
     }
 
     fn blocked(&self, t: &Track) -> bool {
-        self.blacklist.as_ref().is_some_and(|bl| {
-            bl.is_blacklisted(Some(&t.id), Some(&t.title), Some(&t.artist))
-        })
+        self.blacklist
+            .as_ref()
+            .is_some_and(|bl| bl.is_blacklisted(Some(&t.id), Some(&t.title), Some(&t.artist)))
     }
 
     /// Vue play-by-id / add-by-id: look up one song on the named platform.
@@ -199,7 +359,11 @@ impl MusicStation {
         }
     }
 
-    pub async fn song_by_id_platform_async(&self, song_id: &str, platform: Platform) -> Option<Track> {
+    pub async fn song_by_id_platform_async(
+        &self,
+        song_id: &str,
+        platform: Platform,
+    ) -> Option<Track> {
         let id = song_id.trim();
         if id.is_empty() {
             return None;
@@ -263,7 +427,8 @@ impl MusicStation {
 
     fn start_playback(&self, song: &QueuedSong, url: &str, elapsed: f64) -> bool {
         self.player.reset_failures();
-        self.player.play(url, elapsed.max(0.0), song.duration as f64);
+        self.player
+            .play(url, elapsed.max(0.0), song.duration as f64);
         if song.platform == Platform::Youtube && self.youtube_save_enabled() {
             if let Some(lib) = self.yt_library.lock().expect("yt lib").clone() {
                 lib.save_in_background(
@@ -447,7 +612,7 @@ impl MusicStation {
     /// Local `[videoId]` copy first, else YouTube. Sequential, play once.
     pub fn play_demo_track(&self) -> ReplaceResult {
         let id = crate::DEFAULT_DEMO_VIDEO_ID;
-        if let Some(track) = self.find_demo_local(id) {
+        if let Some(track) = self.find_local_by_video_id(id) {
             let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
             {
                 let mut q = self.queue.lock().expect("queue");
@@ -465,7 +630,7 @@ impl MusicStation {
 
     pub async fn play_demo_track_async(&self) -> ReplaceResult {
         let id = crate::DEFAULT_DEMO_VIDEO_ID;
-        if let Some(track) = self.find_demo_local(id) {
+        if let Some(track) = self.find_local_by_video_id(id) {
             let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
             {
                 let mut q = self.queue.lock().expect("queue");
@@ -482,7 +647,7 @@ impl MusicStation {
             .await
     }
 
-    fn find_demo_local(&self, video_id: &str) -> Option<Track> {
+    fn find_local_by_video_id(&self, video_id: &str) -> Option<Track> {
         let tag = format!("[{video_id}]");
         if let Some(lib) = self.yt_library.lock().expect("yt lib").as_ref() {
             if let Some(path) = lib.lookup(video_id) {
@@ -505,7 +670,11 @@ impl MusicStation {
         None
     }
 
-    pub fn replace_with_first_hit_flags(&self, query: &str, flags: &HashSet<char>) -> ReplaceResult {
+    pub fn replace_with_first_hit_flags(
+        &self,
+        query: &str,
+        flags: &HashSet<char>,
+    ) -> ReplaceResult {
         let Some(track) = self.search_first_flags(query, flags) else {
             return ReplaceResult::NoResults;
         };
@@ -648,8 +817,10 @@ mod tests {
 
         let mut y = HashSet::new();
         y.insert('y');
-        // No yt-dlp in unit tests — -y must not fall through to local.
-        assert!(st.search_first_flags("titanium", &y).is_none());
+        // -y never falls through to the local library. Without yt-dlp the hit is None.
+        if let Some(hit) = st.search_first_flags("titanium", &y) {
+            assert_eq!(hit.platform, Platform::Youtube);
+        }
 
         let auto = st.search_first_flags(stream, &HashSet::new()).unwrap();
         assert_eq!(auto.platform, Platform::Stream);
@@ -664,12 +835,112 @@ mod tests {
         let (dir, st) = tmp_station();
         let local = st.search_first("titanium").unwrap();
         assert!(st.song_by_id_platform(&local.id, Platform::Local).is_some());
-        assert!(st
-            .song_by_id_platform("https://example.com/a.mp3", Platform::Stream)
-            .is_some());
-        assert!(st
-            .song_by_id_platform("http://127.0.0.1/a.mp3", Platform::Stream)
-            .is_none());
+        assert!(
+            st.song_by_id_platform("https://example.com/a.mp3", Platform::Stream)
+                .is_some()
+        );
+        assert!(
+            st.song_by_id_platform("http://127.0.0.1/a.mp3", Platform::Stream)
+                .is_none()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn song(id: &str, name: &str) -> QueuedSong {
+        QueuedSong {
+            id: id.into(),
+            name: name.into(),
+            artist: "A".into(),
+            album: String::new(),
+            platform: Platform::Local,
+            url: format!("/tmp/{id}.mp3"),
+            cover_url: String::new(),
+            duration: 10,
+            source: QueueSource::User,
+        }
+    }
+
+    #[tokio::test]
+    async fn vote_needs_a_majority_and_dedupes_uids() {
+        let (dir, st) = tmp_station();
+        {
+            let mut q = st.queue.lock().unwrap();
+            q.set_mode(PlayMode::Sequential);
+            q.add(song("a", "one"));
+            q.add(song("b", "two"));
+            q.play();
+        }
+        let pending = st.cast_vote("u1", VoteAudience::Listeners(4)).await;
+        assert_eq!(pending, "Vote to skip: 1/2 (need 1 more)");
+        let again = st.cast_vote("u1", VoteAudience::Listeners(4)).await;
+        assert_eq!(again, "Vote to skip: 1/2 (need 1 more)");
+        let passed = st.cast_vote("u2", VoteAudience::Listeners(4)).await;
+        assert!(passed.starts_with("Vote passed (2/2)"), "{passed}");
+        let cur = st.queue.lock().unwrap().current().unwrap();
+        assert_eq!(cur.id, "b");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn vote_refuses_the_demo_track_and_off_teamspeak() {
+        let (dir, st) = tmp_station();
+        {
+            let mut q = st.queue.lock().unwrap();
+            q.add(song(crate::DEFAULT_DEMO_VIDEO_ID, "Choosin' Texas"));
+            q.play();
+        }
+        let msg = st.cast_vote("u1", VoteAudience::Listeners(1)).await;
+        assert!(msg.contains("Chairman"), "{msg}");
+        {
+            let mut q = st.queue.lock().unwrap();
+            q.clear();
+            q.add(song("a", "one"));
+            q.play();
+        }
+        let off = st.cast_vote("web:1", VoteAudience::NotOnTeamspeak).await;
+        assert_eq!(off, "Vote can only be used in TeamSpeak");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn chevron7_dials_a_local_copy() {
+        let (dir, st) = tmp_station();
+        std::fs::write(dir.join("SG-1 [aafGXNWHGaw].mp3"), b"fake").unwrap();
+        let msg = st.play_chevron7().await;
+        assert!(msg.contains("locked"), "{msg}");
+        assert!(msg.contains("local"), "{msg}");
+        let q = st.queue.lock().unwrap();
+        assert_eq!(q.get_mode(), PlayMode::Sequential);
+        let cur = q.current().unwrap();
+        assert!(cur.name.contains("aafGXNWHGaw"), "{}", cur.name);
+        drop(q);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn enqueue_local_ids_starts_when_idle_and_appends_when_playing() {
+        let dir = std::env::temp_dir().join(format!(
+            "mp-st-enq-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("alpha.mp3"), b"fake").unwrap();
+        std::fs::write(dir.join("beta.mp3"), b"fake").unwrap();
+        let st = MusicStation::new(&dir, None);
+        st.set_dry_run(true);
+        let alpha = st.local.search("alpha", 1)[0].id.clone();
+        let beta = st.local.search("beta", 1)[0].id.clone();
+        let n = st.enqueue_local_ids(&[alpha.clone(), beta.clone()]).await;
+        assert_eq!(n, 2);
+        assert_eq!(st.player.get_state(), PlayerState::Playing);
+        assert_eq!(st.queue.lock().unwrap().current().unwrap().id, alpha);
+        let n2 = st.enqueue_local_ids(&[beta.clone()]).await;
+        assert_eq!(n2, 1);
+        assert_eq!(st.queue.lock().unwrap().current().unwrap().id, alpha);
+        assert_eq!(st.enqueue_local_ids(&["missing".into()]).await, 0);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

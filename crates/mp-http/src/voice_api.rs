@@ -5,19 +5,19 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use crate::AppState;
 use crate::authz::AdminUser;
 use crate::command::dispatch_command;
-use crate::AppState;
 use mp_control::{is_known_command, parse_command};
 use mp_rights::{Scope, Subject};
-use mp_voice::{run_under_music_smoke, TranscriptOpts, UnderMusicConfig};
+use mp_voice::{TranscriptOpts, UnderMusicConfig, run_under_music_smoke};
 
 pub async fn voice_status(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
     let status = st.voice.status().await;
@@ -122,6 +122,8 @@ pub async fn voice_test(
                         Some(&roast),
                         Some(&voice_rt),
                         Some(&sc_org),
+                        mp_music::VoteAudience::NotOnTeamspeak,
+                        None,
                     )
                     .await
                 }

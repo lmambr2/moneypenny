@@ -86,6 +86,78 @@ pub struct TagStore<'a> {
     pub(crate) db: &'a Database,
 }
 
+/// Filters for `select_tracks` / the `select_tracks` LLM tool. Unknown JSON keys are dropped.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TagSelect {
+    pub mood: Vec<String>,
+    pub genre_any: Vec<String>,
+    pub subgenre_any: Vec<String>,
+    pub bpm_min: Option<f64>,
+    pub bpm_max: Option<f64>,
+    pub musical_key: Option<String>,
+    pub energy_min: Option<f64>,
+    pub energy_max: Option<f64>,
+    pub rating_min: Option<f64>,
+    pub limit: Option<f64>,
+}
+
+/// `None` when `raw` is not a JSON object (the command replies with usage).
+pub fn parse_tag_select(raw: &str) -> Option<TagSelect> {
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let obj = v.as_object()?;
+    let str_arr = |key: &str| -> Vec<String> {
+        obj.get(key)
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let num = |key: &str| -> Option<f64> {
+        let v = obj.get(key)?;
+        match v {
+            serde_json::Value::Number(n) => n.as_f64().filter(|n| n.is_finite()),
+            serde_json::Value::String(s) => s.parse::<f64>().ok().filter(|n| n.is_finite()),
+            serde_json::Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            _ => None,
+        }
+    };
+    Some(TagSelect {
+        mood: str_arr("mood"),
+        genre_any: str_arr("genreAny"),
+        subgenre_any: str_arr("subgenreAny"),
+        bpm_min: num("bpmMin"),
+        bpm_max: num("bpmMax"),
+        musical_key: obj
+            .get("musicalKey")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        energy_min: num("energyMin"),
+        energy_max: num("energyMax"),
+        rating_min: num("ratingMin"),
+        limit: num("limit"),
+    })
+}
+
+fn push_any(
+    clauses: &mut Vec<String>,
+    params: &mut Vec<rusqlite::types::Value>,
+    col: &str,
+    vals: &[String],
+) {
+    if vals.is_empty() {
+        return;
+    }
+    let placeholders = vec!["?"; vals.len()].join(",");
+    clauses.push(format!("LOWER({col}) IN ({placeholders})"));
+    for v in vals {
+        params.push(rusqlite::types::Value::Text(v.to_lowercase()));
+    }
+}
+
 impl TagStore<'_> {
     pub fn get(&self, track_key: &str) -> Result<Option<TrackTags>> {
         self.db.with_conn(|conn| {
@@ -218,6 +290,84 @@ impl TagStore<'_> {
                 Ok(())
             })
         }
+    }
+
+    /// IMDB-style Bayesian mean: `(C*m + Σstars) / (C + n)`, C = 5.
+    /// Unrated tracks score at the global mean (3 when nothing is rated).
+    pub fn smoothed_score(&self, track_key: &str) -> Result<f64> {
+        let m = self.global_mean()?;
+        let rating = self.get_rating(track_key)?;
+        if rating.count == 0 {
+            return Ok(m);
+        }
+        let c = 5.0;
+        let n = rating.count as f64;
+        Ok((c * m + rating.avg * n) / (c + n))
+    }
+
+    fn global_mean(&self) -> Result<f64> {
+        self.db.with_conn(|conn| {
+            let avg: Option<f64> =
+                conn.query_row("SELECT AVG(stars) FROM track_ratings", [], |r| r.get(0))?;
+            Ok(avg.unwrap_or(3.0))
+        })
+    }
+
+    /// Tag-driven selection. Bumper-flagged rows are excluded. `rating_min`
+    /// thresholds the smoothed score, not the raw average.
+    pub fn select_tracks(&self, f: &TagSelect) -> Result<Vec<String>> {
+        let keys = self.db.with_conn(|conn| {
+            let mut clauses = vec!["bumper = 0".to_string()];
+            let mut params: Vec<rusqlite::types::Value> = Vec::new();
+            push_any(&mut clauses, &mut params, "mood", &f.mood);
+            push_any(&mut clauses, &mut params, "genre", &f.genre_any);
+            push_any(&mut clauses, &mut params, "subgenre", &f.subgenre_any);
+            if let Some(n) = f.bpm_min {
+                clauses.push("bpm >= ?".into());
+                params.push(rusqlite::types::Value::Real(n));
+            }
+            if let Some(n) = f.bpm_max {
+                clauses.push("bpm <= ?".into());
+                params.push(rusqlite::types::Value::Real(n));
+            }
+            if let Some(key) = f.musical_key.as_deref() {
+                clauses.push("LOWER(musical_key) = ?".into());
+                params.push(rusqlite::types::Value::Text(key.to_lowercase()));
+            }
+            if let Some(n) = f.energy_min {
+                clauses.push("energy >= ?".into());
+                params.push(rusqlite::types::Value::Real(n));
+            }
+            if let Some(n) = f.energy_max {
+                clauses.push("energy <= ?".into());
+                params.push(rusqlite::types::Value::Real(n));
+            }
+            let sql = format!(
+                "SELECT track_key FROM track_tags WHERE {}",
+                clauses.join(" AND ")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(params.iter()), |r| r.get(0))?
+                .collect::<std::result::Result<Vec<String>, _>>()?;
+            Ok(rows)
+        })?;
+        let mut keys = keys;
+        if let Some(min) = f.rating_min {
+            let mut kept = Vec::new();
+            for key in keys {
+                if self.smoothed_score(&key)? >= min {
+                    kept.push(key);
+                }
+            }
+            keys = kept;
+        }
+        let cap = match f.limit {
+            Some(n) if n.is_finite() => (n.min(100.0)).max(1.0) as usize,
+            _ => 25,
+        };
+        keys.truncate(cap);
+        Ok(keys)
     }
 
     pub fn get_rating(&self, track_key: &str) -> Result<RatingSummary> {
@@ -381,5 +531,72 @@ mod tests {
         assert!(db.tags().get("t").unwrap().is_none());
         assert_eq!(r.count, 1);
         assert!((r.avg - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn select_tracks_filters_case_and_excludes_bumpers() {
+        let db = Database::open_in_memory().unwrap();
+        let tags = |genre: &str, mood: &str, bpm: i64| TrackTags {
+            genre: Some(genre.into()),
+            mood: Some(mood.into()),
+            bpm: Some(bpm),
+            ..Default::default()
+        };
+        db.tags()
+            .upsert("calm1", &tags("Ambient", "Calm", 90), TagSource::Analyzer)
+            .unwrap();
+        db.tags()
+            .upsert(
+                "calm2",
+                &tags("synthwave", "calm", 105),
+                TagSource::Analyzer,
+            )
+            .unwrap();
+        db.tags()
+            .upsert("hype", &tags("dnb", "hype", 174), TagSource::Analyzer)
+            .unwrap();
+        db.tags()
+            .upsert("jingle", &tags("ambient", "calm", 80), TagSource::Manual)
+            .unwrap();
+        db.tags().set_bumper("jingle", true, None, None).unwrap();
+
+        let calm = parse_tag_select(r#"{"mood":["calm"],"bpmMax":110}"#).unwrap();
+        let mut keys = db.tags().select_tracks(&calm).unwrap();
+        keys.sort();
+        assert_eq!(keys, vec!["calm1", "calm2"]);
+        let genre = parse_tag_select(r#"{"genreAny":["AMBIENT"]}"#).unwrap();
+        assert_eq!(db.tags().select_tracks(&genre).unwrap(), vec!["calm1"]);
+    }
+
+    #[test]
+    fn select_tracks_rating_min_uses_smoothed_score() {
+        let db = Database::open_in_memory().unwrap();
+        let ambient = TrackTags {
+            genre: Some("ambient".into()),
+            ..Default::default()
+        };
+        for k in ["a", "b", "c"] {
+            db.tags().upsert(k, &ambient, TagSource::Analyzer).unwrap();
+        }
+        for i in 0..10 {
+            db.tags().rate("a", &format!("ts:a{i}"), 5).unwrap();
+            db.tags().rate("c", &format!("ts:c{i}"), 1).unwrap();
+        }
+        db.tags().rate("b", "ts:x", 5).unwrap();
+        let f = parse_tag_select(r#"{"genreAny":["ambient"],"ratingMin":4}"#).unwrap();
+        assert_eq!(db.tags().select_tracks(&f).unwrap(), vec!["a"]);
+        let limited = parse_tag_select(r#"{"genreAny":["ambient"],"limit":2}"#).unwrap();
+        assert_eq!(db.tags().select_tracks(&limited).unwrap().len(), 2);
+        assert!(db.tags().smoothed_score("a").unwrap() > db.tags().smoothed_score("b").unwrap());
+        assert!(db.tags().smoothed_score("b").unwrap() < 5.0);
+    }
+
+    #[test]
+    fn parse_tag_select_rejects_malformed_json() {
+        assert!(parse_tag_select("{nope").is_none());
+        assert!(parse_tag_select("[]").is_none());
+        let ok = parse_tag_select(r#"{"bpmMin":"90","genreAny":"rock"}"#).unwrap();
+        assert_eq!(ok.bpm_min, Some(90.0));
+        assert!(ok.genre_any.is_empty());
     }
 }

@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod clients;
 pub mod live;
 pub mod orders;
+pub mod prefer;
 
 pub use boxes::{calculate_boxes, largest_crate_that_fits, BoxBreakdown, STANDARD_CRATE_SCU};
 pub use catalog::{
@@ -17,17 +18,10 @@ pub use catalog::{
 };
 pub use clients::{clients, score_blueprint_match, EconomyClients};
 pub use live::{craft_bom_lines, handle_craft, handle_econ_live, handle_trade};
+pub use prefer::{prefer_snapshot, PricePick};
 pub use orders::{
     format_mine, format_refine, handle_econ, handle_mine, handle_refine, parse_economy_args,
     parse_workorder_args, WorkOrderArgs, WorkOrderSub,
 };
 
 pub const MAX_OPEN_WORK_ORDERS: u32 = 100;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_compiles() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "mp-economy");
-    }
-}

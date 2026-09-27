@@ -107,11 +107,4 @@ mod tests {
         assert!(!e.can(&member, "stop", Scope::Chat));
         assert!(e.can(&member, "play", Scope::Chat));
     }
-
-    #[test]
-    fn deny_message_shape() {
-        // Bot loop uses this exact string; skip replies must never match it.
-        let msg = "You don't have permission to use 'stop'.";
-        assert!(msg.starts_with("You don't have permission"));
-    }
 }

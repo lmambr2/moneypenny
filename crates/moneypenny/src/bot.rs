@@ -7,17 +7,18 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mp_control::{
-    default_aliases, is_known_command, parse_command, CommandExecutor,
-};
-use mp_db::Database;
-use mp_http::{dispatch_command, RoastRuntime};
-use mp_music::{ChannelSpeech, MusicStation, PlayerEvent, QueuedSong, TrackEndKind};
 use crate::auto_follow::AutoFollow;
 use crate::moves::MoveRuntime;
-use mp_rights::{RightsEngine, Scope, Subject};
-use mp_ts::{OpusPacket, Target, TsEvent, TsSession, TsSessionExt, CODEC_OPUS_MUSIC};
+use mp_control::{CommandExecutor, default_aliases, is_known_command, parse_command};
+use mp_db::Database;
+use mp_http::{RoastRuntime, dispatch_command};
+use mp_music::{ChannelSpeech, MusicStation, PlayerEvent, QueuedSong, TrackEndKind, VoteAudience};
 use mp_radio::{Boundary, RadioRuntime};
+use mp_rights::{RightsEngine, Scope, Subject};
+use mp_ts::{
+    CODEC_OPUS_MUSIC, ChannelCensus, OpusPacket, Target, TsEvent, TsSession, TsSessionExt,
+    vote_listener_census,
+};
 use mp_voice::{TranscriptOpts, VoiceRuntime};
 use tracing::{info, warn};
 
@@ -45,6 +46,8 @@ pub struct BotLoop<S> {
     moves: Arc<MoveRuntime>,
     speech: Arc<ChannelSpeech>,
     humans: Arc<std::sync::Mutex<std::collections::HashSet<i32>>>,
+    llm_idle: Arc<std::sync::Mutex<mp_brain::LlmIdleGate>>,
+    session_roles: Arc<mp_http::SessionHandle>,
     follow: Arc<AutoFollow>,
     reply_dedupe: Arc<std::sync::Mutex<Option<(String, Instant)>>>,
 }
@@ -65,6 +68,8 @@ impl<S> Clone for BotLoop<S> {
             moves: Arc::clone(&self.moves),
             speech: Arc::clone(&self.speech),
             humans: Arc::clone(&self.humans),
+            llm_idle: Arc::clone(&self.llm_idle),
+            session_roles: Arc::clone(&self.session_roles),
             follow: Arc::clone(&self.follow),
             reply_dedupe: Arc::clone(&self.reply_dedupe),
         }
@@ -86,6 +91,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         speech: Arc<ChannelSpeech>,
         follow: AutoFollow,
         executor: CommandExecutor,
+        session_roles: Arc<mp_http::SessionHandle>,
     ) -> Self {
         let mut aliases = aliases;
         if aliases.is_empty() {
@@ -105,6 +111,10 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             moves,
             speech,
             humans: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            llm_idle: Arc::new(std::sync::Mutex::new(mp_brain::LlmIdleGate::new(
+                mp_brain::LLM_IDLE_UNLOAD_SECONDS_DEFAULT,
+            ))),
+            session_roles,
             follow: Arc::new(follow),
             reply_dedupe: Arc::new(std::sync::Mutex::new(None)),
         }
@@ -196,6 +206,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                             AutoFollow::humans_in_own(&*this.session, &all)
                         };
                         this.radio.on_poll(n);
+                        this.note_llm_idle(n);
                         let _ = this.follow.maybe_follow(&*this.session, n).await;
                         if let Some(reel) = this.roast.run_tick(n).await {
                             this.reply_channel(reel).await;
@@ -260,11 +271,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     .filter(|s| s == "1")
                     .is_some()
                 {
-                    let cmd = mp_control::parse_command(
-                        "!play sine",
-                        &self.prefix,
-                        &self.aliases,
-                    );
+                    let cmd = mp_control::parse_command("!play sine", &self.prefix, &self.aliases);
                     if let Some(cmd) = cmd {
                         return self.executor.execute(&cmd).await;
                     }
@@ -290,6 +297,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     h.len() as u32
                 };
                 self.radio.on_poll(n);
+                self.note_llm_idle(n);
                 None
             }
             TsEvent::ClientEnter { client_id, .. } => {
@@ -302,9 +310,37 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     };
                     self.radio.on_poll(n);
                     self.radio.note_human_activity(client_id);
+                    self.note_llm_idle(n);
                 }
                 None
             }
+        }
+    }
+
+    fn note_llm_idle(&self, humans: u32) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let event = self
+            .llm_idle
+            .lock()
+            .expect("idle")
+            .on_human_count(humans, now);
+        match event {
+            mp_brain::IdleEvent::Unload => {
+                let brain = Arc::clone(&self.services.brain);
+                tokio::spawn(async move {
+                    brain.unload().await;
+                });
+            }
+            mp_brain::IdleEvent::Warm => {
+                let brain = Arc::clone(&self.services.brain);
+                tokio::spawn(async move {
+                    brain.warm().await;
+                });
+            }
+            mp_brain::IdleEvent::None | mp_brain::IdleEvent::Armed => {}
         }
     }
 
@@ -361,10 +397,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     ));
                 }
             }
-            return Some(
-                self.moderation(&parsed.name, &parsed.args, subject)
-                    .await,
-            );
+            return Some(self.moderation(&parsed.name, &parsed.args, subject).await);
         }
         if matches!(
             parsed.name.as_str(),
@@ -404,8 +437,31 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             Some(&self.roast),
             Some(&self.voice),
             Some(&self.services.sc_org),
+            self.listeners_for(&parsed.name).await,
+            Some(self.session_roles.as_ref()),
         )
         .await
+    }
+
+    async fn listeners_for(&self, command: &str) -> VoteAudience {
+        if command != "vote" {
+            return VoteAudience::NotOnTeamspeak;
+        }
+        if !self.session.is_connected() {
+            return VoteAudience::Uncounted;
+        }
+        match self.session.list_clients_result().await {
+            Ok(all) => match vote_listener_census(
+                &all,
+                self.session.client_id(),
+                self.session.channel_id(),
+                true,
+            ) {
+                ChannelCensus::Failed => VoteAudience::Uncounted,
+                ChannelCensus::Humans(n) => VoteAudience::Listeners(n),
+            },
+            Err(_) => VoteAudience::Uncounted,
+        }
     }
 
     async fn moderation(&self, action: &str, target: &str, subject: &Subject) -> String {
@@ -425,9 +481,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             }
             let nick = c.nickname.to_ascii_lowercase();
             let id = c.id.to_string();
-            id == t
-                || nick.eq_ignore_ascii_case(target)
-                || (t.len() >= 3 && nick.contains(&t))
+            id == t || nick.eq_ignore_ascii_case(target) || (t.len() >= 3 && nick.contains(&t))
         });
         let Some(hit) = hit else {
             return format!("No client matching \"{target}\" in channel. Music unaffected.");
@@ -440,20 +494,12 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         };
         let _ = subject;
         if action == "kick" {
-            match self
-                .session
-                .kick_client(clid, "Moneypenny kick")
-                .await
-            {
+            match self.session.kick_client(clid, "Moneypenny kick").await {
                 Ok(()) => format!("Kicked {label} from the channel. Music unaffected."),
                 Err(e) => format!("Moderation kick failed open: {e}. Music unaffected."),
             }
         } else {
-            match self
-                .session
-                .poke_client(clid, "Moderation: mute")
-                .await
-            {
+            match self.session.poke_client(clid, "Moderation: mute").await {
                 Ok(()) => format!(
                     "Moderation: mute requested for {label} (apply via server groups if API unavailable)."
                 ),
@@ -491,6 +537,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         let moves = Arc::clone(&self.moves);
         let speech = Arc::clone(&self.speech);
         let rights_c = self.rights.clone();
+        let session_roles = Arc::clone(&self.session_roles);
         let session_id = self.session.client_id();
         let speaker_id = utt.speaker_client_id;
         let uid = utt
@@ -514,12 +561,47 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 .as_deref()
                 .map(|k| k.to_ascii_lowercase() == ww || k.to_ascii_lowercase().contains(&ww))
                 .unwrap_or(false);
+            let speak_buf = Arc::new(std::sync::Mutex::new(String::new()));
+            let streamed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (sentence_tx, mut sentence_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            {
+                let buf = Arc::clone(&speak_buf);
+                let streamed_flag = Arc::clone(&streamed);
+                let tx = sentence_tx.clone();
+                services
+                    .brain
+                    .set_delta_hook(Some(Arc::new(move |delta| {
+                        let ready = {
+                            let mut b = buf.lock().expect("stream");
+                            mp_voice::push_stream_delta(&mut b, delta)
+                        };
+                        for sentence in ready {
+                            streamed_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                            let _ = tx.send(sentence);
+                        }
+                    })))
+                    .await;
+            }
+            let voice_play = Arc::clone(&voice);
+            let speech_play = Arc::clone(&speech);
+            let player = tokio::spawn(async move {
+                while let Some(sentence) = sentence_rx.recv().await {
+                    let spoken = mp_voice::text_to_spoken(&sentence);
+                    if spoken.is_empty() {
+                        continue;
+                    }
+                    if let Some(audio) = voice_play.synthesize_sentence(&spoken).await {
+                        speech_play.enqueue_sentence(&audio, "wav");
+                    }
+                }
+            });
             let turn = voice
                 .handle_transcript(
                     &transcript,
                     speaker_id,
                     TranscriptOpts {
-                        speak: Some(cfg.respond_with_voice && !cfg.tts_url.trim().is_empty()),
+                        // Sentences air from the delta hook. Bulk TTS only if nothing streamed.
+                        speak: Some(false),
                         text_wake_fallback: Some(cfg.text_wake_fallback),
                         kws_detected,
                     },
@@ -536,8 +618,10 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         let rights = rights_c.clone();
                         let uid = uid.clone();
                         let groups = groups.clone();
+                        let session_vote = Arc::clone(&session);
                         async move {
-                            let parsed = parse_command(&format!("{prefix}{cmd}"), &prefix, &aliases)?;
+                            let parsed =
+                                parse_command(&format!("{prefix}{cmd}"), &prefix, &aliases)?;
                             if !is_known_command(&parsed.name) {
                                 return None;
                             }
@@ -571,6 +655,26 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                         .await,
                                 );
                             }
+                            let listeners = if parsed.name == "vote" {
+                                if !session_vote.is_connected() {
+                                    VoteAudience::Uncounted
+                                } else {
+                                    match session_vote.list_clients_result().await {
+                                        Ok(all) => match vote_listener_census(
+                                            &all,
+                                            session_vote.client_id(),
+                                            session_vote.channel_id(),
+                                            true,
+                                        ) {
+                                            ChannelCensus::Failed => VoteAudience::Uncounted,
+                                            ChannelCensus::Humans(n) => VoteAudience::Listeners(n),
+                                        },
+                                        Err(_) => VoteAudience::Uncounted,
+                                    }
+                                }
+                            } else {
+                                VoteAudience::NotOnTeamspeak
+                            };
                             dispatch_command(
                                 &parsed,
                                 &subject,
@@ -584,6 +688,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 Some(&roast),
                                 Some(&voice_rt),
                                 Some(&sc_org),
+                                listeners,
+                                Some(session_roles.as_ref()),
                             )
                             .await
                         }
@@ -595,9 +701,34 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     warn!(error = %e, "voice reply send_text failed");
                 }
             }
-            if let Some(audio) = turn.tts_audio.as_deref() {
-                let hold = mp_voice::voice_reply_clears_saved_music(turn.reply.as_deref());
-                speech.speak(audio, "wav", hold);
+            services.brain.set_delta_hook(None).await;
+            {
+                let rest = {
+                    let mut b = speak_buf.lock().expect("stream");
+                    std::mem::take(&mut *b)
+                };
+                let rest = mp_voice::text_to_spoken(rest.trim());
+                if !rest.is_empty() {
+                    streamed.store(true, std::sync::atomic::Ordering::SeqCst);
+                    let _ = sentence_tx.send(rest);
+                }
+            }
+            drop(sentence_tx);
+            let _ = player.await;
+            let want_voice = cfg.respond_with_voice && !cfg.tts_url.trim().is_empty();
+            if streamed.load(std::sync::atomic::Ordering::SeqCst) {
+                tracing::debug!("voice sentences aired in order from the token stream");
+            } else if want_voice {
+                if let Some(reply) = turn.reply.as_deref() {
+                    if let Some(audio) = voice.synthesize_reply(reply).await {
+                        let hold = mp_voice::voice_reply_clears_saved_music(Some(reply));
+                        speech.speak(&audio, "wav", hold);
+                    } else if !turn.watchword_only && !voice.any_armed() {
+                        station.player.restore_from_stt_duck();
+                    }
+                } else if !turn.watchword_only && !voice.any_armed() {
+                    station.player.restore_from_stt_duck();
+                }
             } else if !turn.watchword_only && !voice.any_armed() {
                 station.player.restore_from_stt_duck();
             }

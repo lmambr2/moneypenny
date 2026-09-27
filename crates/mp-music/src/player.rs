@@ -11,8 +11,9 @@ use std::time::Instant;
 use tokio::sync::broadcast;
 
 use crate::ffmpeg::{
-    build_ffmpeg_args, classify_stall, clamp_music_opus_bitrate_kbps, StallCheckInput,
-    FRAME_DURATION_MS, MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES,
+    build_ffmpeg_args, classify_stall, clamp_music_opus_bitrate_kbps, decide_stall_action,
+    is_near_end_of_track, StallAction, StallCheckInput, FRAME_DURATION_MS,
+    MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +50,8 @@ struct Inner {
     child_kill_std: Option<std::sync::mpsc::Sender<()>>,
     stt_duck_active: bool,
     stt_duck_level: f64,
+    stall_resumes: u32,
+    resuming: bool,
 }
 
 pub struct AudioPlayer {
@@ -89,6 +92,8 @@ impl AudioPlayer {
                 child_kill_std: None,
                 stt_duck_active: false,
                 stt_duck_level: 15.0,
+                stall_resumes: 0,
+                resuming: false,
             })),
             events,
             loop_running: Arc::new(AtomicBool::new(false)),
@@ -148,6 +153,10 @@ impl AudioPlayer {
         self.inner.lock().expect("player").consecutive_failures = 0;
     }
 
+    pub fn loaded_url(&self) -> String {
+        self.inner.lock().expect("player").current_url.clone()
+    }
+
     pub fn get_elapsed(&self) -> f64 {
         let g = self.inner.lock().expect("player");
         g.seek_offset + (g.frames_played as f64 * FRAME_DURATION_MS as f64) / 1000.0
@@ -194,6 +203,22 @@ impl AudioPlayer {
         }
     }
 
+    /// Restart the current URL at `seconds`. No-op when nothing is loaded or the position is invalid.
+    pub fn seek(&self, seconds: f64) -> bool {
+        if !seconds.is_finite() || seconds < 0.0 {
+            return false;
+        }
+        let (url, duration, floor) = {
+            let g = self.inner.lock().expect("player");
+            (g.current_url.clone(), g.duration, g.play_volume_floor)
+        };
+        if url.is_empty() {
+            return false;
+        }
+        self.play_with_floor(&url, seconds, duration, floor);
+        true
+    }
+
     pub fn play(&self, url: &str, seek_seconds: f64, song_duration: f64) {
         self.play_with_floor(url, seek_seconds, song_duration, None);
     }
@@ -216,6 +241,7 @@ impl AudioPlayer {
             g.seek_offset = seek_seconds;
             g.duration = song_duration;
             g.play_started = Some(Instant::now());
+            g.stall_resumes = 0;
             return;
         }
 
@@ -237,76 +263,16 @@ impl AudioPlayer {
             g.play_started = Some(Instant::now());
             g.state = PlayerState::Playing;
             g.ffmpeg_alive = true;
+            g.stall_resumes = 0;
         }
 
-        let args = build_ffmpeg_args(url, seek_seconds, None, None);
-        let (kill_tx, kill_rx) = std::sync::mpsc::channel::<()>();
-        self.inner.lock().expect("player").child_kill_std = Some(kill_tx);
-
-        let inner = Arc::clone(&self.inner);
-        let events = self.events.clone();
-        let url_log = url.to_string();
-        // Dedicated thread: tsclient-rs makes the bot loop `!Send`, so a
-        // `tokio::spawn` ffmpeg task may never be polled on this runtime.
-        std::thread::Builder::new()
-            .name("mp-ffmpeg".into())
-            .spawn(move || {
-                tracing::info!(url = %url_log, "ffmpeg start");
-                let mut cmd = std::process::Command::new("ffmpeg");
-                cmd.args(&args)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::null());
-                let mut child = match cmd.spawn() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        let mut g = inner.lock().expect("player");
-                        if g.session == session {
-                            g.spawn_failed = true;
-                            g.ffmpeg_alive = false;
-                            g.consecutive_failures += 1;
-                            g.state = PlayerState::Idle;
-                        }
-                        let _ = events.send(PlayerEvent::Error(e.to_string()));
-                        return;
-                    }
-                };
-                let mut stdout = child.stdout.take().expect("stdout");
-                let mut buf = vec![0u8; 8192];
-                loop {
-                    if kill_rx.try_recv().is_ok() {
-                        let _ = child.kill();
-                        break;
-                    }
-                    use std::io::Read;
-                    match stdout.read(&mut buf) {
-                        Ok(0) => break,
-                        Err(_) => break,
-                        Ok(n) => loop {
-                            let mut g = inner.lock().expect("player");
-                            if g.session != session {
-                                drop(g);
-                                let _ = child.kill();
-                                return;
-                            }
-                            if g.pcm.len() <= 640 * 1024 {
-                                g.pcm.extend(buf[..n].iter().copied());
-                                break;
-                            }
-                            drop(g);
-                            std::thread::sleep(std::time::Duration::from_millis(5));
-                        },
-                    }
-                }
-                let _ = child.wait();
-                let mut g = inner.lock().expect("player");
-                if g.session == session {
-                    g.ffmpeg_alive = false;
-                }
-                tracing::info!("ffmpeg exit");
-            })
-            .expect("ffmpeg thread");
-
+        spawn_ffmpeg_reader(
+            Arc::clone(&self.inner),
+            self.events.clone(),
+            url.to_string(),
+            seek_seconds,
+            session,
+        );
         self.ensure_frame_loop();
     }
 
@@ -333,7 +299,7 @@ impl AudioPlayer {
             .spawn(move || {
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(FRAME_DURATION_MS));
-                    let ended = {
+                    let (ended, resume) = {
                         let mut g = inner.lock().expect("player");
                         if g.state == PlayerState::Paused {
                             continue;
@@ -346,8 +312,22 @@ impl AudioPlayer {
                             continue;
                         }
                         send_next_frame(&mut g, &events);
-                        stall_or_end(&mut g, &events)
+                        let ended = stall_or_end(&mut g, &events);
+                        let resume = if g.resuming {
+                            g.resuming = false;
+                            Some((
+                                g.current_url.clone(),
+                                g.seek_offset,
+                                g.session,
+                            ))
+                        } else {
+                            None
+                        };
+                        (ended, resume)
                     };
+                    if let Some((url, seek, session)) = resume {
+                        spawn_ffmpeg_reader(Arc::clone(&inner), events.clone(), url, seek, session);
+                    }
                     if ended {
                         running.store(false, Ordering::SeqCst);
                         break;
@@ -356,6 +336,78 @@ impl AudioPlayer {
             })
             .expect("frame thread");
     }
+}
+
+fn spawn_ffmpeg_reader(
+    inner: Arc<Mutex<Inner>>,
+    events: broadcast::Sender<PlayerEvent>,
+    url: String,
+    seek_seconds: f64,
+    session: u64,
+) {
+    let args = build_ffmpeg_args(&url, seek_seconds, None, None);
+    let (kill_tx, kill_rx) = std::sync::mpsc::channel::<()>();
+    inner.lock().expect("player").child_kill_std = Some(kill_tx);
+    let url_log = url.clone();
+    std::thread::Builder::new()
+        .name("mp-ffmpeg".into())
+        .spawn(move || {
+            tracing::info!(url = %url_log, "ffmpeg start");
+            let mut cmd = std::process::Command::new("ffmpeg");
+            cmd.args(&args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+            let mut child = match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    let mut g = inner.lock().expect("player");
+                    if g.session == session {
+                        g.spawn_failed = true;
+                        g.ffmpeg_alive = false;
+                        g.consecutive_failures += 1;
+                        g.state = PlayerState::Idle;
+                        let _ = events.send(PlayerEvent::TrackEnd);
+                    }
+                    let _ = events.send(PlayerEvent::Error(e.to_string()));
+                    return;
+                }
+            };
+            let mut stdout = child.stdout.take().expect("stdout");
+            let mut buf = vec![0u8; 8192];
+            loop {
+                if kill_rx.try_recv().is_ok() {
+                    let _ = child.kill();
+                    break;
+                }
+                use std::io::Read;
+                match stdout.read(&mut buf) {
+                    Ok(0) => break,
+                    Err(_) => break,
+                    Ok(n) => loop {
+                        let mut g = inner.lock().expect("player");
+                        if g.session != session {
+                            drop(g);
+                            let _ = child.kill();
+                            return;
+                        }
+                        if g.pcm.len() <= 640 * 1024 {
+                            g.pcm.extend(buf[..n].iter().copied());
+                            break;
+                        }
+                        drop(g);
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    },
+                }
+            }
+            let _ = child.wait();
+            let mut g = inner.lock().expect("player");
+            if g.session == session {
+                g.ffmpeg_alive = false;
+            }
+            tracing::info!("ffmpeg exit");
+        })
+        .expect("ffmpeg thread");
 }
 
 fn send_next_frame(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) {
@@ -397,11 +449,7 @@ fn send_next_frame(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) {
 
 fn stall_or_end(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) -> bool {
     let elapsed = g.seek_offset + (g.frames_played as f64 * FRAME_DURATION_MS as f64) / 1000.0;
-    let is_near_end = if g.duration > 0.0 {
-        g.duration - elapsed <= 5.0
-    } else {
-        elapsed >= 45.0
-    };
+    let is_near_end = is_near_end_of_track(g.duration, elapsed);
     if g.ffmpeg_alive && g.pcm.len() < PCM_FRAME_BYTES {
         g.empty_attempts += 1;
         let wall = g
@@ -416,7 +464,32 @@ fn stall_or_end(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) -> bool 
             wall_elapsed_sec: wall,
             has_decoded_audio: g.frames_played > 0,
         });
-        if verdict != crate::ffmpeg::StallVerdict::Continue {
+        let remaining = if g.duration > 0.0 {
+            g.duration - elapsed
+        } else {
+            f64::INFINITY
+        };
+        let action = decide_stall_action(
+            verdict,
+            g.stall_resumes,
+            remaining,
+            !g.current_url.is_empty(),
+        );
+        if action == StallAction::Resume {
+            g.stall_resumes += 1;
+            g.seek_offset = elapsed;
+            g.frames_played = 0;
+            g.empty_attempts = 0;
+            g.pcm.clear();
+            if let Some(tx) = g.child_kill_std.take() {
+                let _ = tx.send(());
+            }
+            g.session += 1;
+            g.ffmpeg_alive = true;
+            g.resuming = true;
+            return false;
+        }
+        if action == StallAction::End {
             g.state = PlayerState::Idle;
             g.ffmpeg_alive = false;
             g.consecutive_failures = 0;
@@ -428,6 +501,9 @@ fn stall_or_end(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) -> bool 
         }
     } else {
         g.empty_attempts = 0;
+    }
+    if g.resuming {
+        return false;
     }
     if !g.ffmpeg_alive && g.pcm.len() < PCM_FRAME_BYTES {
         if g.state != PlayerState::Idle {

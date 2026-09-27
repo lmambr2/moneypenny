@@ -312,6 +312,7 @@ async fn main() {
         speech,
         follow,
         config.playback_ban_protected_artists.clone(),
+        Arc::clone(&config),
     )
     .await;
 
@@ -331,6 +332,7 @@ async fn start_teamspeak(
     speech: Option<Arc<mp_music::ChannelSpeech>>,
     follow: Arc<mp_http::FollowRuntime>,
     protected_artists: Vec<String>,
+    bot_config: Arc<mp_config::BotConfig>,
 ) {
     #[cfg(feature = "ts6")]
     {
@@ -367,6 +369,17 @@ async fn start_teamspeak(
             );
             phase_ex.protected_artists = protected_artists;
             let phase_ex = Arc::new(phase_ex);
+            let query = session.query().cloned().filter(|_| {
+                std::env::var("TS6_API_KEY")
+                    .ok()
+                    .is_some_and(|s| !s.trim().is_empty())
+            });
+            let session_roles = Arc::new(mp_http::SessionHandle::from_bot_config(
+                bot_config.as_ref(),
+                query.map(|client| {
+                    Arc::new(HttpQuerySession { client }) as Arc<dyn mp_http::SessionQuery>
+                }),
+            ));
             let loop_ = bot::BotLoop::new(
                 Arc::clone(&session),
                 Arc::clone(&station),
@@ -381,6 +394,7 @@ async fn start_teamspeak(
                 speech,
                 crate::auto_follow::AutoFollow::new(follow),
                 phase_ex.as_ref().clone(),
+                session_roles,
             );
             let session_c = Arc::clone(&session);
             let station_c = Arc::clone(&station);
@@ -427,8 +441,34 @@ async fn start_teamspeak(
     }
     #[cfg(not(feature = "ts6"))]
     {
-        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech, follow);
+        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech, follow, bot_config);
         info!("ts session: mock (built without ts6 feature)");
+    }
+}
+
+#[cfg(feature = "ts6")]
+struct HttpQuerySession {
+    client: mp_ts::QueryClient,
+}
+
+#[cfg(feature = "ts6")]
+impl mp_http::SessionQuery for HttpQuerySession {
+    fn list_members<'a>(
+        &'a self,
+        sgid: i64,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Vec<i64>, String>> + Send + 'a>,
+    > {
+        Box::pin(async move { self.client.server_group_client_ids(sgid).await })
+    }
+
+    fn remove_member<'a>(
+        &'a self,
+        sgid: i64,
+        cldbid: i64,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>
+    {
+        Box::pin(async move { self.client.server_group_del_client(sgid, cldbid).await })
     }
 }
 

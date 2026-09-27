@@ -4,16 +4,16 @@
 //! Option A live session: tsclient-rs + HTTP Query groups.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::time::Duration;
 
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 use tsclient_rs::{self, Client, ClientOptions, EventMap};
 
 use crate::query::QueryClient;
 use crate::{
-    OpusPacket, PresenceClient, Result, Target, TsError, TsEvent, TsSession, CODEC_OPUS_MUSIC,
+    CODEC_OPUS_MUSIC, OpusPacket, PresenceClient, Result, Target, TsError, TsEvent, TsSession,
 };
 
 #[derive(Clone, Debug)]
@@ -46,7 +46,9 @@ impl TsConnectConfig {
             server_password: std::env::var("TS6_SERVER_PASSWORD")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            default_channel: std::env::var("DEFAULT_CHANNEL").ok().filter(|s| !s.is_empty()),
+            default_channel: std::env::var("DEFAULT_CHANNEL")
+                .ok()
+                .filter(|s| !s.is_empty()),
             identity_path: data_dir.join("ts-identity.txt"),
             query_host: std::env::var("TS6_QUERY_HOST").unwrap_or(host),
             query_port: std::env::var("TS6_QUERY_PORT")
@@ -238,17 +240,21 @@ impl LiveSession {
         self.client.lock().await.as_ref().cloned()
     }
 
-    pub async fn list_clients(&self) -> Vec<PresenceClient> {
+    pub async fn list_clients_result(&self) -> crate::Result<Vec<PresenceClient>> {
         let Some(c) = self.client_arc().await else {
-            return Vec::new();
+            return Err(crate::TsError::NotConnected);
         };
         match c.exec_command_with_response("clientlist", 4000).await {
-            Ok(rows) => rows.into_iter().filter_map(row_to_presence).collect(),
+            Ok(rows) => Ok(rows.into_iter().filter_map(row_to_presence).collect()),
             Err(e) => {
                 tracing::debug!(error = %e, "clientlist failed");
-                Vec::new()
+                Err(crate::TsError::Message(e.to_string()))
             }
         }
+    }
+
+    pub async fn list_clients(&self) -> Vec<PresenceClient> {
+        self.list_clients_result().await.unwrap_or_default()
     }
 
     pub async fn join_channel(&self, cid: u64) -> bool {
@@ -295,7 +301,10 @@ impl LiveSession {
             }
         }
         let c = self.client_arc().await?;
-        let rows = c.exec_command_with_response("channellist", 4000).await.ok()?;
+        let rows = c
+            .exec_command_with_response("channellist", 4000)
+            .await
+            .ok()?;
         let lower = q.to_ascii_lowercase();
         let mut start: Option<u64> = None;
         let mut contains: Option<u64> = None;
@@ -346,8 +355,7 @@ fn load_or_create_identity(path: &Path) -> Result<tsclient_rs::Identity> {
     if let Ok(s) = std::fs::read_to_string(path) {
         let s = s.trim();
         if !s.is_empty() {
-            return tsclient_rs::identityFromString(s)
-                .map_err(|e| TsError::Message(e.to_string()));
+            return tsclient_rs::identityFromString(s).map_err(|e| TsError::Message(e.to_string()));
         }
     }
     tracing::info!("generating TeamSpeak identity (level 8)");
@@ -405,6 +413,9 @@ impl crate::TsSessionExt for LiveSession {
     }
     async fn list_clients(&self) -> Vec<PresenceClient> {
         LiveSession::list_clients(self).await
+    }
+    async fn list_clients_result(&self) -> crate::Result<Vec<PresenceClient>> {
+        LiveSession::list_clients_result(self).await
     }
     async fn join_channel(&self, cid: u64) -> bool {
         LiveSession::join_channel(self, cid).await

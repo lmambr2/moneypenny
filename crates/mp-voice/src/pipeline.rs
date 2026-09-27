@@ -196,19 +196,28 @@ impl VoicePipeline {
                     if let Some(tts) = tts {
                         if let Some(ref r) = reply {
                             let spoken = voice_spoken_ack(Some(r)).map(|s| s.to_string());
-                            let tts_text = spoken.unwrap_or_else(|| text_to_spoken(r));
-                            if !is_playback_start_reply(Some(r))
-                                && should_speak_voice_reply(&tts_text, 900)
-                                && !tts_text.is_empty()
-                            {
-                                match tts.synthesize(&tts_text).await {
-                                    Ok((audio, _)) => {
-                                        tts_bytes = audio.len();
-                                        if !audio.is_empty() {
-                                            tts_audio = Some(audio);
+                            let chunks = spoken
+                                .map(|s| vec![s])
+                                .unwrap_or_else(|| crate::speak::tts_speak_chunks(r));
+                            if !is_playback_start_reply(Some(r)) {
+                                let mut audio_all = Vec::new();
+                                for tts_text in chunks {
+                                    if tts_text.is_empty()
+                                        || !should_speak_voice_reply(&tts_text, 900)
+                                    {
+                                        continue;
+                                    }
+                                    match tts.synthesize(&tts_text).await {
+                                        Ok((audio, _)) => audio_all.extend(audio),
+                                        Err(e) => {
+                                            tracing::warn!(error = %e, "Voice: TTS failed");
+                                            break;
                                         }
                                     }
-                                    Err(e) => tracing::warn!(error = %e, "Voice: TTS failed"),
+                                }
+                                tts_bytes = audio_all.len();
+                                if !audio_all.is_empty() {
+                                    tts_audio = Some(audio_all);
                                 }
                             }
                         }

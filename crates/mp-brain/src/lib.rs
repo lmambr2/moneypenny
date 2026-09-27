@@ -5,6 +5,7 @@
 //! Brain *proposes*; bot *disposes*. `POST /v1/turn` JSON is frozen.
 
 mod complete;
+mod idle;
 mod dispose;
 mod factory;
 mod http;
@@ -17,6 +18,7 @@ mod types;
 
 pub use complete::{complete_turn, complete_turn_opts};
 pub use dispose::dispose_tool_proposals;
+pub use idle::{IdleEvent, LlmIdleGate, LLM_IDLE_UNLOAD_SECONDS_DEFAULT};
 pub use factory::{
     in_process_from_settings, resolve_brain_transport, transport_from_settings, BrainTransport,
 };

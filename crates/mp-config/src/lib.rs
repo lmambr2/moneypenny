@@ -47,6 +47,39 @@ pub const DEFAULT_MUSIC_BLOCKED_GENRES: &[&str] = &[
     "rhythm and blues",
 ];
 
+fn default_session_prefix() -> String {
+    "Session /".into()
+}
+
+fn default_session_grace() -> u32 {
+    15
+}
+
+/// Temporary `Session /` server groups. Same shape as Node `sessionRoles`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRolesConfig {
+    #[serde(default)]
+    pub group_ids: Vec<i64>,
+    #[serde(default = "default_session_prefix")]
+    pub name_prefix: String,
+    #[serde(default)]
+    pub auto_clear_on_empty: bool,
+    #[serde(default = "default_session_grace")]
+    pub clear_grace_minutes: u32,
+}
+
+impl Default for SessionRolesConfig {
+    fn default() -> Self {
+        Self {
+            group_ids: Vec::new(),
+            name_prefix: default_session_prefix(),
+            auto_clear_on_empty: false,
+            clear_grace_minutes: default_session_grace(),
+        }
+    }
+}
+
 /// Subset of `BotConfig` needed to boot HTTP + later crates.
 /// Unknown JSON keys are ignored (we do not round-trip-save during dual-run).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +169,8 @@ pub struct BotConfig {
     pub sc_org_status_url: String,
     #[serde(default)]
     pub sc_org_name: String,
+    #[serde(default)]
+    pub session_roles: SessionRolesConfig,
     /// Inbound voice loop (rewrite Phase 6). Nested object matches Node `config.voice`.
     #[serde(default)]
     pub voice: VoiceConfig,
@@ -624,6 +659,7 @@ impl Default for BotConfig {
             auto_follow_cooldown_sec: 60,
             sc_org_status_url: String::new(),
             sc_org_name: String::new(),
+            session_roles: SessionRolesConfig::default(),
             voice: VoiceConfig::default(),
             radio: RadioConfig::default(),
             roast_enabled: false,

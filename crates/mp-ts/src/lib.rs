@@ -6,25 +6,26 @@
 //! Live transport (Option A): `tsclient-rs` behind the `tsclient-rs` feature.
 //! HTTP Query (`:10080` + `TS6_API_KEY`) is a separate `reqwest` client.
 
-mod reconnect;
 mod presence;
+mod reconnect;
 
 #[cfg(feature = "tsclient-rs")]
 mod live;
 #[cfg(feature = "tsclient-rs")]
 mod query;
 
-pub use reconnect::{reconnect_delay_ms, ReconnectDriver, ReconnectScheduler};
 pub use presence::{
-    count_channel_humans, pick_busiest_channel, tally_channel_populations, ChannelPopulation,
-    PresenceClient,
+    ChannelCensus, ChannelPopulation, PresenceClient, count_channel_humans, pick_busiest_channel,
+    resolve_own_channel_id, tally_channel_populations, vote_listener_census,
 };
+pub use reconnect::{ReconnectDriver, ReconnectScheduler, reconnect_delay_ms};
 
 #[cfg(feature = "tsclient-rs")]
 pub use live::{LiveSession, TsConnectConfig};
 #[cfg(feature = "tsclient-rs")]
 pub use query::{
-    parse_channel_list, parse_client_list, QueryChannel, QueryClient, QueryClientRow,
+    parse_channel_list, parse_client_list, parse_member_db_ids, QueryChannel, QueryClient,
+    QueryClientRow,
 };
 
 use tokio::sync::broadcast;
@@ -97,10 +98,7 @@ pub trait TsSession: Send + Sync {
         body: &str,
     ) -> impl std::future::Future<Output = Result<()>> + Send;
     fn subscribe(&self) -> broadcast::Receiver<TsEvent>;
-    fn send_opus(
-        &self,
-        pkt: OpusPacket,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn send_opus(&self, pkt: OpusPacket) -> impl std::future::Future<Output = Result<()>> + Send;
 }
 
 pub trait TsSessionExt: TsSession {
@@ -108,6 +106,9 @@ pub trait TsSessionExt: TsSession {
     fn is_connected(&self) -> bool;
     fn channel_id(&self) -> u64;
     fn list_clients(&self) -> impl std::future::Future<Output = Vec<PresenceClient>> + Send;
+    fn list_clients_result(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<PresenceClient>>> + Send;
     fn join_channel(&self, cid: u64) -> impl std::future::Future<Output = bool> + Send;
     fn resolve_channel_id_by_name(
         &self,
@@ -190,14 +191,16 @@ impl TsSessionExt for MockSession {
         1
     }
     fn is_connected(&self) -> bool {
-        self.connected
-            .load(std::sync::atomic::Ordering::SeqCst)
+        self.connected.load(std::sync::atomic::Ordering::SeqCst)
     }
     fn channel_id(&self) -> u64 {
         0
     }
     async fn list_clients(&self) -> Vec<PresenceClient> {
         Vec::new()
+    }
+    async fn list_clients_result(&self) -> Result<Vec<PresenceClient>> {
+        Ok(Vec::new())
     }
     async fn join_channel(&self, _cid: u64) -> bool {
         false

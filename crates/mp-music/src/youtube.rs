@@ -18,6 +18,22 @@ pub const YOUTUBE_MAX_DURATION_SEC: u32 = 15 * 60;
 pub const DEFAULT_DEMO_VIDEO_ID: &str = "hLOheGDwD_0";
 pub const DEFAULT_DEMO_VIDEO_URL: &str = "https://www.youtube.com/watch?v=hLOheGDwD_0";
 
+/// Stargate SG-1 opening. `!chevron7` prefers a local `[videoId]` copy.
+pub const SG1_THEME_VIDEO_ID: &str = "aafGXNWHGaw";
+pub const SG1_THEME_URL: &str = "https://www.youtube.com/watch?v=aafGXNWHGaw";
+
+/// True when the song is the canonical `!test` / PHASE0 demo track.
+pub fn is_demo_test_track(id: &str, name: &str, album: &str) -> bool {
+    if id == DEFAULT_DEMO_VIDEO_ID {
+        return true;
+    }
+    if extract_video_id(id).as_deref() == Some(DEFAULT_DEMO_VIDEO_ID) {
+        return true;
+    }
+    let blob = format!("{name} {album} {id}").to_lowercase();
+    blob.contains(&DEFAULT_DEMO_VIDEO_ID.to_lowercase())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum YoutubePolicy {
     Search,
@@ -38,9 +54,7 @@ impl Default for YoutubeClient {
 
 impl YoutubeClient {
     pub fn new() -> Self {
-        Self {
-            bin: find_yt_dlp(),
-        }
+        Self { bin: find_yt_dlp() }
     }
 
     pub fn available(&self) -> bool {
@@ -147,7 +161,12 @@ impl YoutubeClient {
     }
 
     /// yt-dlp is process-wait. Run it off the bot loop so Opus frames keep sending.
-    pub async fn search_async(&self, query: &str, limit: usize, policy: YoutubePolicy) -> Vec<Track> {
+    pub async fn search_async(
+        &self,
+        query: &str,
+        limit: usize,
+        policy: YoutubePolicy,
+    ) -> Vec<Track> {
         let this = self.clone();
         let q = query.to_string();
         tokio::task::spawn_blocking(move || this.search(&q, limit, policy))
@@ -174,7 +193,12 @@ impl YoutubeClient {
     }
 
     /// Download audio as tagged MP3. Never used on the skip path.
-    pub fn download_audio_mp3(&self, song_id: &str, out_dir: &Path, base_name: &str) -> Option<String> {
+    pub fn download_audio_mp3(
+        &self,
+        song_id: &str,
+        out_dir: &Path,
+        base_name: &str,
+    ) -> Option<String> {
         let bin = self.bin.as_ref()?;
         let page = media_page_url(song_id)?;
         if page.starts_with("http") && !is_public_playback_url(&page) {
@@ -251,10 +275,12 @@ pub fn is_youtube_full_album_title(title: &str) -> bool {
     let t = title
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c.is_whitespace() || c == '.' || c == '_' || c == '-' {
-            c
-        } else {
-            ' '
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c.is_whitespace() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                ' '
+            }
         })
         .collect::<String>();
     let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -293,7 +319,12 @@ pub fn is_youtube_livestream_radio_title(title: &str) -> bool {
         return true;
     }
     if t.contains("nonstop")
-        && (t.contains("radio") || t.contains("hits") || t.contains("classic") || t.contains("rock") || t.contains("mix") || t.contains("music"))
+        && (t.contains("radio")
+            || t.contains("hits")
+            || t.contains("classic")
+            || t.contains("rock")
+            || t.contains("mix")
+            || t.contains("music"))
     {
         return true;
     }
@@ -368,7 +399,11 @@ fn parse_entry(json: &str, policy: YoutubePolicy) -> Option<Track> {
         .and_then(|x| x.as_str())
         .unwrap_or("Unknown")
         .to_string();
-    let duration = v.get("duration").and_then(|x| x.as_f64()).unwrap_or(0.0).round() as u32;
+    let duration = v
+        .get("duration")
+        .and_then(|x| x.as_f64())
+        .unwrap_or(0.0)
+        .round() as u32;
     let web = v
         .get("webpage_url")
         .and_then(|x| x.as_str())
@@ -382,7 +417,11 @@ fn parse_entry(json: &str, policy: YoutubePolicy) -> Option<Track> {
         .get("artist")
         .and_then(|x| x.as_str())
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| v.get("album_artist").and_then(|x| x.as_str()).filter(|s| !s.trim().is_empty()))
+        .or_else(|| {
+            v.get("album_artist")
+                .and_then(|x| x.as_str())
+                .filter(|s| !s.trim().is_empty())
+        })
         .or_else(|| v.get("uploader").and_then(|x| x.as_str()))
         .or_else(|| v.get("channel").and_then(|x| x.as_str()))
         .unwrap_or("")
@@ -410,7 +449,10 @@ fn parse_entry(json: &str, policy: YoutubePolicy) -> Option<Track> {
             .unwrap_or_default()
     } else {
         if web.is_empty() {
-            v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string()
+            v.get("id")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string()
         } else {
             web.clone()
         }
@@ -529,8 +571,11 @@ fn run_yt_dlp(bin: &Path, args: &[String], timeout: Duration) -> Option<String> 
         }
     };
     match tokio::runtime::Handle::try_current() {
-        Ok(_) => tokio::task::block_in_place(run),
-        Err(_) => run(),
+        // block_in_place panics on a current-thread runtime (unit tests).
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(run)
+        }
+        _ => run(),
     }
 }
 
@@ -540,7 +585,9 @@ mod tests {
 
     #[test]
     fn full_album_gate() {
-        assert!(is_youtube_full_album_title("Artist - Album Name (Full Album)"));
+        assert!(is_youtube_full_album_title(
+            "Artist - Album Name (Full Album)"
+        ));
         assert!(is_youtube_full_album_title("FULL ALBUM STREAM"));
         assert!(is_youtube_full_album_title("Something - Full-Album [HQ]"));
         assert!(is_youtube_full_album_title("band fullalbum 2020"));
@@ -553,10 +600,30 @@ mod tests {
         assert!(!is_youtube_too_long(900));
         assert!(is_youtube_too_long(901));
         assert!(!is_youtube_too_long(0));
-        assert!(should_block_youtube_song("Normal Song", 1200, false, YoutubePolicy::Search));
-        assert!(!should_block_youtube_song("Normal Song", 240, false, YoutubePolicy::Search));
-        assert!(!should_block_youtube_song("Full Album", 60, false, YoutubePolicy::Explicit));
-        assert!(should_block_youtube_song("Some Track", 200, true, YoutubePolicy::Search));
+        assert!(should_block_youtube_song(
+            "Normal Song",
+            1200,
+            false,
+            YoutubePolicy::Search
+        ));
+        assert!(!should_block_youtube_song(
+            "Normal Song",
+            240,
+            false,
+            YoutubePolicy::Search
+        ));
+        assert!(!should_block_youtube_song(
+            "Full Album",
+            60,
+            false,
+            YoutubePolicy::Explicit
+        ));
+        assert!(should_block_youtube_song(
+            "Some Track",
+            200,
+            true,
+            YoutubePolicy::Search
+        ));
     }
 
     #[test]
@@ -568,7 +635,9 @@ mod tests {
             "synthwave radio beats to chill/game to 2026-07-12 00:33"
         ));
         assert!(!is_youtube_livestream_radio_title("Bohemian Rhapsody"));
-        assert!(!is_youtube_livestream_radio_title("Cool Band - Live at Red Rocks"));
+        assert!(!is_youtube_livestream_radio_title(
+            "Cool Band - Live at Red Rocks"
+        ));
         assert!(!is_youtube_livestream_radio_title("Radio Ga Ga"));
     }
 

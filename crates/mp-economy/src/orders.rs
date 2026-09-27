@@ -144,12 +144,12 @@ pub fn handle_econ(args: &str, prefix: &str) -> String {
             "Shopping lists (not a guidebook):\n{prefix}mine quantainium scu:32\n{prefix}refine quantainium scu:32 method:dinyx\n{prefix}econ ores · methods · search <q>\n{CATALOG_DISCLAIMER}"
         ),
         "recipes" | "craft" => format!(
-            "Live craft BOMs need sc-craft (not ported). Seed catalog: {prefix}mine / {prefix}refine / {prefix}econ ores"
+            "No offline craft seed. Live blueprints: {prefix}econ blueprints <name> · {prefix}craft <name>"
         ),
         "prices" | "blueprints" => {
-            format!("Live prices/blueprints are not ported (no UEX/sc-craft HTTP). Try {prefix}econ ores.")
+            format!("Usage: {prefix}econ prices <commodity> · {prefix}econ blueprints <name>")
         }
-        "cache" | "refresh" => "Economy disk cache is not ported (seed catalog is in-process).".into(),
+        "cache" | "refresh" => "Economy cache refresh is on the dashboard (POST /api/economy/cache/refresh).".into(),
         _ => format!(
             "Usage: {prefix}econ [ores|methods|search <q>]\nLive craft/prices/trade still need sidecars."
         ),

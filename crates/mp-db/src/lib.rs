@@ -13,8 +13,12 @@ use std::sync::Mutex;
 use rusqlite::{Connection, OpenFlags};
 
 mod audit;
+mod hangar;
 mod history;
+mod ingest_files;
 mod kg;
+mod profile;
+mod snapshots;
 mod memory;
 mod roast;
 mod sessions;
@@ -24,17 +28,23 @@ mod work_orders;
 mod yt_saved;
 
 pub use audit::{AuditEntry, AuditStore};
+pub use hangar::{parse_ship_specs, ship_id_from_name, uid_owner_key, HangarStore};
 pub use history::PlayHistoryStore;
+pub use ingest_files::{format_ingest_status, FileDropStore, IngestedFile};
+pub use profile::{ProfileConfig, ProfileStore};
+pub use snapshots::{
+    parse_snapshot_body, LocalOverlay, ParsedSnapshot, SnapshotError, SnapshotRow, SnapshotStore,
+};
 pub use kg::{
-    display_fact_line, extract_subject, format_kg_record, is_iso_date, parse_kg_flags, KgDateFlags,
-    KgFact, KgStore,
+    KgDateFlags, KgFact, KgStore, display_fact_line, extract_subject, format_kg_record,
+    is_iso_date, parse_kg_flags,
 };
 pub use memory::{MemoryFact, MemoryStore};
 pub use roast::{RoastQuote, RoastStore};
-pub use sessions::{SessionStore, SessionValidation, MAX_SESSIONS_PER_USER, SESSION_TTL_MS};
-pub use tags::{RatingSummary, TagSource, TagStore, TrackTags};
-pub use users::{UserRole, UserRow, UserStore, UsernameTakenError, BCRYPT_COST};
-pub use work_orders::{aggregate, WorkOrder, WorkOrderLine, WorkOrderStore};
+pub use sessions::{MAX_SESSIONS_PER_USER, SESSION_TTL_MS, SessionStore, SessionValidation};
+pub use tags::{RatingSummary, TagSelect, TagSource, TagStore, TrackTags, parse_tag_select};
+pub use users::{BCRYPT_COST, UserRole, UserRow, UserStore, UsernameTakenError};
+pub use work_orders::{WorkOrder, WorkOrderLine, WorkOrderStore, aggregate};
 pub use yt_saved::YtSavedStore;
 
 pub const SCHEMA_SQL: &str = include_str!("schema.sql");
@@ -175,6 +185,52 @@ impl Database {
         MemoryStore { db: self }
     }
 
+    pub fn hangar(&self) -> HangarStore<'_> {
+        HangarStore::new(self)
+    }
+
+    pub fn file_drop(&self) -> FileDropStore<'_> {
+        FileDropStore::new(self)
+    }
+
+    pub fn snapshots(&self) -> SnapshotStore<'_> {
+        SnapshotStore::new(self)
+    }
+
+    pub fn profile(&self) -> ProfileStore<'_> {
+        ProfileStore::new(self)
+    }
+
+    pub fn save_economy_refresh(&self, at: i64, results_json: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO economy_cache (source, key, fetched_at, expires_at, bytes, data)
+                 VALUES ('meta', 'last-refresh', ?1, ?1, ?2, ?3)
+                 ON CONFLICT(source, key) DO UPDATE SET
+                   fetched_at=excluded.fetched_at,
+                   expires_at=excluded.expires_at,
+                   bytes=excluded.bytes,
+                   data=excluded.data",
+                rusqlite::params![at, results_json.len() as i64, results_json],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn load_economy_refresh(&self) -> Result<Option<(i64, String)>> {
+        self.with_conn(|conn| {
+            match conn.query_row(
+                "SELECT fetched_at, data FROM economy_cache WHERE source='meta' AND key='last-refresh'",
+                [],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            ) {
+                Ok(pair) => Ok(Some(pair)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(e.into()),
+            }
+        })
+    }
+
     pub fn roast(&self) -> RoastStore<'_> {
         RoastStore { db: self }
     }
@@ -313,7 +369,16 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(user.role, UserRole::Admin);
-        assert!(db.users().create_first_user("other", "password12").unwrap().is_none());
-        assert!(db.users().verify_password("password12", &user.password_hash).unwrap());
+        assert!(
+            db.users()
+                .create_first_user("other", "password12")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            db.users()
+                .verify_password("password12", &user.password_hash)
+                .unwrap()
+        );
     }
 }

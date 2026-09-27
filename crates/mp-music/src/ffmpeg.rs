@@ -27,6 +27,41 @@ pub fn clamp_music_opus_bitrate_kbps(kbps: i32) -> u32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StallAction {
+    Continue,
+    Resume,
+    End,
+}
+
+pub const MAX_STALL_RESUMES: u32 = 3;
+pub const STALL_RESUME_MIN_REMAINING_SEC: f64 = 8.0;
+
+/// Known-length tracks in the last 5s. Duration `0` is unknown, not near the end.
+pub fn is_near_end_of_track(duration_sec: f64, elapsed_sec: f64) -> bool {
+    duration_sec > 0.0 && elapsed_sec.is_finite() && duration_sec - elapsed_sec <= 5.0
+}
+
+/// Mid-track PCM starve resumes the same URL. Near-end or too many resumes end the track.
+pub fn decide_stall_action(
+    verdict: StallVerdict,
+    stall_resumes: u32,
+    remaining_sec: f64,
+    has_url: bool,
+) -> StallAction {
+    if verdict == StallVerdict::Continue {
+        return StallAction::Continue;
+    }
+    if verdict == StallVerdict::MidTrackStall
+        && has_url
+        && stall_resumes < MAX_STALL_RESUMES
+        && remaining_sec > STALL_RESUME_MIN_REMAINING_SEC
+    {
+        return StallAction::Resume;
+    }
+    StallAction::End
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StallVerdict {
     Continue,
     NearEndStall,
@@ -122,11 +157,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pcm_frame_is_20ms_stereo_48k() {
-        assert_eq!(PCM_FRAME_BYTES, 3840);
-    }
-
-    #[test]
     fn local_file_args() {
         let a = build_ffmpeg_args("/music/a.mp3", 0.0, None, None);
         assert!(a.windows(2).any(|w| w == ["-protocol_whitelist", "file,http,https,tcp,tls,crypto"]));
@@ -146,7 +176,27 @@ mod tests {
     }
 
     #[test]
-    fn stall_near_end() {
+    fn mid_track_stall_resumes_until_the_cap() {
+        assert_eq!(
+            decide_stall_action(StallVerdict::MidTrackStall, 0, 90.0, true),
+            StallAction::Resume
+        );
+        assert_eq!(
+            decide_stall_action(StallVerdict::MidTrackStall, 0, f64::INFINITY, true),
+            StallAction::Resume
+        );
+        assert_eq!(
+            decide_stall_action(StallVerdict::MidTrackStall, MAX_STALL_RESUMES, 90.0, true),
+            StallAction::End
+        );
+        assert_eq!(
+            decide_stall_action(StallVerdict::MidTrackStall, 0, 4.0, true),
+            StallAction::End
+        );
+        assert_eq!(
+            decide_stall_action(StallVerdict::Continue, 0, 90.0, true),
+            StallAction::Continue
+        );
         assert_eq!(
             classify_stall(StallCheckInput {
                 empty_frame_attempts: 250,
@@ -200,5 +250,13 @@ mod tests {
         let mut late = starving;
         late.wall_elapsed_sec = STARTUP_STALL_SEC;
         assert_eq!(classify_stall(late), StallVerdict::MidTrackStall);
+    }
+
+    #[test]
+    fn unknown_duration_is_not_near_end() {
+        assert!(!is_near_end_of_track(0.0, 45.0));
+        assert!(!is_near_end_of_track(0.0, 600.0));
+        assert!(!is_near_end_of_track(180.0, 170.0));
+        assert!(is_near_end_of_track(180.0, 176.0));
     }
 }

@@ -44,7 +44,9 @@ mod rate_limit;
 mod recordings;
 mod roast;
 mod session;
+mod session_roles;
 mod spa;
+mod workflow;
 mod sc_org;
 mod follow;
 mod status_api;
@@ -54,6 +56,7 @@ mod voice_api;
 mod ws;
 
 pub use command::dispatch_command;
+pub use session_roles::{SessionHandle, SessionQuery};
 pub use follow::FollowRuntime;
 pub use roast::RoastRuntime;
 pub use sc_org::ScOrgRuntime;
@@ -357,10 +360,20 @@ pub fn router(state: AppState) -> Router {
         .route("/api/economy/workorders", get(economy_api::workorders_get).post(economy_api::workorders_post).delete(economy_api::workorders_clear))
         .route("/api/economy/workorders/{id}", delete(economy_api::workorders_delete_one))
         .route("/api/economy/cache/refresh", post(economy_api::cache_refresh))
+        .route("/api/economy/ingest/terminal-snapshot", post(economy_api::ingest_snapshot))
+        .route("/api/economy/ingest/snapshots", get(economy_api::list_snapshots))
+        .route(
+            "/api/economy/ingest/snapshots/{id}/accept",
+            post(economy_api::snapshot_accept),
+        )
+        .route(
+            "/api/economy/ingest/snapshots/{id}/reject",
+            post(economy_api::snapshot_reject),
+        )
         .route("/api/economy/trade/routes", post(economy_api::trade_routes))
-        .route("/api/economy/trade/buyers", post(economy_api::trade_off))
-        .route("/api/economy/trade/itinerary", post(economy_api::trade_off))
-        .route("/api/economy/trade/circuit", post(economy_api::trade_off))
+        .route("/api/economy/trade/buyers", post(economy_api::trade_buyers))
+        .route("/api/economy/trade/itinerary", post(economy_api::trade_itinerary))
+        .route("/api/economy/trade/circuit", post(economy_api::trade_circuit))
         .route("/api/player/{botId}/play", post(player_api::play))
         .route("/api/player/{botId}/add", post(player_api::add))
         .route("/api/player/{botId}/pause", post(player_api::pause))
@@ -2273,5 +2286,401 @@ mod tests {
         assert!(v.get("failed").is_some(), "{v}");
         assert!(v["results"].as_array().unwrap().len() >= 4, "{v}");
         let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn datarunner_bearer_ingests_without_cookie_or_origin() {
+        let prev = std::env::var("ECONOMY_INGEST_TOKEN").ok();
+        unsafe { std::env::set_var("ECONOMY_INGEST_TOKEN", "test-ingest-token-please") };
+        let app = test_app();
+        let body = r#"{"source":"datarunner","game_version":"4.10.0","environment":"LIVE","id_terminal":18,"type":"commodity","captured_at":1700000000,"prices":[{"name":"Laranite","price_buy":500}]}"#;
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/economy/ingest/terminal-snapshot")
+                    .header("host", "127.0.0.1:9")
+                    .header("authorization", "Bearer test-ingest-token-please")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("ECONOMY_INGEST_TOKEN", v),
+                None => std::env::remove_var("ECONOMY_INGEST_TOKEN"),
+            }
+        }
+        assert_eq!(res.status(), StatusCode::CREATED, "{:?}", res.status());
+        let v = json_body(res).await;
+        assert_eq!(v["snapshot"]["created_by"], "datarunner");
+        assert_eq!(v["snapshot"]["captured_at"], 1_700_000_000_000_i64);
+    }
+
+    fn authed(method: &str, uri: &str, cookie: &str, body: Option<&str>) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("host", "localhost:3000")
+            .header("origin", "http://localhost:3000")
+            .header("cookie", cookie);
+        if body.is_some() {
+            builder = builder.header("content-type", "application/json");
+        }
+        builder
+            .body(Body::from(body.unwrap_or("").to_string()))
+            .unwrap()
+    }
+
+    async fn json_body(res: axum::response::Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(res.into_body(), 256 * 1024)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+    }
+
+    #[tokio::test]
+    async fn seek_profile_and_economy_match_node_status() {
+        let (dir, state) = music_state();
+        let station = state.station.clone().unwrap();
+        station
+            .player
+            .play("https://example.invalid/track.mp3", 0.0, 180.0);
+        let bot_id = state.bot_id.clone();
+        let (app, cookie) = setup_cookie(router(state)).await;
+
+        let missing = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                &format!("/api/player/{bot_id}/seek"),
+                &cookie,
+                Some(r#"{"position":-1}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::BAD_REQUEST);
+        let missing_body = json_body(missing).await;
+        assert_eq!(missing_body["code"], "VALIDATION_ERROR");
+
+        let sought = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                &format!("/api/player/{bot_id}/seek"),
+                &cookie,
+                Some(r#"{"position":12.5}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(sought.status(), StatusCode::OK);
+        let sought_body = json_body(sought).await;
+        assert_eq!(sought_body["message"], "Seeked to 12s");
+        assert_eq!(sought_body["seekOffset"], 12.5);
+        assert!((station.player.get_elapsed() - 12.5).abs() < 0.01);
+
+        let unauth = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/player/{bot_id}/seek"))
+                    .header("content-type", "application/json")
+                    .header("host", "localhost:3000")
+                    .header("origin", "http://localhost:3000")
+                    .body(Body::from(r#"{"position":1}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        let put = app
+            .clone()
+            .oneshot(authed(
+                "PUT",
+                &format!("/api/player/{bot_id}/profile"),
+                &cookie,
+                Some(r#"{"awayStatusEnabled":false,"nowPlayingMsgEnabled":false}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(put.status(), StatusCode::OK);
+        let profile = json_body(put).await;
+        assert_eq!(profile["avatarEnabled"], true);
+        assert_eq!(profile["awayStatusEnabled"], false);
+        assert_eq!(profile["nowPlayingMsgEnabled"], false);
+        assert_eq!(profile["nicknameEnabled"], true);
+
+        let got = app
+            .clone()
+            .oneshot(authed(
+                "GET",
+                &format!("/api/player/{bot_id}/profile"),
+                &cookie,
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(got.status(), StatusCode::OK);
+        let got_body = json_body(got).await;
+        assert_eq!(got_body["awayStatusEnabled"], false);
+
+        let refreshed = app
+            .clone()
+            .oneshot(authed("POST", "/api/economy/cache/refresh", &cookie, Some("{}")))
+            .await
+            .unwrap();
+        assert_eq!(refreshed.status(), StatusCode::OK);
+        let refresh_body = json_body(refreshed).await;
+        assert_eq!(refresh_body["ok"], true);
+        assert!(refresh_body["at"].as_i64().unwrap_or(0) > 0);
+        assert_eq!(refresh_body["results"][0]["source"], "seed");
+        assert_eq!(refresh_body["results"][0]["ok"], true);
+        let cache = app
+            .clone()
+            .oneshot(authed("GET", "/api/economy/cache", &cookie, None))
+            .await
+            .unwrap();
+        assert_eq!(cache.status(), StatusCode::OK);
+        let cache_body = json_body(cache).await;
+        assert!(cache_body["lastRefresh"]["at"].as_i64().unwrap_or(0) > 0);
+        assert!(cache_body.get("root").is_none());
+
+        let bad_snap = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/api/economy/ingest/terminal-snapshot",
+                &cookie,
+                Some(r#"{"type":"commodity"}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(bad_snap.status(), StatusCode::BAD_REQUEST);
+        let bad_body = json_body(bad_snap).await;
+        assert!(
+            bad_body["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("id_terminal"),
+            "{bad_body}"
+        );
+
+        let snap = r#"{"source":"datarunner","game_version":"4.10.0","environment":"LIVE","id_terminal":89,"terminal_name":"Area 18 TDD","type":"commodity","captured_at":4102444800000,"prices":[{"name":"Agricium","price_buy":4000,"price_sell":12000}]}"#;
+        let created = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/api/economy/ingest/terminal-snapshot",
+                &cookie,
+                Some(snap),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let created_body = json_body(created).await;
+        assert_eq!(created_body["snapshot"]["id_terminal"], 89);
+        assert_eq!(created_body["snapshot"]["status"], "accepted");
+        let snap_id = created_body["snapshot"]["id"].as_i64().unwrap();
+
+        let listed = app
+            .clone()
+            .oneshot(authed(
+                "GET",
+                "/api/economy/ingest/snapshots?status=accepted",
+                &cookie,
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(listed.status(), StatusCode::OK);
+        let listed_body = json_body(listed).await;
+        assert!(listed_body["count"].as_u64().unwrap_or(0) >= 1);
+
+        let missing_id = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/api/economy/ingest/snapshots/999999/reject",
+                &cookie,
+                Some("{}"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(missing_id.status(), StatusCode::NOT_FOUND);
+        let missing_snap = json_body(missing_id).await;
+        assert_eq!(missing_snap["error"], "No snapshot #999999");
+
+        let priced = app
+            .clone()
+            .oneshot(authed(
+                "GET",
+                "/api/economy/prices?q=Agricium",
+                &cookie,
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(priced.status(), StatusCode::OK);
+        let price_body = json_body(priced).await;
+        assert_eq!(price_body["source"], "local");
+        assert_eq!(price_body["sell"].as_f64(), Some(12000.0));
+
+        let rejected = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                &format!("/api/economy/ingest/snapshots/{snap_id}/reject"),
+                &cookie,
+                Some("{}"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::OK);
+        let rejected_body = json_body(rejected).await;
+        assert_eq!(rejected_body["snapshot"]["status"], "rejected");
+
+        let trade_on = mp_economy::clients().sc_trade.is_enabled();
+        let buyers = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/api/economy/trade/buyers",
+                &cookie,
+                Some("{}"),
+            ))
+            .await
+            .unwrap();
+        if trade_on {
+            assert_eq!(buyers.status(), StatusCode::BAD_REQUEST);
+            let buyers_body = json_body(buyers).await;
+            assert_eq!(buyers_body["error"], "commodity required");
+        } else {
+            assert_eq!(buyers.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+        let circuit = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/api/economy/trade/circuit",
+                &cookie,
+                Some("{}"),
+            ))
+            .await
+            .unwrap();
+        if trade_on {
+            assert_eq!(circuit.status(), StatusCode::BAD_REQUEST);
+            let circuit_body = json_body(circuit).await;
+            assert_eq!(
+                circuit_body["error"],
+                "id required (trade route id from routes results)"
+            );
+        } else {
+            assert_eq!(circuit.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+        let itinerary = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/api/economy/trade/itinerary",
+                &cookie,
+                Some(r#"{"from":""}"#),
+            ))
+            .await
+            .unwrap();
+        if trade_on {
+            assert_eq!(itinerary.status(), StatusCode::BAD_REQUEST);
+            let itinerary_body = json_body(itinerary).await;
+            assert!(
+                itinerary_body["error"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("from and to"),
+                "{itinerary_body}"
+            );
+        } else {
+            assert_eq!(itinerary.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn stream_speaks_the_first_sentence_before_later_tokens_arrive() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let first_sentence = Arc::new(AtomicBool::new(false));
+        let gate = Arc::clone(&first_sentence);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let saw_stream = Arc::new(AtomicBool::new(false));
+        let saw_stream_srv = Arc::clone(&saw_stream);
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let mut got = String::new();
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    return;
+                }
+                got.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if got.contains("\r\n\r\n") {
+                    break;
+                }
+            }
+            saw_stream_srv.store(got.contains("\"stream\":true"), Ordering::SeqCst);
+            let header = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: text/event-stream\r\n\r\n";
+            sock.write_all(header.as_bytes()).await.unwrap();
+            let first = "data: {\"choices\":[{\"delta\":{\"content\":\"Hello team. \"}}]}\n\n";
+            let chunk = format!("{:x}\r\n{first}\r\n", first.len());
+            sock.write_all(chunk.as_bytes()).await.unwrap();
+            let _ = sock.flush().await;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while !gate.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert!(gate.load(Ordering::SeqCst), "first sentence was not spoken before the rest of the tokens");
+            let rest = "data: {\"choices\":[{\"delta\":{\"content\":\"Still working\"}}]}\n\ndata: [DONE]\n\n";
+            let chunk = format!("{:x}\r\n{rest}\r\n", rest.len());
+            sock.write_all(chunk.as_bytes()).await.unwrap();
+            sock.write_all(b"0\r\n\r\n").await.unwrap();
+        });
+        let mut settings = mp_brain::LlmSettings::default();
+        settings.enabled = true;
+        settings.url = format!("http://{}", addr);
+        settings.model = "test".into();
+        settings.timeout_ms = 5_000;
+        let llm = mp_brain::OpenAiLlm::from_settings(&settings);
+        let buf = Arc::new(std::sync::Mutex::new(String::new()));
+        let spoken = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let flag = Arc::clone(&first_sentence);
+        let buf_cb = Arc::clone(&buf);
+        let spoken_cb = Arc::clone(&spoken);
+        let text = llm
+            .stream_user_prompt("hi", move |delta| {
+                    let ready = {
+                        let mut b = buf_cb.lock().expect("buf");
+                        mp_voice::push_stream_delta(&mut b, delta)
+                    };
+                    for sentence in ready {
+                        if sentence.contains("Hello team") {
+                            flag.store(true, Ordering::SeqCst);
+                        }
+                        spoken_cb.lock().expect("spoken").push(sentence);
+                    }
+                },
+            )
+            .await
+            .unwrap();
+        assert!(saw_stream.load(Ordering::SeqCst), "request did not set stream true");
+        assert!(text.contains("Hello team"));
+        assert!(text.contains("Still working"));
+        let spoken = spoken.lock().unwrap().clone();
+        assert_eq!(spoken.first().map(String::as_str), Some("Hello team."));
     }
 }

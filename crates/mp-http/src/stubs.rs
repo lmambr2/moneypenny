@@ -28,14 +28,14 @@ pub async fn bot_status_stub(_admin: AdminUser) -> Json<Value> {
     Json(json!({
         "ok": false,
         "configured": false,
-        "message": "not ported yet",
+        "message": "ACE-Step is not ported (sidecar)",
     }))
 }
 
 pub async fn not_ported(_user: AuthUser) -> Response {
     (
         StatusCode::NOT_IMPLEMENTED,
-        Json(json!({"error":"not ported yet"})),
+        Json(json!({"error":"ACE-Step music generation is not ported on the Rust bot"})),
     )
         .into_response()
 }

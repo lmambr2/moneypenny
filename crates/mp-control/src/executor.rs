@@ -9,11 +9,11 @@
 use std::sync::Arc;
 
 use mp_music::{
-    ban_protected_message, blacklist_content_key, extract_video_id, is_ban_protected, PlayMode,
-    QueuedSong, QueueSource, ReplaceResult,
+    PlayMode, QueueSource, QueuedSong, ReplaceResult, ban_protected_message, blacklist_content_key,
+    extract_video_id, is_ban_protected,
 };
 
-use crate::manifest::{is_audio_command, ParsedCommand};
+use crate::manifest::{ParsedCommand, is_audio_command};
 
 #[derive(Clone)]
 pub struct CommandExecutor {
@@ -59,13 +59,15 @@ impl CommandExecutor {
             "album" => self.cmd_album(cmd).await,
             "artist" => self.cmd_artist(cmd).await,
             "lyrics" => self.cmd_lyrics(),
+            "chevron7" => self.cmd_chevron7().await,
             "mute" | "kick" => format!(
                 "Usage: {}{other} <nickname|clid> — run this from TeamSpeak chat.",
                 self.prefix,
                 other = cmd.name
             ),
+            "generate" => "ACE-Step music generation is not ported on the Rust bot.".into(),
             other if crate::manifest::is_known_command(other) => {
-                format!("{other} is not ported yet.")
+                format!("{other} is not available on this bot.")
             }
             other => format!(
                 "Unknown command: {other}. Type {}help for help.",
@@ -116,7 +118,12 @@ impl CommandExecutor {
             let _ = self.station.resolve_and_play_async(&queued).await;
             return format!("Now playing: {} - {}", track.title, track.artist);
         }
-        let cur = self.station.queue.lock().expect("queue").get_current_index();
+        let cur = self
+            .station
+            .queue
+            .lock()
+            .expect("queue")
+            .get_current_index();
         let upcoming = if cur < 0 {
             at + 1
         } else {
@@ -149,7 +156,11 @@ impl CommandExecutor {
                 q.get_current_index() as usize + 1
             }
         };
-        self.station.queue.lock().expect("queue").add_next(queued.clone());
+        self.station
+            .queue
+            .lock()
+            .expect("queue")
+            .add_next(queued.clone());
         if was_idle {
             {
                 let mut q = self.station.queue.lock().expect("queue");
@@ -384,7 +395,11 @@ impl CommandExecutor {
                     format!("{}. {label}", i + 1)
                 })
                 .collect();
-            return format!("Banned tracks (latest {}):\n{}", lines.len(), lines.join("\n"));
+            return format!(
+                "Banned tracks (latest {}):\n{}",
+                lines.len(),
+                lines.join("\n")
+            );
         }
         let Some(song) = self.station.queue.lock().expect("queue").current() else {
             return format!("Nothing is playing. Start a track, then {p}ban — or {p}ban list.");
@@ -407,7 +422,10 @@ impl CommandExecutor {
         if let Some(vid) = extract_video_id(&song.id) {
             keys.push(vid);
         }
-        if let Some(vid) = song.name.find('[').and_then(|_| extract_video_id_from_name(&song.name))
+        if let Some(vid) = song
+            .name
+            .find('[')
+            .and_then(|_| extract_video_id_from_name(&song.name))
         {
             keys.push(vid);
         }
@@ -433,7 +451,9 @@ impl CommandExecutor {
         let arg = cmd.args.trim();
         if arg.is_empty() {
             let Some(song) = self.station.queue.lock().expect("queue").current() else {
-                return format!("Nothing playing. Usage: {p}unban <track id or name> · {p}ban list");
+                return format!(
+                    "Nothing playing. Usage: {p}unban <track id or name> · {p}ban list"
+                );
             };
             if !bl.is_blacklisted(Some(&song.id), Some(&song.name), Some(&song.artist)) {
                 return format!("Current track is not banned: {}", song.name);
@@ -448,9 +468,14 @@ impl CommandExecutor {
         }
         let q = arg.to_lowercase();
         if let Some(hit) = bl.list().into_iter().find(|e| {
-            format!("{} {} {}", e.track_key, e.name.as_deref().unwrap_or(""), e.artist.as_deref().unwrap_or(""))
-                .to_lowercase()
-                .contains(&q)
+            format!(
+                "{} {} {}",
+                e.track_key,
+                e.name.as_deref().unwrap_or(""),
+                e.artist.as_deref().unwrap_or("")
+            )
+            .to_lowercase()
+            .contains(&q)
         }) {
             if bl.remove(&hit.track_key) {
                 let label = [hit.name.as_deref(), hit.artist.as_deref()]
@@ -459,7 +484,14 @@ impl CommandExecutor {
                     .filter(|s| !s.is_empty())
                     .collect::<Vec<_>>()
                     .join(" — ");
-                return format!("Unbanned: {}", if label.is_empty() { hit.track_key } else { label });
+                return format!(
+                    "Unbanned: {}",
+                    if label.is_empty() {
+                        hit.track_key
+                    } else {
+                        label
+                    }
+                );
             }
         }
         format!("Not on ban list: {arg}. Try {p}ban list.")
@@ -477,11 +509,7 @@ impl CommandExecutor {
             return format!("Playlist is empty or not found: {}", cmd.args);
         }
         let n = songs.len();
-        match self
-            .station
-            .play_tracks(songs, PlayMode::Sequential)
-            .await
-        {
+        match self.station.play_tracks(songs, PlayMode::Sequential).await {
             Some(first) => format!(
                 "Loaded {n} songs. Now playing: {} - {}",
                 first.name, first.artist
@@ -500,11 +528,7 @@ impl CommandExecutor {
             return format!("No albums found for: {}", cmd.args);
         }
         let n = songs.len();
-        match self
-            .station
-            .play_tracks(songs, PlayMode::Sequential)
-            .await
-        {
+        match self.station.play_tracks(songs, PlayMode::Sequential).await {
             Some(first) => format!(
                 "Loaded {n} songs. Now playing: {} - {}",
                 first.name, first.artist
@@ -526,7 +550,11 @@ impl CommandExecutor {
                 .search_async(&cmd.args, 20, mp_music::YoutubePolicy::Search)
                 .await
                 .into_iter()
-                .filter(|t| t.artist.to_ascii_lowercase().contains(&cmd.args.to_ascii_lowercase()))
+                .filter(|t| {
+                    t.artist
+                        .to_ascii_lowercase()
+                        .contains(&cmd.args.to_ascii_lowercase())
+                })
                 .collect();
             if songs.is_empty() {
                 songs = self
@@ -547,6 +575,10 @@ impl CommandExecutor {
             ),
             None => format!("No results found for artist: {}", cmd.args),
         }
+    }
+
+    async fn cmd_chevron7(&self) -> String {
+        self.station.play_chevron7().await
     }
 
     fn cmd_lyrics(&self) -> String {
@@ -587,7 +619,7 @@ impl CommandExecutor {
             &format!("{p}queue ({p}list) · {p}now · {p}clear · {p}remove <n> · {p}vol <0-100> · {p}mode <seq|loop|random|rloop>"),
             &format!("{p}ban [reason] · {p}ban list · {p}unban"),
             &format!("{p}test — Demo track (Ella Langley Choosin' Texas, local then YouTube)"),
-            &format!("{p}playlist <name> · {p}album <name> · {p}artist <name> · {p}lyrics"),
+            &format!("{p}playlist <name> · {p}album <name> · {p}artist <name> · {p}lyrics · {p}vote"),
             &format!("{p}rate <1-5> [song] · {p}unrate — Rate the current (or a searched) track"),
             &format!("{p}karaoke [on|off] — Keep music loud while listening (duck 80 instead of 15; karyoke/kareoke work)"),
             "",
@@ -739,7 +771,10 @@ mod tests {
         let ex = CommandExecutor::new(st.clone(), "!");
         let out = ex.execute(&cmd("test", "")).await.unwrap();
         assert!(out.starts_with("Now playing:"), "{out}");
-        assert!(out.to_lowercase().contains("ella") || out.contains("hLOheGDwD_0"), "{out}");
+        assert!(
+            out.to_lowercase().contains("ella") || out.contains("hLOheGDwD_0"),
+            "{out}"
+        );
         assert!(out.contains("(local)"), "{out}");
         let q = st.queue.lock().unwrap();
         assert_eq!(q.get_mode(), PlayMode::Sequential);
@@ -781,7 +816,10 @@ mod tests {
         let _ = ex.execute(&cmd("play", "hello")).await;
         let _ = ex.execute(&cmd("add", "titanium")).await;
         let out = ex.execute(&cmd("next", "titanium")).await.unwrap();
-        assert!(out.starts_with("Skipped") || out == "Queue is empty", "{out}");
+        assert!(
+            out.starts_with("Skipped") || out == "Queue is empty",
+            "{out}"
+        );
         assert!(!out.starts_with('!'));
         assert!(!out.to_lowercase().contains("only advance"));
         let _ = std::fs::remove_dir_all(dir);

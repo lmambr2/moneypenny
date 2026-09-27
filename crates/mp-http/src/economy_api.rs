@@ -142,6 +142,10 @@ pub struct Q {
     box_size: Option<u32>,
     #[serde(default)]
     qty: Option<u32>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
 }
 
 pub async fn ores(Query(q): Query<Q>, _user: AuthUser) -> Json<Value> {
@@ -472,14 +476,32 @@ pub async fn workorders_clear(State(st): State<AppState>, admin: AdminUser) -> J
     Json(json!({ "ok": true, "cleared": n }))
 }
 
-pub async fn cache(_user: AuthUser) -> Json<Value> {
+pub async fn cache(State(st): State<AppState>, _user: AuthUser) -> Json<Value> {
+    let last = st.db.load_economy_refresh();
+    let last_refresh = match last {
+        Ok(Some((at, data))) => {
+            let parsed: Value = serde_json::from_str(&data).unwrap_or(json!([]));
+            let results = parsed.as_array().cloned().unwrap_or_default();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(at);
+            let age_min = ((now - at) as f64 / 60_000.0).round() as i64;
+            json!({
+                "at": at,
+                "ageMin": age_min,
+                "results": results.into_iter().take(20).collect::<Vec<_>>(),
+            })
+        }
+        _ => Value::Null,
+    };
     Json(json!({
         "rootLabel": "in-process seed",
-        "backend": "none",
+        "backend": "sqlite",
         "totalFiles": 0,
         "totalBytes": 0,
         "sources": {},
-        "lastRefresh": null,
+        "lastRefresh": last_refresh,
     }))
 }
 
@@ -549,7 +571,7 @@ pub async fn craft(Query(q): Query<Q>, _user: AuthUser) -> Response {
     }
 }
 
-pub async fn prices(Query(q): Query<Q>, _user: AuthUser) -> Response {
+pub async fn prices(State(st): State<AppState>, Query(q): Query<Q>, _user: AuthUser) -> Response {
     let query = q.q.trim();
     if query.is_empty() {
         return (
@@ -558,17 +580,53 @@ pub async fn prices(Query(q): Query<Q>, _user: AuthUser) -> Response {
         )
             .into_response();
     }
+    let local = st.db.snapshots().lookup_overlay(query).ok().flatten();
     let c = mp_economy::clients();
     if !c.uex.is_enabled() {
+        if let Some(local) = local {
+            return Json(local_price_body(&local)).into_response();
+        }
         return sidecar_off("UEX");
     }
     match c.uex.lookup_price(query).await {
-        Some(v) => Json(v).into_response(),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error":"No UEX price match for that commodity"})),
-        )
-            .into_response(),
+        Some(mut v) => {
+            if let Some(local) = local {
+                let uex_sell = v.get("sell").and_then(|n| n.as_f64());
+                let uex_buy = v.get("buy").and_then(|n| n.as_f64());
+                let uex_at = v.get("fetchedAt").and_then(|n| n.as_i64()).unwrap_or(0);
+                let pick = mp_economy::prefer_snapshot(
+                    &local.name,
+                    local.sell.unwrap_or(0.0),
+                    local.buy.unwrap_or(0.0),
+                    local.captured_at,
+                    uex_sell,
+                    uex_buy,
+                    uex_at,
+                );
+                if pick.source == "local" {
+                    let body = local_price_body(&local);
+                    v["source"] = body["source"].clone();
+                    v["sell"] = body["sell"].clone();
+                    v["buy"] = body["buy"].clone();
+                    v["fetchedAt"] = body["fetchedAt"].clone();
+                    v["attribution"] = body["attribution"].clone();
+                    if v.get("commodity").is_none() {
+                        v["commodity"] = body["commodity"].clone();
+                    }
+                }
+            }
+            Json(v).into_response()
+        }
+        None => {
+            if let Some(local) = local {
+                return Json(local_price_body(&local)).into_response();
+            }
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error":"No UEX price match for that commodity"})),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -602,22 +660,267 @@ pub async fn trade_routes(_user: AuthUser, Json(body): Json<Value>) -> Response 
     }
 }
 
-pub async fn trade_off(_user: AuthUser) -> Response {
-    let c = mp_economy::clients();
-    if !c.sc_trade.is_enabled() {
-        return sidecar_off("sc-trade");
-    }
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({"error":"this sc-trade tool is not ported yet"})),
-    )
-        .into_response()
+fn local_price_body(local: &mp_db::LocalOverlay) -> Value {
+    let commodity = json!({
+        "id": local.commodity_id,
+        "name": local.name,
+        "code": local.code,
+    });
+    json!({
+        "source": "local",
+        "sell": local.sell,
+        "buy": local.buy,
+        "commodity": commodity,
+        "matches": [commodity],
+        "matchCount": 1,
+        "fetchedAt": local.captured_at,
+        "attribution": "Local terminal snapshot",
+    })
 }
 
-pub async fn cache_refresh(_admin: AdminUser) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({"error":"economy cache refresh not ported (seed catalog is live)"})),
-    )
-        .into_response()
+pub fn buyers_response(commodity: &str, scu: u32, buyers: Value, attribution: &str) -> Value {
+    json!({
+        "commodity": commodity,
+        "scu": scu,
+        "buyers": buyers,
+        "attribution": attribution,
+    })
+}
+
+pub async fn trade_buyers(_user: AuthUser, Json(body): Json<Value>) -> Response {
+    let c = mp_economy::clients();
+    if !c.sc_trade.is_enabled() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error":"sc-trade disabled (ECONOMY_SCTRADE=0)"})),
+        )
+            .into_response();
+    }
+    let commodity = body
+        .get("commodity")
+        .or_else(|| body.get("q"))
+        .or_else(|| body.get("item"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if commodity.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"commodity required"})),
+        )
+            .into_response();
+    }
+    let scu = body.get("scu").and_then(|v| v.as_u64()).unwrap_or(32).clamp(1, 10_000) as u32;
+    match c.sc_trade.find_trades(&json!({"commodity": commodity, "scu": scu})).await {
+        Ok(v) => {
+            let buyers = v.get("routes").cloned().unwrap_or_else(|| json!([]));
+            let attribution = v.get("attribution").and_then(|a| a.as_str()).unwrap_or("");
+            Json(buyers_response(commodity, scu, buyers, attribution)).into_response()
+        }
+        Err(msg) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": msg})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn trade_itinerary(_user: AuthUser, Json(body): Json<Value>) -> Response {
+    let c = mp_economy::clients();
+    if !c.sc_trade.is_enabled() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error":"sc-trade disabled (ECONOMY_SCTRADE=0)"})),
+        )
+            .into_response();
+    }
+    let from = body.get("from").or_else(|| body.get("origin")).and_then(|v| v.as_str()).unwrap_or("").trim();
+    let to = body.get("to").or_else(|| body.get("destination")).and_then(|v| v.as_str()).unwrap_or("").trim();
+    if from.is_empty() || to.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"from and to shop paths required (sc-trade names; use > separators)"})),
+        )
+            .into_response();
+    }
+    match c.sc_trade.find_trades(&body).await {
+        Ok(v) => Json(v).into_response(),
+        Err(msg) => (StatusCode::BAD_GATEWAY, Json(json!({"error": msg}))).into_response(),
+    }
+}
+
+pub async fn trade_circuit(_user: AuthUser, Json(body): Json<Value>) -> Response {
+    let c = mp_economy::clients();
+    if !c.sc_trade.is_enabled() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error":"sc-trade disabled (ECONOMY_SCTRADE=0)"})),
+        )
+            .into_response();
+    }
+    let trade_id = body
+        .get("id")
+        .or_else(|| body.get("tradeId"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if trade_id < 1 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"id required (trade route id from routes results)"})),
+        )
+            .into_response();
+    }
+    let ship = body
+        .get("ship")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("Freelancer");
+    let invest = body
+        .get("invest")
+        .or_else(|| body.get("investment"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(100_000)
+        .clamp(1_000, 500_000_000);
+    let profit_type = if body.get("profit").and_then(|v| v.as_str()) == Some("pure")
+        || body.get("profitType").and_then(|v| v.as_str()) == Some("pure")
+    {
+        "pure"
+    } else {
+        "time"
+    };
+    match c.sc_trade.find_trades(&json!({"id": trade_id, "ship": ship})).await {
+        Ok(v) => Json(json!({
+            "tradeId": trade_id,
+            "ship": ship,
+            "invest": invest,
+            "profitType": profit_type,
+            "routes": v.get("routes").cloned().unwrap_or_else(|| json!([])),
+            "attribution": v.get("attribution").and_then(|a| a.as_str()).unwrap_or(""),
+        }))
+        .into_response(),
+        Err(msg) => (StatusCode::BAD_GATEWAY, Json(json!({"error": msg}))).into_response(),
+    }
+}
+
+pub async fn cache_refresh(State(st): State<AppState>, admin: AdminUser) -> Response {
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let results = json!([
+        {"source":"seed","key":"catalog","ok":true,"detail":"in-process ore catalog"},
+        {"source":"uex","key":"prices","ok": mp_economy::clients().uex.is_enabled(),"detail":"live lookup stays on demand"},
+        {"source":"sc-trade","key":"ships","ok": mp_economy::clients().sc_trade.is_enabled(),"detail":"live lookup stays on demand"},
+    ]);
+    let payload = results.to_string();
+    let saved = st.db.save_economy_refresh(at, &payload);
+    if let Err(e) = saved {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error":"refresh failed","detail": e.to_string()})),
+        )
+            .into_response();
+    }
+    st.db.audit().record(
+        Some(&admin.0.id),
+        Some(&admin.0.username),
+        None,
+        None,
+        "economy.cache_refresh",
+    );
+    Json(json!({"ok": true, "at": at, "results": results})).into_response()
+}
+
+pub async fn ingest_snapshot(
+    State(st): State<AppState>,
+    admin: AdminUser,
+    Json(body): Json<Value>,
+) -> Response {
+    let parsed = match mp_db::parse_snapshot_body(&body) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": e.0})),
+            )
+                .into_response();
+        }
+    };
+    match st.db.snapshots().add(&parsed, Some(admin.0.username.as_str()), "accepted") {
+        Ok(row) => {
+            st.db.audit().record(
+                Some(&admin.0.id),
+                Some(&admin.0.username),
+                None,
+                Some(&format!("{}#{}", parsed.kind, parsed.id_terminal)),
+                "economy.ingest_snapshot",
+            );
+            (StatusCode::CREATED, Json(json!({"snapshot": row.to_json()}))).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error":"ingest failed","detail": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn list_snapshots(State(st): State<AppState>, Query(q): Query<Q>) -> Response {
+    let status = match q.status.as_deref() {
+        Some("pending" | "accepted" | "rejected") => q.status.as_deref(),
+        Some(_) => None,
+        None => None,
+    };
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    match st.db.snapshots().list(status, limit) {
+        Ok(rows) => {
+            let snapshots: Vec<Value> = rows.iter().map(|r| r.to_json()).collect();
+            let count = snapshots.len();
+            Json(json!({"snapshots": snapshots, "count": count})).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn snapshot_accept(
+    State(st): State<AppState>,
+    admin: AdminUser,
+    Path(id): Path<i64>,
+) -> Response {
+    set_snapshot_status(st, admin, id, "accepted")
+}
+
+pub async fn snapshot_reject(
+    State(st): State<AppState>,
+    admin: AdminUser,
+    Path(id): Path<i64>,
+) -> Response {
+    set_snapshot_status(st, admin, id, "rejected")
+}
+
+fn set_snapshot_status(st: AppState, _admin: AdminUser, id: i64, status: &str) -> Response {
+    if id < 1 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid id"})),
+        )
+            .into_response();
+    }
+    match st.db.snapshots().set_status(id, status) {
+        Ok(Some(row)) => Json(json!({"snapshot": row.to_json()})).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("No snapshot #{id}")})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
 }

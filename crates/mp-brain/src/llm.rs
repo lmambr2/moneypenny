@@ -8,10 +8,139 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::text::extract_assistant_text;
-use crate::tools::{intent_system_prompt, music_control_tools, DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT};
+use crate::tools::{
+    DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT, intent_system_prompt, music_control_tools,
+};
+
+/// Output caps. These are generation limits, not context.
+pub const LLM_DEFAULT_MAX_TOKENS: u32 = 8192;
+pub const LLM_ASK_MAX_TOKENS: u32 = 16_384;
+pub const LLM_INTENT_MAX_TOKENS: u32 = 1024;
+pub const LLM_VOICE_MAX_TOKENS: u32 = 384;
+
+/// Penny stays hot. Ollama ignores this on vLLM; vLLM ignores `num_ctx`.
+pub const LLM_PENNY_KEEP_ALIVE: &str = "24h";
+
+/// Voice and typed `!ask` share Radiance `max_model_len`. Never default 256k.
+pub const LLM_NUM_CTX: u32 = 32_768;
+
+/// Settings sometimes paste an OpenAI base (`…/v1`). The client appends
+/// `/v1/chat/completions`, so a trailing `/v1` would 404 as `/v1/v1/…`.
+pub fn normalize_llm_base_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    if let Some(tail) = trimmed.get(trimmed.len().saturating_sub(3)..) {
+        if tail.eq_ignore_ascii_case("/v1") {
+            return trimmed[..trimmed.len() - 3]
+                .trim_end_matches('/')
+                .to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+#[derive(Clone, Copy)]
+struct CompletionTune {
+    temperature: f32,
+    max_tokens: u32,
+    /// `None` omits the Ollama `think` field. `chat_template_kwargs.enable_thinking`
+    /// is still sent, and is true only when this is `Some(true)`.
+    think: Option<bool>,
+    num_ctx: Option<u32>,
+    flash_attention: bool,
+    stream: bool,
+}
+
+fn ask_tune(spoken: bool, temperature: f32) -> CompletionTune {
+    CompletionTune {
+        temperature,
+        max_tokens: if spoken {
+            LLM_VOICE_MAX_TOKENS
+        } else {
+            LLM_ASK_MAX_TOKENS
+        },
+        think: Some(!spoken),
+        num_ctx: Some(LLM_NUM_CTX),
+        flash_attention: true,
+        stream: false,
+    }
+}
+
+fn intent_tune(spoken: bool, temperature: f32) -> CompletionTune {
+    CompletionTune {
+        temperature,
+        max_tokens: if spoken {
+            LLM_VOICE_MAX_TOKENS
+        } else {
+            LLM_INTENT_MAX_TOKENS
+        },
+        think: Some(false),
+        num_ctx: Some(LLM_NUM_CTX),
+        flash_attention: true,
+        stream: false,
+    }
+}
+
+/// Ollama `POST /api/generate` body that drops the model from VRAM.
+pub fn ollama_unload_body(model: &str) -> Value {
+    json!({
+        "model": model,
+        "prompt": "",
+        "keep_alive": 0,
+        "stream": false,
+    })
+}
+
+fn build_chat_payload(
+    model: &str,
+    messages: &[ChatMessage],
+    tools: Option<&Vec<Value>>,
+    tool_choice: Option<&str>,
+    tune: CompletionTune,
+) -> Value {
+    let mut payload = json!({
+        "model": model,
+        "messages": messages,
+        "temperature": tune.temperature,
+        "max_tokens": tune.max_tokens,
+        "stream": tune.stream,
+        "keep_alive": LLM_PENNY_KEEP_ALIVE,
+        "chat_template_kwargs": { "enable_thinking": tune.think == Some(true) },
+    });
+    if let Some(think) = tune.think {
+        payload["think"] = json!(think);
+    }
+    if let Some(tools) = tools {
+        payload["tools"] = Value::Array(tools.clone());
+    }
+    if let Some(choice) = tool_choice {
+        payload["tool_choice"] = json!(choice);
+    }
+    let mut options = serde_json::Map::new();
+    if let Some(n) = tune.num_ctx {
+        options.insert("num_ctx".into(), json!(n));
+    }
+    if tune.flash_attention {
+        options.insert("flash_attention".into(), json!(true));
+    }
+    if !options.is_empty() {
+        payload["options"] = Value::Object(options);
+    }
+    payload
+}
+
+pub fn sse_delta_content(data: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(data).ok()?;
+    v.get("choices")?
+        .get(0)?
+        .get("delta")?
+        .get("content")
+        .and_then(|c| c.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
 
 #[derive(Debug, Clone)]
 pub struct LlmSettings {
@@ -49,12 +178,12 @@ impl LlmSettings {
     pub fn resolved_url(&self) -> String {
         let u = self.url.trim();
         if !u.is_empty() {
-            return u.trim_end_matches('/').to_string();
+            return normalize_llm_base_url(u);
         }
         std::env::var("RKLLAMA_URL")
             .ok()
             .filter(|s| !s.is_empty())
-            .map(|s| s.trim_end_matches('/').to_string())
+            .map(|s| normalize_llm_base_url(&s))
             .unwrap_or_else(|| "http://localhost:8080".into())
     }
 
@@ -93,6 +222,7 @@ struct OpenAiInner {
     system_prompt: String,
     temperature: f32,
     history: Mutex<HashMap<String, Vec<HistoryEntry>>>,
+    delta_hook: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
 }
 
 #[derive(Clone)]
@@ -162,7 +292,7 @@ impl OpenAiLlm {
             if u.is_empty() {
                 None
             } else {
-                Some(u.trim_end_matches('/').to_string())
+                Some(normalize_llm_base_url(u))
             }
         };
         let fallback_model = {
@@ -184,8 +314,141 @@ impl OpenAiLlm {
                 system_prompt: cfg.persona().to_string(),
                 temperature: cfg.temperature,
                 history: Mutex::new(HashMap::new()),
+                delta_hook: Mutex::new(None),
             }),
         }
+    }
+
+    pub fn set_delta_hook(&self, hook: Option<Arc<dyn Fn(&str) + Send + Sync>>) {
+        *self.inner.delta_hook.lock().expect("delta") = hook;
+    }
+
+    /// SSE chat completion. `stream` is true. Each content delta is delivered
+    /// before the next chunk is read, so speech can start on the first sentence.
+    pub async fn stream_user_prompt<F>(&self, user: &str, on_delta: F) -> Result<String, String>
+    where
+        F: FnMut(&str),
+    {
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: Some(user.to_string()),
+        }];
+        let mut tune = ask_tune(true, self.inner.temperature);
+        tune.stream = true;
+        self.stream_content(&messages, tune, on_delta).await
+    }
+
+    pub(crate) async fn stream_content<F>(
+        &self,
+        messages: &[ChatMessage],
+        mut tune: CompletionTune,
+        mut on_delta: F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(&str),
+    {
+        tune.stream = true;
+        let url = format!(
+            "{}/v1/chat/completions",
+            normalize_llm_base_url(&self.inner.primary_url)
+        );
+        let payload = build_chat_payload(
+            &self.inner.primary_model,
+            messages,
+            None,
+            Some("none"),
+            tune,
+        );
+        let res = self
+            .inner
+            .client
+            .post(&url)
+            .header("content-type", "application/json")
+            .json(&payload)
+            .timeout(self.inner.timeout)
+            .send()
+            .await
+            .map_err(|e| format!("LLM stream failed: {e}"))?;
+        if !res.status().is_success() {
+            return Err(format!("LLM stream HTTP {}", res.status()));
+        }
+        let mut carry = String::new();
+        let mut raw = String::new();
+        let mut res = res;
+        loop {
+            let chunk = res
+                .chunk()
+                .await
+                .map_err(|e| format!("LLM stream read failed: {e}"))?;
+            let Some(chunk) = chunk else { break };
+            carry.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(nl) = carry.find('\n') {
+                let line = carry.drain(..=nl).collect::<String>();
+                let line = line.trim();
+                let Some(data) = line.strip_prefix("data:") else {
+                    continue;
+                };
+                let data = data.trim();
+                if data.is_empty() || data == "[DONE]" {
+                    continue;
+                }
+                if let Some(text) = sse_delta_content(data) {
+                    raw.push_str(&text);
+                    on_delta(&text);
+                    if let Some(hook) = self.inner.delta_hook.lock().expect("delta").clone() {
+                        hook(&text);
+                    }
+                }
+            }
+        }
+        Ok(raw)
+    }
+
+    /// Drop this model from Ollama VRAM. 404/405 from non-Ollama servers is success.
+    pub async fn unload(&self) -> Result<(), String> {
+        let url = format!(
+            "{}/api/generate",
+            normalize_llm_base_url(&self.inner.primary_url)
+        );
+        let body = ollama_unload_body(&self.inner.primary_model);
+        let res = self
+            .inner
+            .client
+            .post(&url)
+            .header("content-type", "application/json")
+            .json(&body)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| format!("LLM unload failed: {e}"))?;
+        let status = res.status();
+        if status.is_success() || status.as_u16() == 404 || status.as_u16() == 405 {
+            return Ok(());
+        }
+        Err(format!("LLM unload HTTP {status}"))
+    }
+
+    /// Tiny completion so Ollama loads weights before the next real turn.
+    pub async fn warm(&self) -> Result<(), String> {
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: Some("ok".into()),
+        }];
+        self.chat(
+            &messages,
+            None,
+            Some("none"),
+            CompletionTune {
+                temperature: 0.0,
+                max_tokens: 1,
+                think: None,
+                num_ctx: Some(LLM_NUM_CTX),
+                flash_attention: false,
+                stream: false,
+            },
+        )
+        .await
+        .map(|_| ())
     }
 
     /// One-shot completion with a custom system prompt (roast grader, etc.).
@@ -202,7 +465,19 @@ impl OpenAiLlm {
             },
         ];
         let resp = self
-            .chat(&messages, None, Some("none"), 0.2, 256)
+            .chat(
+                &messages,
+                None,
+                Some("none"),
+                CompletionTune {
+                    temperature: self.inner.temperature,
+                    max_tokens: LLM_DEFAULT_MAX_TOKENS,
+                    think: None,
+                    num_ctx: None,
+                    flash_attention: false,
+                    stream: false,
+                },
+            )
             .await?;
         let msg = resp.choices.first().map(|c| &c.message);
         let content = msg
@@ -211,7 +486,12 @@ impl OpenAiLlm {
         Ok(content)
     }
 
-    pub async fn ask(&self, question: &str, conversation_id: Option<&str>) -> Result<String, String> {
+    pub async fn ask(
+        &self,
+        question: &str,
+        conversation_id: Option<&str>,
+        spoken: bool,
+    ) -> Result<String, String> {
         let mut messages = vec![ChatMessage {
             role: "system".into(),
             content: Some(self.inner.system_prompt.clone()),
@@ -221,13 +501,22 @@ impl OpenAiLlm {
             role: "user".into(),
             content: Some(question.to_string()),
         });
+        if spoken {
+            let tune = ask_tune(true, self.inner.temperature);
+            if let Ok(text) = self.stream_content(&messages, tune, |_| {}).await {
+                let text = text.trim().to_string();
+                if !text.is_empty() {
+                    self.record(conversation_id, question, &text);
+                    return Ok(text);
+                }
+            }
+        }
         let resp = self
             .chat(
                 &messages,
                 None,
                 Some("none"),
-                self.inner.temperature,
-                2048,
+                ask_tune(spoken, self.inner.temperature),
             )
             .await?;
         let msg = resp.choices.first().map(|c| &c.message);
@@ -245,6 +534,7 @@ impl OpenAiLlm {
         &self,
         user_message: &str,
         conversation_id: Option<&str>,
+        spoken: bool,
     ) -> Result<IntentResult, String> {
         let mut messages = vec![ChatMessage {
             role: "system".into(),
@@ -260,8 +550,7 @@ impl OpenAiLlm {
                 &messages,
                 Some(music_control_tools()),
                 Some("auto"),
-                0.1,
-                400,
+                intent_tune(spoken, self.inner.temperature),
             )
             .await?;
         let msg = resp.choices.first().map(|c| &c.message);
@@ -308,8 +597,7 @@ impl OpenAiLlm {
         messages: &[ChatMessage],
         tools: Option<Vec<Value>>,
         tool_choice: Option<&str>,
-        temperature: f32,
-        max_tokens: u32,
+        tune: CompletionTune,
     ) -> Result<ChatCompletionResponse, String> {
         let primary = self
             .post_chat(
@@ -318,8 +606,7 @@ impl OpenAiLlm {
                 messages,
                 tools.as_ref(),
                 tool_choice,
-                temperature,
-                max_tokens,
+                tune,
             )
             .await;
         match primary {
@@ -332,16 +619,8 @@ impl OpenAiLlm {
                     .as_deref()
                     .unwrap_or(&self.inner.primary_model);
                 tracing::warn!(error = %e, "LLM primary failed — trying fallback");
-                self.post_chat(
-                    url,
-                    model,
-                    messages,
-                    tools.as_ref(),
-                    tool_choice,
-                    temperature,
-                    max_tokens,
-                )
-                .await
+                self.post_chat(url, model, messages, tools.as_ref(), tool_choice, tune)
+                    .await
             }
             Err(e) => Err(e),
         }
@@ -354,24 +633,10 @@ impl OpenAiLlm {
         messages: &[ChatMessage],
         tools: Option<&Vec<Value>>,
         tool_choice: Option<&str>,
-        temperature: f32,
-        max_tokens: u32,
+        tune: CompletionTune,
     ) -> Result<ChatCompletionResponse, String> {
-        let url = format!("{}/v1/chat/completions", base.trim_end_matches('/'));
-        let mut payload = json!({
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": false,
-            "keep_alive": "6h",
-        });
-        if let Some(tools) = tools {
-            payload["tools"] = Value::Array(tools.clone());
-        }
-        if let Some(choice) = tool_choice {
-            payload["tool_choice"] = json!(choice);
-        }
+        let url = format!("{}/v1/chat/completions", normalize_llm_base_url(base));
+        let payload = build_chat_payload(model, messages, tools, tool_choice, tune);
         let res = self
             .inner
             .client
@@ -453,8 +718,7 @@ fn is_retryable(err: &str) -> bool {
 #[derive(Clone)]
 pub struct ScriptedLlm {
     pub ask: Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>,
-    pub chat_for_intent:
-        Option<Arc<dyn Fn(&str) -> Result<IntentResult, String> + Send + Sync>>,
+    pub chat_for_intent: Option<Arc<dyn Fn(&str) -> Result<IntentResult, String> + Send + Sync>>,
 }
 
 impl ScriptedLlm {
@@ -483,9 +747,14 @@ pub enum LlmBackend {
 }
 
 impl LlmBackend {
-    pub async fn ask(&self, question: &str, conversation_id: Option<&str>) -> Result<String, String> {
+    pub async fn ask(
+        &self,
+        question: &str,
+        conversation_id: Option<&str>,
+        spoken: bool,
+    ) -> Result<String, String> {
         match self {
-            Self::OpenAi(c) => c.ask(question, conversation_id).await,
+            Self::OpenAi(c) => c.ask(question, conversation_id, spoken).await,
             Self::Scripted(s) => (s.ask)(question),
         }
     }
@@ -494,9 +763,13 @@ impl LlmBackend {
         &self,
         user_message: &str,
         conversation_id: Option<&str>,
+        spoken: bool,
     ) -> Result<IntentResult, String> {
         match self {
-            Self::OpenAi(c) => c.chat_for_intent(user_message, conversation_id).await,
+            Self::OpenAi(c) => {
+                c.chat_for_intent(user_message, conversation_id, spoken)
+                    .await
+            }
             Self::Scripted(s) => match &s.chat_for_intent {
                 Some(f) => f(user_message),
                 None => Ok(IntentResult {
@@ -512,5 +785,119 @@ impl LlmBackend {
             Self::OpenAi(_) => true,
             Self::Scripted(s) => s.chat_for_intent.is_some(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn msg() -> ChatMessage {
+        ChatMessage {
+            role: "user".into(),
+            content: Some("hi".into()),
+        }
+    }
+
+    #[test]
+    fn normalize_strips_openai_v1_suffix() {
+        assert_eq!(
+            normalize_llm_base_url("http://127.0.0.1:8080/v1"),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(
+            normalize_llm_base_url("http://127.0.0.1:8080/v1/"),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(
+            normalize_llm_base_url("http://127.0.0.1:11434"),
+            "http://127.0.0.1:11434"
+        );
+    }
+
+    #[test]
+    fn payload_disables_qwen_thinking_unless_asked() {
+        let off = build_chat_payload(
+            "Qwen3.8",
+            &[msg()],
+            None,
+            Some("none"),
+            CompletionTune {
+                temperature: 0.2,
+                max_tokens: LLM_ASK_MAX_TOKENS,
+                think: Some(false),
+                num_ctx: Some(LLM_NUM_CTX),
+                flash_attention: true,
+                stream: false,
+            },
+        );
+        assert_eq!(off["chat_template_kwargs"]["enable_thinking"], false);
+        assert_eq!(off["think"], false);
+        assert_eq!(off["keep_alive"], LLM_PENNY_KEEP_ALIVE);
+        assert_eq!(off["options"]["num_ctx"], LLM_NUM_CTX);
+        assert_eq!(off["options"]["flash_attention"], true);
+        assert_eq!(off["max_tokens"], LLM_ASK_MAX_TOKENS);
+        assert_eq!(off["stream"], false);
+
+        let on = build_chat_payload(
+            "Qwen3.8",
+            &[msg()],
+            None,
+            Some("none"),
+            CompletionTune {
+                temperature: 0.2,
+                max_tokens: LLM_VOICE_MAX_TOKENS,
+                think: Some(true),
+                num_ctx: Some(LLM_NUM_CTX),
+                flash_attention: true,
+                stream: false,
+            },
+        );
+        assert_eq!(on["think"], true);
+        assert_eq!(on["chat_template_kwargs"]["enable_thinking"], true);
+        assert_eq!(on["max_tokens"], LLM_VOICE_MAX_TOKENS);
+
+        let omitted = build_chat_payload(
+            "Qwen3.8",
+            &[msg()],
+            None,
+            None,
+            CompletionTune {
+                temperature: 0.2,
+                max_tokens: LLM_DEFAULT_MAX_TOKENS,
+                think: None,
+                num_ctx: None,
+                flash_attention: false,
+                stream: false,
+            },
+        );
+        assert!(omitted.get("think").is_none());
+        assert_eq!(omitted["chat_template_kwargs"]["enable_thinking"], false);
+        assert!(omitted.get("options").is_none());
+    }
+
+    #[test]
+    fn ask_and_intent_tunes_match_node_caps() {
+        let voice = ask_tune(true, 0.2);
+        assert_eq!(voice.max_tokens, LLM_VOICE_MAX_TOKENS);
+        assert_eq!(voice.think, Some(false));
+        assert_eq!(voice.num_ctx, Some(LLM_NUM_CTX));
+        assert!(voice.flash_attention);
+        let typed = ask_tune(false, 0.2);
+        assert_eq!(typed.max_tokens, LLM_ASK_MAX_TOKENS);
+        assert_eq!(typed.think, Some(true));
+        assert_eq!(typed.num_ctx, Some(LLM_NUM_CTX));
+        let intent = intent_tune(false, 0.2);
+        assert_eq!(intent.max_tokens, LLM_INTENT_MAX_TOKENS);
+        assert_eq!(intent.think, Some(false));
+        assert_eq!(intent.num_ctx, Some(LLM_NUM_CTX));
+        let spoken_intent = intent_tune(true, 0.2);
+        assert_eq!(spoken_intent.max_tokens, LLM_VOICE_MAX_TOKENS);
+        assert_eq!(spoken_intent.think, Some(false));
+        let unload = ollama_unload_body("gemma-test");
+        assert_eq!(unload["model"], "gemma-test");
+        assert_eq!(unload["prompt"], "");
+        assert_eq!(unload["keep_alive"], 0);
+        assert_eq!(unload["stream"], false);
     }
 }

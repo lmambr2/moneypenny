@@ -214,10 +214,11 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Vue pages (Home/Search/Library/History/Live/Settings/Economy/…) | **live** session + `/api/bot` + local music/player + seed economy + Settings status probes (llm/rag/memory/stream-bridge/rights/ops/scopes) + harness ask/turns + user CRUD + music upload/tags/ratings + recordings | ACE-Step still empty or 503 |
 | `/ws` live-status | **live** `init` + `stateChange` | — |
 | TeamSpeak UDP / Query | **live** when `TS6_HOST` is set (`tsclient-rs` LiveSession + reconnect) | mock / HTTP-only if `TS6_HOST` empty |
-| `!play` `!skip` `!queue` + web play | **live** local + YouTube + streams; Spotify/Tidal via sidecar `GET /resolve`; yt-library MP3 save when enabled | — |
-| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy | — |
+| `!play` `!skip` `!queue` + web play | **live** local + YouTube + streams; Spotify/Tidal via sidecar `GET /resolve`; yt-library MP3 save when enabled; `!vote` majority skip; `!chevron7` SG-1 theme; `!selecttracks` tag queue | — |
+| `POST /v1/turn` | **live** admin cookie; in-process LLM or `BRAIN_URL`; `executeTools` disposes after rights + harness policy. Chat payload matches Node: `chat_template_kwargs.enable_thinking` off unless `think`, `num_ctx` 32768, `keep_alive` 24h. Voice turns use 384 tokens and thinking off | — |
 | Dashboard harness | **live** `POST /api/bot/harness/ask` + `GET /api/bot/harness/turns` (same brain path as `/v1/turn`) | — |
 | `!ask` / `!remember` / `!recall` / `!forget` / `!reindex` | **live** chat path; SQLite memory; MemPalace HTTP when URL + toggle on; doctrine reindex | — |
+| `!ships` / `!hangar` / `!session` / `!ingeststatus` / `!intsum` / `!aar` | **live** hangar rows, session-role status, file-drop status, delegate drafts when the brain is on | `!generate` is an ACE-Step refusal; session clear needs HTTP Query |
 | Org KG `!kg` / `!diary` / `GET|POST /api/bot/org-kg` | **live** SQLite `kg_facts` + MemPalace kgRemember/kgSearch; never private rooms; Settings `kgEnabled` | SC org status plugins |
 | Doctrine `/api/rag/doctrine*` + `/api/rag/query` | **live** list/create/get/put/delete/reindex/query + multipart upload + reformat + pandoc export (503 if pandoc missing) | — |
 | Settings `llmEnabled` / `llmUrl` / `llmModel` / `ragEnabled` / `memoryEnabled` / `voice` | **live** in-memory + merge-write to this worktree `config.json` | do not write production Node `Projects/moneypenny` |
@@ -225,7 +226,7 @@ did **not** fire. Option A (`tsclient-rs`) is the live path.
 | Radio | **live** director (disabled = `play_next`); local + YouTube/stream seed; `!radio` on/off/status/ops; every-N bumpers; Piper bumpers play via the same player; prerecorded dir pool (`RADIO_BUMPER_DIR` / `data/bumpers`); doctrine/memory bumpers with grounded LLM rewrite (fail to clip-and-speak); `GET /api/bot/radio/status`; `POST /api/bot/radio/test-bumper` | ACE-Step, Icecast, analyzer |
 | Moves | **live** `!move` / `!moveclient` / `!moveall` (30s confirm, max 10) / `!follow` via TS6 HTTP Query | no auto-follow |
 | Roast | **live** channel capture + `!roast` / `!roastout` / `!roastin`; LLM grade fail-open; Settings toggle | no voice-transcript capture; auto-reel needs LLM + min present |
-| Economy | **live** seed ores/methods/mine/refine + SQLite work orders; Vue `/api/economy/*`; sc-craft / UEX / sc-trade HTTP fail-soft | scrapers; disk cache SWR; ingest snapshots |
+| Economy | **live** seed ores/methods/mine/refine + SQLite work orders; Vue `/api/economy/*`; sc-craft / UEX / sc-trade HTTP fail-soft; terminal snapshots preferred over UEX when newer; `POST /api/economy/cache/refresh` | scrapers; ACE-Step `generate` stays a sidecar |
 | MCP | **live** Bearer REST `GET /mcp/tools` + `POST /mcp/tools/call` and JSON-RPC `POST /mcp` (initialize / tools/list / tools/call, optional SSE) | ACE-Step `generate_music` unavailable |
 
 ## Brain code map (Phase 4)

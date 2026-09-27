@@ -8,20 +8,20 @@
 use std::time::Instant;
 
 use axum::extract::State;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use crate::AppState;
 use crate::bot_api::{bot_status_json, queue_json};
 use crate::command::dispatch_command;
-use crate::AppState;
-use mp_control::{parse_command, ParsedCommand};
+use mp_control::{ParsedCommand, parse_command};
 use mp_mcp::{
-    check_confirm, err_envelope, extract_bearer, ok_envelope, token_eq, McpConfig, McpEnvelope,
-    McpProfile,
+    McpConfig, McpEnvelope, McpProfile, check_confirm, err_envelope, extract_bearer, ok_envelope,
+    token_eq,
 };
 use mp_rights::{Scope, Subject};
 
@@ -69,7 +69,9 @@ async fn mcp_jsonrpc(
     if !st.mcp.enabled {
         return mcp_disabled();
     }
-    let auth = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    let auth = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
     let token_ok = extract_bearer(auth)
         .as_deref()
         .is_some_and(|t| token_eq(t, &st.mcp.token));
@@ -219,7 +221,10 @@ async fn jsonrpc_tools_call(
             wants_sse(headers),
         );
     }
-    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let args = if args.is_object() { args } else { json!({}) };
     let started = Instant::now();
     let request_id = format!(
@@ -229,14 +234,18 @@ async fn jsonrpc_tools_call(
             .map(|d| d.as_millis())
             .unwrap_or(0)
     );
-    let confirm = args.get("confirm").and_then(|v| v.as_bool()).unwrap_or(false);
+    let confirm = args
+        .get("confirm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let bot_id = args
         .get("bot_id")
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .or_else(|| st.mcp.bot_id.clone())
         .or_else(|| Some(st.bot_id.clone()));
-    if let Some(blocked) = check_confirm(&st.mcp, name, confirm, bot_id.clone(), started, &request_id)
+    if let Some(blocked) =
+        check_confirm(&st.mcp, name, confirm, bot_id.clone(), started, &request_id)
     {
         record_mcp_audit(st, name, &blocked);
         let text = serde_json::to_string(&blocked).unwrap_or_else(|_| blocked.message.clone());
@@ -270,7 +279,9 @@ async fn mcp_root(State(st): State<AppState>, headers: axum::http::HeaderMap) ->
     if !st.mcp.enabled {
         return mcp_disabled();
     }
-    let auth = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    let auth = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
     if let Err(r) = authenticate(&st, auth) {
         return r;
     }
@@ -285,11 +296,10 @@ async fn mcp_root(State(st): State<AppState>, headers: axum::http::HeaderMap) ->
     .into_response()
 }
 
-async fn list_tools(
-    State(st): State<AppState>,
-    headers: axum::http::HeaderMap,
-) -> Response {
-    let auth = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+async fn list_tools(State(st): State<AppState>, headers: axum::http::HeaderMap) -> Response {
+    let auth = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
     if let Err(r) = authenticate(&st, auth) {
         return r;
     }
@@ -315,7 +325,9 @@ async fn call_tool(
     headers: axum::http::HeaderMap,
     Json(body): Json<CallBody>,
 ) -> Response {
-    let auth = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    let auth = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
     if let Err(r) = authenticate(&st, auth) {
         return r;
     }
@@ -353,21 +365,19 @@ async fn call_tool(
     } else {
         json!({})
     };
-    let confirm = args.get("confirm").and_then(|v| v.as_bool()).unwrap_or(false);
+    let confirm = args
+        .get("confirm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let bot_id = args
         .get("bot_id")
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .or_else(|| st.mcp.bot_id.clone())
         .or_else(|| Some(st.bot_id.clone()));
-    if let Some(blocked) = check_confirm(
-        &st.mcp,
-        name,
-        confirm,
-        bot_id.clone(),
-        started,
-        &request_id,
-    ) {
+    if let Some(blocked) =
+        check_confirm(&st.mcp, name, confirm, bot_id.clone(), started, &request_id)
+    {
         record_mcp_audit(&st, name, &blocked);
         return Json(blocked).into_response();
     }
@@ -502,13 +512,15 @@ async fn run_cmd(
         Some(&st.roast),
         Some(&st.voice),
         Some(&st.sc_org),
+        mp_music::VoteAudience::NotOnTeamspeak,
+        None,
     )
     .await
     .unwrap_or_default();
     if msg.contains("don't have permission") {
         return err_envelope("PERMISSION_DENIED", msg, bot_id, started, request_id);
     }
-    if msg.contains("not ported yet") {
+    if msg.contains("ACE-Step") {
         return err_envelope("UNAVAILABLE", msg, bot_id, started, request_id);
     }
     ok_envelope(
@@ -593,15 +605,20 @@ async fn dispatch_mcp(
                 .clamp(1, 100) as usize;
             let items = queue_json(st);
             let size = items.len();
-            let clipped: Vec<Value> = items.into_iter().take(limit).enumerate().map(|(i, s)| {
-                json!({
-                    "index": i,
-                    "id": s["id"],
-                    "title": s["name"],
-                    "artist": s["artist"],
-                    "platform": s["platform"],
+            let clipped: Vec<Value> = items
+                .into_iter()
+                .take(limit)
+                .enumerate()
+                .map(|(i, s)| {
+                    json!({
+                        "index": i,
+                        "id": s["id"],
+                        "title": s["name"],
+                        "artist": s["artist"],
+                        "platform": s["platform"],
+                    })
                 })
-            }).collect();
+                .collect();
             ok_envelope(
                 format!("Queue size {size}"),
                 Some(json!({
@@ -644,7 +661,13 @@ async fn dispatch_mcp(
         "music_play" | "music_add" | "music_play_next" => {
             let query = str_arg(args, "query");
             if query.is_empty() {
-                return err_envelope("VALIDATION_ERROR", "query is required", bot_id, started, request_id);
+                return err_envelope(
+                    "VALIDATION_ERROR",
+                    "query is required",
+                    bot_id,
+                    started,
+                    request_id,
+                );
             }
             let verb = match name {
                 "music_add" => "add",
@@ -674,13 +697,44 @@ async fn dispatch_mcp(
                 );
             }
             let cmd_args = format!("{flag}{query}");
-            run_cmd(st, verb, &cmd_args, McpProfile::Dj, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                verb,
+                &cmd_args,
+                McpProfile::Dj,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "music_skip" => run_cmd(st, "skip", "", McpProfile::Dj, started, request_id, bot_id).await,
-        "music_pause" => run_cmd(st, "pause", "", McpProfile::Dj, started, request_id, bot_id).await,
-        "music_resume" => run_cmd(st, "resume", "", McpProfile::Dj, started, request_id, bot_id).await,
+        "music_pause" => {
+            run_cmd(st, "pause", "", McpProfile::Dj, started, request_id, bot_id).await
+        }
+        "music_resume" => {
+            run_cmd(
+                st,
+                "resume",
+                "",
+                McpProfile::Dj,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
+        }
         "music_ban" => {
-            run_cmd(st, "ban", &str_arg(args, "query"), McpProfile::Dj, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "ban",
+                &str_arg(args, "query"),
+                McpProfile::Dj,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "music_unban" => {
             let q = str_arg(args, "query");
@@ -695,8 +749,30 @@ async fn dispatch_mcp(
             }
             run_cmd(st, "unban", &q, McpProfile::Dj, started, request_id, bot_id).await
         }
-        "music_stop" => run_cmd(st, "stop", "", McpProfile::Admin, started, request_id, bot_id).await,
-        "music_clear" => run_cmd(st, "clear", "", McpProfile::Admin, started, request_id, bot_id).await,
+        "music_stop" => {
+            run_cmd(
+                st,
+                "stop",
+                "",
+                McpProfile::Admin,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
+        }
+        "music_clear" => {
+            run_cmd(
+                st,
+                "clear",
+                "",
+                McpProfile::Admin,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
+        }
         "music_volume" => {
             let Some(vol) = args.get("volume").and_then(|v| v.as_f64()) else {
                 return err_envelope(
@@ -738,7 +814,16 @@ async fn dispatch_mcp(
                     request_id,
                 );
             }
-            run_cmd(st, "mode", &mode, McpProfile::Admin, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "mode",
+                &mode,
+                McpProfile::Admin,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "music_history" => {
             if !profile_ok(st, McpProfile::Readonly) {
@@ -786,14 +871,26 @@ async fn dispatch_mcp(
             let sub = str_arg(args, "args");
             if dry {
                 return ok_envelope(
-                    format!("[dry-run] would radio {}", if sub.is_empty() { "(status)" } else { &sub }),
+                    format!(
+                        "[dry-run] would radio {}",
+                        if sub.is_empty() { "(status)" } else { &sub }
+                    ),
                     Some(json!({ "dry_run": true, "args": sub })),
                     bot_id,
                     started,
                     request_id,
                 );
             }
-            run_cmd(st, "radio", &sub, McpProfile::Admin, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "radio",
+                &sub,
+                McpProfile::Admin,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "doctrine_list" => {
             if !profile_ok(st, McpProfile::Dj) {
@@ -830,12 +927,20 @@ async fn dispatch_mcp(
                 })
                 .unwrap_or_default();
             let one = str_arg(args, "source");
-            let joined = if sources.is_empty() { one } else { sources.join(" ") };
+            let joined = if sources.is_empty() {
+                one
+            } else {
+                sources.join(" ")
+            };
             if dry {
                 return ok_envelope(
                     format!(
                         "[dry-run] would reindex {}",
-                        if joined.is_empty() { "all".into() } else { joined.clone() }
+                        if joined.is_empty() {
+                            "all".into()
+                        } else {
+                            joined.clone()
+                        }
                     ),
                     Some(json!({ "dry_run": true, "sources": joined })),
                     bot_id,
@@ -843,21 +948,67 @@ async fn dispatch_mcp(
                     request_id,
                 );
             }
-            run_cmd(st, "reindex", &joined, McpProfile::Admin, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "reindex",
+                &joined,
+                McpProfile::Admin,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "doctrine_ingest_status" => {
-            run_cmd(st, "ingeststatus", "", McpProfile::Admin, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "ingeststatus",
+                "",
+                McpProfile::Admin,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "memory_remember" => {
             let fact = str_arg(args, "fact");
-            let fact = if fact.is_empty() { str_arg(args, "text") } else { fact };
+            let fact = if fact.is_empty() {
+                str_arg(args, "text")
+            } else {
+                fact
+            };
             if fact.is_empty() {
-                return err_envelope("VALIDATION_ERROR", "fact is required", bot_id, started, request_id);
+                return err_envelope(
+                    "VALIDATION_ERROR",
+                    "fact is required",
+                    bot_id,
+                    started,
+                    request_id,
+                );
             }
-            run_cmd(st, "remember", &fact, McpProfile::Dj, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "remember",
+                &fact,
+                McpProfile::Dj,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "memory_recall" => {
-            run_cmd(st, "recall", "", McpProfile::Dj, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "recall",
+                "",
+                McpProfile::Dj,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "memory_forget" => {
             let which = str_arg(args, "which");
@@ -870,7 +1021,16 @@ async fn dispatch_mcp(
                     request_id,
                 );
             }
-            run_cmd(st, "forget", &which, McpProfile::Dj, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "forget",
+                &which,
+                McpProfile::Dj,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "rag_search" => {
             if !profile_ok(st, McpProfile::Readonly) {
@@ -884,10 +1044,22 @@ async fn dispatch_mcp(
             }
             let q = str_arg(args, "q");
             if q.is_empty() {
-                return err_envelope("VALIDATION_ERROR", "q is required", bot_id, started, request_id);
+                return err_envelope(
+                    "VALIDATION_ERROR",
+                    "q is required",
+                    bot_id,
+                    started,
+                    request_id,
+                );
             }
             let Some(rag) = st.rag.as_ref() else {
-                return err_envelope("RAG_ERROR", "RAG is not configured", bot_id, started, request_id);
+                return err_envelope(
+                    "RAG_ERROR",
+                    "RAG is not configured",
+                    bot_id,
+                    started,
+                    request_id,
+                );
             };
             let top_k = args
                 .get("top_k")
@@ -957,7 +1129,16 @@ async fn dispatch_mcp(
                     request_id,
                 );
             }
-            run_cmd(st, &cmd, &rest, McpProfile::Readonly, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                &cmd,
+                &rest,
+                McpProfile::Readonly,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "workorder_run" => {
             let rest = str_arg(args, "args");
@@ -970,10 +1151,28 @@ async fn dispatch_mcp(
                     request_id,
                 );
             }
-            run_cmd(st, "workorder", &rest, McpProfile::Dj, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "workorder",
+                &rest,
+                McpProfile::Dj,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "work_items" => {
-            run_cmd(st, "work-items", "", McpProfile::Readonly, started, request_id, bot_id).await
+            run_cmd(
+                st,
+                "work-items",
+                "",
+                McpProfile::Readonly,
+                started,
+                request_id,
+                bot_id,
+            )
+            .await
         }
         "generate_music" => err_envelope(
             "UNAVAILABLE",

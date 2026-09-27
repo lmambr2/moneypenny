@@ -3,9 +3,60 @@
 
 //! TS6 HTTP Query (`:10080` + `x-api-key`). Not blocked on the UDP client.
 
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
+
+const QUERY_COOLDOWN_MS: i64 = 5 * 60_000;
+
+/// Skip TS6 HTTP Query after auth/timeout failures so polls do not wait 5s each.
+#[derive(Clone)]
+pub struct QueryCooldown {
+    until_ms: std::sync::Arc<Mutex<i64>>,
+    ttl_ms: i64,
+}
+
+impl QueryCooldown {
+    pub fn new(ttl_ms: i64) -> Self {
+        Self {
+            until_ms: std::sync::Arc::new(Mutex::new(0)),
+            ttl_ms,
+        }
+    }
+
+    pub fn note_failure(&self, message: &str, now_ms: i64) {
+        let m = message.to_ascii_lowercase();
+        let transient = m.contains("401")
+            || m.contains("403")
+            || m.contains("timeout")
+            || m.contains("invalid api")
+            || m.contains("connection refused")
+            || m.contains("econnrefused")
+            || m.contains("enotfound")
+            || m.contains("ehostunreach")
+            || m.contains("socket hang up");
+        if transient {
+            *self.until_ms.lock().expect("cooldown") = now_ms + self.ttl_ms;
+        }
+    }
+
+    pub fn reject_reason(&self, now_ms: i64) -> Option<String> {
+        let until = *self.until_ms.lock().expect("cooldown");
+        if until > now_ms {
+            Some("TS6 HTTP Query cooldown".into())
+        } else {
+            None
+        }
+    }
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
 #[derive(Clone)]
 pub struct QueryClient {
@@ -13,6 +64,7 @@ pub struct QueryClient {
     port: u16,
     api_key: String,
     http: reqwest::Client,
+    cooldown: QueryCooldown,
 }
 
 impl QueryClient {
@@ -26,22 +78,39 @@ impl QueryClient {
             port,
             api_key: api_key.into(),
             http,
+            cooldown: QueryCooldown::new(QUERY_COOLDOWN_MS),
         })
     }
 
     async fn get(&self, path: &str) -> Result<(u16, String), String> {
+        if let Some(reason) = self.cooldown.reject_reason(now_ms()) {
+            return Err(reason);
+        }
         let url = format!("http://{}:{}{path}", self.host, self.port);
         let mut req = self.http.get(&url).header("Accept", "application/json");
         if !self.api_key.is_empty() {
             req = req.header("x-api-key", &self.api_key);
         }
-        let res = req.send().await.map_err(|e| e.to_string())?;
+        let res = match req.send().await {
+            Ok(res) => res,
+            Err(e) => {
+                let msg = e.to_string();
+                self.cooldown.note_failure(&msg, now_ms());
+                return Err(msg);
+            }
+        };
         let status = res.status().as_u16();
         let body = res.text().await.unwrap_or_default();
+        if status == 401 || status == 403 {
+            self.cooldown.note_failure(&format!("{status} unauthorized"), now_ms());
+        }
         Ok((status, body))
     }
 
     async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(u16, String), String> {
+        if let Some(reason) = self.cooldown.reject_reason(now_ms()) {
+            return Err(reason);
+        }
         let url = format!("http://{}:{}{path}", self.host, self.port);
         let mut req = self
             .http
@@ -52,10 +121,65 @@ impl QueryClient {
         if !self.api_key.is_empty() {
             req = req.header("x-api-key", &self.api_key);
         }
-        let res = req.send().await.map_err(|e| e.to_string())?;
+        let res = match req.send().await {
+            Ok(res) => res,
+            Err(e) => {
+                let msg = e.to_string();
+                self.cooldown.note_failure(&msg, now_ms());
+                return Err(msg);
+            }
+        };
         let status = res.status().as_u16();
         let text = res.text().await.unwrap_or_default();
+        if status == 401 || status == 403 {
+            self.cooldown.note_failure(&format!("{status} unauthorized"), now_ms());
+        }
         Ok((status, text))
+    }
+
+    pub fn from_env() -> Option<Self> {
+        let host = std::env::var("TS6_QUERY_HOST")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| {
+                std::env::var("TS6_HOST")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+            })?;
+        let key = std::env::var("TS6_API_KEY")
+            .ok()
+            .filter(|s| !s.trim().is_empty())?;
+        let port = std::env::var("TS6_QUERY_PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10080);
+        Self::new(host, port, key).ok()
+    }
+
+    pub async fn server_group_client_ids(&self, sgid: i64) -> Result<Vec<i64>, String> {
+        let (status, body) = self
+            .get(&format!("/1/servergroupclientlist?sid=1&sgid={sgid}"))
+            .await?;
+        if !(200..300).contains(&status) {
+            return Err(format!("sgid {sgid} list HTTP {status}"));
+        }
+        Ok(parse_member_db_ids(&body))
+    }
+
+    pub async fn server_group_del_client(&self, sgid: i64, cldbid: i64) -> Result<(), String> {
+        let (status, body) = self
+            .post_json(
+                "/1/servergroupdelclient?sid=1",
+                &serde_json::json!({ "sgid": sgid, "cldbid": cldbid }),
+            )
+            .await?;
+        if !(200..300).contains(&status) {
+            return Err(format!(
+                "sgid {sgid} cldbid {cldbid}: HTTP {status} {}",
+                body.chars().take(80).collect::<String>()
+            ));
+        }
+        Ok(())
     }
 
     pub async fn channel_list(&self) -> Result<Vec<QueryChannel>, String> {
@@ -144,6 +268,41 @@ pub struct QueryClientRow {
 pub struct QueryChannel {
     pub cid: u64,
     pub name: String,
+}
+
+/// Client database ids from a servergroupclientlist body.
+pub fn parse_member_db_ids(body: &str) -> Vec<i64> {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return Vec::new();
+    };
+    let rows = if let Some(arr) = v.as_array() {
+        arr.clone()
+    } else {
+        for key in ["body", "data", "clients", "rows"] {
+            if let Some(arr) = v.get(key).and_then(|x| x.as_array()) {
+                return ids_from_rows(arr);
+            }
+        }
+        return ids_from_rows(std::slice::from_ref(&v));
+    };
+    ids_from_rows(&rows)
+}
+
+fn ids_from_rows(rows: &[Value]) -> Vec<i64> {
+    let mut out = Vec::new();
+    for row in rows {
+        let raw = row
+            .get("cldbid")
+            .or_else(|| row.get("client_database_id"))
+            .or_else(|| row.get("cdb_id"));
+        let n = raw
+            .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0);
+        if n > 0 && !out.contains(&n) {
+            out.push(n);
+        }
+    }
+    out
 }
 
 pub fn parse_client_list(body: &str) -> Vec<QueryClientRow> {
@@ -333,5 +492,66 @@ mod tests {
         assert_eq!(rows[0].nickname, "grafcv");
         assert_eq!(rows[0].server_groups, ["6", "7"]);
         assert_eq!(rows[0].cid, 1);
+    }
+
+    #[test]
+    fn cooldown_blocks_the_next_query_after_auth_failure() {
+        let cd = QueryCooldown::new(60_000);
+        assert!(cd.reject_reason(1_000).is_none());
+        cd.note_failure("401 unauthorized", 1_000);
+        assert_eq!(
+            cd.reject_reason(1_500).as_deref(),
+            Some("TS6 HTTP Query cooldown")
+        );
+        assert!(cd.reject_reason(70_000).is_none());
+        cd.note_failure("not a transient problem", 80_000);
+        assert!(cd.reject_reason(80_100).is_none());
+    }
+
+    #[tokio::test]
+    async fn post_auth_failure_arms_cooldown_for_the_next_get() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let gets = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let gets_bg = std::sync::Arc::clone(&gets);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
+                let gets_bg = std::sync::Arc::clone(&gets_bg);
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 2048];
+                    let _ = sock.read(&mut buf).await;
+                    let head = String::from_utf8_lossy(&buf);
+                    let body = if head.starts_with("POST") {
+                        "{\"error\":\"unauthorized\"}"
+                    } else {
+                        gets_bg.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        "[]"
+                    };
+                    let status = if head.starts_with("POST") { 401 } else { 200 };
+                    let resp = format!(
+                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                });
+            }
+        });
+        let client = QueryClient::new(addr.ip().to_string(), addr.port(), "k").unwrap();
+        let posted = client
+            .post_json("/1/servergroupdelclient?sid=1", &serde_json::json!({"sgid": 1}))
+            .await
+            .unwrap();
+        assert_eq!(posted.0, 401);
+        let next = client.get("/1/servergroupclientlist?sid=1&sgid=1").await;
+        assert!(
+            next.as_ref().unwrap_err().contains("cooldown"),
+            "{next:?}"
+        );
+        assert_eq!(gets.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 }

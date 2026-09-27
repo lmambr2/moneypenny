@@ -63,6 +63,51 @@ impl VoiceRuntime {
         rt
     }
 
+    pub async fn synthesize_sentence(&self, sentence: &str) -> Option<Vec<u8>> {
+        let cfg = self.config();
+        if cfg.tts_url.trim().is_empty() || sentence.trim().is_empty() {
+            return None;
+        }
+        let tts = HttpTtsClient::new(&cfg.tts_url, &cfg.tts_voice);
+        tts.synthesize(sentence).await.ok().map(|(audio, _)| audio).filter(|a| !a.is_empty())
+    }
+
+    /// One wav for a finished reply. Used when the token stream produced no sentences.
+    pub async fn synthesize_reply(&self, reply: &str) -> Option<Vec<u8>> {
+        use crate::speak::tts_speak_chunks;
+        use crate::watchword::{is_playback_start_reply, should_speak_voice_reply, voice_spoken_ack};
+        if is_playback_start_reply(Some(reply)) {
+            return None;
+        }
+        let cfg = self.config();
+        if cfg.tts_url.trim().is_empty() {
+            return None;
+        }
+        let spoken = voice_spoken_ack(Some(reply)).map(|s| s.to_string());
+        let chunks = spoken
+            .map(|s| vec![s])
+            .unwrap_or_else(|| tts_speak_chunks(reply));
+        let tts = HttpTtsClient::new(&cfg.tts_url, &cfg.tts_voice);
+        let mut audio_all = Vec::new();
+        for tts_text in chunks {
+            if tts_text.is_empty() || !should_speak_voice_reply(&tts_text, 900) {
+                continue;
+            }
+            match tts.synthesize(&tts_text).await {
+                Ok((audio, _)) => audio_all.extend(audio),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Voice: TTS failed");
+                    break;
+                }
+            }
+        }
+        if audio_all.is_empty() {
+            None
+        } else {
+            Some(audio_all)
+        }
+    }
+
     pub fn config(&self) -> VoiceConfig {
         self.config.read().expect("voice cfg").clone()
     }
@@ -250,10 +295,8 @@ impl VoiceRuntime {
         Fut: std::future::Future<Output = Option<String>>,
     {
         use crate::pipeline::VoiceGate;
-        use crate::speak::text_to_spoken;
         use crate::watchword::{
-            is_playback_control_reply, is_playback_start_reply, should_speak_voice_reply,
-            voice_spoken_ack,
+            is_playback_control_reply, is_playback_start_reply,
         };
 
         let gate = {
@@ -282,24 +325,11 @@ impl VoiceRuntime {
                 let should_speak = opts.speak.unwrap_or(true);
                 let mut tts_bytes = 0;
                 let mut tts_audio = None;
-                if should_speak && cfg.respond_with_voice && !cfg.tts_url.trim().is_empty() {
+                if should_speak && cfg.respond_with_voice {
                     if let Some(ref r) = reply {
-                        let spoken = voice_spoken_ack(Some(r)).map(|s| s.to_string());
-                        let tts_text = spoken.unwrap_or_else(|| text_to_spoken(r));
-                        if !is_playback_start_reply(Some(r))
-                            && should_speak_voice_reply(&tts_text, 900)
-                            && !tts_text.is_empty()
-                        {
-                            let tts = HttpTtsClient::new(&cfg.tts_url, &cfg.tts_voice);
-                            match tts.synthesize(&tts_text).await {
-                                Ok((audio, _)) => {
-                                    tts_bytes = audio.len();
-                                    if !audio.is_empty() {
-                                        tts_audio = Some(audio);
-                                    }
-                                }
-                                Err(e) => tracing::warn!(error = %e, "Voice: TTS failed"),
-                            }
+                        if let Some(audio) = self.synthesize_reply(r).await {
+                            tts_bytes = audio.len();
+                            tts_audio = Some(audio);
                         }
                     }
                 }

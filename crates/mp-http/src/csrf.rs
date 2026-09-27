@@ -17,6 +17,10 @@ pub async fn csrf_origin_check(req: Request, next: Next) -> Response {
     ) {
         return next.run(req).await;
     }
+    // Cookie CSRF does not apply when the client sent Bearer and no session cookie.
+    if crate::authz::bearer_only(req.headers()) {
+        return next.run(req).await;
+    }
     let expected = req
         .headers()
         .get(header::HOST)

@@ -76,6 +76,7 @@ async fn post_json(url: &str, body: &Value, timeout: Duration, extra: &[(&str, &
 
 struct Cache<T> {
     at: Instant,
+    fetched_at_ms: i64,
     data: T,
 }
 
@@ -294,7 +295,7 @@ impl UexClient {
         self.enabled
     }
 
-    async fn commodities_raw(&self) -> Option<Vec<Value>> {
+    async fn commodities_raw(&self) -> Option<(Vec<Value>, i64)> {
         if !self.enabled {
             return None;
         }
@@ -302,7 +303,7 @@ impl UexClient {
             let g = self.cache.lock().expect("uex");
             if let Some(c) = g.as_ref() {
                 if c.at.elapsed() < Duration::from_secs(3600) {
-                    return Some(c.data.clone());
+                    return Some((c.data.clone(), c.fetched_at_ms));
                 }
             }
         }
@@ -314,15 +315,20 @@ impl UexClient {
             .cloned()
             .or_else(|| data.as_array().cloned())
             .unwrap_or_default();
+        let fetched_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
         *self.cache.lock().expect("uex") = Some(Cache {
             at: Instant::now(),
+            fetched_at_ms,
             data: list.clone(),
         });
-        Some(list)
+        Some((list, fetched_at_ms))
     }
 
     pub async fn commodities_list(&self) -> Option<Value> {
-        let list = self.commodities_raw().await?;
+        let (list, _) = self.commodities_raw().await?;
         let mut commodities: Vec<Value> = list
             .into_iter()
             .filter_map(|c| {
@@ -358,7 +364,7 @@ impl UexClient {
     }
 
     pub async fn lookup_price(&self, query: &str) -> Option<Value> {
-        let list = self.commodities_raw().await?;
+        let (list, fetched_at_ms) = self.commodities_raw().await?;
         let q = norm(query);
         if q.is_empty() {
             return None;
@@ -393,6 +399,7 @@ impl UexClient {
             "source": "uex",
             "sell": sell,
             "buy": buy,
+            "fetchedAt": fetched_at_ms,
             "matchCount": matches.len(),
             "matches": matches.iter().take(8).map(|m| json!({
                 "name": m.get("name"),
@@ -535,6 +542,27 @@ pub fn clients() -> &'static EconomyClients {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn lookup_price_uses_cached_fetch_time() {
+        let mut client = UexClient::from_env();
+        client.enabled = true;
+        *client.cache.lock().expect("uex") = Some(Cache {
+            at: Instant::now(),
+            fetched_at_ms: 1_500,
+            data: vec![json!({
+                "id": 1,
+                "name": "Agricium",
+                "code": "AGR",
+                "price_sell": 9.0,
+                "price_buy": 4.0
+            })],
+        });
+        let v = client.lookup_price("Agricium").await.expect("price");
+        assert_eq!(v["fetchedAt"], 1_500);
+        assert_eq!(v["source"], "uex");
+        assert_eq!(v["sell"], 9.0);
+    }
 
     #[test]
     fn blueprint_score() {

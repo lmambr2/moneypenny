@@ -8,6 +8,7 @@ mod bumpers;
 mod clock;
 mod director;
 mod prerecorded;
+mod rotation;
 mod runtime;
 mod seed;
 
@@ -15,13 +16,6 @@ pub use clock::{is_within_quiet_hours, parse_hhmm, FormatClock};
 pub use director::{Boundary, BuiltBumper, CueResult, RadioDirector, RadioStatus};
 pub use mp_config::{RadioConfig, RadioProfile};
 pub use prerecorded::{default_bumper_dir, PrerecordedPool};
+pub use rotation::{order_keys_with_separation, RotationMeta, SeparationPolicy};
 pub use runtime::{RadioRuntime, RadioStatusSnapshot};
 pub use seed::{program_station, seed_local_tracks};
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_compiles() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "mp-radio");
-    }
-}

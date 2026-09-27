@@ -5,13 +5,14 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::llm::{LlmBackend, ScriptedLlm};
 use crate::types::{
-    empty_turn, Brain, BrainError, ToolProposal, TurnMode, TurnRequest, TurnResponse, TurnSource,
+    Brain, BrainError, ToolProposal, TurnChannel, TurnMode, TurnRequest, TurnResponse, TurnSource,
+    empty_turn,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -21,7 +22,10 @@ pub struct RetrieveCtx {
 }
 
 pub type RetrieveFn = Arc<
-    dyn Fn(String, RetrieveCtx) -> Pin<Box<dyn Future<Output = Result<Vec<TurnSource>, String>> + Send>>
+    dyn Fn(
+            String,
+            RetrieveCtx,
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<TurnSource>, String>> + Send>>
         + Send
         + Sync,
 >;
@@ -55,6 +59,12 @@ impl InProcessBrain {
     pub fn with_retrieve(mut self, retrieve: RetrieveFn) -> Self {
         self.retrieve = Some(retrieve);
         self
+    }
+
+    pub fn set_delta_hook(&self, hook: Option<Arc<dyn Fn(&str) + Send + Sync>>) {
+        if let Some(crate::llm::LlmBackend::OpenAi(llm)) = &self.llm {
+            llm.set_delta_hook(hook);
+        }
     }
 
     pub fn with_id_factory(mut self, f: impl Fn() -> String + Send + Sync + 'static) -> Self {
@@ -127,8 +137,12 @@ impl InProcessBrain {
             }
         }
 
+        let spoken = req.channel == TurnChannel::Voice;
         if mode == TurnMode::Intent && llm.has_intent() {
-            return match llm.chat_for_intent(text, req.conversation_id.as_deref()).await {
+            return match llm
+                .chat_for_intent(text, req.conversation_id.as_deref(), spoken)
+                .await
+            {
                 Ok(intent) => {
                     let tool_proposals: Vec<ToolProposal> = intent
                         .tool_calls
@@ -164,7 +178,7 @@ impl InProcessBrain {
             };
         }
 
-        match llm.ask(text, req.conversation_id.as_deref()).await {
+        match llm.ask(text, req.conversation_id.as_deref(), spoken).await {
             Ok(reply) => TurnResponse {
                 turn_id,
                 client_turn_id: req.client_turn_id.clone(),

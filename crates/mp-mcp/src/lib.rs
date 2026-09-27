@@ -314,11 +314,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn crate_compiles() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "mp-mcp");
-    }
-
-    #[test]
     fn confirm_blocks_stop_not_skip() {
         let cfg = McpConfig {
             require_confirm: true,

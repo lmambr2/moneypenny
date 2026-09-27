@@ -212,6 +212,32 @@ CREATE TABLE IF NOT EXISTS economy_cache (
   data TEXT NOT NULL,
   PRIMARY KEY (source, key)
 );
+
+CREATE TABLE IF NOT EXISTS ingested_files (
+  key TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  result TEXT NOT NULL DEFAULT '',
+  ingested_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS economy_terminal_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,
+  game_version TEXT NOT NULL,
+  environment TEXT NOT NULL,
+  id_terminal INTEGER NOT NULL,
+  terminal_name TEXT,
+  type TEXT NOT NULL,
+  prices_json TEXT NOT NULL,
+  screenshot_sha256 TEXT,
+  captured_at INTEGER NOT NULL,
+  received_at INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  created_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_econ_snap_status ON economy_terminal_snapshots(status, captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_econ_snap_term ON economy_terminal_snapshots(id_terminal, captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_economy_cache_exp ON economy_cache(expires_at);
 CREATE INDEX IF NOT EXISTS idx_economy_cache_fetched ON economy_cache(fetched_at);
 

@@ -21,7 +21,10 @@ pub use mp_config::{
 pub use pipeline::{TranscriptOpts, VoiceGate, VoicePipeline, VoiceTurnResult};
 pub use probe::{probe_http_health, probe_http_stt, probe_http_tts};
 pub use runtime::{IngestResult, VoiceRuntime};
-pub use speak::{split_spoken_sentences, text_to_spoken, tts_timeout_for_text};
+pub use speak::{
+    push_stream_delta, split_spoken_sentences, text_to_spoken, tts_speak_chunks,
+    tts_timeout_for_text,
+};
 pub use stt::HttpSttClient;
 pub use tts::HttpTtsClient;
 pub use under_music::{
@@ -74,12 +77,4 @@ pub struct VoiceStatus {
     pub inbound_packets: u64,
     pub duck_music_on_speech: bool,
     pub text_wake_fallback: bool,
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_compiles() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "mp-voice");
-    }
 }

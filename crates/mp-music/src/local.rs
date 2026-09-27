@@ -6,7 +6,8 @@
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use sha1::{Digest, Sha1};
 
@@ -58,13 +59,258 @@ pub enum ResolveHit {
 
 pub struct LocalProvider {
     music_dir: PathBuf,
-    songs: Mutex<Vec<IndexedSong>>,
+    songs: Arc<Mutex<Vec<IndexedSong>>>,
     id_to_path: Mutex<HashMap<String, PathBuf>>,
     playlist_id_to_path: Mutex<HashMap<String, PathBuf>>,
     m3u_playlists: Mutex<HashMap<PathBuf, Playlist>>,
     m3u_songs: Mutex<HashMap<PathBuf, Vec<Track>>>,
     indexed: Mutex<bool>,
     extensions: Vec<String>,
+    id3_cache_path: PathBuf,
+    clock: Arc<Mutex<Option<crate::enrich::CivilClock>>>,
+    id3_parses: Arc<AtomicUsize>,
+    tag_db: Arc<Mutex<Option<Arc<mp_db::Database>>>>,
+    deferred_hours: Arc<Mutex<Option<f64>>>,
+    enrich_gen: Arc<AtomicU64>,
+    enrich_sched: Arc<Mutex<Option<EnrichSched>>>,
+    id3_during: Arc<Mutex<Option<Box<dyn Fn() + Send>>>>,
+}
+
+type EnrichSched = Arc<dyn Fn(u64, Box<dyn FnOnce() + Send>) + Send + Sync>;
+
+#[derive(Clone)]
+struct CachedMeta {
+    name: String,
+    artist: String,
+    album: String,
+    genre: String,
+    mtime_ms: i64,
+}
+
+fn load_id3_cache(path: &Path) -> HashMap<String, CachedMeta> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return HashMap::new();
+    };
+    if v.get("v").and_then(|n| n.as_u64()) != Some(1) {
+        return HashMap::new();
+    }
+    let Some(songs) = v.get("songs").and_then(|s| s.as_object()) else {
+        return HashMap::new();
+    };
+    let mut out = HashMap::new();
+    for (id, row) in songs {
+        out.insert(
+            id.clone(),
+            CachedMeta {
+                name: row.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                artist: row.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                album: row.get("album").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                genre: row.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                mtime_ms: row.get("mtimeMs").and_then(|x| x.as_i64()).unwrap_or(0),
+            },
+        );
+    }
+    out
+}
+
+fn save_id3_cache(path: &Path, cache: &HashMap<String, CachedMeta>) {
+    let songs = serde_json::Value::Object(
+        cache
+            .iter()
+            .map(|(id, row)| {
+                (
+                    id.clone(),
+                    serde_json::json!({
+                        "name": row.name,
+                        "artist": row.artist,
+                        "album": row.album,
+                        "genre": row.genre,
+                        "mtimeMs": row.mtime_ms,
+                    }),
+                )
+            })
+            .collect(),
+    );
+    let body = serde_json::json!({ "v": 1, "songs": songs });
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, body.to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, path);
+    }
+}
+
+#[derive(Clone)]
+struct Id3Shared {
+    songs: Arc<Mutex<Vec<IndexedSong>>>,
+    cache_path: PathBuf,
+    clock: Arc<Mutex<Option<crate::enrich::CivilClock>>>,
+    parses: Arc<AtomicUsize>,
+    tag_db: Arc<Mutex<Option<Arc<mp_db::Database>>>>,
+    deferred: Arc<Mutex<Option<f64>>>,
+    epoch: Arc<AtomicU64>,
+    sched: Arc<Mutex<Option<EnrichSched>>>,
+    during_parse: Arc<Mutex<Option<Box<dyn Fn() + Send>>>>,
+}
+
+impl Id3Shared {
+    fn now(&self) -> crate::enrich::CivilClock {
+        self.clock
+            .lock()
+            .expect("clock")
+            .unwrap_or_else(crate::enrich::civil_now)
+    }
+
+    fn schedule(&self, wait_ms: u64, fire: Box<dyn FnOnce() + Send>) {
+        if let Some(custom) = self.sched.lock().expect("sched").clone() {
+            custom(wait_ms, fire);
+            return;
+        }
+        std::thread::Builder::new()
+            .name("mp-id3-night".into())
+            .spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+                fire();
+            })
+            .ok();
+    }
+
+    fn arm_for_open(&self) {
+        let now = self.now();
+        let wait = crate::enrich::ms_until_window_opens(&now, crate::enrich::NIGHT_INDEX_WINDOW);
+        let hours = wait as f64 / 3_600_000.0;
+        *self.deferred.lock().expect("defer") = Some(hours);
+        tracing::info!(hours, "ID3 enrich deferred until the night window");
+        let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        let shared = self.clone();
+        self.schedule(
+            wait as u64,
+            Box::new(move || {
+                if shared.epoch.load(Ordering::SeqCst) != epoch {
+                    return;
+                }
+                let now = shared.now();
+                if crate::enrich::id3_enrich_due(&now, crate::enrich::NIGHT_INDEX_WINDOW) {
+                    *shared.deferred.lock().expect("defer") = None;
+                    let started = shared.epoch.load(Ordering::SeqCst);
+                    if shared.parse_now() && shared.epoch.load(Ordering::SeqCst) == started {
+                        shared.arm_after_close();
+                    }
+                } else {
+                    shared.arm_for_open();
+                }
+            }),
+        );
+    }
+
+    fn arm_after_close(&self) {
+        let now = self.now();
+        if !crate::enrich::id3_enrich_due(&now, crate::enrich::NIGHT_INDEX_WINDOW) {
+            self.arm_for_open();
+            return;
+        }
+        let wait = crate::enrich::ms_until_window_closes(&now, crate::enrich::NIGHT_INDEX_WINDOW) + 60_000;
+        let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        let shared = self.clone();
+        self.schedule(
+            wait as u64,
+            Box::new(move || {
+                if shared.epoch.load(Ordering::SeqCst) != epoch {
+                    return;
+                }
+                shared.arm_for_open();
+            }),
+        );
+    }
+
+    /// Returns false when a newer index started during the pass. That pass must
+    /// not save or arm, or it cancels the newer timer and writes a stale cache.
+    fn parse_now(&self) -> bool {
+        let started = self.epoch.load(Ordering::SeqCst);
+        let cache = load_id3_cache(&self.cache_path);
+        let hook = self.during_parse.lock().expect("during").take();
+        if let Some(hook) = hook {
+            hook();
+        }
+        if self.epoch.load(Ordering::SeqCst) != started {
+            return false;
+        }
+        let snapshot: Vec<(String, PathBuf)> = self
+            .songs
+            .lock()
+            .expect("songs")
+            .iter()
+            .map(|s| (s.track.id.clone(), s.absolute_path.clone()))
+            .collect();
+        let db = self.tag_db.lock().expect("tags").clone();
+        let mut updates = std::collections::HashMap::new();
+        for (id, path) in snapshot {
+            if self.epoch.load(Ordering::SeqCst) != started {
+                return false;
+            }
+            let mtime = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            if let Some(hit) = cache.get(&id) {
+                if hit.mtime_ms > 0 && (hit.mtime_ms - mtime).abs() < 2_000 {
+                    continue;
+                }
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Some(tags) = crate::enrich::parse_id3v2(&bytes) else {
+                continue;
+            };
+            self.parses.fetch_add(1, Ordering::SeqCst);
+            let mut stored = CachedMeta {
+                name: String::new(),
+                artist: String::new(),
+                album: String::new(),
+                genre: tags.genre.clone().unwrap_or_default(),
+                mtime_ms: mtime,
+            };
+            {
+                let mut songs = self.songs.lock().expect("songs");
+                if let Some(song) = songs.iter_mut().find(|s| s.track.id == id) {
+                    if let Some(title) = tags.title.clone() {
+                        song.track.title = title;
+                    }
+                    if let Some(artist) = tags.artist.clone() {
+                        song.track.artist = artist;
+                    }
+                    if let Some(album) = tags.album.clone() {
+                        song.track.album = album;
+                    }
+                    stored.name = song.track.title.clone();
+                    stored.artist = song.track.artist.clone();
+                    stored.album = song.track.album.clone();
+                }
+            }
+            updates.insert(id.clone(), stored);
+            if let (Some(db), Some(genre)) = (db.as_ref(), tags.genre.as_ref()) {
+                let mut patch = mp_db::TrackTags::default();
+                patch.genre = Some(genre.clone());
+                let _ = db.tags().upsert(&id, &patch, mp_db::TagSource::Embedded);
+            }
+        }
+        if self.epoch.load(Ordering::SeqCst) != started {
+            return false;
+        }
+        let mut fresh = load_id3_cache(&self.cache_path);
+        for (id, stored) in updates {
+            fresh.insert(id, stored);
+        }
+        if self.epoch.load(Ordering::SeqCst) != started {
+            return false;
+        }
+        save_id3_cache(&self.cache_path, &fresh);
+        true
+    }
 }
 
 impl LocalProvider {
@@ -73,15 +319,62 @@ impl LocalProvider {
             std::path::absolute(music_dir.as_ref()).unwrap_or_else(|_| music_dir.as_ref().to_path_buf())
         });
         Self {
+            id3_cache_path: music_dir.join(".moneypenny-id3.json"),
             music_dir,
-            songs: Mutex::new(Vec::new()),
+            songs: Arc::new(Mutex::new(Vec::new())),
             id_to_path: Mutex::new(HashMap::new()),
             playlist_id_to_path: Mutex::new(HashMap::new()),
             m3u_playlists: Mutex::new(HashMap::new()),
             m3u_songs: Mutex::new(HashMap::new()),
             indexed: Mutex::new(false),
             extensions: DEFAULT_EXTS.iter().map(|s| s.to_string()).collect(),
+            clock: Arc::new(Mutex::new(None)),
+            id3_parses: Arc::new(AtomicUsize::new(0)),
+            tag_db: Arc::new(Mutex::new(None)),
+            deferred_hours: Arc::new(Mutex::new(None)),
+            enrich_gen: Arc::new(AtomicU64::new(0)),
+            enrich_sched: Arc::new(Mutex::new(None)),
+            id3_during: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Test seam: runs once at the start of an ID3 pass, before tags are written.
+    pub fn set_during_id3_parse<F>(&self, hook: F)
+    where
+        F: Fn() + Send + 'static,
+    {
+        *self.id3_during.lock().expect("during") = Some(Box::new(hook));
+    }
+
+    /// Test seam for the night timer. Production sleeps until the window opens.
+    pub fn set_enrich_scheduler<F>(&self, sched: F)
+    where
+        F: Fn(u64, Box<dyn FnOnce() + Send>) + Send + Sync + 'static,
+    {
+        *self.enrich_sched.lock().expect("sched") = Some(Arc::new(sched));
+    }
+
+    pub fn set_clock(&self, clock: Option<crate::enrich::CivilClock>) {
+        *self.clock.lock().expect("clock") = clock;
+    }
+
+    pub fn set_tag_db(&self, db: Option<Arc<mp_db::Database>>) {
+        *self.tag_db.lock().expect("tags") = db;
+    }
+
+    pub fn id3_parse_count(&self) -> usize {
+        self.id3_parses.load(Ordering::SeqCst)
+    }
+
+    pub fn id3_deferred_hours(&self) -> Option<f64> {
+        *self.deferred_hours.lock().expect("defer")
+    }
+
+    fn now_civil(&self) -> crate::enrich::CivilClock {
+        self.clock
+            .lock()
+            .expect("clock")
+            .unwrap_or_else(crate::enrich::civil_now)
     }
 
     pub fn music_dir(&self) -> &Path {
@@ -113,6 +406,7 @@ impl LocalProvider {
         self.m3u_playlists.lock().expect("m3u").clear();
         self.m3u_songs.lock().expect("m3u songs").clear();
         let _ = self.walk(&self.music_dir, 0);
+        self.apply_id3();
         tracing::info!(
             tracks = self.songs.lock().expect("songs").len(),
             dir = %self.music_dir.display(),
@@ -538,6 +832,64 @@ impl LocalProvider {
             .unwrap_or_default()
     }
 
+    fn apply_id3(&self) {
+        // A newer index cancels a timer armed by the previous pass.
+        self.enrich_gen.fetch_add(1, Ordering::SeqCst);
+        let now = self.now_civil();
+        let due = crate::enrich::id3_enrich_due(&now, crate::enrich::NIGHT_INDEX_WINDOW);
+        let cache = load_id3_cache(&self.id3_cache_path);
+        {
+            let mut songs = self.songs.lock().expect("songs");
+            for song in songs.iter_mut() {
+                let Some(hit) = cache.get(&song.track.id) else {
+                    continue;
+                };
+                if !hit.name.is_empty() {
+                    song.track.title = hit.name.clone();
+                }
+                if !hit.artist.is_empty() {
+                    song.track.artist = hit.artist.clone();
+                }
+                if !hit.album.is_empty() {
+                    song.track.album = hit.album.clone();
+                }
+            }
+        }
+        if !due {
+            self.arm_night_enrich();
+            return;
+        }
+        *self.deferred_hours.lock().expect("defer") = None;
+        let shared = self.share_id3();
+        let started = shared.epoch.load(Ordering::SeqCst);
+        if shared.parse_now() && shared.epoch.load(Ordering::SeqCst) == started {
+            shared.arm_after_close();
+        }
+    }
+
+    fn share_id3(&self) -> Id3Shared {
+        Id3Shared {
+            songs: Arc::clone(&self.songs),
+            cache_path: self.id3_cache_path.clone(),
+            clock: Arc::clone(&self.clock),
+            parses: Arc::clone(&self.id3_parses),
+            tag_db: Arc::clone(&self.tag_db),
+            deferred: Arc::clone(&self.deferred_hours),
+            epoch: Arc::clone(&self.enrich_gen),
+            sched: Arc::clone(&self.enrich_sched),
+            during_parse: Arc::clone(&self.id3_during),
+        }
+    }
+
+    /// Sleep until 02:00, then parse. Same role as Node `armNightEnrich`.
+    fn arm_night_enrich(&self) {
+        self.share_id3().arm_for_open();
+    }
+
+    fn arm_after_id3_window(&self) {
+        self.share_id3().arm_after_close();
+    }
+
     pub fn refresh(&self) -> usize {
         *self.indexed.lock().expect("index") = false;
         self.ensure_indexed();
@@ -803,6 +1155,144 @@ mod tests {
             }
             other => panic!("expected playlist, got {other:?}"),
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn id3_file(title: &str, artist: &str, album: &str, genre: &str) -> Vec<u8> {
+        fn frame(id: &[u8; 4], text: &str) -> Vec<u8> {
+            let mut data = vec![0u8];
+            data.extend(text.as_bytes());
+            let mut out = id.to_vec();
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            out.extend_from_slice(&[0, 0]);
+            out.extend(data);
+            out
+        }
+        let body = [
+            frame(b"TIT2", title),
+            frame(b"TPE1", artist),
+            frame(b"TALB", album),
+            frame(b"TCON", genre),
+        ]
+        .concat();
+        let mut out = b"ID3".to_vec();
+        out.extend_from_slice(&[3, 0, 0]);
+        out.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        out.extend(body);
+        out
+    }
+
+    #[test]
+    fn night_window_parses_id3_and_day_uses_the_cache() {
+        let dir = std::env::temp_dir().join(format!(
+            "mp-id3-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.mp3"), id3_file("Night Title", "Owl", "Moon", "Ambient")).unwrap();
+        let db = Arc::new(mp_db::Database::open_in_memory().unwrap());
+        let night = LocalProvider::new(&dir);
+        night.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 12, 3, 0, 0)));
+        night.set_tag_db(Some(Arc::clone(&db)));
+        night.refresh();
+        assert_eq!(night.id3_parse_count(), 1);
+        assert!(night.id3_deferred_hours().is_none());
+        let song = night.search("Owl", 5).into_iter().next().unwrap();
+        assert_eq!(song.title, "Night Title");
+        assert_eq!(song.artist, "Owl");
+        assert_eq!(song.album, "Moon");
+        let tags = db.tags().get(&song.id).unwrap().unwrap();
+        assert_eq!(tags.genre.as_deref(), Some("Ambient"));
+
+        let day = LocalProvider::new(&dir);
+        day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 12, 15, 0, 0)));
+        day.set_tag_db(Some(db));
+        let armed_wait = Arc::new(Mutex::new(None::<u64>));
+        let armed_slot = Arc::clone(&armed_wait);
+        day.set_enrich_scheduler(move |wait, _fire| {
+            *armed_slot.lock().expect("arm") = Some(wait);
+        });
+        day.refresh();
+        assert_eq!(day.id3_parse_count(), 0);
+        assert_eq!(armed_wait.lock().unwrap().unwrap(), 11 * 3_600_000);
+        let hours = day.id3_deferred_hours().unwrap();
+        assert!(hours > 10.0, "{hours}");
+        let cached = day.search("Owl", 5).into_iter().next().unwrap();
+        assert_eq!(cached.title, "Night Title");
+        assert_eq!(cached.artist, "Owl");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn afternoon_refresh_parses_when_the_night_timer_fires() {
+        let dir = std::env::temp_dir().join(format!(
+            "mp-id3-arm-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.mp3"), id3_file("Night Title", "Owl", "Moon", "Ambient")).unwrap();
+        let db = Arc::new(mp_db::Database::open_in_memory().unwrap());
+        let day = LocalProvider::new(&dir);
+        day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 12, 15, 0, 0)));
+        day.set_tag_db(Some(Arc::clone(&db)));
+        let armed = Arc::new(Mutex::new(None::<(u64, Box<dyn FnOnce() + Send>)>));
+        let slot = Arc::clone(&armed);
+        day.set_enrich_scheduler(move |wait, fire| {
+            *slot.lock().expect("arm") = Some((wait, fire));
+        });
+        day.refresh();
+        assert_eq!(day.id3_parse_count(), 0);
+        assert!(day.search("Owl", 1).is_empty());
+        let (wait, fire) = armed.lock().expect("arm").take().expect("timer armed");
+        assert_eq!(wait, 11 * 3_600_000);
+        day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 13, 3, 0, 0)));
+        fire();
+        assert_eq!(day.id3_parse_count(), 1, "night timer did not parse");
+        let song = day.search("Owl", 5).into_iter().next().unwrap();
+        assert_eq!(song.title, "Night Title");
+        assert_eq!(song.artist, "Owl");
+        let tags = db.tags().get(&song.id).unwrap().unwrap();
+        assert_eq!(tags.genre.as_deref(), Some("Ambient"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn stale_parse_does_not_arm_over_a_newer_refresh() {
+        let dir = std::env::temp_dir().join(format!(
+            "mp-id3-stale-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.mp3"), id3_file("Night Title", "Owl", "Moon", "Ambient")).unwrap();
+        let day = Arc::new(LocalProvider::new(&dir));
+        day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 12, 15, 0, 0)));
+        let arms = Arc::new(Mutex::new(Vec::<(u64, Box<dyn FnOnce() + Send>)>::new()));
+        let slot = Arc::clone(&arms);
+        day.set_enrich_scheduler(move |wait, fire| {
+            slot.lock().expect("arm").push((wait, fire));
+        });
+        let hooked = Arc::clone(&day);
+        day.set_during_id3_parse(move || {
+            hooked.refresh();
+        });
+        day.refresh();
+        assert_eq!(arms.lock().unwrap().len(), 1);
+        day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 13, 3, 0, 0)));
+        let (_, fire) = arms.lock().unwrap().pop().expect("afternoon arm");
+        fire();
+        assert_eq!(arms.lock().unwrap().len(), 1, "stale parse armed an extra timer");
+        assert_eq!(day.id3_parse_count(), 1);
+        let raw = std::fs::read_to_string(dir.join(".moneypenny-id3.json")).unwrap();
+        assert!(raw.contains("Night Title"), "{raw}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

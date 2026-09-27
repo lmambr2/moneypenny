@@ -1,24 +1,28 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::authz::{deny_unless, AdminUser, AuthUser};
+use crate::AppState;
+use crate::authz::{AdminUser, AuthUser, deny_unless};
 use crate::bot_api::{bot_status_json, broadcast_state, queue_json};
 use crate::json_song::{queued_from_body, queued_json, track_json};
-use crate::AppState;
-use mp_control::{parse_command, ParsedCommand};
-use mp_music::{replace_queue_with_song, PlayMode, QueuedSong, QueueSource};
+use mp_control::{ParsedCommand, parse_command};
+use mp_music::{PlayMode, QueueSource, QueuedSong, replace_queue_with_song};
 
 fn unknown_bot(st: &AppState, id: &str) -> Option<Response> {
     if id != st.bot_id {
         Some(
-            (StatusCode::NOT_FOUND, Json(json!({"error":"Bot not found"}))).into_response(),
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error":"Bot not found"})),
+            )
+                .into_response(),
         )
     } else {
         None
@@ -104,6 +108,8 @@ async fn run_named(
         Some(&st.roast),
         Some(&st.voice),
         Some(&st.sc_org),
+        mp_music::VoteAudience::NotOnTeamspeak,
+        None,
     )
     .await
     .unwrap_or_default())
@@ -179,7 +185,11 @@ async fn simple_cmd(st: AppState, user: AuthUser, id: String, name: &str) -> Res
 pub async fn pause(State(st): State<AppState>, user: AuthUser, Path(id): Path<String>) -> Response {
     simple_cmd(st, user, id, "pause").await
 }
-pub async fn resume(State(st): State<AppState>, user: AuthUser, Path(id): Path<String>) -> Response {
+pub async fn resume(
+    State(st): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+) -> Response {
     simple_cmd(st, user, id, "resume").await
 }
 pub async fn next(State(st): State<AppState>, user: AuthUser, Path(id): Path<String>) -> Response {
@@ -294,7 +304,11 @@ pub async fn play_at(
     if let Err(r) = deny_unless(&st, &admin.0, "play") {
         return r;
     }
-    let Some(index) = body.get("index").and_then(|v| v.as_u64()).map(|n| n as usize) else {
+    let Some(index) = body
+        .get("index")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize)
+    else {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error":"index is required","code":"VALIDATION_ERROR"})),
@@ -538,7 +552,11 @@ pub async fn play_next_song(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
-    station.queue.lock().expect("queue").add_next(queued.clone());
+    station
+        .queue
+        .lock()
+        .expect("queue")
+        .add_next(queued.clone());
     broadcast_state(&st);
     Json(json!({
         "ok": true,
@@ -556,15 +574,34 @@ pub async fn seek(
     if let Some(r) = unknown_bot(&st, &id) {
         return r;
     }
-    let _pos = body.get("position").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": "seek is not ported on the Rust bot",
-            "code": "NOT_PORTED"
-        })),
-    )
-        .into_response()
+    let Some(pos) = body.get("position").and_then(json_seek_seconds) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"position must be a non-negative number","code":"VALIDATION_ERROR"})),
+        )
+            .into_response();
+    };
+    if let Some(station) = st.station.as_ref() {
+        let _ = station.player.seek(pos);
+    }
+    Json(json!({
+        "message": format!("Seeked to {}s", pos.floor() as i64),
+        "seekOffset": pos,
+    }))
+    .into_response()
+}
+
+fn json_seek_seconds(v: &Value) -> Option<f64> {
+    let n = match v {
+        Value::Number(n) => n.as_f64()?,
+        Value::String(s) => s.trim().parse().ok()?,
+        _ => return None,
+    };
+    if n.is_finite() && n >= 0.0 {
+        Some(n)
+    } else {
+        None
+    }
 }
 
 pub async fn history(
@@ -601,26 +638,52 @@ pub struct HistoryQuery {
     limit: Option<u32>,
 }
 
-pub async fn profile_get(_user: AuthUser) -> Json<Value> {
-    Json(json!({
-        "avatarEnabled": true,
-        "descriptionEnabled": true,
-        "nicknameEnabled": true,
-        "awayEnabled": true,
-        "channelDescEnabled": true,
-        "nowPlayingEnabled": true,
-    }))
+pub async fn profile_get(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    _user: AuthUser,
+) -> Response {
+    if let Some(r) = unknown_bot(&st, &id) {
+        return r;
+    }
+    match st.db.profile().get(&st.bot_id) {
+        Ok(cfg) => Json(cfg.to_json()).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
 }
 
-pub async fn profile_put(_admin: AdminUser, Json(_body): Json<Value>) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": "player profile write is not ported on the Rust bot",
-            "code": "NOT_PORTED"
-        })),
-    )
-        .into_response()
+pub async fn profile_put(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    _admin: AdminUser,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Some(r) = unknown_bot(&st, &id) {
+        return r;
+    }
+    let mut cfg = match st.db.profile().get(&st.bot_id) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
+    };
+    cfg.apply_patch(&body);
+    match st.db.profile().save(&st.bot_id, &cfg) {
+        Ok(saved) => Json(saved.to_json()).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
 }
 
 fn record_current(st: &AppState) {
