@@ -122,14 +122,15 @@ pub fn parse_id3v2(bytes: &[u8]) -> Option<Id3Tags> {
     if ver < 3 {
         return None;
     }
-    let body_len = if ver >= 4 {
-        unsyncsafe(&bytes[6..10])?
-    } else {
-        u32::from_be_bytes(bytes[6..10].try_into().ok()?) as usize
-    };
+    // The 10-byte header size is synchsafe in both 2.3 and 2.4. Frame sizes are not.
+    let body_len = unsyncsafe(&bytes[6..10])?;
     let end = (10 + body_len).min(bytes.len());
     let mut tags = Id3Tags::default();
     let mut off = 10usize;
+    if bytes[5] & 0x40 != 0 {
+        let skip = extended_header_len(ver, bytes, off)?;
+        off = off.saturating_add(skip);
+    }
     while off + 10 <= end {
         let id = &bytes[off..off + 4];
         if id[0] == 0 {
@@ -159,6 +160,18 @@ pub fn parse_id3v2(bytes: &[u8]) -> Option<Id3Tags> {
         return None;
     }
     Some(tags)
+}
+
+fn extended_header_len(ver: u8, bytes: &[u8], off: usize) -> Option<usize> {
+    if off + 4 > bytes.len() {
+        return None;
+    }
+    if ver >= 4 {
+        unsyncsafe(&bytes[off..off + 4])
+    } else {
+        let n = u32::from_be_bytes(bytes[off..off + 4].try_into().ok()?) as usize;
+        Some(4 + n)
+    }
 }
 
 fn unsyncsafe(b: &[u8]) -> Option<usize> {
@@ -236,5 +249,29 @@ mod tests {
         assert_eq!(ms_until_window_closes(&at(6, 30), NIGHT_INDEX_WINDOW), 30 * 60 * 1000);
         let wait = ms_until_window_opens(&at(15, 0), NIGHT_INDEX_WINDOW);
         assert_eq!(wait, 11 * 3_600_000);
+    }
+
+    #[test]
+    fn v23_header_size_is_synchsafe_and_skips_an_extended_header() {
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"ID3");
+        tag.extend_from_slice(&[3, 0, 0x40]);
+        tag.extend_from_slice(&[0x00, 0x00, 0x01, 0x48]);
+        tag.extend_from_slice(&6u32.to_be_bytes());
+        tag.extend_from_slice(&[0; 6]);
+        let text = b"\x00Night";
+        tag.extend_from_slice(b"TIT2");
+        tag.extend_from_slice(&(text.len() as u32).to_be_bytes());
+        tag.extend_from_slice(&[0, 0]);
+        tag.extend_from_slice(text);
+        while tag.len() < 10 + 200 {
+            tag.push(0);
+        }
+        tag.extend_from_slice(b"TIT2");
+        tag.extend_from_slice(&6u32.to_be_bytes());
+        tag.extend_from_slice(&[0, 0]);
+        tag.extend_from_slice(b"\x00Bad!!");
+        let parsed = parse_id3v2(&tag).unwrap();
+        assert_eq!(parsed.title.as_deref(), Some("Night"));
     }
 }

@@ -1214,14 +1214,14 @@ mod dispatch_tests {
         let query = std::sync::Arc::new(MemQuery {
             members: std::sync::Mutex::new(std::collections::HashMap::from([(201, vec![10, 11])])),
         });
-        let handle = crate::session_roles::SessionHandle {
-            config: crate::session_roles::SessionRolesConfig {
+        let handle = crate::session_roles::SessionHandle::new(
+            crate::session_roles::SessionRolesConfig {
                 group_ids: vec![201],
                 ..crate::session_roles::SessionRolesConfig::default()
             },
-            permanent: vec![9],
-            query: Some(query.clone()),
-        };
+            vec![9],
+            Some(query.clone()),
+        );
         let dry = dispatch_command(
             &parse_command("!session clear dry", "!", &mp_control::default_aliases()).unwrap(),
             &colonel(),

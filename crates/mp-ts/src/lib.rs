@@ -15,8 +15,8 @@ mod live;
 mod query;
 
 pub use presence::{
-    ChannelCensus, ChannelPopulation, PresenceClient, count_channel_humans, pick_busiest_channel,
-    resolve_own_channel_id, tally_channel_populations, vote_listener_census,
+    ChannelCensus, ChannelPopulation, PresenceClient, count_channel_humans, count_server_humans,
+    pick_busiest_channel, resolve_own_channel_id, tally_channel_populations, vote_listener_census,
 };
 pub use reconnect::{ReconnectDriver, ReconnectScheduler, reconnect_delay_ms};
 

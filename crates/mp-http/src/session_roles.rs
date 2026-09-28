@@ -130,15 +130,66 @@ pub struct SessionHandle {
     pub config: SessionRolesConfig,
     pub permanent: Vec<i64>,
     pub query: Option<std::sync::Arc<dyn SessionQuery>>,
+    empty: std::sync::Mutex<EmptyServerClock>,
+}
+
+#[derive(Debug, Default)]
+struct EmptyServerClock {
+    since_ms: Option<u64>,
+    last_fire_ms: u64,
+    in_flight: bool,
 }
 
 impl SessionHandle {
-    pub fn from_bot_config(cfg: &mp_config::BotConfig, query: Option<std::sync::Arc<dyn SessionQuery>>) -> Self {
+    pub fn new(
+        config: SessionRolesConfig,
+        permanent: Vec<i64>,
+        query: Option<std::sync::Arc<dyn SessionQuery>>,
+    ) -> Self {
         Self {
-            config: cfg.session_roles.clone(),
-            permanent: permanent_rank_ids(cfg.rights.as_ref(), &cfg.admin_groups),
+            config,
+            permanent,
             query,
+            empty: std::sync::Mutex::new(EmptyServerClock::default()),
         }
+    }
+
+    pub fn from_bot_config(cfg: &mp_config::BotConfig, query: Option<std::sync::Arc<dyn SessionQuery>>) -> Self {
+        Self::new(
+            cfg.session_roles.clone(),
+            permanent_rank_ids(cfg.rights.as_ref(), &cfg.admin_groups),
+            query,
+        )
+    }
+
+    /// Server-wide human count from the presence poll. Returns true once, when the
+    /// empty-server grace has elapsed and a clear should run.
+    pub fn note_server_humans(&self, humans: u32, now_ms: u64) -> bool {
+        let mut clock = self.empty.lock().expect("session empty");
+        let enabled = self.config.auto_clear_on_empty && !self.config.group_ids.is_empty();
+        if !enabled || humans > 0 {
+            clock.since_ms = None;
+            return false;
+        }
+        let since = *clock.since_ms.get_or_insert(now_ms);
+        let grace_ms = u64::from(self.config.clear_grace_minutes.max(1)) * 60_000;
+        if now_ms.saturating_sub(since) < grace_ms {
+            return false;
+        }
+        if clock.in_flight || now_ms.saturating_sub(clock.last_fire_ms) < 60_000 {
+            return false;
+        }
+        clock.in_flight = true;
+        clock.last_fire_ms = now_ms;
+        true
+    }
+
+    pub async fn run_auto_clear(&self) -> String {
+        let msg = handle_session("clear", &self.config, &self.permanent, self.query.as_deref()).await;
+        let mut clock = self.empty.lock().expect("session empty");
+        clock.in_flight = false;
+        clock.since_ms = None;
+        msg
     }
 }
 
@@ -299,6 +350,26 @@ mod tests {
         };
         let msg = handle_session("clear", &cfg, &[2], Some(&EmptyQuery)).await;
         assert!(msg.contains("Refusing clear"), "{msg}");
+    }
+
+    #[test]
+    fn auto_clear_fires_only_after_the_grace_and_resets_when_someone_returns() {
+        let handle = SessionHandle::new(
+            SessionRolesConfig {
+                group_ids: vec![201],
+                auto_clear_on_empty: true,
+                clear_grace_minutes: 15,
+                ..SessionRolesConfig::default()
+            },
+            Vec::new(),
+            None,
+        );
+        assert!(!handle.note_server_humans(0, 0));
+        assert!(!handle.note_server_humans(0, 14 * 60_000));
+        assert!(!handle.note_server_humans(2, 16 * 60_000));
+        assert!(!handle.note_server_humans(0, 16 * 60_000));
+        assert!(handle.note_server_humans(0, 16 * 60_000 + 15 * 60_000));
+        assert!(!handle.note_server_humans(0, 16 * 60_000 + 15 * 60_000 + 1_000));
     }
 
     struct EmptyQuery;

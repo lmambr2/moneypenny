@@ -17,7 +17,7 @@ use mp_radio::{Boundary, RadioRuntime};
 use mp_rights::{RightsEngine, Scope, Subject};
 use mp_ts::{
     CODEC_OPUS_MUSIC, ChannelCensus, OpusPacket, Target, TsEvent, TsSession, TsSessionExt,
-    vote_listener_census,
+    count_server_humans, vote_listener_census,
 };
 use mp_voice::{TranscriptOpts, VoiceRuntime};
 use tracing::{info, warn};
@@ -199,14 +199,29 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 _ = roast_tick.tick() => {
                     let this = self.clone();
                     tokio::spawn(async move {
-                        let all = this.session.list_clients().await;
-                        let n = if all.is_empty() {
-                            this.humans.lock().expect("humans").len() as u32
-                        } else {
-                            AutoFollow::humans_in_own(&*this.session, &all)
+                        let listed = this.session.list_clients_result().await;
+                        let n = match &listed {
+                            Ok(all) if !all.is_empty() => {
+                                AutoFollow::humans_in_own(&*this.session, all)
+                            }
+                            _ => this.humans.lock().expect("humans").len() as u32,
                         };
                         this.radio.on_poll(n);
                         this.note_llm_idle(n);
+                        if let Ok(all) = &listed {
+                            let server_humans = count_server_humans(all, this.session.client_id());
+                            let now_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0);
+                            if this.session_roles.note_server_humans(server_humans, now_ms) {
+                                let roles = std::sync::Arc::clone(&this.session_roles);
+                                tokio::spawn(async move {
+                                    let msg = roles.run_auto_clear().await;
+                                    tracing::info!(%msg, "session-roles auto-clear on empty server");
+                                });
+                            }
+                        }
                         let _ = this.follow.maybe_follow(&*this.session, n).await;
                         if let Some(reel) = this.roast.run_tick(n).await {
                             this.reply_channel(reel).await;

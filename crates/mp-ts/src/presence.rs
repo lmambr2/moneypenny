@@ -129,8 +129,14 @@ pub fn vote_listener_census(
     if cid == 0 {
         return ChannelCensus::Humans(0);
     }
-    let in_channel = all.iter().filter(|c| c.channel_id == cid).count();
-    ChannelCensus::Humans(in_channel.saturating_sub(1) as u32)
+    ChannelCensus::Humans(count_channel_humans(all, self_client_id, cid))
+}
+
+/// Humans on the whole virtual server. Query clients and the bot are not people.
+pub fn count_server_humans(all: &[PresenceClient], self_client_id: i32) -> u32 {
+    all.iter()
+        .filter(|c| c.client_type != 1 && !(self_client_id > 0 && c.id == self_client_id))
+        .count() as u32
 }
 
 #[cfg(test)]
@@ -214,6 +220,25 @@ mod tests {
         assert_eq!(
             vote_listener_census(&[], BOT, LOBBY, false),
             ChannelCensus::Failed
+        );
+    }
+
+    #[test]
+    fn vote_census_skips_query_clients_and_does_not_subtract_a_missing_bot() {
+        let with_query = [
+            c(BOT, LOBBY, 0),
+            c(2, LOBBY, 0),
+            c(3, LOBBY, 0),
+            c(9, LOBBY, 1),
+        ];
+        assert_eq!(
+            vote_listener_census(&with_query, BOT, 0, true),
+            ChannelCensus::Humans(2)
+        );
+        let bot_channel_unknown = [c(BOT, 0, 0), c(2, LOBBY, 0), c(3, LOBBY, 0)];
+        assert_eq!(
+            vote_listener_census(&bot_channel_unknown, BOT, LOBBY, true),
+            ChannelCensus::Humans(2)
         );
     }
 }
