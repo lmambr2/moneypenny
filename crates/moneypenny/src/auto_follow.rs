@@ -8,7 +8,10 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use mp_http::FollowRuntime;
-use mp_ts::{count_channel_humans, pick_busiest_channel, TsSessionExt};
+use mp_ts::{
+    count_channel_humans, pick_busiest_channel, resolve_own_channel_id, PresenceClient,
+    TsSessionExt,
+};
 
 pub struct AutoFollow {
     settings: std::sync::Arc<FollowRuntime>,
@@ -91,8 +94,15 @@ impl AutoFollow {
         if all.is_empty() {
             return None;
         }
+        let own = resolve_own_channel_id(session.client_id(), session.channel_id(), &all);
+        if own == 0 {
+            return None;
+        }
+        if count_channel_humans(&all, session.client_id(), own) > 0 {
+            return None;
+        }
         let exclude = self.afk_ids(session).await;
-        let target = pick_busiest_channel(&all, session.client_id(), session.channel_id(), &exclude)?;
+        let target = pick_busiest_channel(&all, session.client_id(), own, &exclude)?;
         if !session.join_channel(target).await {
             tracing::debug!(channel_id = target, "auto-follow: join refused");
             return None;
@@ -105,7 +115,12 @@ impl AutoFollow {
         Some(target)
     }
 
-    pub fn humans_in_own<S: TsSessionExt>(session: &S, all: &[mp_ts::PresenceClient]) -> u32 {
-        count_channel_humans(all, session.client_id(), session.channel_id())
+    /// `None` when her channel id is still unknown. A zero from `channel_id()` is not an empty room.
+    pub fn humans_in_own<S: TsSessionExt>(session: &S, all: &[PresenceClient]) -> Option<u32> {
+        let cid = resolve_own_channel_id(session.client_id(), session.channel_id(), all);
+        if cid == 0 {
+            return None;
+        }
+        Some(count_channel_humans(all, session.client_id(), cid))
     }
 }

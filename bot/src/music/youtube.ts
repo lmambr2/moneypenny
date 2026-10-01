@@ -372,7 +372,7 @@ function entryToSong(entry: YtDlpEntry, policy: YoutubeBlockPolicy = "search"): 
 
 export class YouTubeProvider implements MusicProvider {
   readonly platform = "youtube" as const;
-  private quality = "bestaudio";
+  private quality = "bestaudio[abr<=70]/bestaudio[ext=webm]/bestaudio";
 
   canHandle(query: string): boolean {
     return isYouTubeUrl(query) || isXTwitterUrl(query) || isBandcampUrl(query);
@@ -444,7 +444,7 @@ export class YouTubeProvider implements MusicProvider {
           url,
           "--get-url",
           "-f",
-          "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
+          "bestaudio[abr<=70]/bestaudio[ext=webm]/bestaudio",
           "--no-warnings",
           "--quiet",
         ],

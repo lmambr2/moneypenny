@@ -129,6 +129,10 @@ pub trait TsSessionExt: TsSession {
         clid: i32,
         message: &str,
     ) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn set_away(
+        &self,
+        playing: bool,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
 }
 
 /// In-memory session used until Option A/B is chosen, and in tests.
@@ -215,6 +219,9 @@ impl TsSessionExt for MockSession {
         Ok(())
     }
     async fn kick_client(&self, _clid: i32, _message: &str) -> Result<()> {
+        Ok(())
+    }
+    async fn set_away(&self, _playing: bool) -> Result<()> {
         Ok(())
     }
 }

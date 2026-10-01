@@ -182,6 +182,19 @@ mod tests {
     }
 
     #[test]
+    fn library_channel_zero_still_counts_the_row_she_is_in() {
+        let all = [
+            c(BOT, LOBBY, 0),
+            c(2, LOBBY, 0),
+            c(3, LOBBY, 0),
+            c(4, OPS, 0),
+        ];
+        let cid = resolve_own_channel_id(BOT, 0, &all);
+        assert_eq!(cid, LOBBY);
+        assert_eq!(count_channel_humans(&all, BOT, 0), 0);
+        assert_eq!(count_channel_humans(&all, BOT, cid), 2);
+    }
+
     fn humans_in_own_channel() {
         let all = [
             c(BOT, LOBBY, 0),

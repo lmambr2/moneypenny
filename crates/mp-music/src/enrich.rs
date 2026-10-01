@@ -65,7 +65,10 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 
 fn epoch_ms(now: &CivilClock) -> i64 {
     let days = days_from_civil(now.year, now.month, now.day);
-    days * 86_400_000 + now.hour as i64 * 3_600_000 + now.minute as i64 * 60_000 + now.second as i64 * 1000
+    days * 86_400_000
+        + now.hour as i64 * 3_600_000
+        + now.minute as i64 * 60_000
+        + now.second as i64 * 1000
 }
 
 pub fn ms_until_window_opens(now: &CivilClock, window: HourWindow) -> i64 {
@@ -156,7 +159,8 @@ pub fn parse_id3v2(bytes: &[u8]) -> Option<Id3Tags> {
         }
         off = data_end;
     }
-    if tags.title.is_none() && tags.artist.is_none() && tags.album.is_none() && tags.genre.is_none() {
+    if tags.title.is_none() && tags.artist.is_none() && tags.album.is_none() && tags.genre.is_none()
+    {
         return None;
     }
     Some(tags)
@@ -191,9 +195,16 @@ fn frame_text(data: &[u8]) -> Option<String> {
         return None;
     }
     let text = match data[0] {
-        0 | 3 => String::from_utf8_lossy(&data[1..]).trim_end_matches('\0').trim().to_string(),
+        0 | 3 => String::from_utf8_lossy(&data[1..])
+            .trim_end_matches('\0')
+            .trim()
+            .to_string(),
         1 => {
-            let rest = if data.len() > 2 && data[1] == 0xff { &data[3..] } else { &data[1..] };
+            let rest = if data.len() > 2 && data[1] == 0xff {
+                &data[3..]
+            } else {
+                &data[1..]
+            };
             let units: Vec<u16> = rest
                 .chunks_exact(2)
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
@@ -246,7 +257,10 @@ mod tests {
         assert!(!id3_enrich_due(&at(15, 0), NIGHT_INDEX_WINDOW));
         assert!(id3_enrich_due(&at(3, 0), NIGHT_INDEX_WINDOW));
         assert_eq!(ms_until_window_opens(&at(3, 0), NIGHT_INDEX_WINDOW), 0);
-        assert_eq!(ms_until_window_closes(&at(6, 30), NIGHT_INDEX_WINDOW), 30 * 60 * 1000);
+        assert_eq!(
+            ms_until_window_closes(&at(6, 30), NIGHT_INDEX_WINDOW),
+            30 * 60 * 1000
+        );
         let wait = ms_until_window_opens(&at(15, 0), NIGHT_INDEX_WINDOW);
         assert_eq!(wait, 11 * 3_600_000);
     }

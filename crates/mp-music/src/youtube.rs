@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
-//! YouTube / X / Bandcamp via yt-dlp. CDN URL is resolved at play time.
+//! YouTube / X / Bandcamp via yt-dlp. Playback hands ffmpeg a chunked yt-dlp
+//! pipe of the media page, not an open-ended googlevideo GET.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -12,7 +13,7 @@ use serde_json::Value;
 use crate::blacklist::extract_video_id;
 use crate::stream::{is_bandcamp_url, is_x_twitter_url, is_youtube_url};
 use crate::track::{Platform, Track};
-use crate::url_guard::{assert_public_playback_url, is_public_playback_url};
+use crate::url_guard::is_public_playback_url;
 
 pub const YOUTUBE_MAX_DURATION_SEC: u32 = 15 * 60;
 pub const DEFAULT_DEMO_VIDEO_ID: &str = "hLOheGDwD_0";
@@ -136,28 +137,17 @@ impl YoutubeClient {
         parse_entry(line, YoutubePolicy::Explicit)
     }
 
-    /// Direct audio URL for ffmpeg. `song_id` is a video id or a media page URL.
+    /// Media page ffmpeg should pull through [`ytdlp_chunk_args`].
+    /// `song_id` is a video id or a YouTube / X / Bandcamp page URL.
+    /// An open-ended googlevideo GET is paced below realtime; the player
+    /// pipes yt-dlp's chunked downloader instead of resolving a CDN URL here.
     pub fn playback_url(&self, song_id: &str) -> Option<String> {
-        let bin = self.bin.as_ref()?;
+        let _bin = self.bin.as_ref()?;
         let page = media_page_url(song_id)?;
         if page.starts_with("http") && !is_public_playback_url(&page) {
             return None;
         }
-        let args = vec![
-            page,
-            "--get-url".into(),
-            "-f".into(),
-            "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio".into(),
-            "--no-warnings".into(),
-            "--quiet".into(),
-            "--no-playlist".into(),
-        ];
-        let raw = run_yt_dlp(bin, &args, Duration::from_secs(45))?;
-        let audio = raw.trim().lines().next()?.trim().to_string();
-        if audio.is_empty() || !assert_public_playback_url(&audio) {
-            return None;
-        }
-        Some(audio)
+        Some(page)
     }
 
     /// yt-dlp is process-wait. Run it off the bot loop so Opus frames keep sending.
@@ -492,6 +482,35 @@ fn parse_entry(json: &str, policy: YoutubePolicy) -> Option<Track> {
     })
 }
 
+/// ~70 kbps Opus (itag 250). Re-encoded at 48 kbps, so bestaudio is wasted pull.
+pub(crate) const YT_DLP_AUDIO_FORMAT: &str = "bestaudio[abr<=70]/bestaudio[ext=webm]/bestaudio";
+
+/// Under googlevideo's ~12 MB open-response pace. Each range stays at line speed.
+pub(crate) const YT_DLP_HTTP_CHUNK: &str = "8M";
+
+pub(crate) fn yt_dlp_binary() -> Option<PathBuf> {
+    find_yt_dlp()
+}
+
+/// Args for `yt-dlp … -o -` so the native downloader, not ffmpeg, talks to the CDN.
+pub(crate) fn ytdlp_chunk_args(page: &str) -> Vec<String> {
+    vec![
+        "--ignore-config".into(),
+        "-f".into(),
+        YT_DLP_AUDIO_FORMAT.into(),
+        "--http-chunk-size".into(),
+        YT_DLP_HTTP_CHUNK.into(),
+        "-o".into(),
+        "-".into(),
+        "--no-part".into(),
+        "--no-playlist".into(),
+        "--quiet".into(),
+        "--no-warnings".into(),
+        "--no-progress".into(),
+        page.to_string(),
+    ]
+}
+
 fn find_yt_dlp() -> Option<PathBuf> {
     for key in ["YT_DLP", "YTDLP"] {
         if let Ok(p) = std::env::var(key) {
@@ -658,6 +677,28 @@ mod tests {
         let yt = YoutubeClient { bin: None };
         assert!(yt.detail(DEFAULT_DEMO_VIDEO_ID).is_none());
         assert!(yt.playback_url(DEFAULT_DEMO_VIDEO_ID).is_none());
+    }
+
+    #[test]
+    fn playback_url_is_the_watch_page_and_chunks_under_the_pace_cliff() {
+        let yt = YoutubeClient {
+            bin: Some(PathBuf::from("yt-dlp")),
+        };
+        let page = yt.playback_url(DEFAULT_DEMO_VIDEO_ID).expect("page");
+        assert_eq!(
+            page,
+            format!("https://www.youtube.com/watch?v={DEFAULT_DEMO_VIDEO_ID}")
+        );
+        let args = ytdlp_chunk_args(&page);
+        assert!(args.windows(2).any(|w| w == ["--http-chunk-size", "8M"]));
+        assert!(args.windows(2).any(|w| w == ["-o", "-"]));
+        assert!(args.windows(2).any(|w| w == ["-f", YT_DLP_AUDIO_FORMAT]));
+        assert!(
+            !args
+                .iter()
+                .any(|a| a == "--get-url" || a.contains("googlevideo"))
+        );
+        assert_eq!(args.last().map(String::as_str), Some(page.as_str()));
     }
 
     #[test]

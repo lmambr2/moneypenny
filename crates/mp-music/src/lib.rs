@@ -3,8 +3,8 @@
 
 //! Music providers. Platforms are `local | youtube | stream` only.
 //! Live: LocalProvider (realpath+prefix), PlayQueue, ffmpeg→Opus player,
-//! playback blacklist + protected artists. YouTube via yt-dlp (CDN at play
-//! time); direct HTTP/Icecast streams after the SSRF guard.
+//! playback blacklist + protected artists. YouTube via a chunked yt-dlp pipe
+//! into ffmpeg; direct HTTP/Icecast streams after the SSRF guard.
 
 mod blacklist;
 mod enrich;
@@ -20,14 +20,14 @@ mod url_guard;
 mod youtube;
 mod ytlibrary;
 
-pub use enrich::{
-    id3_enrich_due, is_in_local_hour_window, ms_until_window_closes, ms_until_window_opens,
-    parse_id3v2, CivilClock, HourWindow, Id3Tags, NIGHT_INDEX_WINDOW,
-};
 pub use blacklist::{
     BlacklistEntry, CONTENT_KEY_PREFIX, PlaybackBlacklist, ban_protected_message,
     blacklist_content_key, extract_video_id, is_ban_protected, normalize_blacklist_artist,
     normalize_blacklist_text,
+};
+pub use enrich::{
+    CivilClock, HourWindow, Id3Tags, NIGHT_INDEX_WINDOW, id3_enrich_due, is_in_local_hour_window,
+    ms_until_window_closes, ms_until_window_opens, parse_id3v2,
 };
 pub use ffmpeg::{
     FRAME_DURATION_MS, MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES, STARTUP_STALL_SEC,

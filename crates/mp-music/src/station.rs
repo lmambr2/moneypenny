@@ -428,6 +428,8 @@ impl MusicStation {
     fn start_playback(&self, song: &QueuedSong, url: &str, elapsed: f64) -> bool {
         self.player.reset_failures();
         self.player
+            .announce_track(&song.name, &song.artist, &song.album);
+        self.player
             .play(url, elapsed.max(0.0), song.duration as f64);
         if song.platform == Platform::Youtube && self.youtube_save_enabled() {
             if let Some(lib) = self.yt_library.lock().expect("yt lib").clone() {

@@ -98,7 +98,9 @@ fn host_to_ip(host: &str) -> Option<IpAddr> {
 }
 
 fn host_blocked_literal(host: &str) -> bool {
-    let h = host.trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
+    let h = host
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_ascii_lowercase();
     if h.is_empty() {
         return true;
     }
@@ -201,7 +203,9 @@ mod tests {
         assert!(!is_public_playback_url("http://[::]/x"));
         assert!(!is_public_playback_url("http://[fc00::1]/x"));
         assert!(!is_public_playback_url("http://[fe80::1]/x"));
-        assert!(!assert_public_playback_url("http://[::ffff:127.0.0.1]/a.mp3"));
+        assert!(!assert_public_playback_url(
+            "http://[::ffff:127.0.0.1]/a.mp3"
+        ));
         assert!(!assert_public_playback_url(
             "http://[::ffff:169.254.169.254]/"
         ));

@@ -244,7 +244,14 @@ impl LiveSession {
         let Some(c) = self.client_arc().await else {
             return Err(crate::TsError::NotConnected);
         };
-        match c.exec_command_with_response("clientlist", 4000).await {
+        if let Some(query) = self.query() {
+            match query.client_list_presence().await {
+                Ok(rows) if rows.iter().any(|r| r.channel_id != 0) => return Ok(rows),
+                Ok(_) => {}
+                Err(e) => tracing::debug!(error = %e, "query clientlist failed"),
+            }
+        }
+        match c.exec_command_with_response("clientlist -cid", 4000).await {
             Ok(rows) => Ok(rows.into_iter().filter_map(row_to_presence).collect()),
             Err(e) => {
                 tracing::debug!(error = %e, "clientlist failed");
@@ -431,6 +438,20 @@ impl crate::TsSessionExt for LiveSession {
     }
     async fn kick_client(&self, clid: i32, message: &str) -> Result<()> {
         LiveSession::kick_client(self, clid, message).await
+    }
+    async fn set_away(&self, playing: bool) -> Result<()> {
+        let Some(query) = self.query() else {
+            return Ok(());
+        };
+        let body = if playing {
+            serde_json::json!({ "client_away": 0 })
+        } else {
+            serde_json::json!({
+                "client_away": 1,
+                "client_away_message": "Waiting to play"
+            })
+        };
+        query.client_update(&body).await.map_err(TsError::Message)
     }
 }
 

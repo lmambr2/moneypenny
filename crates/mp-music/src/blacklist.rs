@@ -51,7 +51,13 @@ pub fn normalize_blacklist_text(raw: &str) -> String {
     }
     s = s.replace('*', "");
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -138,7 +144,10 @@ pub fn blacklist_content_key(name: Option<&str>, artist: Option<&str>) -> Option
 /// 11-char YouTube id from a URL or bare id.
 pub fn extract_video_id(raw: &str) -> Option<String> {
     let s = raw.trim();
-    if s.len() == 11 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if s.len() == 11
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Some(s.to_string());
     }
     for key in ["v=", "youtu.be/", "/shorts/", "/embed/"] {
@@ -174,7 +183,11 @@ pub fn is_ban_protected(
         return false;
     }
     protected_artists.iter().any(|raw| {
-        let needle = raw.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+        let needle = raw
+            .to_lowercase()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         !needle.is_empty() && hay.contains(&needle)
     })
 }
@@ -200,7 +213,10 @@ pub struct PlaybackBlacklist {
 }
 
 impl PlaybackBlacklist {
-    pub fn new(db: Arc<Database>, protected: impl Fn() -> Vec<String> + Send + Sync + 'static) -> Self {
+    pub fn new(
+        db: Arc<Database>,
+        protected: impl Fn() -> Vec<String> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             db,
             protected: Arc::new(protected),
@@ -228,12 +244,13 @@ impl PlaybackBlacklist {
         }
         self.db
             .with_conn(|conn| {
-                let n: i64 = conn.query_row(
-                    "SELECT 1 FROM playback_blacklist WHERE track_key = ?1 LIMIT 1",
-                    [track_key],
-                    |_| Ok(1),
-                )
-                .unwrap_or(0);
+                let n: i64 = conn
+                    .query_row(
+                        "SELECT 1 FROM playback_blacklist WHERE track_key = ?1 LIMIT 1",
+                        [track_key],
+                        |_| Ok(1),
+                    )
+                    .unwrap_or(0);
                 Ok(n == 1)
             })
             .unwrap_or(false)
@@ -294,7 +311,9 @@ impl PlaybackBlacklist {
             return Err(ban_protected_message(name, artist));
         }
         let created_at = (self.now)();
-        self.insert_key(track_key, platform, name, artist, reason, created_by, created_at);
+        self.insert_key(
+            track_key, platform, name, artist, reason, created_by, created_at,
+        );
         if let Some(vid) = extract_video_id(track_key) {
             if vid != track_key {
                 self.insert_key(
@@ -390,13 +409,19 @@ impl PlaybackBlacklist {
     fn delete_key(&self, key: &str) -> bool {
         self.db
             .with_conn(|conn| {
-                let n = conn.execute("DELETE FROM playback_blacklist WHERE track_key = ?1", [key])?;
+                let n =
+                    conn.execute("DELETE FROM playback_blacklist WHERE track_key = ?1", [key])?;
                 Ok(n > 0)
             })
             .unwrap_or(false)
     }
 
-    pub fn is_blacklisted(&self, id: Option<&str>, name: Option<&str>, artist: Option<&str>) -> bool {
+    pub fn is_blacklisted(
+        &self,
+        id: Option<&str>,
+        name: Option<&str>,
+        artist: Option<&str>,
+    ) -> bool {
         if is_ban_protected(name, artist, &self.protected_artists()) {
             return false;
         }
@@ -536,10 +561,6 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.contains("protected"));
-        assert!(!bl.is_blacklisted(
-            Some("x"),
-            Some("Choosin Texas"),
-            Some("Ella Langley")
-        ));
+        assert!(!bl.is_blacklisted(Some("x"), Some("Choosin Texas"), Some("Ella Langley")));
     }
 }

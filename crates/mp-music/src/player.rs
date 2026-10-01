@@ -4,6 +4,8 @@
 //! ffmpeg PCM → Opus 20 ms music frames. Port of `bot/src/audio/player.ts`.
 
 use std::collections::VecDeque;
+use std::os::unix::process::CommandExt;
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -11,10 +13,12 @@ use std::time::Instant;
 use tokio::sync::broadcast;
 
 use crate::ffmpeg::{
-    build_ffmpeg_args, classify_stall, clamp_music_opus_bitrate_kbps, decide_stall_action,
-    is_near_end_of_track, StallAction, StallCheckInput, FRAME_DURATION_MS,
-    MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES,
+    FRAME_DURATION_MS, MUSIC_OPUS_BITRATE_KBPS_DEFAULT, PCM_FRAME_BYTES, StallAction,
+    StallCheckInput, build_ffmpeg_args, build_ffmpeg_pipe_args, clamp_music_opus_bitrate_kbps,
+    classify_stall, decide_stall_action, is_near_end_of_track, mid_track_stall_attempts,
+    stall_action_for_url,
 };
+use crate::youtube::{YoutubeClient, yt_dlp_binary, ytdlp_chunk_args};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerState {
@@ -28,6 +32,12 @@ pub enum PlayerEvent {
     Frame(Vec<u8>),
     TrackEnd,
     Error(String),
+    NowPlaying {
+        name: String,
+        artist: String,
+        album: String,
+    },
+    Idle,
 }
 
 struct Inner {
@@ -187,6 +197,10 @@ impl AudioPlayer {
     }
 
     pub fn stop(&self) {
+        self.stop_inner(true);
+    }
+
+    fn stop_inner(&self, announce_idle: bool) {
         let mut g = self.inner.lock().expect("player");
         g.session += 1;
         g.pcm.clear();
@@ -200,6 +214,10 @@ impl AudioPlayer {
         g.empty_attempts = 0;
         if let Some(tx) = g.child_kill_std.take() {
             let _ = tx.send(());
+        }
+        drop(g);
+        if announce_idle {
+            let _ = self.events.send(PlayerEvent::Idle);
         }
     }
 
@@ -219,6 +237,14 @@ impl AudioPlayer {
         true
     }
 
+    pub fn announce_track(&self, name: &str, artist: &str, album: &str) {
+        let _ = self.events.send(PlayerEvent::NowPlaying {
+            name: name.to_string(),
+            artist: artist.to_string(),
+            album: album.to_string(),
+        });
+    }
+
     pub fn play(&self, url: &str, seek_seconds: f64, song_duration: f64) {
         self.play_with_floor(url, seek_seconds, song_duration, None);
     }
@@ -230,7 +256,7 @@ impl AudioPlayer {
         song_duration: f64,
         volume_pct_floor: Option<f64>,
     ) {
-        self.stop();
+        self.stop_inner(false);
         if let Some(f) = volume_pct_floor {
             self.inner.lock().expect("player").play_volume_floor = Some(f.clamp(0.0, 100.0));
         }
@@ -250,7 +276,9 @@ impl AudioPlayer {
             let mut g = self.inner.lock().expect("player");
             if g.consecutive_failures >= 3 {
                 g.state = PlayerState::Idle;
-                let _ = self.events.send(PlayerEvent::Error("ffmpeg unavailable".into()));
+                let _ = self
+                    .events
+                    .send(PlayerEvent::Error("ffmpeg unavailable".into()));
                 return;
             }
             session = g.session;
@@ -315,11 +343,7 @@ impl AudioPlayer {
                         let ended = stall_or_end(&mut g, &events);
                         let resume = if g.resuming {
                             g.resuming = false;
-                            Some((
-                                g.current_url.clone(),
-                                g.seek_offset,
-                                g.session,
-                            ))
+                            Some((g.current_url.clone(), g.seek_offset, g.session))
                         } else {
                             None
                         };
@@ -338,6 +362,102 @@ impl AudioPlayer {
     }
 }
 
+struct DecodePipe {
+    ffmpeg: Child,
+    /// yt-dlp feeding ffmpeg. Absent for a local file or a direct HTTP stream.
+    feeder: Option<Child>,
+    pgid: u32,
+}
+
+fn kill_process_group(pgid: u32) {
+    if pgid == 0 {
+        return;
+    }
+    unsafe {
+        libc::kill(-(pgid as i32), libc::SIGKILL);
+    }
+}
+
+fn reap_decode_pipe(pipe: &mut DecodePipe) {
+    let _ = pipe.ffmpeg.wait();
+    if let Some(feeder) = pipe.feeder.as_mut() {
+        let _ = feeder.kill();
+        let _ = feeder.wait();
+    }
+}
+
+/// YouTube / X / Bandcamp: yt-dlp pulls ≤8 MB ranges and ffmpeg decodes the pipe.
+/// Other URLs are opened by ffmpeg directly. Feeder and ffmpeg share a process
+/// group so stop kills both even when the reader is blocked in `read`.
+fn spawn_decode_pipe(url: &str, seek_seconds: f64) -> Result<DecodePipe, String> {
+    if YoutubeClient::can_handle(url) {
+        let bin = yt_dlp_binary().ok_or_else(|| "yt-dlp missing".to_string())?;
+        let mut ytdlp_cmd = Command::new(bin);
+        ytdlp_cmd
+            .args(ytdlp_chunk_args(url))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let mut ytdlp = ytdlp_cmd.spawn().map_err(|e| e.to_string())?;
+        let pgid = ytdlp.id();
+        let ytdlp_out = ytdlp
+            .stdout
+            .take()
+            .ok_or_else(|| "yt-dlp stdout".to_string())?;
+        let mut ffmpeg_cmd = Command::new("ffmpeg");
+        ffmpeg_cmd
+            .args(build_ffmpeg_pipe_args(seek_seconds))
+            .stdin(ytdlp_out)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(pgid as i32);
+        match ffmpeg_cmd.spawn() {
+            Ok(ffmpeg) => Ok(DecodePipe {
+                ffmpeg,
+                feeder: Some(ytdlp),
+                pgid,
+            }),
+            Err(e) => {
+                kill_process_group(pgid);
+                let _ = ytdlp.wait();
+                Err(e.to_string())
+            }
+        }
+    } else {
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args(build_ffmpeg_args(url, seek_seconds, None, None))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let ffmpeg = cmd.spawn().map_err(|e| e.to_string())?;
+        let pgid = ffmpeg.id();
+        Ok(DecodePipe {
+            ffmpeg,
+            feeder: None,
+            pgid,
+        })
+    }
+}
+
+fn fail_spawn(
+    inner: &Arc<Mutex<Inner>>,
+    events: &broadcast::Sender<PlayerEvent>,
+    session: u64,
+    err: &str,
+) {
+    let mut g = inner.lock().expect("player");
+    if g.session == session {
+        g.spawn_failed = true;
+        g.ffmpeg_alive = false;
+        g.consecutive_failures += 1;
+        g.state = PlayerState::Idle;
+        let _ = events.send(PlayerEvent::TrackEnd);
+    }
+    let _ = events.send(PlayerEvent::Error(err.to_string()));
+}
+
 fn spawn_ffmpeg_reader(
     inner: Arc<Mutex<Inner>>,
     events: broadcast::Sender<PlayerEvent>,
@@ -345,51 +465,45 @@ fn spawn_ffmpeg_reader(
     seek_seconds: f64,
     session: u64,
 ) {
-    let args = build_ffmpeg_args(&url, seek_seconds, None, None);
     let (kill_tx, kill_rx) = std::sync::mpsc::channel::<()>();
-    inner.lock().expect("player").child_kill_std = Some(kill_tx);
-    let url_log = url.clone();
+    inner.lock().expect("player").child_kill_std = Some(kill_tx.clone());
     std::thread::Builder::new()
         .name("mp-ffmpeg".into())
         .spawn(move || {
-            tracing::info!(url = %url_log, "ffmpeg start");
-            let mut cmd = std::process::Command::new("ffmpeg");
-            cmd.args(&args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null());
-            let mut child = match cmd.spawn() {
-                Ok(c) => c,
+            let chunked = YoutubeClient::can_handle(&url);
+            tracing::info!(url = %url, chunked, "ffmpeg start");
+            let mut pipe = match spawn_decode_pipe(&url, seek_seconds) {
+                Ok(p) => p,
                 Err(e) => {
-                    let mut g = inner.lock().expect("player");
-                    if g.session == session {
-                        g.spawn_failed = true;
-                        g.ffmpeg_alive = false;
-                        g.consecutive_failures += 1;
-                        g.state = PlayerState::Idle;
-                        let _ = events.send(PlayerEvent::TrackEnd);
-                    }
-                    let _ = events.send(PlayerEvent::Error(e.to_string()));
+                    fail_spawn(&inner, &events, session, &e);
                     return;
                 }
             };
-            let mut stdout = child.stdout.take().expect("stdout");
-            let mut buf = vec![0u8; 8192];
-            loop {
-                if kill_rx.try_recv().is_ok() {
-                    let _ = child.kill();
-                    break;
+            let pgid = pipe.pgid;
+            let watcher = std::thread::spawn(move || {
+                let _ = kill_rx.recv();
+                kill_process_group(pgid);
+            });
+            let mut stdout = match pipe.ffmpeg.stdout.take() {
+                Some(s) => s,
+                None => {
+                    kill_process_group(pgid);
+                    reap_decode_pipe(&mut pipe);
+                    let _ = kill_tx.send(());
+                    let _ = watcher.join();
+                    fail_spawn(&inner, &events, session, "ffmpeg stdout");
+                    return;
                 }
+            };
+            let mut buf = vec![0u8; 8192];
+            'read: loop {
                 use std::io::Read;
                 match stdout.read(&mut buf) {
-                    Ok(0) => break,
-                    Err(_) => break,
+                    Ok(0) | Err(_) => break,
                     Ok(n) => loop {
                         let mut g = inner.lock().expect("player");
                         if g.session != session {
-                            drop(g);
-                            let _ = child.kill();
-                            return;
+                            break 'read;
                         }
                         if g.pcm.len() <= 640 * 1024 {
                             g.pcm.extend(buf[..n].iter().copied());
@@ -400,7 +514,10 @@ fn spawn_ffmpeg_reader(
                     },
                 }
             }
-            let _ = child.wait();
+            kill_process_group(pgid);
+            reap_decode_pipe(&mut pipe);
+            let _ = kill_tx.send(());
+            let _ = watcher.join();
             let mut g = inner.lock().expect("player");
             if g.session == session {
                 g.ffmpeg_alive = false;
@@ -408,6 +525,27 @@ fn spawn_ffmpeg_reader(
             tracing::info!("ffmpeg exit");
         })
         .expect("ffmpeg thread");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kill_process_group_stops_a_live_child() {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let mut child = cmd.spawn().expect("sleep");
+        let pgid = child.id();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        kill_process_group(pgid);
+        let status = child.wait().expect("reap");
+        assert!(!status.success());
+    }
 }
 
 fn send_next_frame(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) {
@@ -459,7 +597,7 @@ fn stall_or_end(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) -> bool 
         let verdict = classify_stall(StallCheckInput {
             empty_frame_attempts: g.empty_attempts,
             near_end_attempts: 250,
-            mid_track_attempts: 500,
+            mid_track_attempts: mid_track_stall_attempts(&g.current_url),
             is_near_end,
             wall_elapsed_sec: wall,
             has_decoded_audio: g.frames_played > 0,
@@ -469,12 +607,23 @@ fn stall_or_end(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) -> bool 
         } else {
             f64::INFINITY
         };
-        let action = decide_stall_action(
-            verdict,
-            g.stall_resumes,
-            remaining,
-            !g.current_url.is_empty(),
+        let action = stall_action_for_url(
+            decide_stall_action(
+                verdict,
+                g.stall_resumes,
+                remaining,
+                !g.current_url.is_empty(),
+            ),
+            &g.current_url,
         );
+        if action != StallAction::Continue {
+            tracing::info!(
+                action = ?action,
+                empty_attempts = g.empty_attempts,
+                elapsed = elapsed.round() as i64,
+                "pcm stall"
+            );
+        }
         if action == StallAction::Resume {
             g.stall_resumes += 1;
             g.seek_offset = elapsed;
@@ -525,4 +674,3 @@ impl Default for AudioPlayer {
 }
 
 // silence unused import if rustc complains
-

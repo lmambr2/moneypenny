@@ -160,6 +160,24 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 }
                             });
                         }
+                        Ok(PlayerEvent::NowPlaying { name, artist, album }) => {
+                            let line = Self::now_playing_line(&name, &artist, &album);
+                            let this = self.clone();
+                            tokio::spawn(async move {
+                                this.reply_channel(line).await;
+                                if let Err(e) = this.session.set_away(true).await {
+                                    warn!(error = %e, "away clear failed");
+                                }
+                            });
+                        }
+                        Ok(PlayerEvent::Idle) => {
+                            let this = self.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = this.session.set_away(false).await {
+                                    warn!(error = %e, "away set failed");
+                                }
+                            });
+                        }
                         Ok(PlayerEvent::Error(e)) => {
                             self.speech.on_player_error();
                             warn!(error = %e, "player");
@@ -200,12 +218,25 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     let this = self.clone();
                     tokio::spawn(async move {
                         let listed = this.session.list_clients_result().await;
-                        let n = match &listed {
+                        let census = match &listed {
                             Ok(all) if !all.is_empty() => {
                                 AutoFollow::humans_in_own(&*this.session, all)
                             }
-                            _ => this.humans.lock().expect("humans").len() as u32,
+                            _ => None,
                         };
+                        let Some(mut n) = census else {
+                            return;
+                        };
+                        if n == 0 {
+                            if this.follow.maybe_follow(&*this.session, 0).await.is_some() {
+                                if let Ok(all) = this.session.list_clients_result().await {
+                                    if let Some(n2) = AutoFollow::humans_in_own(&*this.session, &all)
+                                    {
+                                        n = n2;
+                                    }
+                                }
+                            }
+                        }
                         this.radio.on_poll(n);
                         this.note_llm_idle(n);
                         if let Ok(all) = &listed {
@@ -222,13 +253,21 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                                 });
                             }
                         }
-                        let _ = this.follow.maybe_follow(&*this.session, n).await;
                         if let Some(reel) = this.roast.run_tick(n).await {
                             this.reply_channel(reel).await;
                         }
                     });
                 }
             }
+        }
+    }
+
+    fn now_playing_line(name: &str, artist: &str, album: &str) -> String {
+        let album = album.trim();
+        if album.is_empty() {
+            format!("♪ Now Playing: {name} - {artist}")
+        } else {
+            format!("♪ Now Playing: {name} - {artist} [{album}]")
         }
     }
 
@@ -311,7 +350,6 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                     h.remove(&client_id);
                     h.len() as u32
                 };
-                self.radio.on_poll(n);
                 self.note_llm_idle(n);
                 None
             }
@@ -323,7 +361,6 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         h.insert(client_id);
                         h.len() as u32
                     };
-                    self.radio.on_poll(n);
                     self.radio.note_human_activity(client_id);
                     self.note_llm_idle(n);
                 }
@@ -529,13 +566,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         let Some(ingest) = self.voice.ingest_opus(client_id, &opus, own, codec) else {
             return;
         };
-        let cfg = self.voice.config();
-        if ingest.speech && cfg.duck_music_on_speech && !self.speech.is_speaking() {
-            let _ = self
-                .station
-                .player
-                .duck_for_stt(self.voice.duck_volume() as i32);
-        }
+        // Node ducks only after the wake word. Ducking every voice packet
+        // chops the song whenever anyone talks, and STT is often down.
         let Some(utt) = ingest.utterance else {
             return;
         };
@@ -576,6 +608,9 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 .as_deref()
                 .map(|k| k.to_ascii_lowercase() == ww || k.to_ascii_lowercase().contains(&ww))
                 .unwrap_or(false);
+            if kws_detected && cfg.duck_music_on_speech && !speech.is_speaking() {
+                let _ = station.player.duck_for_stt(voice.duck_volume() as i32);
+            }
             let speak_buf = Arc::new(std::sync::Mutex::new(String::new()));
             let streamed = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let (sentence_tx, mut sentence_rx) = tokio::sync::mpsc::unbounded_channel::<String>();

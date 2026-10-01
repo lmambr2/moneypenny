@@ -35,6 +35,8 @@ pub enum StallAction {
 
 pub const MAX_STALL_RESUMES: u32 = 3;
 pub const STALL_RESUME_MIN_REMAINING_SEC: f64 = 8.0;
+/// Longer than ffmpeg `-reconnect_delay_max` (30s). Seeking a CDN URL drops the song.
+pub const HTTP_MIDTRACK_STALL_ATTEMPTS: u32 = 2_250;
 
 /// Known-length tracks in the last 5s. Duration `0` is unknown, not near the end.
 pub fn is_near_end_of_track(duration_sec: f64, elapsed_sec: f64) -> bool {
@@ -59,6 +61,24 @@ pub fn decide_stall_action(
         return StallAction::Resume;
     }
     StallAction::End
+}
+
+/// A network URL keeps the ffmpeg process so `-reconnect` can run. Seeking it ends the track.
+pub fn stall_action_for_url(action: StallAction, url: &str) -> StallAction {
+    let http = url.starts_with("http://") || url.starts_with("https://");
+    if http && action == StallAction::Resume {
+        StallAction::End
+    } else {
+        action
+    }
+}
+
+pub fn mid_track_stall_attempts(url: &str) -> u32 {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        HTTP_MIDTRACK_STALL_ATTEMPTS
+    } else {
+        500
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,9 +165,44 @@ pub fn build_ffmpeg_args(
         }
     }
     args.extend(
-        ["-f", "s16le", "-ar", "48000", "-ac", "2", "-acodec", "pcm_s16le", "-"]
-            .into_iter()
-            .map(str::to_string),
+        [
+            "-f",
+            "s16le",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-acodec",
+            "pcm_s16le",
+            "-",
+        ]
+        .into_iter()
+        .map(str::to_string),
+    );
+    args
+}
+
+/// Decode a yt-dlp stdout pipe. `-ss` is after `-i` because a pipe cannot seek.
+pub fn build_ffmpeg_pipe_args(seek_seconds: f64) -> Vec<String> {
+    let mut args = vec!["-nostdin".into(), "-i".into(), "pipe:0".into()];
+    if seek_seconds > 0.0 {
+        args.push("-ss".into());
+        args.push(seek_seconds.to_string());
+    }
+    args.extend(
+        [
+            "-f",
+            "s16le",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-acodec",
+            "pcm_s16le",
+            "-",
+        ]
+        .into_iter()
+        .map(str::to_string),
     );
     args
 }
@@ -159,7 +214,10 @@ mod tests {
     #[test]
     fn local_file_args() {
         let a = build_ffmpeg_args("/music/a.mp3", 0.0, None, None);
-        assert!(a.windows(2).any(|w| w == ["-protocol_whitelist", "file,http,https,tcp,tls,crypto"]));
+        assert!(
+            a.windows(2)
+                .any(|w| w == ["-protocol_whitelist", "file,http,https,tcp,tls,crypto"])
+        );
         assert!(a.windows(2).any(|w| w == ["-i", "/music/a.mp3"]));
         assert!(!a.iter().any(|s| s.contains("concat")));
         assert!(a.windows(2).any(|w| w == ["-ar", "48000"]));
@@ -173,6 +231,23 @@ mod tests {
         assert!(a.contains(&"-reconnect".into()));
         assert!(a.windows(2).any(|w| w == ["-ss", "12"]));
         assert!(a.windows(2).any(|w| w == ["-t", "30"]));
+    }
+
+    #[test]
+    fn pipe_does_not_open_the_cdn_url() {
+        let a = build_ffmpeg_pipe_args(12.0);
+        assert!(a.windows(2).any(|w| w == ["-i", "pipe:0"]));
+        let i = a.iter().position(|s| s == "pipe:0").unwrap();
+        let ss = a.iter().position(|s| s == "-ss").unwrap();
+        assert!(ss > i);
+        assert!(
+            !a.iter()
+                .any(|s| s.contains("reconnect") || s.contains("http"))
+        );
+        assert_eq!(
+            build_ffmpeg_pipe_args(0.0).iter().any(|s| s == "-ss"),
+            false
+        );
     }
 
     #[test]
@@ -258,5 +333,31 @@ mod tests {
         assert!(!is_near_end_of_track(0.0, 600.0));
         assert!(!is_near_end_of_track(180.0, 170.0));
         assert!(is_near_end_of_track(180.0, 176.0));
+    }
+
+    #[test]
+    fn http_silence_waits_out_reconnect_then_ends_without_a_seek() {
+        assert_eq!(
+            mid_track_stall_attempts("https://cdn.example/a"),
+            HTTP_MIDTRACK_STALL_ATTEMPTS
+        );
+        assert_eq!(mid_track_stall_attempts("/tmp/a.mp3"), 500);
+        let verdict = classify_stall(StallCheckInput {
+            empty_frame_attempts: HTTP_MIDTRACK_STALL_ATTEMPTS,
+            near_end_attempts: 250,
+            mid_track_attempts: HTTP_MIDTRACK_STALL_ATTEMPTS,
+            is_near_end: false,
+            wall_elapsed_sec: 50.0,
+            has_decoded_audio: true,
+        });
+        let action = decide_stall_action(verdict, 0, 1_000.0, true);
+        assert_eq!(
+            stall_action_for_url(action, "https://cdn.example/a"),
+            StallAction::End
+        );
+        assert_eq!(
+            stall_action_for_url(action, "/tmp/a.mp3"),
+            StallAction::Resume
+        );
     }
 }

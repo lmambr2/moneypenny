@@ -36,7 +36,9 @@ fn lexical_normalize(path: &Path) -> PathBuf {
 }
 
 const MAX_WALK_DEPTH: u32 = 64;
-const DEFAULT_EXTS: &[&str] = &[".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus"];
+const DEFAULT_EXTS: &[&str] = &[
+    ".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".opus",
+];
 
 #[derive(Debug, Clone)]
 struct IndexedSong {
@@ -54,7 +56,10 @@ pub struct Playlist {
 #[derive(Debug, Clone)]
 pub enum ResolveHit {
     Song(Track),
-    Playlist { playlist: Playlist, songs: Vec<Track> },
+    Playlist {
+        playlist: Playlist,
+        songs: Vec<Track>,
+    },
 }
 
 pub struct LocalProvider {
@@ -105,10 +110,26 @@ fn load_id3_cache(path: &Path) -> HashMap<String, CachedMeta> {
         out.insert(
             id.clone(),
             CachedMeta {
-                name: row.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                artist: row.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                album: row.get("album").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                genre: row.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                name: row
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                artist: row
+                    .get("artist")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                album: row
+                    .get("album")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                genre: row
+                    .get("genre")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 mtime_ms: row.get("mtimeMs").and_then(|x| x.as_i64()).unwrap_or(0),
             },
         );
@@ -210,7 +231,8 @@ impl Id3Shared {
             self.arm_for_open();
             return;
         }
-        let wait = crate::enrich::ms_until_window_closes(&now, crate::enrich::NIGHT_INDEX_WINDOW) + 60_000;
+        let wait =
+            crate::enrich::ms_until_window_closes(&now, crate::enrich::NIGHT_INDEX_WINDOW) + 60_000;
         let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let shared = self.clone();
         self.schedule(
@@ -316,7 +338,8 @@ impl Id3Shared {
 impl LocalProvider {
     pub fn new(music_dir: impl AsRef<Path>) -> Self {
         let music_dir = music_dir.as_ref().canonicalize().unwrap_or_else(|_| {
-            std::path::absolute(music_dir.as_ref()).unwrap_or_else(|_| music_dir.as_ref().to_path_buf())
+            std::path::absolute(music_dir.as_ref())
+                .unwrap_or_else(|_| music_dir.as_ref().to_path_buf())
         });
         Self {
             id3_cache_path: music_dir.join(".moneypenny-id3.json"),
@@ -430,7 +453,10 @@ impl LocalProvider {
                 Err(_) => continue,
             };
             if ft.is_symlink() {
-                if std::fs::metadata(&full).map(|m| m.is_file()).unwrap_or(false) {
+                if std::fs::metadata(&full)
+                    .map(|m| m.is_file())
+                    .unwrap_or(false)
+                {
                     self.index_by_extension(&full);
                 }
                 continue;
@@ -544,7 +570,10 @@ impl LocalProvider {
             .lock()
             .expect("m3u")
             .insert(real.clone(), playlist);
-        self.m3u_songs.lock().expect("m3u songs").insert(real, songs);
+        self.m3u_songs
+            .lock()
+            .expect("m3u songs")
+            .insert(real, songs);
     }
 
     fn parse_m3u(&self, content: &str, base_dir: &Path) -> Vec<Track> {
@@ -782,11 +811,7 @@ impl LocalProvider {
                 contains.push(s.track.clone());
             }
         }
-        if exact.is_empty() {
-            contains
-        } else {
-            exact
-        }
+        if exact.is_empty() { contains } else { exact }
     }
 
     pub fn artist_songs(&self, query: &str, limit: usize) -> Vec<Track> {
@@ -1192,7 +1217,11 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.mp3"), id3_file("Night Title", "Owl", "Moon", "Ambient")).unwrap();
+        std::fs::write(
+            dir.join("a.mp3"),
+            id3_file("Night Title", "Owl", "Moon", "Ambient"),
+        )
+        .unwrap();
         let db = Arc::new(mp_db::Database::open_in_memory().unwrap());
         let night = LocalProvider::new(&dir);
         night.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 12, 3, 0, 0)));
@@ -1236,7 +1265,11 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.mp3"), id3_file("Night Title", "Owl", "Moon", "Ambient")).unwrap();
+        std::fs::write(
+            dir.join("a.mp3"),
+            id3_file("Night Title", "Owl", "Moon", "Ambient"),
+        )
+        .unwrap();
         let db = Arc::new(mp_db::Database::open_in_memory().unwrap());
         let day = LocalProvider::new(&dir);
         day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 12, 15, 0, 0)));
@@ -1272,7 +1305,11 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.mp3"), id3_file("Night Title", "Owl", "Moon", "Ambient")).unwrap();
+        std::fs::write(
+            dir.join("a.mp3"),
+            id3_file("Night Title", "Owl", "Moon", "Ambient"),
+        )
+        .unwrap();
         let day = Arc::new(LocalProvider::new(&dir));
         day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 12, 15, 0, 0)));
         let arms = Arc::new(Mutex::new(Vec::<(u64, Box<dyn FnOnce() + Send>)>::new()));
@@ -1289,7 +1326,11 @@ mod tests {
         day.set_clock(Some(crate::enrich::CivilClock::at(2026, 9, 13, 3, 0, 0)));
         let (_, fire) = arms.lock().unwrap().pop().expect("afternoon arm");
         fire();
-        assert_eq!(arms.lock().unwrap().len(), 1, "stale parse armed an extra timer");
+        assert_eq!(
+            arms.lock().unwrap().len(),
+            1,
+            "stale parse armed an extra timer"
+        );
         assert_eq!(day.id3_parse_count(), 1);
         let raw = std::fs::read_to_string(dir.join(".moneypenny-id3.json")).unwrap();
         assert!(raw.contains("Night Title"), "{raw}");

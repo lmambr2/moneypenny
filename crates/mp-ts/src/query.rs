@@ -107,6 +107,14 @@ impl QueryClient {
         Ok((status, body))
     }
 
+    pub async fn client_update(&self, body: &serde_json::Value) -> Result<(), String> {
+        let (status, text) = self.post_json("/1/clientupdate?sid=1", body).await?;
+        if !(200..300).contains(&status) {
+            return Err(format!("clientupdate status={status} body={text}"));
+        }
+        Ok(())
+    }
+
     async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(u16, String), String> {
         if let Some(reason) = self.cooldown.reject_reason(now_ms()) {
             return Err(reason);
@@ -229,6 +237,58 @@ impl QueryClient {
             return Err(format!("clientmove failed ({status}): {}", body.chars().take(80).collect::<String>()));
         }
         Ok(())
+    }
+
+    /// GET /1/clientlist with channel ids. The UDP `clientlist` reply often omits `cid`.
+    pub async fn client_list_presence(&self) -> Result<Vec<crate::PresenceClient>, String> {
+        let (status, body) = self.get("/1/clientlist?-uid&-groups").await?;
+        if status != 200 {
+            return Err(format!(
+                "clientlist status={status} body={}",
+                body.chars().take(120).collect::<String>()
+            ));
+        }
+        let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let rows = v
+            .get("body")
+            .and_then(|b| b.as_array())
+            .or_else(|| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let id = row
+                    .get("clid")
+                    .or_else(|| row.get("client_id"))
+                    .and_then(|n| n.as_i64().or_else(|| n.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0) as i32;
+                if id == 0 {
+                    return None;
+                }
+                let channel_id = row
+                    .get("cid")
+                    .or_else(|| row.get("client_channel_id"))
+                    .and_then(|n| n.as_i64().or_else(|| n.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0) as u64;
+                let client_type = row
+                    .get("client_type")
+                    .and_then(|n| n.as_i64().or_else(|| n.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0) as i32;
+                let nickname = row
+                    .get("client_nickname")
+                    .or_else(|| row.get("nickname"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some(crate::PresenceClient {
+                    id,
+                    channel_id,
+                    client_type,
+                    nickname,
+                })
+            })
+            .collect())
     }
 
     /// GET /1/clientlist?-groups — nickname + client_servergroups.

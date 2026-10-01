@@ -26,7 +26,9 @@ fn host_matches(input: &str, tails: &[&str]) -> bool {
     let Some(h) = host_of(input) else {
         return false;
     };
-    tails.iter().any(|t| h == *t || h.ends_with(&format!(".{t}")))
+    tails
+        .iter()
+        .any(|t| h == *t || h.ends_with(&format!(".{t}")))
 }
 
 pub fn is_youtube_url(input: &str) -> bool {
@@ -43,7 +45,9 @@ pub fn is_bandcamp_url(input: &str) -> bool {
 
 pub fn is_spotify_ref(input: &str) -> bool {
     let s = input.trim();
-    if s.starts_with("spotify:track:") || s.starts_with("spotify:playlist:") || s.starts_with("spotify:album:")
+    if s.starts_with("spotify:track:")
+        || s.starts_with("spotify:playlist:")
+        || s.starts_with("spotify:album:")
     {
         return true;
     }
@@ -99,11 +103,7 @@ fn urlencoding_decode(s: &str) -> String {
         out.push(b[i] as char);
         i += 1;
     }
-    if out.is_empty() {
-        "Stream".into()
-    } else {
-        out
-    }
+    if out.is_empty() { "Stream".into() } else { out }
 }
 
 pub fn stream_track(url: &str) -> Option<Track> {
@@ -169,7 +169,11 @@ impl StreamBridge {
         if url.is_empty() || !assert_public_playback_url(&url) {
             return None;
         }
-        let svc = if is_tidal_url(input) { "Tidal" } else { "Spotify" };
+        let svc = if is_tidal_url(input) {
+            "Tidal"
+        } else {
+            "Spotify"
+        };
         Some(crate::track::Track {
             id: input.trim().to_string(),
             title: meta
@@ -187,7 +191,10 @@ impl StreamBridge {
             album: svc.into(),
             platform: crate::track::Platform::Stream,
             url: String::new(),
-            duration: meta.get("durationSec").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            duration: meta
+                .get("durationSec")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32,
             cover_url: meta
                 .get("coverUrl")
                 .and_then(|v| v.as_str())
@@ -240,7 +247,9 @@ fn urlencoding_query(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -269,7 +278,9 @@ mod tests {
 
     #[test]
     fn classifies_hosts() {
-        assert!(is_youtube_url("https://www.youtube.com/watch?v=hLOheGDwD_0"));
+        assert!(is_youtube_url(
+            "https://www.youtube.com/watch?v=hLOheGDwD_0"
+        ));
         assert!(is_youtube_url("https://youtu.be/hLOheGDwD_0"));
         assert!(is_x_twitter_url("https://x.com/i/status/1"));
         assert!(is_bandcamp_url("https://foo.bandcamp.com/track/bar"));
@@ -277,7 +288,9 @@ mod tests {
         assert!(is_streamable_url("https://example.com/radio.mp3"));
         assert!(!is_streamable_url("http://127.0.0.1/x.mp3"));
         assert!(is_youtube_url("https://www.youtube.com/watch?v=abc"));
-        assert!(!is_youtube_url("https://w.youtube.com.evil.example/watch?v=abc"));
+        assert!(!is_youtube_url(
+            "https://w.youtube.com.evil.example/watch?v=abc"
+        ));
     }
 
     #[test]

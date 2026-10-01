@@ -128,7 +128,9 @@ impl ChannelSpeech {
         self.speaking.store(true, Ordering::SeqCst);
         self.station.player.reset_failures();
         tracing::info!(path = %path.display(), "tts: airing in channel");
-        self.station.player.play(path.to_str().unwrap_or(""), 0.0, 0.0);
+        self.station
+            .player
+            .play(path.to_str().unwrap_or(""), 0.0, 0.0);
     }
 
     /// Call from the player TrackEnd handler. Restores parked music when needed.
@@ -145,9 +147,7 @@ impl ChannelSpeech {
         }
         let speaking = self.speaking.swap(false, Ordering::SeqCst);
         if g.suppress {
-            let fresh = g
-                .suppress_at
-                .is_some_and(|t| t.elapsed() <= SUPPRESS_TTL);
+            let fresh = g.suppress_at.is_some_and(|t| t.elapsed() <= SUPPRESS_TTL);
             g.suppress = false;
             g.suppress_at = None;
             g.saved = None;
@@ -287,10 +287,7 @@ mod tests {
         }
         let speech = ChannelSpeech::new(Arc::clone(&station));
         let _ = station.play_next();
-        assert_eq!(
-            station.queue.lock().unwrap().current().unwrap().id,
-            "b"
-        );
+        assert_eq!(station.queue.lock().unwrap().current().unwrap().id, "b");
         speech.speak(b"RIFF skip", "wav", false);
         assert!(speech.is_speaking());
         assert_eq!(speech.on_track_end(), TrackEndKind::Tts);

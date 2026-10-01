@@ -3,9 +3,9 @@
 
 //! YouTube → local library MP3. Failed saves never affect the playing stream.
 
+use mp_db::Database;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use mp_db::Database;
 
 use crate::blacklist::extract_video_id;
 use crate::youtube::YoutubeClient;
@@ -39,7 +39,13 @@ impl YtLibrary {
         find_saved_on_disk(&self.music_dir, &video_id)
     }
 
-    pub fn save_in_background(&self, video_id: String, title: String, artist: String, duration: u32) {
+    pub fn save_in_background(
+        &self,
+        video_id: String,
+        title: String,
+        artist: String,
+        duration: u32,
+    ) {
         let Some(video_id) = extract_video_id(&video_id) else {
             // X/Bandcamp page URLs are not safe -o template stems.
             return;
@@ -63,7 +69,9 @@ impl YtLibrary {
             let base = sanitize_base(&artist, &title, &vid);
             match youtube.download_audio_mp3(&vid, &out_dir, &base) {
                 Some(path) => {
-                    if let Err(e) = db.yt_saved().insert(&vid, &path, &title, &artist, duration as i64)
+                    if let Err(e) =
+                        db.yt_saved()
+                            .insert(&vid, &path, &title, &artist, duration as i64)
                     {
                         tracing::warn!(error = %e, video_id = %vid, "YT save: db insert failed");
                     } else {
@@ -131,7 +139,10 @@ pub fn sanitize_base(artist: &str, title: &str, video_id: &str) -> String {
     if id.is_empty() {
         return safe;
     }
-    format!("{} [{id}]", if safe.is_empty() { id.as_str() } else { &safe })
+    format!(
+        "{} [{id}]",
+        if safe.is_empty() { id.as_str() } else { &safe }
+    )
 }
 
 #[cfg(test)]
