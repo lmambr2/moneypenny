@@ -42,7 +42,7 @@
     "better-sqlite3": "^13.0.3",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
-    "multer": "^2.2.0",
+    "multer": "^2.5.0",
     "music-metadata": "^11.14.0",
     "pino": "^10.3.1",
     "swagger-ui-dist": "^5.32.13",
