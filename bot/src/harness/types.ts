@@ -40,11 +40,12 @@ export interface HarnessRetrieveChunk {
 
 export interface HarnessLlm {
   /** Grounded Q&A; may throw or return friendly error text. */
-  ask(question: string, conversationId?: string): Promise<string>;
+  ask(question: string, conversationId?: string, ctx?: { skill?: string }): Promise<string>;
   /** Fuzzy intent with optional tool calls. */
   chatForIntent?(
     userMessage: string,
     conversationId?: string,
+    opts?: { skill?: string },
   ): Promise<{
     content: string | null;
     toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>;
@@ -77,6 +78,18 @@ export interface RunHarnessTurnDeps {
   brainUrl?: string;
   channel?: import("../brain/index.js").TurnChannel;
   fetchImpl?: typeof fetch;
+  /** Directory of static skill markdown. Missing dir is a no-op. */
+  skillsDir?: string;
+  /** Pre-packed skills. Wins over skillsDir when set. */
+  skillText?: string;
+  /** When true, skill frontmatter tools intersect the safe allowlist. */
+  skillDeclaresTools?: boolean;
+  skillTools?: ReadonlySet<string>;
+  /** SQLite harness_turns. Ring `store` stays the dashboard view. */
+  durable?: import("./durable.js").DurableHarnessStore;
+  userUid?: string;
+  /** Dangerous harness tools (stop/vol/move). Skills still cannot grant them alone. */
+  allowDangerous?: boolean;
 }
 
 export interface HarnessTurnStore {

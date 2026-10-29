@@ -25,6 +25,7 @@ import {
   LLM_VOICE_MAX_TOKENS,
   LLM_VOICE_NUM_CTX,
   LlmClient,
+  TALKER_RESIDENT_NUM_CTX,
 } from "./client.js";
 import { ANALYST_SYSTEM_PROMPT, type DelegateClient } from "./delegate.js";
 import { FallbackLlmClient, type LlmRoute } from "./fallback-client.js";
@@ -52,6 +53,8 @@ export interface AskContext {
   fromVoice?: boolean;
   /** Stream complete sentences to TTS while the 12B is still generating. */
   onSentence?: (sentence: string) => Promise<void>;
+  /** Packed static skills (PR-H2). AgentRuntime paths only. */
+  skill?: string;
 }
 
 /**
@@ -105,6 +108,8 @@ export class LlmModule {
   private logger?: Logger;
   private systemPrompt: string;
   private temperature: number;
+  /** K7.9 — Talker weights on the penny GPU force 8k, including typed !ask. */
+  private talkerResident = false;
   private history: ConversationStore;
   private retrieve?: RetrievalHook;
   private workingTurns: number;
@@ -241,11 +246,27 @@ export class LlmModule {
     }
   }
 
+  /** Duplex health drives this. Unloaded Talker leaves the configured window. */
+  setTalkerResident(on: boolean): void {
+    this.talkerResident = on;
+  }
+
+  private pennyNumCtx(spoken: boolean): number {
+    if (this.talkerResident) return TALKER_RESIDENT_NUM_CTX;
+    return spoken ? LLM_VOICE_NUM_CTX : LLM_ASK_NUM_CTX;
+  }
+
   async ask(question: string, conversationId?: string, ctx?: AskContext): Promise<string> {
     this.logger?.debug({ question: question.slice(0, 80), conversationId }, "LLM ask");
     const spoken = ctx?.fromVoice === true;
     const system = spoken ? `${this.systemPrompt}\n\n${VOICE_RADIO_RULES}` : this.systemPrompt;
     const messages: ChatMessage[] = [{ role: "system", content: system }];
+    if (ctx?.skill?.trim()) {
+      messages.push({
+        role: "system",
+        content: `Operator skills (static, capped):\n\n${ctx.skill.trim()}`,
+      });
+    }
 
     // RAG (Phase 5/6/7) + P2 typed pack: inject doctrine with budgets + dedup.
     // Best-effort — retrieval failures never block the answer.
@@ -309,7 +330,7 @@ export class LlmModule {
         temperature: this.temperature,
         max_tokens: spoken ? LLM_VOICE_MAX_TOKENS : LLM_ASK_MAX_TOKENS,
         keepAlive: LLM_PENNY_KEEP_ALIVE,
-        numCtx: spoken ? LLM_VOICE_NUM_CTX : LLM_ASK_NUM_CTX,
+        numCtx: this.pennyNumCtx(spoken),
         think: !spoken,
         flashAttention: true,
       };
@@ -436,6 +457,8 @@ export class LlmModule {
       moveClientEnabled?: boolean;
       spoken?: boolean;
       onSentence?: (sentence: string) => Promise<void>;
+      /** Packed static skills (PR-H2). */
+      skill?: string;
     },
   ): Promise<{
     content: string | null;
@@ -453,9 +476,15 @@ export class LlmModule {
       delegationEnabled: this.isDelegateConfigured(),
       moveClientEnabled: opts?.moveClientEnabled,
     });
+    if (opts?.skill?.trim()) {
+      req.messages.splice(1, 0, {
+        role: "system",
+        content: `Operator skills (static, capped):\n\n${opts.skill.trim()}`,
+      });
+    }
     req.temperature = this.temperature;
     req.keepAlive = LLM_PENNY_KEEP_ALIVE;
-    req.numCtx = LLM_VOICE_NUM_CTX;
+    req.numCtx = this.pennyNumCtx(true);
     req.think = false;
     req.flashAttention = true;
     if (opts?.spoken) req.max_tokens = LLM_VOICE_MAX_TOKENS;

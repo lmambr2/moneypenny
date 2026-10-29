@@ -28,6 +28,11 @@ export interface TurnRequest {
     result?: string;
     error?: string;
   }>;
+  /**
+   * Packed static skills (PR-H2). AgentRuntime only. Not sent to the Talker.
+   * In-process brain appends this as a system message.
+   */
+  skill?: string;
   options?: {
     includeSources?: boolean;
     maxTools?: number;

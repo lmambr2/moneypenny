@@ -1,10 +1,15 @@
 import type { BrainTransport, ToolProposal, TurnRequest, TurnResult, TurnSource } from "./types.js";
 
+export interface InProcessSkillCtx {
+  skill?: string;
+}
+
 export interface InProcessBrainLlm {
-  ask(question: string, conversationId?: string): Promise<string>;
+  ask(question: string, conversationId?: string, ctx?: InProcessSkillCtx): Promise<string>;
   chatForIntent?(
     userMessage: string,
     conversationId?: string,
+    opts?: InProcessSkillCtx,
   ): Promise<{
     content: string | null;
     toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>;
@@ -86,9 +91,11 @@ export function createInProcessBrain(deps: InProcessBrainDeps): BrainTransport {
         }
       }
 
+      const skillCtx = req.skill?.trim() ? { skill: req.skill.trim() } : undefined;
+
       if (mode === "intent" && deps.llm.chatForIntent) {
         try {
-          const intent = await deps.llm.chatForIntent(text, req.conversationId);
+          const intent = await deps.llm.chatForIntent(text, req.conversationId, skillCtx);
           const raw = intent.toolCalls ?? [];
           const toolProposals: ToolProposal[] = raw.slice(0, maxTools).map((tc) => ({
             name: tc.name,
@@ -120,7 +127,7 @@ export function createInProcessBrain(deps: InProcessBrainDeps): BrainTransport {
 
       // ask (default); intent without chatForIntent falls through to ask
       try {
-        const reply = await deps.llm.ask(text, req.conversationId);
+        const reply = await deps.llm.ask(text, req.conversationId, skillCtx);
         return {
           turnId,
           clientTurnId: req.clientTurnId,

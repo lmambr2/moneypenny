@@ -8,6 +8,12 @@ export {
   KIND_TEXT,
 } from "./duplex.js";
 export {
+  DuplexPcmPump,
+  downsample48kTo24kMono,
+  talkerMono24kToStereo48k,
+} from "./duplex-pump.js";
+export { acceptUserAsr, userTextFromAgentMonologue } from "./duplex-text.js";
+export {
   type DuplexHealth,
   DuplexWatch,
   type DuplexWatchKind,
@@ -17,6 +23,7 @@ export {
   TALKER_VRAM_IDLE_MB,
   UNLOAD_TIMEOUT_MS,
 } from "./duplex-watch.js";
+export { type VoiceFloor, VoiceFloorController } from "./floor.js";
 export { matchVoiceMediaCommand } from "./media-router.js";
 export {
   isMusicSearchRouteText,

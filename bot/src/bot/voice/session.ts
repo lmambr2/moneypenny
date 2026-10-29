@@ -11,9 +11,15 @@ import type { BotConfig } from "../../data/config.js";
 import type { Logger } from "../../logger.js";
 import type { MusicProvider } from "../../music/provider.js";
 import type { RightsEngine, Subject } from "../../rights/index.js";
+import { userTextFromAgentMonologue } from "../../voice/duplex-text.js";
 import {
+  acceptUserAsr,
   createVadSegmenterAsync,
+  DuplexClient,
+  DuplexPcmPump,
+  DuplexWatch,
   defaultVoiceConfig,
+  downsample48kTo24kMono,
   effectiveDuckVolume,
   HttpSttClient,
   HttpTtsClient,
@@ -24,10 +30,12 @@ import {
   type TtsProvider,
   type Utterance,
   type VadSegmenter,
+  VoiceFloorController,
   type VoiceOutput,
   VoicePipeline,
   voiceReplyClearsSavedMusic,
 } from "../../voice/index.js";
+import { matchVoiceMediaCommand } from "../../voice/media-router.js";
 import { isMusicSearchRouteText } from "../../voice/music-command.js";
 import { MIN_PCM_BOOST_PEAK, prepareVoicePcm } from "../../voice/pcm.js";
 import { probeHttpStt, probeHttpTts } from "../../voice/probe.js";
@@ -60,6 +68,7 @@ export interface VoiceSessionDeps {
     clients: Array<{ id: number; uid: string; serverGroups: string[]; nickname: string }>,
   ) => void;
   /** Optional — voice ask/analyst turns go into the roast log. */
+  setTalkerResident?: (loaded: boolean) => void;
   roast?: {
     captureExchange(opts: {
       userUid?: string;
@@ -161,6 +170,21 @@ export class VoiceSession {
   private listenWindowMs = 15_000;
   /** Post-wake arm FSM (audit D2) — timers + partial dedupe. */
   private readonly speakerArm: SpeakerArmTracker;
+  /** Exclusive Opus owner (PR-D2). Player sends unless floor is duplex-speak. */
+  private readonly voiceFloor = new VoiceFloorController();
+  private readonly duplexWatch = new DuplexWatch();
+  private duplexClient: DuplexClient | null = null;
+  private duplexPcm: ReturnType<DuplexClient["connectPcm"]> | null = null;
+  private duplexPump: DuplexPcmPump | null = null;
+  private duplexTimer: ReturnType<typeof setInterval> | null = null;
+  private duplexHealth: {
+    ok: boolean;
+    loaded?: boolean;
+    engine?: string;
+    realtime?: boolean;
+    rtf?: number;
+    vram_mb?: number;
+  } | null = null;
   private lastArmedInboundLog = new Map<number, number>();
   private droppedNonVoiceCodec = 0;
   private droppedSelfEcho = 0;
@@ -210,6 +234,110 @@ export class VoiceSession {
 
   get isActive(): boolean {
     return this.pipeline != null;
+  }
+
+  /** True while the Talker pump owns the 20 ms slot. Player frames must not send. */
+  blocksPlayerVoice(): boolean {
+    return !this.voiceFloor.playerSends();
+  }
+
+  /** Radio bumper / music handoff. Piper-ack is owned by the voice reply path. */
+  setFloor(floor: "bumper" | "music" | "piper-ack" | "silence"): void {
+    if (floor === "music" && this.voiceFloor.floor === "duplex-speak") return;
+    this.voiceFloor.set(floor);
+  }
+
+  private sttProfile(): "wake" | "cascaded" | undefined {
+    if (this.deps.config.voice?.mode !== "duplex") return undefined;
+    const wake = this.duplexWatch.state;
+    if (wake === "fallback-cascaded" || wake === "fallback-rtf") return "cascaded";
+    return "wake";
+  }
+
+  private startDuplex(vc: ReturnType<typeof defaultVoiceConfig>): void {
+    if (vc.mode !== "duplex" || !vc.duplexUrl?.trim()) return;
+    this.duplexClient = new DuplexClient(vc.duplexUrl.trim());
+    try {
+      const encoder = createOpusEncoder();
+      this.duplexPump = new DuplexPcmPump(
+        encoder,
+        (opus) => this.deps.tsClient.sendVoiceData(opus),
+        () => this.voiceFloor.talkerSends(),
+      );
+    } catch (err) {
+      this.duplexPump = null;
+      this.deps.logger.warn({ err }, "Voice: duplex Opus pump unavailable");
+    }
+    this.duplexPcm = this.duplexClient.connectPcm({
+      onPcm: (pcm) => this.duplexPump?.pushTalkerPcm(pcm),
+      onAgentText: (text) => {
+        if (userTextFromAgentMonologue(text) !== null) return;
+        this.deps.logger.debug({ caption: text.slice(0, 80) }, "Voice: Talker caption");
+      },
+      onMeta: (meta) => {
+        if (!this.duplexPump) return;
+        if (typeof meta.speaking === "boolean") this.voiceFloor.onTalkerSpeaking(meta.speaking);
+      },
+    });
+    void this.duplexPcm.waitOpen().catch((err) => {
+      this.deps.logger.warn({ err }, "Voice: duplex PCM socket failed");
+    });
+    void this.pollDuplexHealth();
+    this.duplexTimer = setInterval(() => void this.pollDuplexHealth(), 2000);
+  }
+
+  private stopDuplex(): void {
+    if (this.duplexTimer) {
+      clearInterval(this.duplexTimer);
+      this.duplexTimer = null;
+    }
+    this.duplexPcm?.close();
+    this.duplexPcm = null;
+    this.duplexPump = null;
+    this.duplexClient = null;
+    this.duplexHealth = null;
+    this.voiceFloor.set("music");
+    this.deps.setTalkerResident?.(false);
+  }
+
+  private async pollDuplexHealth(): Promise<void> {
+    if (!this.duplexClient) return;
+    const health = await this.duplexClient.health();
+    this.duplexHealth = health;
+    this.deps.setTalkerResident?.(health.ok === true && health.loaded === true);
+    const tick = this.duplexWatch.applyHealth(health, Date.now());
+    await this.runDuplexActions(tick.actions);
+  }
+
+  private async runDuplexActions(actions: Array<"warm" | "unload" | "mute_out">): Promise<void> {
+    if (!this.duplexClient || actions.length === 0) return;
+    for (const action of actions) {
+      try {
+        if (action === "warm") await this.duplexClient.warm();
+        else if (action === "unload") await this.duplexClient.unload();
+        else await this.duplexClient.muteOut();
+      } catch (err) {
+        this.deps.logger.warn({ err, action }, "Voice: duplex control failed");
+      }
+    }
+  }
+
+  private forwardUserPcmToTalker(pcm: Buffer, channels: number): void {
+    if (!this.duplexPcm || this.duplexWatch.state !== "armed-duplex") return;
+    const mono = downsample48kTo24kMono(pcm, channels);
+    if (mono.length >= 2) this.duplexPcm.sendPcm(mono);
+  }
+
+  /** Whisper final only. Mute Talker and take the Piper floor. Never 0x02. */
+  private noteDuplexUserFinal(text: string): void {
+    if (this.deps.config.voice?.mode !== "duplex") return;
+    if (this.duplexWatch.state !== "armed-duplex" || !text) return;
+    const media = !!matchVoiceMediaCommand(text);
+    this.voiceFloor.set("piper-ack");
+    this.deps.logger.debug({ media }, "Voice: duplex user final — Piper owns the floor");
+    void this.duplexClient?.muteOut().catch((err) => {
+      this.deps.logger.debug({ err }, "Voice: Talker mute_out failed");
+    });
   }
 
   /** Refresh clientId → groups cache (called from idle poller). */
@@ -377,6 +505,7 @@ export class VoiceSession {
       },
       "Voice pipeline enabled (streaming STT)",
     );
+    this.startDuplex(vc);
   }
 
   /** Sidecar + pipeline status for the Settings voice smoke panel. */
@@ -393,6 +522,17 @@ export class VoiceSession {
     watchword: string;
     requireWatchword: boolean;
     inboundPackets: number;
+    mode: "cascaded" | "duplex";
+    floor: string;
+    wake: string;
+    duplex: {
+      ok: boolean;
+      loaded: boolean;
+      engine?: string;
+      realtime?: boolean;
+      rtf?: number;
+      vram_mb?: number;
+    } | null;
   }> {
     const vc = { ...defaultVoiceConfig(), ...this.deps.config.voice };
     const [sttAvailable, ttsAvailable] = await Promise.all([
@@ -412,6 +552,19 @@ export class VoiceSession {
       watchword: vc.watchword,
       requireWatchword: vc.requireWatchword,
       inboundPackets: this.inboundPackets,
+      mode: vc.mode === "duplex" ? "duplex" : "cascaded",
+      floor: this.voiceFloor.floor,
+      wake: this.duplexWatch.state,
+      duplex: this.duplexHealth
+        ? {
+            ok: this.duplexHealth.ok,
+            loaded: this.duplexHealth.loaded === true,
+            engine: this.duplexHealth.engine,
+            realtime: this.duplexHealth.realtime,
+            rtf: this.duplexHealth.rtf,
+            vram_mb: this.duplexHealth.vram_mb,
+          }
+        : null,
     };
   }
 
@@ -449,6 +602,7 @@ export class VoiceSession {
 
   /** Tear down STT/TTS listeners (Settings toggle off or config change). */
   disable(): void {
+    this.stopDuplex();
     if (this.voiceHandler) {
       this.deps.tsClient.off("voiceData", this.voiceHandler);
       this.deps.tsClient.releaseInboundVoiceCapture();
@@ -544,6 +698,7 @@ export class VoiceSession {
    * voice transport command (pause/stop) just finished speaking.
    */
   async handleTrackEnd(playNext: () => Promise<boolean>): Promise<boolean> {
+    if (this.voiceFloor.floor === "piper-ack") this.voiceFloor.set("music");
     if (this.suppressNextTrackAdvance) {
       const ageMs = Date.now() - this.suppressArmedAt;
       this.suppressNextTrackAdvance = false;
@@ -891,7 +1046,7 @@ export class VoiceSession {
 
     const samples = Math.floor(48_000 * (this.silenceTailMs / 1000));
     const silence = Buffer.alloc(samples * 2);
-    const out = await this.sttClient.feedStream(clientId, silence, 48_000, 1);
+    const out = await this.sttClient.feedStream(clientId, silence, 48_000, 1, this.sttProfile());
     this.applyStreamResult(clientId, out, { peak: 0, pcmBytes: silence.length, channels: 1 });
 
     buf.vad?.flush();
@@ -949,7 +1104,14 @@ export class VoiceSession {
     const peak = prep.peak;
     buf.utterancePeak = Math.max(buf.utterancePeak, peak);
 
-    const out = await this.sttClient.feedStream(clientId, pcmForStt, 48_000, channels);
+    this.forwardUserPcmToTalker(pcmForStt, channels);
+    const out = await this.sttClient.feedStream(
+      clientId,
+      pcmForStt,
+      48_000,
+      channels,
+      this.sttProfile(),
+    );
     if (this.isArmed(clientId) && rawPeak >= VoiceSession.MIN_SPEECH_PEAK) {
       this.touchArmedWindow(clientId);
       this.deps.logger.debug(
@@ -1155,6 +1317,7 @@ export class VoiceSession {
     const gen = (this.voiceTurnGen.get(clientId) ?? 0) + 1;
     this.voiceTurnGen.set(clientId, gen);
     const kwsDetected = !!out.keyword;
+    this.noteDuplexUserFinal(acceptUserAsr(out.final));
     void this.processVoiceTurn(clientId, gen, out.final, utterance, kwsDetected);
   }
 
@@ -1195,6 +1358,9 @@ export class VoiceSession {
 
   private armSpeaker(clientId: number): void {
     this.speakerArm.arm(clientId);
+    if (this.deps.config.voice?.mode !== "duplex") return;
+    const tick = this.duplexWatch.onWatchword(this.duplexHealth?.loaded === true);
+    void this.runDuplexActions(tick.actions);
   }
 
   /**
@@ -1254,6 +1420,7 @@ export class VoiceSession {
     this.deps.logger.info({ clientId }, "Voice: armed window expired — restoring music volume");
     void this.sttClient?.resetStream(clientId);
     this.releaseCaptureDuck(clientId);
+    if (!this.anySpeakerArmed()) this.duplexWatch.onListenExpired();
   }
 
   private schedulePostDuckCaptureReset(clientId: number): void {

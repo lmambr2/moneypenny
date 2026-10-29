@@ -19,8 +19,12 @@ This box now has **two R9700s (32 GB each) + a disabled/unused Raphael iGPU**.
 Identify cards by **PCI / ROCm UUID**, not `GPU 0`. Display = `0000:03:00.0`
 (`GPU-fc88d268d1867ded`). Infer / Penny = `0000:07:00.0` (`GPU-e8d920aa6c70376b`).
 `scripts/detect-gpu.sh` still skips Raphael / Granite Ridge iGPU names. Official
-PersonaPlex (NVIDIA CUDA) is not a path here; duplex stays **cascaded** until
-`scripts/duplex-rtf.sh` measures moshi.cpp Vulkan q4_k.
+PersonaPlex (NVIDIA CUDA) is not a path here. The AMD adapter is
+`docker-compose.server.amd.yml` (`personaplex`, profile `voice-duplex`): it
+publishes `:8999` and mounts only `PENNY_RENDER_NODE` (this box: infer
+`renderD129`). `voice.mode` stays **cascaded** until `scripts/duplex-rtf.sh`
+exits 0 against engine `moshicpp-vulkan`. A missing `MOSHI_CPP_BIN` leaves
+`loaded=false`, so the gate fails closed.
 
 | Job | Where | Model |
 |---|---|---|

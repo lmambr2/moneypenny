@@ -19,6 +19,8 @@ export const LLM_DESK_KEEP_ALIVE = "5m";
 
 /** Never default 256k. Voice 8k, typed !ask 32k. */
 export const LLM_VOICE_NUM_CTX = 8192;
+/** While Talker weights are resident, penny chat stays at 8k (K7.9). */
+export const TALKER_RESIDENT_NUM_CTX = 8_192;
 export const LLM_ASK_NUM_CTX = 32_768;
 
 export interface LlmClientOptions {
@@ -34,6 +36,10 @@ export interface LlmClientOptions {
  */
 export function normalizeLlmBaseUrl(url: string): string {
   return url.replace(/\/+$/, "").replace(/\/v1$/i, "");
+}
+
+export function isOllamaBaseUrl(url: string): boolean {
+  return /:11434\b/i.test(url) || /ollama/i.test(url);
 }
 
 export interface ChatMessage {

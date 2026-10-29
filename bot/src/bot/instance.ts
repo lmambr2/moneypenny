@@ -178,6 +178,7 @@ export class BotInstance extends EventEmitter {
   private routed: RoutedCommandExecutor;
   private mempalace: MemPalaceClient | null = null;
   private harnessStore: import("../harness/index.js").HarnessTurnStore | null = null;
+  private harnessDurable: import("../harness/durable.js").DurableHarnessStore | null = null;
   private aceStep: AceStepClient | null = null;
   private generateProvider: GenerateProvider;
   private icecastTee: IcecastTee;
@@ -688,7 +689,9 @@ export class BotInstance extends EventEmitter {
       isConnected: () => this.connected,
       onClientList: () => {},
       roast: this.roast,
+      setTalkerResident: (on) => this.llm.getModule()?.setTalkerResident(on),
     });
+    this.radio.setOnVoiceFloor((floor) => this.voice.setFloor(floor));
 
     this.routed = new RoutedCommandExecutor({
       bot: this,
@@ -1081,17 +1084,25 @@ export class BotInstance extends EventEmitter {
       allowDangerous?: boolean;
     },
   ): Promise<import("../harness/index.js").HarnessTurn> {
-    const { runHarnessTurn, InMemoryHarnessStore } = await import("../harness/index.js");
+    const { runHarnessTurn, InMemoryHarnessStore, DurableHarnessStore } = await import(
+      "../harness/index.js"
+    );
     if (!this.harnessStore) {
       this.harnessStore = new InMemoryHarnessStore(50);
     }
+    if (!this.harnessDurable) {
+      this.harnessDurable = new DurableHarnessStore(this.database.db);
+    }
     const mode = opts?.mode === "intent" ? "intent" : "ask";
     const mod = this.llm.getModule();
+    const dataDir = dirname(this.database.db.name);
+    const skillsDir = dataDir && dataDir !== "." ? join(dataDir, "skills") : undefined;
     return runHarnessTurn(question, mode, {
       llm: mod
         ? {
-            ask: (q, conv) => mod.ask(q, conv),
-            chatForIntent: (q, conv) => mod.chatForIntent(q, conv),
+            ask: (q: string, conv?: string, ctx?: { skill?: string }) => mod.ask(q, conv, ctx),
+            chatForIntent: (q: string, conv?: string, intentOpts?: { skill?: string }) =>
+              mod.chatForIntent(q, conv, intentOpts),
           }
         : null,
       retrieve: async (q) => this.llm.retrieveForHarness(q),
@@ -1105,6 +1116,10 @@ export class BotInstance extends EventEmitter {
         });
       },
       store: this.harnessStore,
+      durable: this.harnessDurable,
+      skillsDir,
+      allowDangerous:
+        opts?.allowDangerous === true || this.config.harnessIntentAllowDangerous === true,
       conversationId: "harness-dashboard",
     });
   }
@@ -1148,10 +1163,11 @@ export class BotInstance extends EventEmitter {
 
   /** Phase D — LLM surface for in-process brain (null when LLM off). */
   getLlmModuleForBrain(): {
-    ask: (q: string, conv?: string) => Promise<string>;
+    ask: (q: string, conv?: string, ctx?: { skill?: string }) => Promise<string>;
     chatForIntent: (
       q: string,
       conv?: string,
+      opts?: { skill?: string },
     ) => Promise<{
       content: string | null;
       toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>;
@@ -1160,8 +1176,8 @@ export class BotInstance extends EventEmitter {
     const mod = this.llm.getModule();
     if (!mod) return null;
     return {
-      ask: (q, conv) => mod.ask(q, conv),
-      chatForIntent: (q, conv) => mod.chatForIntent(q, conv),
+      ask: (q, conv, ctx) => mod.ask(q, conv, ctx),
+      chatForIntent: (q, conv, intentOpts) => mod.chatForIntent(q, conv, intentOpts),
     };
   }
 

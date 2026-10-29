@@ -7,7 +7,7 @@ Official Moshi (`python -m moshi.server` on `:8998`) is NVIDIA CUDA and is
 | Image | `engine` | When |
 |---|---|---|
 | This mock (`voice-duplex-dev`) | `mock` | CI + contract tests. No GPU. |
-| cpp-bridge (later, PR-D1.5 / A1) | `moshicpp-vulkan` | AMD R9700 q4_k — **GA gated on `scripts/duplex-rtf.sh`** |
+| cpp-bridge (`cpp-bridge/bridge.py`, compose `docker-compose.server.amd.yml`) | `moshicpp-vulkan` | AMD infer card. **GA gated on `scripts/duplex-rtf.sh`.** Warm without `MOSHI_CPP_BIN` stays `loaded=false`. |
 | NVIDIA moshi.server | `moshi-cuda` | Not used here (no NVIDIA GPU) |
 
 Mock `unload` → `{ ok:true, loaded:false, realtime:false, vram_mb:0 }`.

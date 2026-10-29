@@ -1,4 +1,9 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
+import { DurableHarnessStore } from "./durable.js";
 import { runHarnessTurn } from "./run-turn.js";
 import { InMemoryHarnessStore } from "./store.js";
 
@@ -139,5 +144,42 @@ describe("runHarnessTurn (H1/H2/H5)", () => {
       now: () => 5000,
     });
     expect(turn.error).toMatch(/not enabled/i);
+  });
+
+  it("injects packed skills and refuses a tool outside the skill list", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mp-h2-"));
+    writeFileSync(
+      join(root, "dj.md"),
+      "---\nname: hangar-dj\ntools: [play_music]\nmaxSteps: 2\n---\nPrefer local.",
+    );
+    const db = new Database(":memory:");
+    const durable = new DurableHarnessStore(db);
+    const turn = await runHarnessTurn("play ambient", "intent", {
+      llm: {
+        ask: async () => "ok",
+        chatForIntent: async (msg, _c, opts) => {
+          expect(opts?.skill).toMatch(/Prefer local/);
+          if (String(msg).includes("Tool results:")) {
+            return { content: "queued", toolCalls: [] };
+          }
+          return {
+            content: null,
+            toolCalls: [
+              { name: "play_music", arguments: { query: "ambient" } },
+              { name: "move_all_clients", arguments: {} },
+            ],
+          };
+        },
+      },
+      executeTool: async (name) => ({ ok: true, result: `ran ${name}` }),
+      skillsDir: root,
+      durable,
+      idFactory: () => "skill-1",
+      now: () => 9000,
+    });
+    expect(turn.tools.find((t) => t.name === "play_music")?.ok).toBe(true);
+    expect(turn.tools.find((t) => t.name === "move_all_clients")?.ok).toBe(false);
+    expect(durable.list()[0]?.userText).toBe("play ambient");
+    expect(durable.list()[0]?.steps).toBeGreaterThan(0);
   });
 });

@@ -1,0 +1,36 @@
+# AMD PersonaPlex Talker adapter (PR-A1).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.server.amd.yml \
+#     --profile voice-duplex up -d --build personaplex
+#
+# Mount only the infer / Penny render node. Do not pass the display card.
+# On this workstation that node is renderD129 (PCI 0000:07:00.0). DRM minors
+# move — set PENNY_RENDER_NODE from the card you intend.
+#
+# This overlay does not set voice.mode=duplex. Stay cascaded until
+#   DUPLEX_URL=http://127.0.0.1:8999 ./scripts/duplex-rtf.sh
+# exits 0 (engine moshicpp-vulkan, loaded, realtime).
+
+services:
+  personaplex:
+    build:
+      context: ./services/personaplex
+      dockerfile: cpp-bridge/Dockerfile.amd
+    profiles: ["voice-duplex"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8999:8999"
+    devices:
+      - ${PENNY_RENDER_NODE:-/dev/dri/renderD129}:/dev/dri/renderD128
+    group_add:
+      - "${RENDER_GID:-992}"
+      - "${VIDEO_GID:-44}"
+    environment:
+      - TALKER_VOICE=${TALKER_VOICE:-NATF2}
+      - MOSHI_CPP_BIN=${MOSHI_CPP_BIN:-}
+      - MOSHI_MODEL=${MOSHI_MODEL:-}
+      - VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/radeon_icd.x86_64.json}
+    volumes:
+      - ${MOSHI_MODEL_DIR:-./models/personaplex}:/models:ro
+    networks:
+      - moneypenny

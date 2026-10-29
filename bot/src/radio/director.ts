@@ -69,6 +69,8 @@ export interface RadioDirectorDeps {
   refreshPresence?: () => Promise<void>;
   /** Injectable clock (ms epoch) for cooldown/rate tests. */
   now?: () => number;
+  /** Duplex floor: bumper takes the send slot; music gives it back (PR-D2). */
+  onVoiceFloor?: (floor: "bumper" | "music") => void;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (h: ReturnType<typeof setTimeout>) => void;
 }
@@ -76,6 +78,7 @@ export interface RadioDirectorDeps {
 const HOUR_MS = 3_600_000;
 
 export class RadioDirector {
+  private onVoiceFloor?: (floor: "bumper" | "music") => void;
   private pendingAfterBumper = false;
   private bumperInFlight = false;
   private lastBumperAt = 0;
@@ -112,7 +115,22 @@ export class RadioDirector {
   /** Last bumper that actually started playing — used by `!radio pin` (§6.5). */
   private lastPlayed: LastPlayedBumper | null = null;
 
-  constructor(private deps: RadioDirectorDeps) {}
+  constructor(private deps: RadioDirectorDeps) {
+    this.onVoiceFloor = deps.onVoiceFloor;
+  }
+
+  /** Wired after VoiceSession exists. Bumper playback takes the send floor. */
+  setOnVoiceFloor(fn: (floor: "bumper" | "music") => void): void {
+    this.onVoiceFloor = fn;
+  }
+
+  private noteVoiceFloor(floor: "bumper" | "music"): void {
+    try {
+      this.onVoiceFloor?.(floor);
+    } catch (err) {
+      this.deps.logger.debug?.({ err }, "radio: voice floor hook failed");
+    }
+  }
 
   /**
    * Operator asked for a specific song. Cancel pending dead-air restock and
@@ -171,6 +189,7 @@ export class RadioDirector {
     if (this.pendingAfterBumper) {
       // Our own bumper just ended (§5.2) — consume the boundary, don't re-inject.
       this.pendingAfterBumper = false;
+      this.noteVoiceFloor("music");
       if (this.autoProgramAfterBumper) {
         // Dead-air sequence: the fill bumper has finished — now restock music
         // from the active profile (it starts playback itself; don't advance).
@@ -297,6 +316,7 @@ export class RadioDirector {
       this.cancelDeadAir();
       this.deps.player.resetFailures();
       this.markPlayed(bumper);
+      this.noteVoiceFloor("bumper");
       this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
       this.deps.logger.info(
         { path: bumper.path, label: bumper.label, forced: true },
@@ -306,6 +326,7 @@ export class RadioDirector {
     } catch (err) {
       this.deps.logger.warn({ err }, "radio: forced bumper failed");
       this.pendingAfterBumper = false;
+      this.noteVoiceFloor("music");
       return false;
     }
   }
@@ -432,12 +453,14 @@ export class RadioDirector {
       this.pendingAfterBumper = true;
       this.deps.player.resetFailures();
       this.markPlayed(bumper);
+      this.noteVoiceFloor("bumper");
       this.deps.player.play(bumper.path, 0, 0, { volumePctFloor: cfg.speechVolumePct ?? 85 });
       this.deps.logger.info({ path: bumper.path, label: bumper.label }, "radio: bumper injected");
       return true;
     } catch (err) {
       this.deps.logger.warn({ err }, "radio: bumper build/play failed — advancing");
       this.pendingAfterBumper = false;
+      this.noteVoiceFloor("music");
       return false;
     } finally {
       this.bumperInFlight = false;

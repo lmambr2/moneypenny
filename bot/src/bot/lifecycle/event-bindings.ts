@@ -24,6 +24,7 @@ export interface PlayerEventBindings {
 
 export function bindPlayerEvents(deps: PlayerEventBindings): void {
   deps.player.on("frame", (opusFrame: Buffer) => {
+    if (deps.voice.blocksPlayerVoice?.()) return;
     deps.tsClient.sendVoiceData(opusFrame);
   });
 

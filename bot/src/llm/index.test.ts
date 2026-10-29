@@ -168,6 +168,15 @@ describe("LlmModule history", () => {
     await mod.ask("what is INTSUM", "voice", { fromVoice: true });
     expect(requests[1].think).toBe(false);
     expect(requests[1].numCtx).toBe(8192);
+
+    mod.setTalkerResident(true);
+    await mod.ask("what is INTSUM");
+    expect(requests[2].numCtx).toBe(8_192);
+    await mod.ask("what is INTSUM", "voice", { fromVoice: true, skill: "Prefer local." });
+    expect(requests[3].numCtx).toBe(8_192);
+    expect(requests[3].messages.map((m) => m.role)).toContain("system");
+    expect(String(requests[3].messages[1].content)).toMatch(/Prefer local/);
+    mod.setTalkerResident(false);
     expect(String(requests[1].messages[0].content)).toMatch(/voice radio/i);
   });
 

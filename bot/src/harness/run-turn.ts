@@ -5,6 +5,8 @@ import {
   resolveBrainTransport,
   type TurnMode,
 } from "../brain/index.js";
+import { loadSkills } from "./skills.js";
+import { HARNESS_DANGEROUS_TOOLS, HARNESS_SAFE_TOOLS } from "./tool-policy.js";
 import type {
   HarnessMode,
   HarnessSource,
@@ -78,14 +80,29 @@ export async function runHarnessTurn(
       fetchImpl: deps.fetchImpl,
     });
 
+  const loaded =
+    deps.skillText !== undefined
+      ? {
+          text: deps.skillText,
+          declaresTools: deps.skillDeclaresTools === true,
+          tools: new Set(deps.skillTools ?? []),
+          maxSteps: undefined as number | undefined,
+        }
+      : deps.skillsDir
+        ? loadSkills(deps.skillsDir)
+        : null;
+  const skillText = loaded?.text?.trim() || undefined;
+  const skillTools = loaded?.declaresTools ? loaded.tools : null;
+
   const turnMode: TurnMode = harnessMode === "intent" ? "intent" : "ask";
   const maxTools = 8;
-  const maxRounds = 4;
+  const maxRounds = loaded?.maxSteps && loaded.maxSteps > 0 ? Math.min(4, loaded.maxSteps) : 4;
   const tools: HarnessToolRecord[] = [];
   const replyParts: string[] = [];
   let sources: ReturnType<typeof mapSources> = [];
   let lastError: string | undefined;
   let lastTurnId = id;
+  let steps = 0;
   let toolResults:
     | Array<{ name: string; ok: boolean; result?: string; error?: string }>
     | undefined;
@@ -99,10 +116,12 @@ export async function runHarnessTurn(
         conversationId: deps.conversationId,
         mode: turnMode,
         toolResults,
+        skill: skillText,
         options: { includeSources: true, maxTools: maxTools - tools.length },
       },
       brain,
     );
+    steps += 1;
     lastTurnId = result.turnId || lastTurnId;
     if (result.sources.length) sources = mapSources(result.sources);
     if (result.replyText.trim()) replyParts.push(result.replyText.trim());
@@ -125,6 +144,7 @@ export async function runHarnessTurn(
           mode: harnessMode,
         },
         deps,
+        steps,
       );
     }
     if (result.error) lastError = result.error;
@@ -132,6 +152,20 @@ export async function runHarnessTurn(
     if (result.toolProposals.length === 0) break;
 
     let disposed: HarnessToolRecord[];
+    const policy = deps.allowDangerous
+      ? new Set([...HARNESS_SAFE_TOOLS, ...HARNESS_DANGEROUS_TOOLS])
+      : HARNESS_SAFE_TOOLS;
+    const gated = result.toolProposals.map((p) => {
+      if (skillTools && (!skillTools.has(p.name) || !policy.has(p.name))) {
+        return {
+          proposal: p,
+          blocked: `tool not in skill ∩ channel policy: ${p.name}`,
+        };
+      }
+      return { proposal: p, blocked: "" };
+    });
+    const blocked = gated.filter((g) => g.blocked);
+    const allowed = gated.filter((g) => !g.blocked).map((g) => g.proposal);
     if (!deps.executeTool) {
       disposed = result.toolProposals.map((p) => ({
         name: p.name,
@@ -140,7 +174,7 @@ export async function runHarnessTurn(
         error: "no tool executor",
       }));
     } else {
-      const raw = await disposeToolProposals(result.toolProposals, deps.executeTool);
+      const raw = await disposeToolProposals(allowed, deps.executeTool);
       disposed = raw.map((t) => ({
         name: t.name,
         args: t.args,
@@ -148,9 +182,18 @@ export async function runHarnessTurn(
         result: t.result,
         error: t.error,
       }));
+      for (const g of blocked) {
+        disposed.push({
+          name: g.proposal.name,
+          args: g.proposal.arguments ?? {},
+          ok: false,
+          error: g.blocked,
+        });
+      }
     }
     tools.push(...disposed);
     if (!deps.executeTool) break;
+    if (allowed.length === 0) break;
     toolResults = disposed.map((t) => ({
       name: t.name,
       ok: t.ok,
@@ -179,7 +222,7 @@ export async function runHarnessTurn(
     ...(lastError ? { error: lastError } : {}),
   };
 
-  return push(turn, deps);
+  return push(turn, deps, steps);
 }
 
 function mapSources(
@@ -193,7 +236,23 @@ function mapSources(
   }));
 }
 
-function push(turn: HarnessTurn, deps: RunHarnessTurnDeps): HarnessTurn {
+function push(turn: HarnessTurn, deps: RunHarnessTurnDeps, steps = 0): HarnessTurn {
   deps.store?.push(turn);
+  if (deps.durable && turn.user) {
+    deps.durable.insert({
+      id: turn.id,
+      at: turn.at,
+      channel: deps.channel ?? "dashboard",
+      conversationId: deps.conversationId,
+      userUid: deps.userUid,
+      mode: turn.mode,
+      userText: turn.user,
+      replyText: turn.reply,
+      toolsJson: JSON.stringify(turn.tools),
+      sourcesJson: JSON.stringify(turn.sources),
+      error: turn.error,
+      steps,
+    });
+  }
   return turn;
 }
