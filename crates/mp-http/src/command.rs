@@ -744,6 +744,7 @@ async fn cmd_ask(
             include_sources: Some(true),
             max_tools: None,
         }),
+        skill: None,
     };
     let r = brain.complete(req).await;
     if !r.reply_text.trim().is_empty() {

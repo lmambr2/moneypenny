@@ -4,12 +4,13 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use serde_json::Value;
+
 use crate::complete::complete_turn;
-use crate::factory::{transport_from_settings, BrainTransport};
+use crate::factory::{BrainTransport, transport_from_settings};
 use crate::in_process::{InProcessBrain, RetrieveFn};
 use crate::llm::LlmSettings;
 use crate::types::{TurnRequest, TurnResponse};
-use serde_json::Value;
 
 /// Process-wide brain handle. `BRAIN_URL` vs in-process is resolved at build
 /// time; `update_llm` rebuilds the in-process client when Settings change.
@@ -91,8 +92,14 @@ impl BrainRuntime {
         }
     }
 
-    /// Custom-system completion (roast grader). Never used on skip.
-    /// Returns None when LLM is disabled or the request fails (fail-open).
+    /// While Talker weights are resident, penny chat uses the 8k window.
+    pub async fn set_talker_resident(&self, on: bool) {
+        let transport = self.inner.read().await.transport.clone();
+        if let crate::factory::BrainTransport::InProcess(brain) = transport {
+            brain.set_talker_resident(on);
+        }
+    }
+
     pub async fn set_delta_hook(&self, hook: Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>) {
         let transport = self.inner.read().await.transport.clone();
         if let crate::factory::BrainTransport::InProcess(brain) = transport {
@@ -104,6 +111,8 @@ impl BrainRuntime {
         self.inner.write().await.plain_hook = hook;
     }
 
+    /// Custom-system completion (roast grader). Never used on skip.
+    /// Returns None when LLM is disabled or the request fails (fail-open).
     pub async fn complete_plain(&self, system: &str, user: &str) -> Option<String> {
         let (settings, hook) = {
             let g = self.inner.read().await;
@@ -222,6 +231,7 @@ mod tests {
             subject: None,
             mode: Some(TurnMode::Intent),
             options: None,
+            skill: None,
         }
     }
 

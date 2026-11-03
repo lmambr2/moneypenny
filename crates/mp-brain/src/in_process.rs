@@ -67,6 +67,12 @@ impl InProcessBrain {
         }
     }
 
+    pub fn set_talker_resident(&self, on: bool) {
+        if let Some(llm) = &self.llm {
+            llm.set_talker_resident(on);
+        }
+    }
+
     pub fn with_id_factory(mut self, f: impl Fn() -> String + Send + Sync + 'static) -> Self {
         self.id_factory = Arc::new(f);
         self
@@ -138,9 +144,10 @@ impl InProcessBrain {
         }
 
         let spoken = req.channel == TurnChannel::Voice;
+        let skill = req.skill.as_deref();
         if mode == TurnMode::Intent && llm.has_intent() {
             return match llm
-                .chat_for_intent(text, req.conversation_id.as_deref(), spoken)
+                .chat_for_intent(text, req.conversation_id.as_deref(), spoken, skill)
                 .await
             {
                 Ok(intent) => {
@@ -178,7 +185,10 @@ impl InProcessBrain {
             };
         }
 
-        match llm.ask(text, req.conversation_id.as_deref(), spoken).await {
+        match llm
+            .ask(text, req.conversation_id.as_deref(), spoken, skill)
+            .await
+        {
             Ok(reply) => TurnResponse {
                 turn_id,
                 client_turn_id: req.client_turn_id.clone(),
@@ -226,6 +236,7 @@ impl InProcessBrain {
                 text,
                 req.conversation_id.as_deref(),
                 spoken,
+                req.skill.as_deref(),
                 tools,
                 system_prompt,
             )

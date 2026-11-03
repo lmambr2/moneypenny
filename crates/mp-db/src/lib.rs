@@ -15,6 +15,7 @@ use rusqlite::{Connection, OpenFlags};
 mod audit;
 mod handset;
 mod hangar;
+mod harness_turns;
 mod history;
 mod ingest_files;
 mod kg;
@@ -35,6 +36,7 @@ pub use handset::{
     HandsetDevice, HandsetStore, MAX_HANDSET_DEVICES, normalize_pair_code,
 };
 pub use hangar::{HangarStore, parse_ship_specs, ship_id_from_name, uid_owner_key};
+pub use harness_turns::{HARNESS_TURN_RETENTION_MS, HarnessTurnRow};
 pub use history::PlayHistoryStore;
 pub use ingest_files::{FileDropStore, IngestedFile, format_ingest_status};
 pub use kg::{
@@ -332,6 +334,7 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
         "valid_until",
         "ALTER TABLE doctrine_docs ADD COLUMN valid_until TEXT",
     )?;
+    conn.execute_batch(crate::harness_turns::HARNESS_TURNS_SQL)?;
     conn.execute_batch(crate::handset::HANDSET_SQL)?;
     Ok(())
 }

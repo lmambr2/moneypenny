@@ -94,6 +94,12 @@ pub async fn turn(
         subject: subject.clone(),
         mode: Some(mode),
         options: Some(options),
+        skill: body
+            .get("skill")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     };
 
     let execute_tools = body.get("executeTools").and_then(|v| v.as_bool()) == Some(true);

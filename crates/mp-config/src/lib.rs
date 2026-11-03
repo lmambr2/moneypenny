@@ -222,6 +222,30 @@ pub struct VoiceConfig {
     /// `energy` or `silero` (HTTP sidecar / energy fallback). Node default silero.
     #[serde(default = "default_vad_backend")]
     pub vad_backend: String,
+    /// `cascaded` or `duplex`. Production stays cascaded until duplex-rtf.sh exits 0.
+    #[serde(default = "default_voice_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub duplex_url: String,
+    #[serde(default = "default_duplex_watch")]
+    pub duplex_watch: String,
+    #[serde(default = "default_duplex_voice")]
+    pub duplex_voice: String,
+    #[serde(default = "default_duplex_fallback")]
+    pub duplex_fallback: String,
+}
+
+fn default_voice_mode() -> String {
+    "cascaded".into()
+}
+fn default_duplex_watch() -> String {
+    "gated".into()
+}
+fn default_duplex_voice() -> String {
+    "NATF2".into()
+}
+fn default_duplex_fallback() -> String {
+    "cascaded".into()
 }
 
 fn default_vad_backend() -> String {
@@ -348,6 +372,11 @@ impl Default for VoiceConfig {
             listen_window_ms: 15_000,
             text_wake_fallback: true,
             vad_backend: default_vad_backend(),
+            mode: default_voice_mode(),
+            duplex_url: String::new(),
+            duplex_watch: default_duplex_watch(),
+            duplex_voice: default_duplex_voice(),
+            duplex_fallback: default_duplex_fallback(),
         }
     }
 }

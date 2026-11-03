@@ -133,13 +133,16 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 frame = frames.recv() => {
                     match frame {
                         Ok(PlayerEvent::Frame(opus)) => {
-                            let _ = self.session.send_opus(OpusPacket {
-                                codec: CODEC_OPUS_MUSIC,
-                                data: opus,
-                            }).await;
+                            if !self.voice.blocks_player_voice() {
+                                let _ = self.session.send_opus(OpusPacket {
+                                    codec: CODEC_OPUS_MUSIC,
+                                    data: opus,
+                                }).await;
+                            }
                         }
                         Ok(PlayerEvent::TrackEnd) => {
                             if self.speech.on_track_end() == TrackEndKind::Tts {
+                                self.voice.on_piper_finished();
                                 info!("tts playback ended");
                                 continue;
                             }
@@ -238,6 +241,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                             }
                         }
                         this.radio.on_poll(n);
+                        this.voice.on_channel_humans(n);
                         this.note_llm_idle(n);
                         if let Ok(all) = &listed {
                             let server_humans = count_server_humans(all, this.session.client_id());
@@ -608,6 +612,12 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 .as_deref()
                 .map(|k| k.to_ascii_lowercase() == ww || k.to_ascii_lowercase().contains(&ww))
                 .unwrap_or(false);
+            if kws_detected {
+                voice.note_watchword();
+            }
+            if !transcript.trim().is_empty() {
+                voice.note_user_final(&transcript);
+            }
             if kws_detected && cfg.duck_music_on_speech && !speech.is_speaking() {
                 let _ = station.player.duck_for_stt(voice.duck_volume() as i32);
             }

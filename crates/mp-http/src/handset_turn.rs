@@ -205,6 +205,7 @@ async fn handle(st: AppState, user: HandsetUser, body: axum::body::Bytes) -> Res
             include_sources: Some(false),
             max_tools: Some(2),
         }),
+        skill: None,
     };
     let brain_res = {
         let work = st.brain.complete_with_tools(turn_req, &tools, &prompt);

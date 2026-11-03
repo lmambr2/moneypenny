@@ -135,7 +135,8 @@ async fn handle(st: AppState, user: HandsetUser, headers: HeaderMap, body: Bytes
                     include_sources: Some(false),
                     max_tools: Some(2),
                 }),
-                    };
+                skill: None,
+            };
             let res = brain.complete_with_tools(req, &tools, &prompt).await;
             Ok(Heard::Ready { transcript, res })
         };

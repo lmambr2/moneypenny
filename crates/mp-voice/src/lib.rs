@@ -4,6 +4,11 @@
 //! VAD → STT HTTP → same control path as chat → TTS HTTP (rewrite Phase 6).
 //! Whisper stays out of process.
 
+mod duplex;
+mod duplex_pump;
+mod duplex_text;
+mod duplex_watch;
+mod floor;
 mod pipeline;
 mod probe;
 mod runtime;
@@ -14,6 +19,7 @@ mod under_music;
 mod vad;
 mod watchword;
 
+pub use duplex_watch::{RTF_REALTIME, TALKER_VRAM_IDLE_MB};
 pub use mp_config::{
     effective_duck_volume, normalize_duck_music_volume, VoiceConfig, DEFAULT_DUCK_MUSIC_VOLUME,
     KARAOKE_DUCK_VOLUME, MIN_LISTEN_WINDOW_MS,
@@ -77,4 +83,19 @@ pub struct VoiceStatus {
     pub inbound_packets: u64,
     pub duck_music_on_speech: bool,
     pub text_wake_fallback: bool,
+    pub mode: String,
+    pub floor: String,
+    pub wake: String,
+    pub duplex: Option<DuplexStatus>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplexStatus {
+    pub ok: bool,
+    pub loaded: bool,
+    pub engine: Option<String>,
+    pub realtime: Option<bool>,
+    pub rtf: Option<f64>,
+    pub vram_mb: Option<f64>,
 }

@@ -34,6 +34,7 @@ mod command;
 mod csrf;
 mod economy_api;
 mod harness;
+mod skills;
 mod json_song;
 mod mcp_api;
 mod music_api;
@@ -132,6 +133,17 @@ impl AppState {
         );
         radio.set_tts(config.voice.tts_url.clone(), config.voice.tts_voice.clone());
         radio.set_llm(Arc::clone(&brain));
+        let voice_floor = Arc::clone(&voice);
+        radio.set_on_voice_floor(Arc::new(move |floor| voice_floor.set_floor(floor)));
+        let brain_resident = Arc::clone(&brain);
+        voice.spawn_supervisor(Arc::new(move |on| {
+            let brain = Arc::clone(&brain_resident);
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    brain.set_talker_resident(on).await;
+                });
+            }
+        }));
         let roast = roast::RoastRuntime::new(
             Arc::clone(&db),
             Arc::clone(&brain),
@@ -2844,6 +2856,7 @@ mod tests {
         assert_eq!(voice.hits(), 0);
         assert_eq!(turns.len(), 0);
         assert_eq!(loads(&calls), 0);
+        assert_eq!(cfg.voice.mode, "cascaded");
         assert!(!voice.saw_profile.load(std::sync::atomic::Ordering::SeqCst));
 
         let min_id = "m".repeat(64);
@@ -2912,6 +2925,7 @@ mod tests {
         assert!(turns.lookup(&device, "down").is_none());
         assert_eq!(loads(&calls), 0);
         assert!(!voice.saw_profile.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(cfg.voice.mode, "cascaded");
     }
 
     #[tokio::test]
@@ -2956,6 +2970,7 @@ mod tests {
         let (dir, mut state) = music_state();
         state = attach_voice(state, &voice.base);
         assert!(state.config.voice.require_watchword);
+        assert_eq!(state.config.voice.mode, "cascaded");
         let station = state.station.clone().unwrap();
         let volume_before = station.player.get_volume();
         let mut ws = state.ws_tx.subscribe();

@@ -35,6 +35,7 @@ pub struct RadioRuntime {
     director: RwLock<Option<Arc<RadioDirector<ArcFactory>>>>,
     factory: Arc<ConfigFactory>,
     dead_air_gen: AtomicU64,
+    voice_floor: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
 }
 
 #[derive(Clone)]
@@ -61,7 +62,15 @@ impl RadioRuntime {
             director: RwLock::new(None),
             factory,
             dead_air_gen: AtomicU64::new(0),
+            voice_floor: std::sync::Mutex::new(None),
         })
+    }
+
+    pub fn set_on_voice_floor(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) {
+        if let Some(director) = self.director.read().expect("dir").as_ref() {
+            director.set_on_voice_floor(Arc::clone(&hook));
+        }
+        *self.voice_floor.lock().expect("floor") = Some(hook);
     }
 
     pub fn bind_station(self: &Arc<Self>, station: Arc<MusicStation>) {
@@ -103,6 +112,9 @@ impl RadioRuntime {
             player_state: Arc::new(move || state_st.player.get_state()),
         };
         let director = RadioDirector::new(cfg_fn, ArcFactory(Arc::clone(&self.factory)), hooks);
+        if let Some(hook) = self.voice_floor.lock().expect("floor").as_ref() {
+            director.set_on_voice_floor(Arc::clone(hook));
+        }
         *self.director.write().expect("dir") = Some(Arc::new(director));
         self.spawn_dead_air();
     }

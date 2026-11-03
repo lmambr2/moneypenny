@@ -4,7 +4,7 @@
 //! OpenAI-compat chat client + in-process LlmModule (ask / chatForIntent).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -27,6 +27,16 @@ pub const LLM_PENNY_KEEP_ALIVE: &str = "24h";
 
 /// Voice and typed `!ask` share Radiance `max_model_len`. Never default 256k.
 pub const LLM_NUM_CTX: u32 = 32_768;
+/// While Talker weights are resident, penny chat stays at 8k, including typed `!ask`.
+pub const TALKER_RESIDENT_NUM_CTX: u32 = 8_192;
+
+pub fn penny_num_ctx(talker_resident: bool) -> u32 {
+    if talker_resident {
+        TALKER_RESIDENT_NUM_CTX
+    } else {
+        LLM_NUM_CTX
+    }
+}
 
 /// Settings sometimes paste an OpenAI base (`…/v1`). The client appends
 /// `/v1/chat/completions`, so a trailing `/v1` would 404 as `/v1/v1/…`.
@@ -55,6 +65,10 @@ struct CompletionTune {
 }
 
 fn ask_tune(spoken: bool, temperature: f32) -> CompletionTune {
+    ask_tune_ctx(spoken, temperature, false)
+}
+
+fn ask_tune_ctx(spoken: bool, temperature: f32, talker_resident: bool) -> CompletionTune {
     CompletionTune {
         temperature,
         max_tokens: if spoken {
@@ -63,13 +77,17 @@ fn ask_tune(spoken: bool, temperature: f32) -> CompletionTune {
             LLM_ASK_MAX_TOKENS
         },
         think: Some(!spoken),
-        num_ctx: Some(LLM_NUM_CTX),
+        num_ctx: Some(penny_num_ctx(talker_resident)),
         flash_attention: true,
         stream: false,
     }
 }
 
 fn intent_tune(spoken: bool, temperature: f32) -> CompletionTune {
+    intent_tune_ctx(spoken, temperature, false)
+}
+
+fn intent_tune_ctx(spoken: bool, temperature: f32, talker_resident: bool) -> CompletionTune {
     CompletionTune {
         temperature,
         max_tokens: if spoken {
@@ -78,10 +96,20 @@ fn intent_tune(spoken: bool, temperature: f32) -> CompletionTune {
             LLM_INTENT_MAX_TOKENS
         },
         think: Some(false),
-        num_ctx: Some(LLM_NUM_CTX),
+        num_ctx: Some(penny_num_ctx(talker_resident)),
         flash_attention: true,
         stream: false,
     }
+}
+
+fn push_skill(messages: &mut Vec<ChatMessage>, skill: Option<&str>) {
+    let Some(skill) = skill.map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    messages.push(ChatMessage {
+        role: "system".into(),
+        content: Some(format!("Operator skills (static, capped):\n\n{skill}")),
+    });
 }
 
 /// Ollama `POST /api/generate` body that drops the model from VRAM.
@@ -224,6 +252,7 @@ struct OpenAiInner {
     temperature: f32,
     history: Mutex<HashMap<String, Vec<HistoryEntry>>>,
     delta_hook: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
+    talker_resident: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -316,12 +345,22 @@ impl OpenAiLlm {
                 temperature: cfg.temperature,
                 history: Mutex::new(HashMap::new()),
                 delta_hook: Mutex::new(None),
+                talker_resident: AtomicBool::new(false),
             }),
         }
     }
 
     pub fn set_delta_hook(&self, hook: Option<Arc<dyn Fn(&str) + Send + Sync>>) {
         *self.inner.delta_hook.lock().expect("delta") = hook;
+    }
+
+    /// Duplex health drives this. Unloaded Talker leaves the 32k window.
+    pub fn set_talker_resident(&self, on: bool) {
+        self.inner.talker_resident.store(on, Ordering::SeqCst);
+    }
+
+    fn resident(&self) -> bool {
+        self.inner.talker_resident.load(Ordering::SeqCst)
     }
 
     /// SSE chat completion. `stream` is true. Each content delta is delivered
@@ -492,18 +531,20 @@ impl OpenAiLlm {
         question: &str,
         conversation_id: Option<&str>,
         spoken: bool,
+        skill: Option<&str>,
     ) -> Result<String, String> {
         let mut messages = vec![ChatMessage {
             role: "system".into(),
             content: Some(self.inner.system_prompt.clone()),
         }];
+        push_skill(&mut messages, skill);
         messages.extend(self.history_messages(conversation_id));
         messages.push(ChatMessage {
             role: "user".into(),
             content: Some(question.to_string()),
         });
         if spoken {
-            let tune = ask_tune(true, self.inner.temperature);
+            let tune = ask_tune_ctx(true, self.inner.temperature, self.resident());
             if let Ok(text) = self.stream_content(&messages, tune, |_| {}).await {
                 let text = text.trim().to_string();
                 if !text.is_empty() {
@@ -517,7 +558,7 @@ impl OpenAiLlm {
                 &messages,
                 None,
                 Some("none"),
-                ask_tune(spoken, self.inner.temperature),
+                ask_tune_ctx(spoken, self.inner.temperature, self.resident()),
             )
             .await?;
         let msg = resp.choices.first().map(|c| &c.message);
@@ -536,61 +577,17 @@ impl OpenAiLlm {
         user_message: &str,
         conversation_id: Option<&str>,
         spoken: bool,
+        skill: Option<&str>,
     ) -> Result<IntentResult, String> {
-        let mut messages = vec![ChatMessage {
-            role: "system".into(),
-            content: Some(intent_system_prompt(&self.inner.system_prompt)),
-        }];
-        messages.extend(self.history_messages(conversation_id));
-        messages.push(ChatMessage {
-            role: "user".into(),
-            content: Some(user_message.to_string()),
-        });
-        let resp = self
-            .chat(
-                &messages,
-                Some(music_control_tools()),
-                Some("auto"),
-                intent_tune(spoken, self.inner.temperature),
-            )
-            .await?;
-        let msg = resp.choices.first().map(|c| &c.message);
-        let tool_calls = msg
-            .and_then(|m| m.tool_calls.as_ref())
-            .map(|calls| {
-                calls
-                    .iter()
-                    .map(|tc| IntentToolCall {
-                        name: tc.function.name.clone(),
-                        arguments: serde_json::from_str(&tc.function.arguments)
-                            .unwrap_or_else(|_| json!({})),
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if !tool_calls.is_empty() {
-            let content = msg.and_then(|m| m.content.as_ref().map(|s| s.trim().to_string()));
-            let recorded = content
-                .clone()
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| summarize_tool_calls(&tool_calls));
-            self.record(conversation_id, user_message, &recorded);
-            return Ok(IntentResult {
-                content: content.filter(|s| !s.is_empty()),
-                tool_calls,
-            });
-        }
-        let content = msg
-            .and_then(|m| m.content.as_ref())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        if let Some(c) = content.as_deref() {
-            self.record(conversation_id, user_message, c);
-        }
-        Ok(IntentResult {
-            content,
-            tool_calls: Vec::new(),
-        })
+        self.chat_for_intent_with(
+            user_message,
+            conversation_id,
+            spoken,
+            skill,
+            &music_control_tools(),
+            &intent_system_prompt(&self.inner.system_prompt),
+        )
+        .await
     }
 
     /// Same turn as `chat_for_intent`, with the caller's tools and system prompt.
@@ -600,6 +597,7 @@ impl OpenAiLlm {
         user_message: &str,
         conversation_id: Option<&str>,
         spoken: bool,
+        skill: Option<&str>,
         tools: &[Value],
         system_prompt: &str,
     ) -> Result<IntentResult, String> {
@@ -607,6 +605,7 @@ impl OpenAiLlm {
             role: "system".into(),
             content: Some(system_prompt.to_string()),
         }];
+        push_skill(&mut messages, skill);
         messages.extend(self.history_messages(conversation_id));
         messages.push(ChatMessage {
             role: "user".into(),
@@ -617,7 +616,7 @@ impl OpenAiLlm {
                 &messages,
                 Some(tools.to_vec()),
                 Some("auto"),
-                intent_tune(spoken, self.inner.temperature),
+                intent_tune_ctx(spoken, self.inner.temperature, self.resident()),
             )
             .await?;
         let msg = resp.choices.first().map(|c| &c.message);
@@ -839,14 +838,21 @@ pub enum LlmBackend {
 }
 
 impl LlmBackend {
+    pub fn set_talker_resident(&self, on: bool) {
+        if let Self::OpenAi(c) = self {
+            c.set_talker_resident(on);
+        }
+    }
+
     pub async fn ask(
         &self,
         question: &str,
         conversation_id: Option<&str>,
         spoken: bool,
+        skill: Option<&str>,
     ) -> Result<String, String> {
         match self {
-            Self::OpenAi(c) => c.ask(question, conversation_id, spoken).await,
+            Self::OpenAi(c) => c.ask(question, conversation_id, spoken, skill).await,
             Self::Scripted(s) => (s.ask)(question),
         }
     }
@@ -856,10 +862,11 @@ impl LlmBackend {
         user_message: &str,
         conversation_id: Option<&str>,
         spoken: bool,
+        skill: Option<&str>,
     ) -> Result<IntentResult, String> {
         match self {
             Self::OpenAi(c) => {
-                c.chat_for_intent(user_message, conversation_id, spoken)
+                c.chat_for_intent(user_message, conversation_id, spoken, skill)
                     .await
             }
             Self::Scripted(s) => match &s.chat_for_intent {
@@ -877,6 +884,7 @@ impl LlmBackend {
         user_message: &str,
         conversation_id: Option<&str>,
         spoken: bool,
+        skill: Option<&str>,
         tools: &[Value],
         system_prompt: &str,
     ) -> Result<IntentResult, String> {
@@ -886,6 +894,7 @@ impl LlmBackend {
                     user_message,
                     conversation_id,
                     spoken,
+                    skill,
                     tools,
                     system_prompt,
                 )
@@ -1024,10 +1033,82 @@ mod tests {
         let spoken_intent = intent_tune(true, 0.2);
         assert_eq!(spoken_intent.max_tokens, LLM_VOICE_MAX_TOKENS);
         assert_eq!(spoken_intent.think, Some(false));
+        let resident = ask_tune_ctx(false, 0.2, true);
+        assert_eq!(resident.num_ctx, Some(TALKER_RESIDENT_NUM_CTX));
+        assert_eq!(penny_num_ctx(false), LLM_NUM_CTX);
+        let mut skill_msgs = vec![msg()];
+        push_skill(&mut skill_msgs, Some("Prefer local."));
+        assert!(skill_msgs[1].content.as_deref().unwrap().contains("Prefer local."));
         let unload = ollama_unload_body("gemma-test");
         assert_eq!(unload["model"], "gemma-test");
         assert_eq!(unload["prompt"], "");
         assert_eq!(unload["keep_alive"], 0);
         assert_eq!(unload["stream"], false);
+    }
+
+    #[test]
+    fn voice_intent_tune_keeps_num_ctx() {
+        assert_eq!(LLM_NUM_CTX, 32_768);
+        assert_eq!(LLM_INTENT_MAX_TOKENS, 1024);
+        assert_eq!(LLM_VOICE_MAX_TOKENS, 384);
+        assert_eq!(TALKER_RESIDENT_NUM_CTX, 8_192);
+        let voice = intent_tune_ctx(true, 0.2, false);
+        assert_eq!(voice.max_tokens, LLM_VOICE_MAX_TOKENS);
+        assert_eq!(voice.num_ctx, Some(LLM_NUM_CTX));
+        assert_eq!(voice.think, Some(false));
+        let typed = intent_tune_ctx(false, 0.2, false);
+        assert_eq!(typed.max_tokens, LLM_INTENT_MAX_TOKENS);
+        assert_eq!(typed.num_ctx, Some(LLM_NUM_CTX));
+        let resident = intent_tune_ctx(true, 0.2, true);
+        assert_eq!(resident.max_tokens, LLM_VOICE_MAX_TOKENS);
+        assert_eq!(resident.num_ctx, Some(TALKER_RESIDENT_NUM_CTX));
+    }
+
+    #[tokio::test]
+    async fn scripted_intent_with_sees_tools_and_four_arg_does_not() {
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen2 = Arc::clone(&seen);
+        let llm = ScriptedLlm::with_intent_tools(
+            |_| "ask".into(),
+            move |_q, tools| {
+                *seen2.lock().expect("seen") = tools
+                    .iter()
+                    .filter_map(|t| t["function"]["name"].as_str().map(str::to_string))
+                    .collect();
+                IntentResult {
+                    content: Some("with".into()),
+                    tool_calls: Vec::new(),
+                }
+            },
+        );
+        let pace = llm.clone();
+        pace.set_intent_delay(60_000);
+        let backend = LlmBackend::Scripted(llm);
+        let four = tokio::time::timeout(
+            Duration::from_millis(200),
+            backend.chat_for_intent("hi", None, false, None),
+        )
+        .await
+        .expect("four-arg must not sleep")
+        .unwrap();
+        assert_eq!(four.content.as_deref(), Some("ask"));
+        assert!(seen.lock().expect("seen").is_empty());
+
+        let tools = vec![json!({ "function": { "name": "pause" } })];
+        let with = tokio::time::timeout(
+            Duration::from_millis(200),
+            backend.chat_for_intent_with("hi", None, true, None, &tools, "pocket"),
+        )
+        .await;
+        assert!(with.is_err(), "tools path sleeps before the callback");
+        assert!(seen.lock().expect("seen").is_empty());
+
+        pace.set_intent_delay(0);
+        let with = backend
+            .chat_for_intent_with("hi", None, true, None, &tools, "pocket")
+            .await
+            .unwrap();
+        assert_eq!(with.content.as_deref(), Some("with"));
+        assert_eq!(seen.lock().expect("seen").as_slice(), ["pause"]);
     }
 }

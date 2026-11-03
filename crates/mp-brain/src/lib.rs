@@ -52,6 +52,7 @@ mod tests {
             subject: None,
             mode: Some(mode),
             options: None,
+            skill: None,
         }
     }
 
@@ -68,6 +69,7 @@ mod tests {
                 include_sources: Some(true),
                 max_tools: Some(4),
             }),
+            skill: None,
         };
         let v = serde_json::to_value(&req).unwrap();
         assert_eq!(v["clientTurnId"], "c1");

@@ -90,3 +90,18 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml \
 # or wizard; on AMD it prefers whisper.cpp Vulkan defaults
 ./scripts/detect-gpu.sh
 ```
+
+## Duplex Talker (AMD, gated)
+
+Official PersonaPlex (NVIDIA CUDA) is not a path here. The AMD adapter is
+`docker-compose.server.amd.yml` (service `personaplex`, profile `voice-duplex`).
+It publishes `127.0.0.1:8999` and mounts only `PENNY_RENDER_NODE` (this box:
+infer `renderD129` / `0000:07:00.0`, never the display card `0000:03:00.0` /
+`renderD128`). `voice.mode` stays **cascaded** until `scripts/duplex-rtf.sh`
+exits 0 against engine `moshicpp-vulkan`. A missing `MOSHI_CPP_BIN` leaves
+`loaded=false`, so the gate fails closed.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.amd.yml \
+  --profile voice-duplex up -d --build personaplex
+```

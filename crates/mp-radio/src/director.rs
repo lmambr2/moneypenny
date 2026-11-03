@@ -81,6 +81,7 @@ pub struct RadioDirector<F> {
     inner: Mutex<Inner>,
     dead_air_gen: AtomicU64,
     now_ms: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
+    voice_floor: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
 }
 
 impl<F: BumperFactory> RadioDirector<F> {
@@ -111,6 +112,17 @@ impl<F: BumperFactory> RadioDirector<F> {
             }),
             dead_air_gen: AtomicU64::new(0),
             now_ms: None,
+            voice_floor: Mutex::new(None),
+        }
+    }
+
+    pub fn set_on_voice_floor(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) {
+        *self.voice_floor.lock().expect("floor") = Some(hook);
+    }
+
+    fn note_voice_floor(&self, floor: &str) {
+        if let Some(hook) = self.voice_floor.lock().expect("floor").as_ref() {
+            hook(floor);
         }
     }
 
@@ -214,6 +226,7 @@ impl<F: BumperFactory> RadioDirector<F> {
                 let restock = g.auto_program_after_bumper;
                 g.auto_program_after_bumper = false;
                 drop(g);
+                self.note_voice_floor("music");
                 if restock && self.try_auto_program() {
                     return Boundary::Advanced { song: None };
                 }
@@ -369,6 +382,7 @@ impl<F: BumperFactory> RadioDirector<F> {
             prune_hourly(&mut g.bumper_times, now);
         }
         self.cancel_dead_air();
+        self.note_voice_floor("bumper");
         (self.hooks.play_bumper)(&bumper, cfg.speech_volume_pct);
         tracing::info!(path = %bumper.path, label = %bumper.label, "radio: bumper injected");
     }

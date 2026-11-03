@@ -36,57 +36,52 @@ impl HttpSttClient {
 
     /// Returns (text, kws keyword if the sidecar spotted one).
     pub async fn transcribe_ex(&self, u: &Utterance) -> (String, Option<String>) {
-        let url = format!("{}/asr", self.url);
-        match self
-            .http
-            .post(&url)
-            .timeout(self.timeout)
-            .header("content-type", "application/octet-stream")
-            .header("X-Sample-Rate", u.sample_rate.to_string())
-            .header("X-Channels", u.channels.to_string())
-            .body(u.pcm.clone())
-            .send()
-            .await
-        {
-            Ok(res) => match res.json::<AsrBody>().await {
-                Ok(body) => {
-                    let text = body.text.unwrap_or_default().trim().to_string();
-                    let kw = body
-                        .keyword
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string());
-                    (text, kw)
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "STT json");
-                    (String::new(), None)
-                }
-            },
-            Err(e) => {
-                tracing::warn!(error = %e, url = %self.url, "STT request failed");
+        self.transcribe_profile(u, None).await
+    }
+
+    /// `profile` is `wake` or `cascaded` while duplex is primary. Cascaded mode omits it.
+    /// Failures become an empty transcript so the TeamSpeak loop keeps listening.
+    pub async fn transcribe_profile(
+        &self,
+        u: &Utterance,
+        profile: Option<&str>,
+    ) -> (String, Option<String>) {
+        match self.post_asr(u, profile).await {
+            Ok(pair) => pair,
+            Err(err) => {
+                tracing::warn!(error = %err, "STT request failed");
                 (String::new(), None)
             }
         }
     }
 
-
     /// Handset push-to-talk. An empty string is silence. Transport and HTTP
     /// failures stay errors so the phone can tell them from silence.
     /// No `X-Stt-Profile` header.
     pub async fn transcribe_result(&self, u: &Utterance) -> Result<String, String> {
+        self.post_asr(u, None).await.map(|(text, _)| text)
+    }
+
+    async fn post_asr(
+        &self,
+        u: &Utterance,
+        profile: Option<&str>,
+    ) -> Result<(String, Option<String>), String> {
         if self.url.is_empty() {
             return Err("stt url empty".into());
         }
         let url = format!("{}/asr", self.url);
-        let res = self
+        let mut req = self
             .http
             .post(&url)
             .timeout(self.timeout)
             .header("content-type", "application/octet-stream")
             .header("X-Sample-Rate", u.sample_rate.to_string())
-            .header("X-Channels", u.channels.to_string())
+            .header("X-Channels", u.channels.to_string());
+        if let Some(profile) = profile.filter(|s| !s.is_empty()) {
+            req = req.header("X-Stt-Profile", profile);
+        }
+        let res = req
             .body(u.pcm.clone())
             .send()
             .await
@@ -95,7 +90,14 @@ impl HttpSttClient {
             return Err(format!("stt http {}", res.status()));
         }
         let body: AsrBody = res.json().await.map_err(|err| err.to_string())?;
-        Ok(body.text.unwrap_or_default().trim().to_string())
+        let text = body.text.unwrap_or_default().trim().to_string();
+        let keyword = body
+            .keyword
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        Ok((text, keyword))
     }
 
     pub async fn feed_stream(
@@ -104,20 +106,21 @@ impl HttpSttClient {
         pcm: &[u8],
         sample_rate: u32,
         channels: u32,
+        profile: Option<&str>,
     ) -> StreamSttResult {
         let url = format!("{}/asr/stream", self.url);
-        match self
+        let mut req = self
             .http
             .post(&url)
             .timeout(self.timeout)
             .header("content-type", "application/octet-stream")
             .header("X-Client-Id", client_id.to_string())
             .header("X-Sample-Rate", sample_rate.to_string())
-            .header("X-Channels", channels.to_string())
-            .body(pcm.to_vec())
-            .send()
-            .await
-        {
+            .header("X-Channels", channels.to_string());
+        if let Some(profile) = profile.filter(|s| !s.is_empty()) {
+            req = req.header("X-Stt-Profile", profile);
+        }
+        match req.body(pcm.to_vec()).send().await {
             Ok(res) => match res.json::<StreamBody>().await {
                 Ok(data) => {
                     let partial = data.partial.unwrap_or_default().trim().to_string();
@@ -127,7 +130,8 @@ impl HttpSttClient {
                         .map(str::trim)
                         .filter(|s| !s.is_empty())
                         .map(|s| s.to_string());
-                    let speaking = data.speaking.unwrap_or(false) || !partial.is_empty() || final_t.is_some();
+                    let speaking =
+                        data.speaking.unwrap_or(false) || !partial.is_empty() || final_t.is_some();
                     let keyword = data
                         .keyword
                         .as_deref()
@@ -179,7 +183,6 @@ struct AsrBody {
     keyword: Option<String>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,7 +199,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transcribe_result_reports_errors() {
+    async fn transcribe_result_reports_errors_profile_swallows_them() {
         let u = clip();
         let empty = HttpSttClient::new("");
         assert!(empty.transcribe_result(&u).await.is_err());
@@ -204,6 +207,7 @@ mod tests {
 
         let closed = HttpSttClient::new("http://127.0.0.1:1");
         assert!(closed.transcribe_result(&u).await.is_err());
+        assert_eq!(closed.transcribe_profile(&u, None).await.0, "");
     }
 }
 
