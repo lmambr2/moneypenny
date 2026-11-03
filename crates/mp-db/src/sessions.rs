@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 use rand::RngCore;
-use sha2::{Digest, Sha256};
 
+use crate::token_hash::token_sha256_hex;
 use crate::{Database, Result, UserRole};
 
 pub const SESSION_TTL_MS: i64 = 7 * 24 * 60 * 60 * 1000;
@@ -127,16 +127,14 @@ impl SessionStore<'_> {
 }
 
 fn hash_token(token: &str) -> String {
-    let mut h = Sha256::new();
-    h.update(token.as_bytes());
-    hex::encode(h.finalize())
+    token_sha256_hex(token)
 }
 
 fn random_token() -> String {
     let mut buf = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut buf);
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     URL_SAFE_NO_PAD.encode(buf)
 }
 

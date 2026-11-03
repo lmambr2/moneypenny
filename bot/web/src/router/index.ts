@@ -25,6 +25,7 @@ const router = createRouter({
     { path: '/live', name: 'live', component: () => import('../views/Live.vue') },
     { path: '/recordings', name: 'recordings', component: () => import('../views/Recordings.vue') },
     { path: '/economy', name: 'economy', component: () => import('../views/Economy.vue') },
+    { path: '/handset', name: 'handset', component: () => import('../views/Handset.vue') },
     { path: '/settings', name: 'settings', component: () => import('../views/Settings.vue') },
     { path: '/setup', name: 'setup', component: () => import('../views/Setup.vue') },
     { path: '/bot/:id', name: 'bot', component: () => import('../views/BotRedirect.vue') },

@@ -71,6 +71,33 @@ impl HttpSttClient {
         }
     }
 
+
+    /// Handset push-to-talk. An empty string is silence. Transport and HTTP
+    /// failures stay errors so the phone can tell them from silence.
+    /// No `X-Stt-Profile` header.
+    pub async fn transcribe_result(&self, u: &Utterance) -> Result<String, String> {
+        if self.url.is_empty() {
+            return Err("stt url empty".into());
+        }
+        let url = format!("{}/asr", self.url);
+        let res = self
+            .http
+            .post(&url)
+            .timeout(self.timeout)
+            .header("content-type", "application/octet-stream")
+            .header("X-Sample-Rate", u.sample_rate.to_string())
+            .header("X-Channels", u.channels.to_string())
+            .body(u.pcm.clone())
+            .send()
+            .await
+            .map_err(|err| err.to_string())?;
+        if !res.status().is_success() {
+            return Err(format!("stt http {}", res.status()));
+        }
+        let body: AsrBody = res.json().await.map_err(|err| err.to_string())?;
+        Ok(body.text.unwrap_or_default().trim().to_string())
+    }
+
     pub async fn feed_stream(
         &self,
         client_id: i32,
@@ -150,6 +177,34 @@ impl HttpSttClient {
 struct AsrBody {
     text: Option<String>,
     keyword: Option<String>,
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clip() -> Utterance {
+        Utterance {
+            speaker_client_id: 0,
+            speaker_uid: None,
+            pcm: vec![0; 3200],
+            sample_rate: 16_000,
+            channels: 1,
+            duration_ms: 100.0,
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_result_reports_errors() {
+        let u = clip();
+        let empty = HttpSttClient::new("");
+        assert!(empty.transcribe_result(&u).await.is_err());
+        assert_eq!(empty.transcribe(&u).await, "");
+
+        let closed = HttpSttClient::new("http://127.0.0.1:1");
+        assert!(closed.transcribe_result(&u).await.is_err());
+    }
 }
 
 #[derive(Deserialize)]

@@ -26,6 +26,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util = { version = "0.7", default-features = false }
 tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true

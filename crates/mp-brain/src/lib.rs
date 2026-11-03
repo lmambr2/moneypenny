@@ -29,7 +29,9 @@ pub use llm::{
 };
 pub use runtime::BrainRuntime;
 pub use text::extract_assistant_text;
-pub use tools::{music_control_tools, DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT};
+pub use tools::{
+    handset_intent_prompt, music_control_tools, DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT,
+};
 pub use types::{
     empty_turn, Brain, BrainError, DisposedTool, ToolProposal, TurnChannel, TurnMode, TurnOptions,
     TurnRequest, TurnResponse, TurnSource, TurnSubject,

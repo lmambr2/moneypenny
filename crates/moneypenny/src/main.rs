@@ -119,9 +119,10 @@ async fn main() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("music"));
     let protected = config.playback_ban_protected_artists.clone();
-    let blacklist = Arc::new(mp_music::PlaybackBlacklist::new(Arc::clone(&db), move || {
-        protected.clone()
-    }));
+    let blacklist = Arc::new(mp_music::PlaybackBlacklist::new(
+        Arc::clone(&db),
+        move || protected.clone(),
+    ));
     let station = Arc::new(mp_music::MusicStation::new(&music_dir, Some(blacklist)));
     station
         .player
@@ -160,10 +161,8 @@ async fn main() {
         }
     };
 
-    let mut executor = mp_control::CommandExecutor::new(
-        Arc::clone(&station),
-        config.command_prefix.clone(),
-    );
+    let mut executor =
+        mp_control::CommandExecutor::new(Arc::clone(&station), config.command_prefix.clone());
     executor.protected_artists = config.playback_ban_protected_artists.clone();
     let executor = Arc::new(executor);
 
@@ -210,11 +209,15 @@ async fn main() {
         "rag runtime"
     );
 
-    let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone())
-        .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
-        .with_rag(Arc::clone(&rag))
-        .with_mcp(mp_mcp::McpConfig::from_env())
-        .with_config_path(paths.config_path.clone());
+    let state = mp_http::AppState::new(
+        Arc::clone(&db),
+        Arc::clone(&config),
+        paths.static_dir.clone(),
+    )
+    .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
+    .with_rag(Arc::clone(&rag))
+    .with_mcp(mp_mcp::McpConfig::from_env())
+    .with_config_path(paths.config_path.clone());
     let voice = Arc::clone(&state.voice);
     let radio = Arc::clone(&state.radio);
     let roast = Arc::clone(&state.roast);
@@ -288,8 +291,17 @@ async fn main() {
     let follow = Arc::clone(&state.follow);
     start_watchdog();
 
+    // HANDSET_BIND is the pocket listener (for example 192.168.1.250:3001).
+    // Unset, blank, unparseable, 0.0.0.0, ::, or the admin address skips it.
+    // HANDSET_ADVERTISE is the host:port a pair code prints. Mint reads it
+    // only while the handset socket is up. Redeem does not.
+    // A binary upgrade with neither variable set does not open a port.
+    let handset_bind = std::env::var("HANDSET_BIND")
+        .ok()
+        .as_deref()
+        .and_then(|raw| mp_http::parse_handset_bind(raw, addr));
     let http = tokio::spawn(async move {
-        if let Err(e) = mp_http::serve(state, addr).await {
+        if let Err(e) = mp_http::serve_with_handset(state, addr, handset_bind).await {
             error!(error = %e, "http server");
         }
     });
@@ -362,11 +374,10 @@ async fn start_teamspeak(
                 });
             }
             let moves = Arc::new(moves::MoveRuntime::new(session.query().cloned()));
-            let speech = speech.unwrap_or_else(|| mp_music::ChannelSpeech::new(Arc::clone(&station)));
-            let mut phase_ex = mp_control::CommandExecutor::new(
-                Arc::clone(&station),
-                prefix.clone(),
-            );
+            let speech =
+                speech.unwrap_or_else(|| mp_music::ChannelSpeech::new(Arc::clone(&station)));
+            let mut phase_ex =
+                mp_control::CommandExecutor::new(Arc::clone(&station), prefix.clone());
             phase_ex.protected_artists = protected_artists;
             let phase_ex = Arc::new(phase_ex);
             let query = session.query().cloned().filter(|_| {
@@ -441,7 +452,10 @@ async fn start_teamspeak(
     }
     #[cfg(not(feature = "ts6"))]
     {
-        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech, follow, bot_config);
+        let _ = (
+            station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech,
+            follow, bot_config,
+        );
         info!("ts session: mock (built without ts6 feature)");
     }
 }
@@ -456,9 +470,8 @@ impl mp_http::SessionQuery for HttpQuerySession {
     fn list_members<'a>(
         &'a self,
         sgid: i64,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<i64>, String>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<i64>, String>> + Send + 'a>>
+    {
         Box::pin(async move { self.client.server_group_client_ids(sgid).await })
     }
 
@@ -466,8 +479,7 @@ impl mp_http::SessionQuery for HttpQuerySession {
         &'a self,
         sgid: i64,
         cldbid: i64,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>
-    {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async move { self.client.server_group_del_client(sgid, cldbid).await })
     }
 }

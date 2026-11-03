@@ -4,6 +4,7 @@
 //! OpenAI-compat chat client + in-process LlmModule (ask / chatForIntent).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -592,6 +593,72 @@ impl OpenAiLlm {
         })
     }
 
+    /// Same turn as `chat_for_intent`, with the caller's tools and system prompt.
+    /// The handset passes the eight music tools and `handset_intent_prompt`.
+    pub async fn chat_for_intent_with(
+        &self,
+        user_message: &str,
+        conversation_id: Option<&str>,
+        spoken: bool,
+        tools: &[Value],
+        system_prompt: &str,
+    ) -> Result<IntentResult, String> {
+        let mut messages = vec![ChatMessage {
+            role: "system".into(),
+            content: Some(system_prompt.to_string()),
+        }];
+        messages.extend(self.history_messages(conversation_id));
+        messages.push(ChatMessage {
+            role: "user".into(),
+            content: Some(user_message.to_string()),
+        });
+        let resp = self
+            .chat(
+                &messages,
+                Some(tools.to_vec()),
+                Some("auto"),
+                intent_tune(spoken, self.inner.temperature),
+            )
+            .await?;
+        let msg = resp.choices.first().map(|c| &c.message);
+        let tool_calls = msg
+            .and_then(|m| m.tool_calls.as_ref())
+            .map(|calls| {
+                calls
+                    .iter()
+                    .map(|tc| IntentToolCall {
+                        name: tc.function.name.clone(),
+                        arguments: serde_json::from_str(&tc.function.arguments)
+                            .unwrap_or_else(|_| json!({})),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !tool_calls.is_empty() {
+            let content = msg.and_then(|m| m.content.as_ref().map(|s| s.trim().to_string()));
+            let recorded = content
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| summarize_tool_calls(&tool_calls));
+            self.record(conversation_id, user_message, &recorded);
+            return Ok(IntentResult {
+                content: content.filter(|s| !s.is_empty()),
+                tool_calls,
+            });
+        }
+        let content = msg
+            .and_then(|m| m.content.as_ref())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(c) = content.as_deref() {
+            self.record(conversation_id, user_message, c);
+        }
+        Ok(IntentResult {
+            content,
+            tool_calls: Vec::new(),
+        })
+    }
+
     async fn chat(
         &self,
         messages: &[ChatMessage],
@@ -719,6 +786,11 @@ fn is_retryable(err: &str) -> bool {
 pub struct ScriptedLlm {
     pub ask: Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>,
     pub chat_for_intent: Option<Arc<dyn Fn(&str) -> Result<IntentResult, String> + Send + Sync>>,
+    /// Used only by `chat_for_intent_with`. The four-arg path does not call it.
+    pub chat_for_intent_with:
+        Option<Arc<dyn Fn(&str, &[Value]) -> Result<IntentResult, String> + Send + Sync>>,
+    /// Shared across `Clone` so a test can delay the handset turn after the brain is built.
+    pub intent_delay_ms: Arc<AtomicU64>,
 }
 
 impl ScriptedLlm {
@@ -726,6 +798,8 @@ impl ScriptedLlm {
         Self {
             ask: Arc::new(move |q| Ok(reply(q))),
             chat_for_intent: None,
+            chat_for_intent_with: None,
+            intent_delay_ms: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -736,7 +810,25 @@ impl ScriptedLlm {
         Self {
             ask: Arc::new(move |q| Ok(reply(q))),
             chat_for_intent: Some(Arc::new(move |q| Ok(intent(q)))),
+            chat_for_intent_with: None,
+            intent_delay_ms: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    pub fn with_intent_tools(
+        reply: impl Fn(&str) -> String + Send + Sync + 'static,
+        intent: impl Fn(&str, &[Value]) -> IntentResult + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            ask: Arc::new(move |q| Ok(reply(q))),
+            chat_for_intent: None,
+            chat_for_intent_with: Some(Arc::new(move |q, tools| Ok(intent(q, tools)))),
+            intent_delay_ms: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn set_intent_delay(&self, ms: u64) {
+        self.intent_delay_ms.store(ms, Ordering::Relaxed);
     }
 }
 
@@ -777,6 +869,44 @@ impl LlmBackend {
                     tool_calls: Vec::new(),
                 }),
             },
+        }
+    }
+
+    pub async fn chat_for_intent_with(
+        &self,
+        user_message: &str,
+        conversation_id: Option<&str>,
+        spoken: bool,
+        tools: &[Value],
+        system_prompt: &str,
+    ) -> Result<IntentResult, String> {
+        match self {
+            Self::OpenAi(c) => {
+                c.chat_for_intent_with(
+                    user_message,
+                    conversation_id,
+                    spoken,
+                    tools,
+                    system_prompt,
+                )
+                .await
+            }
+            Self::Scripted(s) => {
+                let ms = s.intent_delay_ms.load(Ordering::Relaxed);
+                if ms > 0 {
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                }
+                if let Some(f) = &s.chat_for_intent_with {
+                    return f(user_message, tools);
+                }
+                match &s.chat_for_intent {
+                    Some(f) => f(user_message),
+                    None => Ok(IntentResult {
+                        content: Some((s.ask)(user_message)?),
+                        tool_calls: Vec::new(),
+                    }),
+                }
+            }
         }
     }
 

@@ -11,6 +11,13 @@
       <RouterLink to="/live" class="nav-link" active-class="active">Live</RouterLink>
       <RouterLink to="/recordings" class="nav-link" active-class="active">Recordings</RouterLink>
       <RouterLink to="/economy" class="nav-link" active-class="active">Economy</RouterLink>
+      <RouterLink
+        v-if="session.isAdmin.value"
+        to="/handset"
+        class="nav-link"
+        active-class="active"
+        >Handset</RouterLink
+      >
     </div>
 
     <div class="nav-right">

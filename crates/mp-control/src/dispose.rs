@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::policy::{decide_harness_tool, HarnessToolDecision};
+use crate::policy::{HarnessToolDecision, decide_harness_tool};
 use crate::tool_map::tool_call_to_command;
 use crate::{CommandExecutor, Subject, ToolProposal};
 
@@ -31,7 +31,10 @@ pub struct BrainDisposer {
 }
 
 impl BrainDisposer {
-    pub fn new(executor: Arc<CommandExecutor>, rights: Option<Arc<mp_rights::RightsEngine>>) -> Self {
+    pub fn new(
+        executor: Arc<CommandExecutor>,
+        rights: Option<Arc<mp_rights::RightsEngine>>,
+    ) -> Self {
         Self {
             executor,
             rights,
@@ -47,12 +50,27 @@ impl BrainDisposer {
         dry_run: bool,
         allow_dangerous: bool,
     ) -> ToolDisposeRecord {
+        self.dispose_tool_allow(name, args, subject, dry_run, allow_dangerous, None)
+            .await
+    }
+
+    /// `allowlist` is the only way a caller runs `stop` or `set_volume` without
+    /// also opening `move_client`. `None` keeps the previous safe/dangerous split.
+    pub async fn dispose_tool_allow(
+        &self,
+        name: &str,
+        args: &Value,
+        subject: &Subject,
+        dry_run: bool,
+        allow_dangerous: bool,
+        allowlist: Option<&[String]>,
+    ) -> ToolDisposeRecord {
         let args = if args.is_object() {
             args.clone()
         } else {
             serde_json::json!({})
         };
-        match decide_harness_tool(name, dry_run, allow_dangerous, None) {
+        match decide_harness_tool(name, dry_run, allow_dangerous, allowlist) {
             HarnessToolDecision::DryRun => {
                 return ToolDisposeRecord {
                     name: name.to_string(),
@@ -99,11 +117,7 @@ impl BrainDisposer {
                 name: name.to_string(),
                 args,
                 ok: true,
-                result: Some(if text.is_empty() {
-                    "(ok)".into()
-                } else {
-                    text
-                }),
+                result: Some(if text.is_empty() { "(ok)".into() } else { text }),
                 error: None,
             },
             None => ToolDisposeRecord {
@@ -148,10 +162,7 @@ impl crate::ToolExecutor for BrainDisposer {
                 .await;
             crate::DisposeResult {
                 ok: rec.ok,
-                message: rec
-                    .result
-                    .or(rec.error)
-                    .unwrap_or_default(),
+                message: rec.result.or(rec.error).unwrap_or_default(),
             }
         }
     }
@@ -222,7 +233,12 @@ mod tests {
             )
             .await;
         assert!(rec.ok, "{rec:?}");
-        assert!(rec.result.as_deref().unwrap_or("").starts_with("Now playing"));
+        assert!(
+            rec.result
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("Now playing")
+        );
         assert_eq!(st.queue.lock().unwrap().size(), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -247,11 +263,12 @@ mod tests {
             )
             .await;
         assert!(!rec.ok);
-        assert!(rec
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("don't have permission"));
+        assert!(
+            rec.error
+                .as_deref()
+                .unwrap_or("")
+                .contains("don't have permission")
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -271,17 +288,90 @@ mod tests {
             .await;
         assert!(!rec.ok);
         assert!(
-            rec.error.as_deref().unwrap_or("").contains("unknown or invalid"),
+            rec.error
+                .as_deref()
+                .unwrap_or("")
+                .contains("unknown or invalid"),
             "{rec:?}"
         );
         let blocked = d
-            .dispose_tool("frobnicate", &serde_json::json!({}), &admin_subject(), false, true)
+            .dispose_tool(
+                "frobnicate",
+                &serde_json::json!({}),
+                &admin_subject(),
+                false,
+                true,
+            )
             .await;
         assert!(!blocked.ok);
         assert!(
-            blocked.error.as_deref().unwrap_or("").contains("not allowed"),
+            blocked
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("not allowed"),
             "{blocked:?}"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn allowlist_runs_stop_and_blocks_move() {
+        let (dir, st) = tmp_station();
+        let ex = Arc::new(CommandExecutor::new(st.clone(), "!"));
+        let d = BrainDisposer::new(ex, None);
+        d.dispose_tool(
+            "play_music",
+            &serde_json::json!({ "query": "sine" }),
+            &admin_subject(),
+            false,
+            false,
+        )
+        .await;
+        assert_eq!(st.queue.lock().unwrap().size(), 1);
+        let allow = vec!["stop".to_string(), "set_volume".to_string()];
+        let stopped = d
+            .dispose_tool_allow(
+                "stop",
+                &serde_json::json!({}),
+                &admin_subject(),
+                false,
+                false,
+                Some(&allow),
+            )
+            .await;
+        assert!(stopped.ok, "{stopped:?}");
+        assert!(stopped.result.unwrap().contains("Stopped"));
+        assert_eq!(st.queue.lock().unwrap().size(), 0);
+        let blocked = d
+            .dispose_tool_allow(
+                "move_client",
+                &serde_json::json!({ "client": "a", "channel": "b" }),
+                &admin_subject(),
+                false,
+                false,
+                Some(&allow),
+            )
+            .await;
+        assert!(!blocked.ok);
+        assert!(
+            blocked
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("allowDangerous"),
+            "{blocked:?}"
+        );
+        let still_blocked = d
+            .dispose_tool(
+                "stop",
+                &serde_json::json!({}),
+                &admin_subject(),
+                false,
+                false,
+            )
+            .await;
+        assert!(!still_blocked.ok);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

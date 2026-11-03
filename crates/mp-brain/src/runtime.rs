@@ -9,6 +9,7 @@ use crate::factory::{transport_from_settings, BrainTransport};
 use crate::in_process::{InProcessBrain, RetrieveFn};
 use crate::llm::LlmSettings;
 use crate::types::{TurnRequest, TurnResponse};
+use serde_json::Value;
 
 /// Process-wide brain handle. `BRAIN_URL` vs in-process is resolved at build
 /// time; `update_llm` rebuilds the in-process client when Settings change.
@@ -60,6 +61,34 @@ impl BrainRuntime {
     pub async fn complete(&self, req: TurnRequest) -> TurnResponse {
         let transport = self.inner.read().await.transport.clone();
         complete_turn(req, &transport).await
+    }
+
+    pub async fn transport_is_in_process(&self) -> bool {
+        let g = self.inner.read().await;
+        matches!(&g.transport, BrainTransport::InProcess(_))
+    }
+
+    /// In-process only. A remote brain returns `BRAIN_REMOTE` and is not called.
+    pub async fn complete_with_tools(
+        &self,
+        req: TurnRequest,
+        tools: &[Value],
+        system_prompt: &str,
+    ) -> TurnResponse {
+        let transport = self.inner.read().await.transport.clone();
+        match transport {
+            BrainTransport::InProcess(brain) => {
+                brain.complete_with_tools(req, tools, system_prompt).await
+            }
+            BrainTransport::Http(_) => TurnResponse {
+                turn_id: "remote".into(),
+                client_turn_id: req.client_turn_id,
+                reply_text: String::new(),
+                sources: Vec::new(),
+                tool_proposals: Vec::new(),
+                error: Some("BRAIN_REMOTE".into()),
+            },
+        }
     }
 
     /// Custom-system completion (roast grader). Never used on skip.
@@ -174,6 +203,49 @@ impl BrainRuntime {
         let mut g = self.inner.write().await;
         g.retrieve = Some(retrieve);
         rebuild_transport(&mut g);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http::{HttpBrain, RawHttp};
+    use crate::types::{TurnChannel, TurnMode};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn req() -> TurnRequest {
+        TurnRequest {
+            client_turn_id: Some("c".into()),
+            channel: TurnChannel::Dashboard,
+            text: "pause".into(),
+            conversation_id: None,
+            subject: None,
+            mode: Some(TurnMode::Intent),
+            options: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_complete_with_tools_does_not_fetch() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls2 = Arc::clone(&calls);
+        let fetch: crate::http::FetchFn = Arc::new(move |_url, _body| {
+            calls2.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async {
+                Ok(RawHttp {
+                    status: 200,
+                    body: b"{}".to_vec(),
+                })
+            })
+        });
+        let rt = BrainRuntime::with_transport(BrainTransport::Http(HttpBrain::with_fetch(
+            "http://127.0.0.1:9",
+            fetch,
+        )));
+        assert!(!rt.transport_is_in_process().await);
+        let res = rt.complete_with_tools(req(), &[], "pocket").await;
+        assert_eq!(res.error.as_deref(), Some("BRAIN_REMOTE"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 }
 

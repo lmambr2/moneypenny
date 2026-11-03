@@ -197,6 +197,74 @@ impl InProcessBrain {
             },
         }
     }
+
+    /// Caller supplies the tool list and system prompt. No retrieval and no
+    /// `intent_system_prompt`. An empty model is the string `LLM is not enabled`.
+    pub async fn complete_with_tools(
+        &self,
+        req: TurnRequest,
+        tools: &[serde_json::Value],
+        system_prompt: &str,
+    ) -> TurnResponse {
+        let turn_id = self.next_id();
+        let text = req.text.trim();
+        let max_tools = req
+            .options
+            .as_ref()
+            .and_then(|o| o.max_tools)
+            .unwrap_or(4)
+            .clamp(0, 16) as usize;
+        if text.is_empty() {
+            return empty_turn(turn_id, &req, "text is required");
+        }
+        let Some(llm) = self.llm.as_ref() else {
+            return empty_turn(turn_id, &req, "LLM is not enabled");
+        };
+        let spoken = req.channel == TurnChannel::Voice;
+        match llm
+            .chat_for_intent_with(
+                text,
+                req.conversation_id.as_deref(),
+                spoken,
+                tools,
+                system_prompt,
+            )
+            .await
+        {
+            Ok(intent) => {
+                let tool_proposals: Vec<ToolProposal> = intent
+                    .tool_calls
+                    .into_iter()
+                    .take(max_tools)
+                    .map(|tc| ToolProposal {
+                        name: tc.name,
+                        arguments: if tc.arguments.is_object() {
+                            tc.arguments
+                        } else {
+                            serde_json::json!({})
+                        },
+                        reason: None,
+                    })
+                    .collect();
+                TurnResponse {
+                    turn_id,
+                    client_turn_id: req.client_turn_id.clone(),
+                    reply_text: intent.content.unwrap_or_default().trim().to_string(),
+                    sources: Vec::new(),
+                    tool_proposals,
+                    error: None,
+                }
+            }
+            Err(msg) => TurnResponse {
+                turn_id,
+                client_turn_id: req.client_turn_id.clone(),
+                reply_text: String::new(),
+                sources: Vec::new(),
+                tool_proposals: Vec::new(),
+                error: Some(format!("Intent failed: {msg}")),
+            },
+        }
+    }
 }
 
 fn default_id_factory() -> IdFn {

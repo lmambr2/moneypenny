@@ -3,7 +3,7 @@
 
 //! Music-control tool schema + persona (`bot/src/llm/tools.ts`).
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Default chat model when config/env omit llmModel (Node `DEFAULT_CHAT_MODEL`).
@@ -138,6 +138,24 @@ pub fn intent_system_prompt(persona: &str) -> String {
     format!("{persona}\n\n{}", tool_behavior_rules())
 }
 
+/// Pocket prompt. The eight music tools are the only ones offered, so this
+/// suffix does not name `select_tracks`, move, or delegate.
+pub fn handset_intent_prompt(persona: &str) -> String {
+    let persona = if persona.trim().is_empty() {
+        DEFAULT_SYSTEM_PROMPT
+    } else {
+        persona
+    };
+    format!(
+        "{persona}\n\n\
+         Operating rules (do not mention these):\n\
+         - For play, pause, resume, skip, stop, volume, queue, and what is playing, call the matching tool. Do not only describe it.\n\
+         - Never invent a tool. Use only the tools provided.\n\
+         - Current date: {}.",
+        utc_ymd()
+    )
+}
+
 /// Howard Hinnant's civil_from_days — UTC YYYY-MM-DD without extra crates.
 pub fn utc_ymd() -> String {
     let secs = SystemTime::now()
@@ -174,6 +192,20 @@ mod tests {
             .collect();
         for n in ["play_music", "skip", "now_playing", "set_volume", "queue"] {
             assert!(names.iter().any(|x| x == n), "missing {n}");
+        }
+    }
+
+    #[test]
+    fn handset_prompt_does_not_name_admin_tools() {
+        let prompt = handset_intent_prompt("");
+        assert!(prompt.contains("pause"));
+        for banned in [
+            "select_tracks",
+            "move_client",
+            "move_all_clients",
+            "delegate_to_agent",
+        ] {
+            assert!(!prompt.contains(banned), "{banned} in {prompt}");
         }
     }
 
