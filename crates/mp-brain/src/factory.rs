@@ -39,7 +39,7 @@ pub fn in_process_from_settings(settings: &LlmSettings) -> InProcessBrain {
     } else {
         None
     };
-    InProcessBrain::new(llm)
+    InProcessBrain::new(llm).with_delegate(&settings.delegate_url, &settings.delegate_model)
 }
 
 pub fn transport_from_settings(settings: &LlmSettings) -> BrainTransport {

@@ -71,6 +71,8 @@ pub struct TurnSource {
 pub struct ToolProposal {
     pub name: String,
     pub arguments: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }

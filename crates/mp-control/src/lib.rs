@@ -10,7 +10,7 @@ mod manifest;
 mod policy;
 mod tool_map;
 
-pub use dispose::{BrainDisposer, ToolDisposeRecord};
+pub use dispose::{BrainDisposer, DelegateFn, ToolDisposeRecord};
 pub use executor::{
     find_queue_index_by_query, is_same_playback_track, query_tokens, song_matches_query,
     CommandExecutor,
@@ -21,7 +21,9 @@ pub use manifest::{
     ParsedCommand, COMMAND_MANIFEST,
 };
 pub use policy::{decide_harness_tool, HarnessToolDecision, HARNESS_DANGEROUS_TOOLS, HARNESS_SAFE_TOOLS};
-pub use tool_map::{known_llm_tool_names, source_flags, tool_call_to_command, ToolCallInput};
+pub use tool_map::{
+    known_llm_tool_names, source_flags, tool_call_to_command, tool_right, ToolCallInput,
+};
 
 use mp_rights::{default_rights_config, RightsConfig};
 

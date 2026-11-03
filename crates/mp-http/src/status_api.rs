@@ -23,6 +23,13 @@ pub async fn llm_status(State(st): State<AppState>, _admin: AdminUser) -> Json<V
     } else {
         false
     };
+    let delegate_url = st.config.llm_delegate_url.trim();
+    let delegate_configured = !delegate_url.is_empty();
+    let delegate_available = if delegate_configured {
+        probe_llm(delegate_url).await
+    } else {
+        false
+    };
     Json(json!({
         "configured": configured,
         "available": available,
@@ -30,8 +37,8 @@ pub async fn llm_status(State(st): State<AppState>, _admin: AdminUser) -> Json<V
         "fallbackAvailable": false,
         "fallbackConfigured": !st.config.llm_fallback_url.trim().is_empty(),
         "activeFallback": false,
-        "delegateConfigured": false,
-        "delegateAvailable": false,
+        "delegateConfigured": delegate_configured,
+        "delegateAvailable": delegate_available,
         "url": url,
         "model": model,
     }))

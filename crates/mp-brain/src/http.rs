@@ -141,6 +141,7 @@ fn normalize_remote(req: &TurnRequest, data: &Value) -> TurnResponse {
                     Some(ToolProposal {
                         name,
                         arguments,
+                        id: p.get("id").and_then(|v| v.as_str()).map(str::to_string),
                         reason,
                     })
                 })

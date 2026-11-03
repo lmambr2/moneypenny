@@ -119,6 +119,11 @@ pub struct BotConfig {
     pub llm_fallback_url: String,
     #[serde(default)]
     pub llm_fallback_model: String,
+    /// Hermes (or another OpenAI-compatible analyst). Empty leaves `!analyst` unconfigured.
+    #[serde(default)]
+    pub llm_delegate_url: String,
+    #[serde(default)]
+    pub llm_delegate_model: String,
     #[serde(default)]
     pub llm_system_prompt: String,
     #[serde(default = "default_llm_temperature")]
@@ -663,6 +668,8 @@ impl Default for BotConfig {
             llm_model: String::new(),
             llm_fallback_url: String::new(),
             llm_fallback_model: String::new(),
+            llm_delegate_url: String::new(),
+            llm_delegate_model: String::new(),
             llm_system_prompt: String::new(),
             llm_temperature: 0.2,
             embedding_url: String::new(),

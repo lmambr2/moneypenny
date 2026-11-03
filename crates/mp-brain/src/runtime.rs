@@ -92,6 +92,45 @@ impl BrainRuntime {
         }
     }
 
+    pub async fn persona(&self) -> String {
+        self.inner.read().await.settings.persona().to_string()
+    }
+
+    pub async fn delegate_endpoint(&self) -> (String, String) {
+        let g = self.inner.read().await;
+        (
+            g.settings.delegate_url.clone(),
+            g.settings.delegate_model.clone(),
+        )
+    }
+
+    /// Follow-up completion. Tool results stay on `role: tool`.
+    pub async fn complete_follow_up(
+        &self,
+        req: TurnRequest,
+        tools: &[Value],
+        system_prompt: &str,
+        calls: &[crate::llm::IntentToolCall],
+        results: &[crate::llm::ToolResultTurn],
+    ) -> TurnResponse {
+        let transport = self.inner.read().await.transport.clone();
+        match transport {
+            BrainTransport::InProcess(brain) => {
+                brain
+                    .complete_follow_up(req, tools, system_prompt, calls, results)
+                    .await
+            }
+            BrainTransport::Http(_) => TurnResponse {
+                turn_id: "remote".into(),
+                client_turn_id: req.client_turn_id,
+                reply_text: String::new(),
+                sources: Vec::new(),
+                tool_proposals: Vec::new(),
+                error: Some("BRAIN_REMOTE".into()),
+            },
+        }
+    }
+
     /// While Talker weights are resident, penny chat uses the 8k window.
     pub async fn set_talker_resident(&self, on: bool) {
         let transport = self.inner.read().await.transport.clone();

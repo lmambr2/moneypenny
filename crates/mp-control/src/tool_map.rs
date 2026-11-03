@@ -188,6 +188,15 @@ pub fn tool_call_to_command(name: &str, arguments: &Value) -> Option<ParsedComma
         "set_volume" => return map_set_volume(a),
         "move_client" => return map_move_client(a),
         "move_all_clients" => return map_move_all(a),
+        "delegate_to_agent" => {
+            let task = a
+                .get("task")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            return Some(make("analyst", &task, HashSet::new()));
+        }
         _ => {}
     }
 
@@ -235,6 +244,25 @@ pub fn tool_call_to_command(name: &str, arguments: &Value) -> Option<ParsedComma
     Some(make(cmd_name, q, flags))
 }
 
+/// Command the rights engine checks before this tool runs.
+pub fn tool_right(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "play_music" => "play",
+        "queue" => "add",
+        "select_tracks" => "selecttracks",
+        "skip" => "skip",
+        "pause" => "pause",
+        "resume" => "resume",
+        "stop" => "stop",
+        "set_volume" => "vol",
+        "now_playing" => "now",
+        "delegate_to_agent" => "analyst",
+        "move_client" => "moveclient",
+        "move_all_clients" => "moveall",
+        _ => return None,
+    })
+}
+
 pub fn known_llm_tool_names() -> Vec<String> {
     let mut names: HashSet<String> = [
         "play_music",
@@ -243,6 +271,7 @@ pub fn known_llm_tool_names() -> Vec<String> {
         "set_volume",
         "move_client",
         "move_all_clients",
+        "delegate_to_agent",
     ]
     .into_iter()
     .map(str::to_string)

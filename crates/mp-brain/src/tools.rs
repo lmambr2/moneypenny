@@ -11,21 +11,83 @@ pub const DEFAULT_CHAT_MODEL: &str = "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are Miss Moneypenny — MI6's secretary, seconded to this TeamSpeak channel as its music and intelligence officer. Speak with dry, poised British wit: teasing, mock-formal, quick with an arch double entendre but never crude — the manner of a woman forever signing in an agent who never returns his equipment. Reply in direct speech only — no stage directions, no parenthetical actions, no narrating gestures or expressions. Use British spelling and idiom throughout (favour, brilliant, rather, do behave, I shan't, mind how you go). Beneath the teasing you are loyal, sharp, and always come through.\n\nLength: casual banter and simple acknowledgements stay brief (a line or two). For doctrine, org structure, procedures, after-action reviews, or any question grounded in retrieved documents, give a proper briefing — several paragraphs covering the main points, structure, and practical detail from the sources. Do not compress a charter or policy into a single quip.";
 
-fn tool_behavior_rules() -> String {
-    format!(
-        "Operating rules (do not mention these):\n\
-- For any music action (play, skip, pause, volume, queue, etc.) you MUST call the appropriate tool — never merely describe it.\n\
-- To play a specific song, artist, or album, call play_music with a query string. Do not answer with text alone.\n\
-- Use select_tracks only for tag/BPM/rating/energy filters — not for \"play <song name>\".\n\
-- Prefer the Local music library; use YouTube only when asked or when a track isn't local.\n\
-- For complex analysis, reports, doctrine synthesis, or explicit requests for deep intelligence work, call delegate_to_agent — do not attempt long reports yourself.\n\
-- When asked to move/relocate/send a specific person to a channel, call move_client (never move_client for the bot itself — that is !move).\n\
-- When asked to move everyone in the channel, call move_all_clients (confirmation is handled for you).\n\
-- Never invent tool names; only use the tools provided.\n\
-- If asked something that isn't music control or analyst work, answer directly and in character, without tools.\n\
-- Current date: {}.",
-        utc_ymd()
+fn offered_has(offered: &[String], name: &str) -> bool {
+    offered.iter().any(|n| n == name)
+}
+
+/// Rules name a tool only when that tool is in the offered set.
+fn tool_behavior_rules(offered: &[String]) -> String {
+    let mut lines = vec!["Operating rules (do not mention these):".to_string()];
+    let music = ["play_music", "skip", "pause", "resume", "stop", "set_volume", "queue", "now_playing"]
+        .iter()
+        .any(|n| offered_has(offered, n));
+    if music {
+        lines.push(
+            "- For a music action, call the matching tool. Do not only describe it.".into(),
+        );
+    }
+    if offered_has(offered, "play_music") {
+        lines.push(
+            "- To play a specific song, artist, or album, call play_music with a query string."
+                .into(),
+        );
+        lines.push(
+            "- Prefer the local library. If play_music reports no result, call it again with source youtube."
+                .into(),
+        );
+    }
+    if offered_has(offered, "select_tracks") {
+        lines.push(
+            "- Use select_tracks only for tag, BPM, rating, or energy filters, not for a song title."
+                .into(),
+        );
+    }
+    if offered_has(offered, "delegate_to_agent") {
+        lines.push(
+            "- For complex analysis, reports, doctrine synthesis, or an explicit request for deep intelligence work, call delegate_to_agent."
+                .into(),
+        );
+    }
+    if offered_has(offered, "move_client") {
+        lines.push(
+            "- When asked to move one person to a channel, call move_client. The bot's own move is a different command."
+                .into(),
+        );
+    }
+    if offered_has(offered, "move_all_clients") {
+        lines.push(
+            "- When asked to move everyone in the channel, call move_all_clients.".into(),
+        );
+    }
+    lines.push("- Never invent a tool. Use only the tools provided.".into());
+    lines.push(
+        "- If the request is not one of those tools, answer directly and in character, without tools."
+            .into(),
+    );
+    lines.push(format!("- Current date: {}.", utc_ymd()));
+    lines.join("\n")
+}
+
+pub fn delegate_tool() -> Value {
+    fn_tool(
+        "delegate_to_agent",
+        "Send a deep analysis, report, or doctrine question to the analyst. The caller must already hold the analyst right.",
+        json!({
+            "type": "object",
+            "properties": {
+                "task": { "type": "string", "description": "What the analyst should answer." },
+                "context": { "type": "string", "description": "Optional extra context." }
+            },
+            "required": ["task"]
+        }),
     )
+}
+
+pub fn tool_names(tools: &[Value]) -> Vec<String> {
+    tools
+        .iter()
+        .filter_map(|t| t["function"]["name"].as_str().map(str::to_string))
+        .collect()
 }
 
 pub fn music_control_tools() -> Vec<Value> {
@@ -130,12 +192,17 @@ fn fn_tool(name: &str, description: &str, parameters: Value) -> Value {
 }
 
 pub fn intent_system_prompt(persona: &str) -> String {
+    intent_system_prompt_for(persona, &tool_names(&music_control_tools()))
+}
+
+/// Same persona block, with rules limited to `offered` tool names.
+pub fn intent_system_prompt_for(persona: &str, offered: &[String]) -> String {
     let persona = if persona.trim().is_empty() {
         DEFAULT_SYSTEM_PROMPT
     } else {
         persona
     };
-    format!("{persona}\n\n{}", tool_behavior_rules())
+    format!("{persona}\n\n{}", tool_behavior_rules(offered))
 }
 
 /// Pocket prompt. The eight music tools are the only ones offered, so this
@@ -193,6 +260,25 @@ mod tests {
         for n in ["play_music", "skip", "now_playing", "set_volume", "queue"] {
             assert!(names.iter().any(|x| x == n), "missing {n}");
         }
+    }
+
+    #[test]
+    fn default_intent_prompt_names_only_music_tools() {
+        let prompt = intent_system_prompt("");
+        assert!(prompt.contains("play_music"));
+        assert!(prompt.contains("source youtube"));
+        for banned in ["delegate_to_agent", "move_client", "move_all_clients"] {
+            assert!(!prompt.contains(banned), "{banned} in {prompt}");
+        }
+    }
+
+    #[test]
+    fn analyst_line_appears_only_when_the_tool_is_offered() {
+        let bare = intent_system_prompt_for("", &["play_music".into()]);
+        assert!(!bare.contains("delegate_to_agent"));
+        let offered = intent_system_prompt_for("", &["play_music".into(), "delegate_to_agent".into()]);
+        assert!(offered.contains("delegate_to_agent"));
+        assert!(!offered.contains("move_client"));
     }
 
     #[test]

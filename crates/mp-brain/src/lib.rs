@@ -25,12 +25,14 @@ pub use factory::{
 pub use http::{FetchFn, HttpBrain, RawHttp};
 pub use in_process::{InProcessBrain, RetrieveCtx, RetrieveFn};
 pub use llm::{
-    IntentResult, IntentToolCall, LlmBackend, LlmSettings, OpenAiLlm, ScriptedLlm,
+    delegate_complete, tool_choice_for, IntentResult, IntentToolCall, LlmBackend, LlmSettings,
+    OpenAiLlm, ScriptedLlm, ToolResultTurn, ANALYST_DENIED, ANALYST_OFFLINE, DELEGATE_UNCONFIGURED,
 };
 pub use runtime::BrainRuntime;
 pub use text::extract_assistant_text;
 pub use tools::{
-    handset_intent_prompt, music_control_tools, DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT,
+    delegate_tool, handset_intent_prompt, intent_system_prompt, intent_system_prompt_for,
+    music_control_tools, tool_names, DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT,
 };
 pub use types::{
     empty_turn, Brain, BrainError, DisposedTool, ToolProposal, TurnChannel, TurnMode, TurnOptions,
@@ -107,6 +109,7 @@ mod tests {
             |_| IntentResult {
                 content: Some("Sure".into()),
                 tool_calls: vec![IntentToolCall {
+                    id: String::new(),
                     name: "play_music".into(),
                     arguments: json!({ "query": "ambient" }),
                 }],

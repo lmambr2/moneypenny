@@ -3,6 +3,8 @@
 
 //! Dispose a brain tool proposal: harness policy → tool-map → rights → executor.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -11,6 +13,14 @@ use serde_json::Value;
 use crate::policy::{HarnessToolDecision, decide_harness_tool};
 use crate::tool_map::tool_call_to_command;
 use crate::{CommandExecutor, Subject, ToolProposal};
+
+pub const ANALYST_UNCONFIGURED: &str =
+    "Analyst delegation is not configured. Set a delegate URL in Settings.";
+
+/// `(task, extra context) -> analyst text`. Installed only when a delegate URL is set.
+pub type DelegateFn = Arc<
+    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
+>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDisposeRecord {
@@ -28,6 +38,8 @@ pub struct BrainDisposer {
     pub executor: Arc<CommandExecutor>,
     pub rights: Option<Arc<mp_rights::RightsEngine>>,
     pub rights_enabled: bool,
+    /// Present only when `llmDelegateUrl` is set. A missing hook never calls Hermes.
+    pub delegate: Option<DelegateFn>,
 }
 
 impl BrainDisposer {
@@ -39,7 +51,12 @@ impl BrainDisposer {
             executor,
             rights,
             rights_enabled: true,
+            delegate: None,
         }
+    }
+
+    pub fn allows(&self, subject: &Subject, command: &str) -> bool {
+        self.may_run(subject, command)
     }
 
     pub async fn dispose_tool(
@@ -112,6 +129,10 @@ impl BrainDisposer {
             };
         }
 
+        if cmd.name == "analyst" || cmd.name == "agent" {
+            return self.call_analyst(name, args, &cmd.args).await;
+        }
+
         match self.executor.execute(&cmd).await {
             Some(text) => ToolDisposeRecord {
                 name: name.to_string(),
@@ -130,16 +151,54 @@ impl BrainDisposer {
         }
     }
 
+    async fn call_analyst(&self, name: &str, args: Value, task: &str) -> ToolDisposeRecord {
+        let task = task.trim();
+        if task.is_empty() {
+            return ToolDisposeRecord {
+                name: name.to_string(),
+                args,
+                ok: false,
+                result: None,
+                error: Some("Usage: !analyst <task>".into()),
+            };
+        }
+        let extra = args
+            .get("context")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let Some(run) = self.delegate.clone() else {
+            return ToolDisposeRecord {
+                name: name.to_string(),
+                args,
+                ok: false,
+                result: None,
+                error: Some(ANALYST_UNCONFIGURED.into()),
+            };
+        };
+        let text = run(task.to_string(), extra).await;
+        ToolDisposeRecord {
+            name: name.to_string(),
+            args,
+            ok: true,
+            result: Some(text),
+            error: None,
+        }
+    }
+
     fn may_run(&self, subject: &Subject, command: &str) -> bool {
+        let analyst = command == "analyst" || command == "agent";
         if !self.rights_enabled {
-            return true;
+            return !analyst;
         }
         let Some(engine) = self.rights.as_ref() else {
-            return true;
+            return !analyst;
         };
         let Some(uid) = subject.uid.as_deref().filter(|s| !s.is_empty()) else {
-            // Admin session with no impersonated TS subject — HTTP route is admin-only.
-            return true;
+            // A dashboard session with no TeamSpeak subject may run music tools.
+            // Analyst still needs a server group that holds @analyst.
+            return !analyst;
         };
         let rs = mp_rights::Subject {
             uid: uid.to_string(),
@@ -372,6 +431,123 @@ mod tests {
             )
             .await;
         assert!(!still_blocked.ok);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn rank_engine() -> Arc<RightsEngine> {
+        use mp_rights::{RightsConfig, RightsRule, RuleMatch};
+        use std::collections::HashMap;
+        Arc::new(RightsEngine::new(RightsConfig {
+            default_allow: Some(vec!["play".into(), "add".into()]),
+            command_groups: Some(HashMap::from([
+                ("admin".into(), vec!["stop".into()]),
+                ("analyst".into(), vec!["analyst".into(), "agent".into()]),
+            ])),
+            super_admin_uids: Some(Vec::new()),
+            rules: Some(vec![
+                RightsRule {
+                    name: Some("colonel".into()),
+                    r#match: RuleMatch {
+                        uids: None,
+                        server_groups: Some(vec!["9".into()]),
+                    },
+                    allow: Some(vec!["@admin".into()]),
+                    deny: None,
+                    scope: None,
+                },
+                RightsRule {
+                    name: Some("chairman".into()),
+                    r#match: RuleMatch {
+                        uids: None,
+                        server_groups: Some(vec!["23".into()]),
+                    },
+                    allow: Some(vec!["@analyst".into()]),
+                    deny: None,
+                    scope: None,
+                },
+            ]),
+        }))
+    }
+
+    fn who(uid: &str, group: &str) -> Subject {
+        Subject {
+            uid: Some(uid.into()),
+            nickname: None,
+            server_groups: vec![group.into()],
+        }
+    }
+
+    #[tokio::test]
+    async fn analyst_is_rank_gated_before_the_delegate_hook() {
+        let (dir, st) = tmp_station();
+        let ex = Arc::new(CommandExecutor::new(st, "!"));
+        let hit = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hit2 = Arc::clone(&hit);
+        let mut d = BrainDisposer::new(ex, Some(rank_engine()));
+        d.delegate = Some(Arc::new(move |task, _extra| {
+            hit2.store(true, std::sync::atomic::Ordering::SeqCst);
+            let task = task.clone();
+            Box::pin(async move { format!("done:{task}") })
+        }));
+
+        let colonel = d
+            .dispose_tool(
+                "delegate_to_agent",
+                &serde_json::json!({ "task": "write the intsum" }),
+                &who("col", "9"),
+                false,
+                true,
+            )
+            .await;
+        assert!(!colonel.ok, "{colonel:?}");
+        assert!(colonel.error.unwrap().contains("permission"));
+        assert!(!hit.load(std::sync::atomic::Ordering::SeqCst));
+
+        let missing = d
+            .dispose_tool(
+                "delegate_to_agent",
+                &serde_json::json!({ "task": "write the intsum" }),
+                &admin_subject(),
+                false,
+                true,
+            )
+            .await;
+        assert!(!missing.ok, "{missing:?}");
+        assert!(missing.error.unwrap().contains("permission"));
+        assert!(!hit.load(std::sync::atomic::Ordering::SeqCst));
+
+        let play = d
+            .allows(
+                &admin_subject(),
+                "play",
+            );
+        assert!(play);
+
+        let chairman = d
+            .dispose_tool(
+                "delegate_to_agent",
+                &serde_json::json!({ "task": "write the intsum" }),
+                &who("chair", "23"),
+                false,
+                true,
+            )
+            .await;
+        assert!(chairman.ok, "{chairman:?}");
+        assert_eq!(chairman.result.as_deref(), Some("done:write the intsum"));
+        assert!(hit.load(std::sync::atomic::Ordering::SeqCst));
+
+        d.delegate = None;
+        let unconfigured = d
+            .dispose_tool(
+                "delegate_to_agent",
+                &serde_json::json!({ "task": "write the intsum" }),
+                &who("chair", "23"),
+                false,
+                true,
+            )
+            .await;
+        assert!(!unconfigured.ok);
+        assert!(unconfigured.error.unwrap().contains("not configured"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

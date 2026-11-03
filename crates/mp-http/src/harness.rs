@@ -18,9 +18,10 @@ use crate::AppState;
 use crate::authz::AdminUser;
 use crate::bot_api::broadcast_state;
 use mp_brain::{
-    TurnChannel, TurnMode, TurnOptions, TurnRequest, TurnSubject, dispose_tool_proposals,
+    IntentToolCall, ToolResultTurn, TurnChannel, TurnMode, TurnOptions, TurnRequest, TurnSubject,
+    dispose_tool_proposals,
 };
-use mp_control::{BrainDisposer, Subject};
+use mp_control::Subject;
 use mp_db::HarnessTurnRow;
 
 use crate::skills::{self, LoadedSkills};
@@ -161,8 +162,31 @@ pub async fn harness_ask(
     let mut last_error: Option<String> = None;
     let mut turn_id = id.clone();
     let mut steps: i64 = 0;
-    let mut prompt = question.clone();
     let user_uid = format!("web:{}", admin.0.id);
+    let rank_subject = Subject {
+        uid: Some(user_uid.clone()),
+        nickname: Some(admin.0.username.clone()),
+        server_groups: Vec::new(),
+    };
+    let (offered, system) = if matches!(mode, TurnMode::Intent) {
+        if let Some(executor) = st.executor.clone() {
+            let disposer = crate::intent_round::disposer_with_delegate(&st, executor);
+            let allows = |cmd: &str| disposer.allows(&rank_subject, cmd);
+            let offered = crate::intent_round::offer_intent_tools(
+                allows,
+                !st.config.llm_delegate_url.trim().is_empty(),
+            );
+            let persona = st.brain.persona().await;
+            let system =
+                mp_brain::intent_system_prompt_for(&persona, &mp_brain::tool_names(&offered));
+            (offered, system)
+        } else {
+            (Vec::new(), String::new())
+        }
+    } else {
+        (Vec::new(), String::new())
+    };
+    let mut pending_follow: Option<(Vec<IntentToolCall>, Vec<ToolResultTurn>)> = None;
 
     for _round in 0..max_rounds {
         if tools.len() >= 8 {
@@ -171,7 +195,7 @@ pub async fn harness_ask(
         let turn_req = TurnRequest {
             client_turn_id: Some(id.clone()),
             channel: TurnChannel::Dashboard,
-            text: prompt.clone(),
+            text: question.clone(),
             conversation_id: Some("harness-dashboard".into()),
             subject: Some(TurnSubject {
                 uid: Some(user_uid.clone()),
@@ -185,7 +209,17 @@ pub async fn harness_ask(
             }),
             skill: skill.clone(),
         };
-        let result = st.brain.complete(turn_req).await;
+        let result = if let Some((calls, results)) = pending_follow.take() {
+            st.brain
+                .complete_follow_up(turn_req, &offered, &system, &calls, &results)
+                .await
+        } else if matches!(mode, TurnMode::Intent) {
+            st.brain
+                .complete_with_tools(turn_req, &offered, &system)
+                .await
+        } else {
+            st.brain.complete(turn_req).await
+        };
         steps += 1;
         turn_id = result.turn_id;
         if !result.sources.is_empty() {
@@ -241,16 +275,8 @@ pub async fn harness_ask(
         }
         let mut round_tools = Vec::new();
         if !allowed.is_empty() {
-            let disposer = BrainDisposer {
-                executor,
-                rights: st.rights.clone(),
-                rights_enabled: st.config.rights_enabled,
-            };
-            let subj = Subject {
-                uid: Some(user_uid.clone()),
-                nickname: Some(admin.0.username.clone()),
-                server_groups: Vec::new(),
-            };
+            let disposer = crate::intent_round::disposer_with_delegate(&st, executor);
+            let subj = rank_subject.clone();
             let disposed = dispose_tool_proposals(&allowed, |name, args| {
                 let disposer = disposer.clone();
                 let subj = subj.clone();
@@ -281,20 +307,37 @@ pub async fn harness_ask(
         if !follow {
             break;
         }
-        let lines: Vec<String> = round_tools
+        let calls: Vec<IntentToolCall> = round_tools
             .iter()
-            .map(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
-                if let Some(r) = t.get("result").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
-                    format!("{name}: {r}")
-                } else if let Some(e) = t.get("error").and_then(|v| v.as_str()) {
-                    format!("{name}: {e}")
-                } else {
-                    name.to_string()
+            .enumerate()
+            .map(|(i, t)| IntentToolCall {
+                id: format!("call-{steps}-{i}"),
+                name: t
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("tool")
+                    .to_string(),
+                arguments: t.get("args").cloned().unwrap_or(json!({})),
+            })
+            .collect();
+        let results: Vec<ToolResultTurn> = round_tools
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let content = t
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .or_else(|| t.get("error").and_then(|v| v.as_str()).map(str::to_string))
+                    .unwrap_or_else(|| "(no result)".into());
+                ToolResultTurn {
+                    id: format!("call-{steps}-{i}"),
+                    content,
                 }
             })
             .collect();
-        prompt = format!("{question}\n\nTool results:\n{}", lines.join("\n"));
+        pending_follow = Some((calls, results));
     }
 
     for t in &tools {

@@ -37,6 +37,8 @@ pub struct InProcessBrain {
     llm: Option<LlmBackend>,
     retrieve: Option<RetrieveFn>,
     id_factory: IdFn,
+    delegate_url: String,
+    delegate_model: String,
 }
 
 impl InProcessBrain {
@@ -45,7 +47,15 @@ impl InProcessBrain {
             llm,
             retrieve: None,
             id_factory: default_id_factory(),
+            delegate_url: String::new(),
+            delegate_model: String::new(),
         }
+    }
+
+    pub fn with_delegate(mut self, url: impl Into<String>, model: impl Into<String>) -> Self {
+        self.delegate_url = url.into();
+        self.delegate_model = model.into();
+        self
     }
 
     pub fn scripted(llm: ScriptedLlm) -> Self {
@@ -113,16 +123,12 @@ impl InProcessBrain {
         if text.is_empty() {
             return empty_turn(turn_id, &req, "text is required");
         }
+        if mode == TurnMode::Delegate {
+            return self.delegate_turn(turn_id, &req, text).await;
+        }
         let Some(llm) = self.llm.as_ref() else {
             return empty_turn(turn_id, &req, "LLM is not enabled");
         };
-        if mode == TurnMode::Delegate {
-            return empty_turn(
-                turn_id,
-                &req,
-                "delegate mode is not handled by the brain transport; use ControlRouter !analyst",
-            );
-        }
 
         let mut sources: Vec<TurnSource> = Vec::new();
         if include_sources {
@@ -161,6 +167,11 @@ impl InProcessBrain {
                                 tc.arguments
                             } else {
                                 serde_json::json!({})
+                            },
+                            id: if tc.id.trim().is_empty() {
+                                None
+                            } else {
+                                Some(tc.id)
                             },
                             reason: None,
                         })
@@ -254,6 +265,11 @@ impl InProcessBrain {
                         } else {
                             serde_json::json!({})
                         },
+                        id: if tc.id.trim().is_empty() {
+                            None
+                        } else {
+                            Some(tc.id)
+                        },
                         reason: None,
                     })
                     .collect();
@@ -275,6 +291,118 @@ impl InProcessBrain {
                 error: Some(format!("Intent failed: {msg}")),
             },
         }
+    }
+
+    pub async fn complete_follow_up(
+        &self,
+        req: TurnRequest,
+        tools: &[serde_json::Value],
+        system_prompt: &str,
+        calls: &[crate::llm::IntentToolCall],
+        results: &[crate::llm::ToolResultTurn],
+    ) -> TurnResponse {
+        let turn_id = self.next_id();
+        let text = req.text.trim();
+        let max_tools = req
+            .options
+            .as_ref()
+            .and_then(|o| o.max_tools)
+            .unwrap_or(4)
+            .clamp(0, 16) as usize;
+        let Some(llm) = self.llm.as_ref() else {
+            return empty_turn(turn_id, &req, "LLM is not enabled");
+        };
+        let spoken = req.channel == TurnChannel::Voice;
+        match llm
+            .chat_follow_up(
+                text,
+                req.conversation_id.as_deref(),
+                spoken,
+                req.skill.as_deref(),
+                tools,
+                system_prompt,
+                calls,
+                results,
+            )
+            .await
+        {
+            Ok(intent) => intent_response(turn_id, &req, intent, max_tools),
+            Err(msg) => TurnResponse {
+                turn_id,
+                client_turn_id: req.client_turn_id.clone(),
+                reply_text: String::new(),
+                sources: Vec::new(),
+                tool_proposals: Vec::new(),
+                error: Some(format!("Intent failed: {msg}")),
+            },
+        }
+    }
+
+    async fn delegate_turn(&self, turn_id: String, req: &TurnRequest, text: &str) -> TurnResponse {
+        if self.delegate_url.trim().is_empty() {
+            return TurnResponse {
+                turn_id,
+                client_turn_id: req.client_turn_id.clone(),
+                reply_text: crate::llm::DELEGATE_UNCONFIGURED.into(),
+                sources: Vec::new(),
+                tool_proposals: Vec::new(),
+                error: None,
+            };
+        }
+        match crate::llm::delegate_complete(&self.delegate_url, &self.delegate_model, text, "").await
+        {
+            Ok(reply) => TurnResponse {
+                turn_id,
+                client_turn_id: req.client_turn_id.clone(),
+                reply_text: reply,
+                sources: Vec::new(),
+                tool_proposals: Vec::new(),
+                error: None,
+            },
+            Err(_) => TurnResponse {
+                turn_id,
+                client_turn_id: req.client_turn_id.clone(),
+                reply_text: crate::llm::ANALYST_OFFLINE.into(),
+                sources: Vec::new(),
+                tool_proposals: Vec::new(),
+                error: None,
+            },
+        }
+    }
+}
+
+fn intent_response(
+    turn_id: String,
+    req: &TurnRequest,
+    intent: crate::llm::IntentResult,
+    max_tools: usize,
+) -> TurnResponse {
+    let tool_proposals = intent
+        .tool_calls
+        .into_iter()
+        .take(max_tools)
+        .map(|tc| ToolProposal {
+            name: tc.name,
+            arguments: if tc.arguments.is_object() {
+                tc.arguments
+            } else {
+                serde_json::json!({})
+            },
+            id: if tc.id.trim().is_empty() {
+                None
+            } else {
+                Some(tc.id)
+            },
+            reason: None,
+        })
+        .collect();
+    TurnResponse {
+        turn_id,
+        client_turn_id: req.client_turn_id.clone(),
+        reply_text: intent.content.unwrap_or_default().trim().to_string(),
+        sources: Vec::new(),
+        tool_proposals,
+        error: None,
     }
 }
 

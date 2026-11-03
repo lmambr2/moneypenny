@@ -62,11 +62,13 @@ mod tests {
             ToolProposal {
                 name: "good".into(),
                 arguments: serde_json::json!({}),
+                id: None,
                 reason: None,
             },
             ToolProposal {
                 name: "bad".into(),
                 arguments: serde_json::json!({"a": 1}),
+                id: None,
                 reason: None,
             },
         ];

@@ -34,6 +34,7 @@ mod command;
 mod csrf;
 mod economy_api;
 mod harness;
+mod intent_round;
 mod skills;
 mod json_song;
 mod mcp_api;
@@ -1604,6 +1605,7 @@ mod tests {
 
     fn intent_call(name: &str, arguments: serde_json::Value) -> mp_brain::IntentToolCall {
         mp_brain::IntentToolCall {
+            id: "call-1".into(),
             name: name.into(),
             arguments,
         }
@@ -3778,6 +3780,7 @@ mod tests {
                 |_| mp_brain::IntentResult {
                     content: Some("Sure".into()),
                     tool_calls: vec![mp_brain::IntentToolCall {
+                        id: "call-1".into(),
                         name: "play_music".into(),
                         arguments: serde_json::json!({ "query": "sine" }),
                     }],
@@ -3816,6 +3819,7 @@ mod tests {
                 |_| mp_brain::IntentResult {
                     content: Some("Sure".into()),
                     tool_calls: vec![mp_brain::IntentToolCall {
+                        id: "call-1".into(),
                         name: "play_music".into(),
                         arguments: serde_json::json!({ "query": "sine" }),
                     }],
@@ -3854,6 +3858,7 @@ mod tests {
                 |_| mp_brain::IntentResult {
                     content: Some("Sure".into()),
                     tool_calls: vec![mp_brain::IntentToolCall {
+                        id: "call-1".into(),
                         name: "play_music".into(),
                         arguments: serde_json::json!({ "query": "sine" }),
                     }],

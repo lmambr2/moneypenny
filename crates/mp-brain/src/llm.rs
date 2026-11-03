@@ -106,10 +106,10 @@ fn push_skill(messages: &mut Vec<ChatMessage>, skill: Option<&str>) {
     let Some(skill) = skill.map(str::trim).filter(|s| !s.is_empty()) else {
         return;
     };
-    messages.push(ChatMessage {
-        role: "system".into(),
-        content: Some(format!("Operator skills (static, capped):\n\n{skill}")),
-    });
+    messages.push(ChatMessage::text(
+        "system",
+        format!("Operator skills (static, capped):\n\n{skill}"),
+    ));
 }
 
 /// Ollama `POST /api/generate` body that drops the model from VRAM.
@@ -178,6 +178,8 @@ pub struct LlmSettings {
     pub model: String,
     pub fallback_url: String,
     pub fallback_model: String,
+    pub delegate_url: String,
+    pub delegate_model: String,
     pub system_prompt: String,
     pub temperature: f32,
     pub brain_url: String,
@@ -192,6 +194,8 @@ impl Default for LlmSettings {
             model: String::new(),
             fallback_url: String::new(),
             fallback_model: String::new(),
+            delegate_url: String::new(),
+            delegate_model: String::new(),
             system_prompt: String::new(),
             temperature: 0.2,
             brain_url: std::env::var("BRAIN_URL").unwrap_or_default(),
@@ -269,14 +273,65 @@ pub struct IntentResult {
 
 #[derive(Debug, Clone)]
 pub struct IntentToolCall {
+    pub id: String,
     pub name: String,
     pub arguments: Value,
 }
+
+#[derive(Debug, Clone)]
+pub struct ToolResultTurn {
+    pub id: String,
+    pub content: String,
+}
+
+pub const DELEGATE_UNCONFIGURED: &str =
+    "Analyst delegation is not configured. Set a delegate URL in Settings.";
+pub const ANALYST_OFFLINE: &str =
+    "The analyst node is offline — try again later or use !ask for a quicker answer.";
+pub const ANALYST_DENIED: &str = "You don't have permission to use 'analyst'.";
+
+const ANALYST_SYSTEM: &str = "\
+You are Colonel Moneypenny acting as senior intelligence analyst for this operations channel. \
+Field-grade manner: thorough, well-structured answers; headings and bullets when helpful; \
+state uncertainty plainly. You do not outrank the Chairman. Reply in direct speech; no stage directions.";
 
 #[derive(Serialize)]
 struct ChatMessage {
     role: String,
     content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+impl ChatMessage {
+    fn text(role: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: role.into(),
+            content: Some(content.into()),
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+}
+
+/// `required` only when the line is clearly a music request the matcher missed.
+pub fn tool_choice_for(text: &str) -> &'static str {
+    let t = text.trim().trim_start_matches('!').trim().to_ascii_lowercase();
+    const PREFIXES: &[&str] = &[
+        "play ",
+        "play something",
+        "put on ",
+        "queue ",
+        "spin ",
+        "throw on ",
+    ];
+    if PREFIXES.iter().any(|p| t.starts_with(p)) {
+        "required"
+    } else {
+        "auto"
+    }
 }
 
 #[derive(Deserialize)]
@@ -300,6 +355,8 @@ struct ChatChoiceMessage {
 
 #[derive(Deserialize)]
 struct ApiToolCall {
+    #[serde(default)]
+    id: String,
     function: ApiFunction,
 }
 
@@ -369,10 +426,7 @@ impl OpenAiLlm {
     where
         F: FnMut(&str),
     {
-        let messages = vec![ChatMessage {
-            role: "user".into(),
-            content: Some(user.to_string()),
-        }];
+        let messages = vec![ChatMessage::text("user", user)];
         let mut tune = ask_tune(true, self.inner.temperature);
         tune.stream = true;
         self.stream_content(&messages, tune, on_delta).await
@@ -470,10 +524,7 @@ impl OpenAiLlm {
 
     /// Tiny completion so Ollama loads weights before the next real turn.
     pub async fn warm(&self) -> Result<(), String> {
-        let messages = vec![ChatMessage {
-            role: "user".into(),
-            content: Some("ok".into()),
-        }];
+        let messages = vec![ChatMessage::text("user", "ok")];
         self.chat(
             &messages,
             None,
@@ -495,14 +546,8 @@ impl OpenAiLlm {
     /// Does not touch conversation history. Fail-open at the caller.
     pub async fn complete_system(&self, system: &str, user: &str) -> Result<String, String> {
         let messages = vec![
-            ChatMessage {
-                role: "system".into(),
-                content: Some(system.to_string()),
-            },
-            ChatMessage {
-                role: "user".into(),
-                content: Some(user.to_string()),
-            },
+            ChatMessage::text("system", system),
+            ChatMessage::text("user", user),
         ];
         let resp = self
             .chat(
@@ -533,16 +578,10 @@ impl OpenAiLlm {
         spoken: bool,
         skill: Option<&str>,
     ) -> Result<String, String> {
-        let mut messages = vec![ChatMessage {
-            role: "system".into(),
-            content: Some(self.inner.system_prompt.clone()),
-        }];
+        let mut messages = vec![ChatMessage::text("system", self.inner.system_prompt.clone())];
         push_skill(&mut messages, skill);
         messages.extend(self.history_messages(conversation_id));
-        messages.push(ChatMessage {
-            role: "user".into(),
-            content: Some(question.to_string()),
-        });
+        messages.push(ChatMessage::text("user", question));
         if spoken {
             let tune = ask_tune_ctx(true, self.inner.temperature, self.resident());
             if let Ok(text) = self.stream_content(&messages, tune, |_| {}).await {
@@ -601,37 +640,22 @@ impl OpenAiLlm {
         tools: &[Value],
         system_prompt: &str,
     ) -> Result<IntentResult, String> {
-        let mut messages = vec![ChatMessage {
-            role: "system".into(),
-            content: Some(system_prompt.to_string()),
-        }];
+        let mut messages = vec![ChatMessage::text("system", system_prompt)];
         push_skill(&mut messages, skill);
         messages.extend(self.history_messages(conversation_id));
-        messages.push(ChatMessage {
-            role: "user".into(),
-            content: Some(user_message.to_string()),
-        });
+        messages.push(ChatMessage::text("user", user_message));
         let resp = self
             .chat(
                 &messages,
                 Some(tools.to_vec()),
-                Some("auto"),
+                Some(tool_choice_for(user_message)),
                 intent_tune_ctx(spoken, self.inner.temperature, self.resident()),
             )
             .await?;
         let msg = resp.choices.first().map(|c| &c.message);
         let tool_calls = msg
             .and_then(|m| m.tool_calls.as_ref())
-            .map(|calls| {
-                calls
-                    .iter()
-                    .map(|tc| IntentToolCall {
-                        name: tc.function.name.clone(),
-                        arguments: serde_json::from_str(&tc.function.arguments)
-                            .unwrap_or_else(|_| json!({})),
-                    })
-                    .collect::<Vec<_>>()
-            })
+            .map(|calls| parse_tool_calls(calls))
             .unwrap_or_default();
         if !tool_calls.is_empty() {
             let content = msg.and_then(|m| m.content.as_ref().map(|s| s.trim().to_string()));
@@ -656,6 +680,42 @@ impl OpenAiLlm {
             content,
             tool_calls: Vec::new(),
         })
+    }
+
+    /// One more completion. Tool results are `role: tool` messages, not user text.
+    pub async fn chat_follow_up(
+        &self,
+        user_message: &str,
+        conversation_id: Option<&str>,
+        spoken: bool,
+        skill: Option<&str>,
+        tools: &[Value],
+        system_prompt: &str,
+        calls: &[IntentToolCall],
+        results: &[ToolResultTurn],
+    ) -> Result<IntentResult, String> {
+        let mut messages = vec![ChatMessage::text("system", system_prompt)];
+        push_skill(&mut messages, skill);
+        messages.extend(self.history_messages(conversation_id));
+        messages.extend(tool_round_messages(user_message, calls, results));
+        let resp = self
+            .chat(
+                &messages,
+                Some(tools.to_vec()),
+                Some("auto"),
+                intent_tune_ctx(spoken, self.inner.temperature, self.resident()),
+            )
+            .await?;
+        let msg = resp.choices.first().map(|c| &c.message);
+        let tool_calls = msg
+            .and_then(|m| m.tool_calls.as_ref())
+            .map(|calls| parse_tool_calls(calls))
+            .unwrap_or_default();
+        let content = msg
+            .and_then(|m| m.content.as_ref())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        Ok(IntentResult { content, tool_calls })
     }
 
     async fn chat(
@@ -730,10 +790,7 @@ impl OpenAiLlm {
         map.get(key)
             .map(|list| {
                 list.iter()
-                    .map(|e| ChatMessage {
-                        role: e.role.to_string(),
-                        content: Some(e.content.clone()),
-                    })
+                    .map(|e| ChatMessage::text(e.role, e.content.clone()))
                     .collect()
             })
             .unwrap_or_default()
@@ -757,6 +814,144 @@ impl OpenAiLlm {
         while list.len() > MAX_TURNS * 2 {
             list.remove(0);
         }
+    }
+}
+
+fn parse_tool_calls(calls: &[ApiToolCall]) -> Vec<IntentToolCall> {
+    calls
+        .iter()
+        .enumerate()
+        .map(|(i, tc)| IntentToolCall {
+            id: if tc.id.trim().is_empty() {
+                format!("call-{i}")
+            } else {
+                tc.id.clone()
+            },
+            name: tc.function.name.clone(),
+            arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_else(|_| json!({})),
+        })
+        .collect()
+}
+
+fn tool_round_messages(
+    user_message: &str,
+    calls: &[IntentToolCall],
+    results: &[ToolResultTurn],
+) -> Vec<ChatMessage> {
+    let mut messages = vec![ChatMessage::text("user", user_message)];
+    if calls.is_empty() {
+        return messages;
+    }
+    let tool_calls: Vec<Value> = calls
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let id = if c.id.trim().is_empty() {
+                format!("call-{i}")
+            } else {
+                c.id.clone()
+            };
+            json!({
+                "id": id,
+                "type": "function",
+                "function": {
+                    "name": c.name,
+                    "arguments": c.arguments.to_string(),
+                }
+            })
+        })
+        .collect();
+    messages.push(ChatMessage {
+        role: "assistant".into(),
+        content: None,
+        tool_calls: Some(tool_calls),
+        tool_call_id: None,
+    });
+    for (i, call) in calls.iter().enumerate() {
+        let id = if call.id.trim().is_empty() {
+            format!("call-{i}")
+        } else {
+            call.id.clone()
+        };
+        let content = results
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.content.clone())
+            .unwrap_or_else(|| "(no result)".into());
+        messages.push(ChatMessage {
+            role: "tool".into(),
+            content: Some(content),
+            tool_calls: None,
+            tool_call_id: Some(id),
+        });
+    }
+    messages
+}
+
+/// Analyst completion on the delegate endpoint. Transport failure is `Err`.
+pub async fn delegate_complete(
+    base: &str,
+    model: &str,
+    task: &str,
+    extra: &str,
+) -> Result<String, String> {
+    let task = task.trim();
+    if task.is_empty() {
+        return Err("empty task".into());
+    }
+    let model = if model.trim().is_empty() {
+        "hermes"
+    } else {
+        model.trim()
+    };
+    let mut user = task.to_string();
+    if !extra.trim().is_empty() {
+        user.push_str("\n\nAdditional context:\n");
+        user.push_str(extra.trim());
+    }
+    let messages = vec![
+        ChatMessage::text("system", ANALYST_SYSTEM),
+        ChatMessage::text("user", user),
+    ];
+    let url = format!(
+        "{}/v1/chat/completions",
+        normalize_llm_base_url(base)
+    );
+    let payload = json!({
+        "model": model,
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 4096,
+        "stream": false,
+        "tool_choice": "none",
+    });
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("LLM request failed: {e}"))?;
+    let res = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("LLM request failed: {e}"))?;
+    let status = res.status();
+    if !status.is_success() {
+        return Err(format!("LLM HTTP {status}"));
+    }
+    let body: ChatCompletionResponse = res
+        .json()
+        .await
+        .map_err(|e| format!("LLM decode failed: {e}"))?;
+    let msg = body.choices.first().map(|c| &c.message);
+    let text = msg
+        .map(|m| extract_assistant_text(m.content.as_deref(), m.reasoning.as_deref()))
+        .unwrap_or_default();
+    if text.trim().is_empty() {
+        Err("empty analyst reply".into())
+    } else {
+        Ok(text)
     }
 }
 
@@ -919,6 +1114,38 @@ impl LlmBackend {
         }
     }
 
+    pub async fn chat_follow_up(
+        &self,
+        user_message: &str,
+        conversation_id: Option<&str>,
+        spoken: bool,
+        skill: Option<&str>,
+        tools: &[Value],
+        system_prompt: &str,
+        calls: &[IntentToolCall],
+        results: &[ToolResultTurn],
+    ) -> Result<IntentResult, String> {
+        match self {
+            Self::OpenAi(c) => {
+                c.chat_follow_up(
+                    user_message,
+                    conversation_id,
+                    spoken,
+                    skill,
+                    tools,
+                    system_prompt,
+                    calls,
+                    results,
+                )
+                .await
+            }
+            Self::Scripted(_) => Ok(IntentResult {
+                content: None,
+                tool_calls: Vec::new(),
+            }),
+        }
+    }
+
     pub fn has_intent(&self) -> bool {
         match self {
             Self::OpenAi(_) => true,
@@ -932,10 +1159,35 @@ mod tests {
     use super::*;
 
     fn msg() -> ChatMessage {
-        ChatMessage {
-            role: "user".into(),
-            content: Some("hi".into()),
-        }
+        ChatMessage::text("user", "hi")
+    }
+
+    #[test]
+    fn music_request_requires_a_tool_and_banter_stays_auto() {
+        assert_eq!(tool_choice_for("play something chill"), "required");
+        assert_eq!(tool_choice_for("put on the beatles"), "required");
+        assert_eq!(tool_choice_for("how are you"), "auto");
+        assert_eq!(tool_choice_for("!ask what is doctrine"), "auto");
+    }
+
+    #[test]
+    fn follow_up_uses_tool_role_and_keeps_the_user_text() {
+        let calls = vec![IntentToolCall {
+            id: "call-1".into(),
+            name: "play_music".into(),
+            arguments: json!({"query": "misty"}),
+        }];
+        let results = vec![ToolResultTurn {
+            id: "call-1".into(),
+            content: "No results found for: misty".into(),
+        }];
+        let messages = tool_round_messages("play misty", &calls, &results);
+        let body = serde_json::to_string(&messages).unwrap();
+        assert!(body.contains("\"role\":\"tool\""));
+        assert!(body.contains("\"tool_call_id\":\"call-1\""));
+        assert!(body.contains("No results found for: misty"));
+        assert!(!body.contains("Tool results:"));
+        assert!(body.contains("play misty"));
     }
 
     #[test]
