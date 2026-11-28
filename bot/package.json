@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@honeybbq/teamspeak-client": "0.2.3",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "@moneypenny/audio-native": "*",
     "@moneypenny/ts6-client": "*",
     "bcryptjs": "^3.0.3",
