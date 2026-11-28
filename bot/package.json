@@ -43,7 +43,7 @@
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "multer": "^2.2.0",
-    "music-metadata": "^11.14.0",
+    "music-metadata": "^11.16.0",
     "pino": "^10.3.1",
     "swagger-ui-dist": "^5.32.13",
     "tweetnacl": "^1.0.3",
