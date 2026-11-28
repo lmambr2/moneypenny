@@ -9,7 +9,10 @@ use serde_json::Value;
 use crate::types::{DisposedTool, ToolProposal};
 
 /// Sequential dispose. `execute` returns (ok, result, error) or Err(message).
-pub async fn dispose_tool_proposals<F, Fut>(proposals: &[ToolProposal], mut execute: F) -> Vec<DisposedTool>
+pub async fn dispose_tool_proposals<F, Fut>(
+    proposals: &[ToolProposal],
+    mut execute: F,
+) -> Vec<DisposedTool>
 where
     F: FnMut(String, Value) -> Fut,
     Fut: std::future::Future<Output = Result<(bool, Option<String>, Option<String>), String>>,
@@ -62,11 +65,13 @@ mod tests {
             ToolProposal {
                 name: "good".into(),
                 arguments: serde_json::json!({}),
+                id: None,
                 reason: None,
             },
             ToolProposal {
                 name: "bad".into(),
                 arguments: serde_json::json!({"a": 1}),
+                id: None,
                 reason: None,
             },
         ];

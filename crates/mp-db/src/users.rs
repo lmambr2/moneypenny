@@ -159,12 +159,7 @@ impl UserStore<'_> {
         })
     }
 
-    pub fn create_user(
-        &self,
-        username: &str,
-        password: &str,
-        role: UserRole,
-    ) -> Result<UserRow> {
+    pub fn create_user(&self, username: &str, password: &str, role: UserRole) -> Result<UserRow> {
         let hash = hash_password(password)?;
         let id = Uuid::new_v4().to_string();
         let now = now_ms();
@@ -195,20 +190,15 @@ impl UserStore<'_> {
 
     pub fn count_admins(&self) -> Result<u32> {
         self.db.with_conn(|conn| {
-            let n: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM users WHERE role = 'admin'",
-                [],
-                |r| r.get(0),
-            )?;
+            let n: i64 =
+                conn.query_row("SELECT COUNT(*) FROM users WHERE role = 'admin'", [], |r| {
+                    r.get(0)
+                })?;
             Ok(n as u32)
         })
     }
 
-    pub fn set_role_if_not_last_admin(
-        &self,
-        id: &str,
-        new_role: UserRole,
-    ) -> Result<&'static str> {
+    pub fn set_role_if_not_last_admin(&self, id: &str, new_role: UserRole) -> Result<&'static str> {
         let Some(row) = self.find_by_id(id)? else {
             return Ok("not_found");
         };

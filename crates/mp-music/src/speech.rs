@@ -191,7 +191,7 @@ fn park_current(station: &MusicStation) -> Option<Parked> {
 fn restore_parked(station: &MusicStation, parked: Parked) -> bool {
     let current = station.queue.lock().ok().and_then(|q| q.current());
     match current {
-        Some(cur) if cur.id == parked.song.id => station.play_song_at(&cur, parked.elapsed),
+        Some(cur) if cur.id == parked.song.id => station.resume_song_at(&cur, parked.elapsed),
         Some(_) => station.play_next().is_some(),
         None => false,
     }

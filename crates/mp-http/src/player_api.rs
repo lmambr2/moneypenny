@@ -318,6 +318,7 @@ pub async fn play_at(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
+    station.note_user_intent();
     let song = {
         let mut q = station.queue.lock().expect("queue");
         if index >= q.size() {
@@ -376,6 +377,7 @@ pub async fn play_song(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
+    station.note_user_intent();
     let busy = station.player.get_state() != mp_music::PlayerState::Idle
         || station.queue.lock().expect("queue").size() > 0;
     if busy {
@@ -426,6 +428,7 @@ pub async fn add_song(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
+    station.note_user_intent();
     let was_idle = station.player.get_state() == mp_music::PlayerState::Idle;
     let at = {
         let mut q = station.queue.lock().expect("queue");
@@ -472,6 +475,7 @@ pub async fn play_by_id(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
+    station.note_user_intent();
     let Some(track) = station.song_by_id_platform_async(song_id, plat).await else {
         return Json(json!({ "message": "Song not found" })).into_response();
     };
@@ -552,6 +556,7 @@ pub async fn play_next_song(
     let Some(station) = st.station.as_ref() else {
         return no_station();
     };
+    station.note_user_intent();
     station
         .queue
         .lock()
@@ -577,7 +582,9 @@ pub async fn seek(
     let Some(pos) = body.get("position").and_then(json_seek_seconds) else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error":"position must be a non-negative number","code":"VALIDATION_ERROR"})),
+            Json(
+                json!({"error":"position must be a non-negative number","code":"VALIDATION_ERROR"}),
+            ),
         )
             .into_response();
     };

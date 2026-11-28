@@ -3,19 +3,19 @@
 
 //! Admin doctrine + RAG primitives. Vue Library → Doctrine.
 
-use axum::extract::{Multipart, Path, Query, State};
-use axum::http::{header, StatusCode};
-use axum::response::{IntoResponse, Response};
 use axum::Json;
+use axum::extract::{Multipart, Path, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::authz::AdminUser;
 use crate::AppState;
+use crate::authz::AdminUser;
 use mp_rag::{
-    export_content_type, export_filename, export_markdown, ingest_doctrine_doc, is_pandoc_available,
+    DEFAULT_DOCTRINE_TEMPLATE, DoctrineStore, MAX_DOCTRINE_FILE_BYTES, export_content_type,
+    export_filename, export_markdown, ingest_doctrine_doc, is_pandoc_available,
     reformat_doctrine_markdown, reindex_doctrine, reindex_sources, should_skip_doctrine_reformat,
-    DoctrineStore, DEFAULT_DOCTRINE_TEMPLATE, MAX_DOCTRINE_FILE_BYTES,
 };
 
 fn no_rag() -> Response {
@@ -58,9 +58,7 @@ pub async fn doctrine_hygiene(State(st): State<AppState>, _admin: AdminUser) -> 
             } else {
                 d.classification.as_str()
             };
-            let n = by_classification
-                .entry(cls.to_string())
-                .or_insert(json!(0));
+            let n = by_classification.entry(cls.to_string()).or_insert(json!(0));
             *n = json!(n.as_i64().unwrap_or(0) + 1);
             let is_expired = mp_rag::is_doctrine_expired(d.valid_until.as_deref(), now_ms);
             if is_expired {
@@ -369,7 +367,9 @@ pub async fn rag_ingest(
         .ingest(&source, &text, "unclassified", &[], "")
         .await
     {
-        Ok(chunks) => Json(json!({ "ok": true, "source": source, "chunks": chunks })).into_response(),
+        Ok(chunks) => {
+            Json(json!({ "ok": true, "source": source, "chunks": chunks })).into_response()
+        }
         Err(e) => (
             StatusCode::BAD_GATEWAY,
             Json(json!({"error": e.to_string(), "code":"RAG_ERROR"})),
@@ -421,7 +421,9 @@ pub async fn doctrine_upload(
         if files.len() > 20 {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error":"Too many files (max 20 per upload)","code":"VALIDATION_ERROR"})),
+                Json(
+                    json!({"error":"Too many files (max 20 per upload)","code":"VALIDATION_ERROR"}),
+                ),
             )
                 .into_response();
         }
@@ -583,7 +585,11 @@ pub async fn doctrine_export(
         }
         Err(e) => {
             let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::BAD_GATEWAY);
-            (status, Json(json!({"error": e.to_string(), "code": e.code()}))).into_response()
+            (
+                status,
+                Json(json!({"error": e.to_string(), "code": e.code()})),
+            )
+                .into_response()
         }
     }
 }

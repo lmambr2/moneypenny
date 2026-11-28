@@ -370,6 +370,54 @@ impl TagStore<'_> {
         Ok(keys)
     }
 
+    /// Phrase match on genre, subgenre, or mood. Tokens shorter than 3 characters
+    /// and filler words are dropped, so "lo-fi beats" matches nothing and the
+    /// caller falls through to a filename search. Bumper rows are excluded.
+    pub fn keys_for_phrase(&self, query: &str, limit: usize) -> Result<Vec<String>> {
+        self.phrase_keys(query, limit.min(80), false)
+    }
+
+    /// Same phrase match as [`Self::keys_for_phrase`], in random order.
+    /// Auto-DJ uses this so restock does not lock onto the first inserted rows.
+    pub fn sample_keys_for_phrase(&self, query: &str, limit: usize) -> Result<Vec<String>> {
+        self.phrase_keys(query, limit.min(200), true)
+    }
+
+    fn phrase_keys(&self, query: &str, cap: usize, random: bool) -> Result<Vec<String>> {
+        if cap == 0 {
+            return Ok(Vec::new());
+        }
+        let tokens = phrase_tokens(query);
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.db.with_conn(|conn| {
+            let mut clauses = Vec::new();
+            let mut params: Vec<rusqlite::types::Value> = Vec::new();
+            for token in &tokens {
+                let pat = like_pattern(token);
+                clauses.push(
+                    "(LOWER(genre) LIKE ? ESCAPE '\\' OR LOWER(subgenre) LIKE ? ESCAPE '\\' OR LOWER(mood) LIKE ? ESCAPE '\\')"
+                        .to_string(),
+                );
+                for _ in 0..3 {
+                    params.push(rusqlite::types::Value::Text(pat.clone()));
+                }
+            }
+            params.push(rusqlite::types::Value::Integer(cap as i64));
+            let order = if random { " ORDER BY RANDOM()" } else { "" };
+            let sql = format!(
+                "SELECT track_key FROM track_tags WHERE bumper = 0 AND ({}){order} LIMIT ?",
+                clauses.join(" OR ")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(params.iter()), |r| r.get(0))?
+                .collect::<std::result::Result<Vec<String>, _>>()?;
+            Ok(rows)
+        })
+    }
+
     pub fn get_rating(&self, track_key: &str) -> Result<RatingSummary> {
         let tags = self.get(track_key)?;
         Ok(RatingSummary {
@@ -487,6 +535,44 @@ fn row_to_tags(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackTags> {
     })
 }
 
+fn phrase_tokens(query: &str) -> Vec<String> {
+    const STOP: &[&str] = &[
+        "a", "an", "the", "of", "and", "or", "for", "to", "in", "on", "music", "beats", "mix",
+        "songs", "song", "official", "audio", "video",
+    ];
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let flush = |cur: &mut String, out: &mut Vec<String>| {
+        if cur.len() >= 3 && !STOP.contains(&cur.as_str()) && !out.iter().any(|t| t == cur) {
+            out.push(std::mem::take(cur));
+        } else {
+            cur.clear();
+        }
+    };
+    for c in query.chars() {
+        if c.is_ascii_alphanumeric() {
+            cur.push(c.to_ascii_lowercase());
+        } else if !cur.is_empty() {
+            flush(&mut cur, &mut out);
+        }
+    }
+    if !cur.is_empty() {
+        flush(&mut cur, &mut out);
+    }
+    out
+}
+
+fn like_pattern(token: &str) -> String {
+    let mut escaped = String::new();
+    for c in token.chars() {
+        if c == '\\' || c == '%' || c == '_' {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    format!("%{escaped}%")
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -566,6 +652,53 @@ mod tests {
         assert_eq!(keys, vec!["calm1", "calm2"]);
         let genre = parse_tag_select(r#"{"genreAny":["AMBIENT"]}"#).unwrap();
         assert_eq!(db.tags().select_tracks(&genre).unwrap(), vec!["calm1"]);
+    }
+
+    #[test]
+    fn keys_for_phrase_matches_genre_and_skips_bumpers_and_short_tokens() {
+        let db = Database::open_in_memory().unwrap();
+        let tags = |genre: &str| TrackTags {
+            genre: Some(genre.into()),
+            ..Default::default()
+        };
+        db.tags()
+            .upsert("rock1", &tags("Rock"), TagSource::Embedded)
+            .unwrap();
+        db.tags()
+            .upsert("snd", &tags("Soundtracks"), TagSource::Embedded)
+            .unwrap();
+        db.tags()
+            .upsert("jingle", &tags("Rock"), TagSource::Manual)
+            .unwrap();
+        db.tags().set_bumper("jingle", true, None, None).unwrap();
+        db.tags()
+            .upsert(
+                "calm",
+                &TrackTags {
+                    mood: Some("Calm".into()),
+                    ..Default::default()
+                },
+                TagSource::Analyzer,
+            )
+            .unwrap();
+
+        let rock = db.tags().keys_for_phrase("hard rock", 30).unwrap();
+        assert!(rock.contains(&"rock1".to_string()), "{rock:?}");
+        assert!(!rock.contains(&"jingle".to_string()), "{rock:?}");
+        assert_eq!(
+            db.tags().keys_for_phrase("soundtrack", 30).unwrap(),
+            vec!["snd".to_string()]
+        );
+        assert!(
+            db.tags()
+                .keys_for_phrase("lo-fi beats", 30)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            db.tags().keys_for_phrase("calm", 30).unwrap(),
+            vec!["calm".to_string()]
+        );
     }
 
     #[test]

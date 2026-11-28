@@ -15,6 +15,7 @@
   "dependencies": {
     "@iconify/vue": "^5.0.1",
     "pinia": "^4.0.3",
+    "uqr": "0.1.2",
     "vue": "^3.5.41",
     "vue-router": "^5.2.0"
   },

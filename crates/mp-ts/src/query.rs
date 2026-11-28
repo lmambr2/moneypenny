@@ -68,7 +68,11 @@ pub struct QueryClient {
 }
 
 impl QueryClient {
-    pub fn new(host: impl Into<String>, port: u16, api_key: impl Into<String>) -> Result<Self, String> {
+    pub fn new(
+        host: impl Into<String>,
+        port: u16,
+        api_key: impl Into<String>,
+    ) -> Result<Self, String> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
             .build()
@@ -102,7 +106,8 @@ impl QueryClient {
         let status = res.status().as_u16();
         let body = res.text().await.unwrap_or_default();
         if status == 401 || status == 403 {
-            self.cooldown.note_failure(&format!("{status} unauthorized"), now_ms());
+            self.cooldown
+                .note_failure(&format!("{status} unauthorized"), now_ms());
         }
         Ok((status, body))
     }
@@ -115,7 +120,11 @@ impl QueryClient {
         Ok(())
     }
 
-    async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(u16, String), String> {
+    async fn post_json(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<(u16, String), String> {
         if let Some(reason) = self.cooldown.reject_reason(now_ms()) {
             return Err(reason);
         }
@@ -140,7 +149,8 @@ impl QueryClient {
         let status = res.status().as_u16();
         let text = res.text().await.unwrap_or_default();
         if status == 401 || status == 403 {
-            self.cooldown.note_failure(&format!("{status} unauthorized"), now_ms());
+            self.cooldown
+                .note_failure(&format!("{status} unauthorized"), now_ms());
         }
         Ok((status, text))
     }
@@ -223,7 +233,9 @@ impl QueryClient {
         let contains = list
             .iter()
             .find(|c| c.name.to_ascii_lowercase().contains(&lower));
-        contains.cloned().ok_or_else(|| format!("No channel matching '{q}'."))
+        contains
+            .cloned()
+            .ok_or_else(|| format!("No channel matching '{q}'."))
     }
 
     pub async fn client_move(&self, clid: i32, cid: u64) -> Result<(), String> {
@@ -234,7 +246,10 @@ impl QueryClient {
             )
             .await?;
         if status < 200 || status >= 300 {
-            return Err(format!("clientmove failed ({status}): {}", body.chars().take(80).collect::<String>()));
+            return Err(format!(
+                "clientmove failed ({status}): {}",
+                body.chars().take(80).collect::<String>()
+            ));
         }
         Ok(())
     }
@@ -261,7 +276,10 @@ impl QueryClient {
                 let id = row
                     .get("clid")
                     .or_else(|| row.get("client_id"))
-                    .and_then(|n| n.as_i64().or_else(|| n.as_str().and_then(|s| s.parse().ok())))
+                    .and_then(|n| {
+                        n.as_i64()
+                            .or_else(|| n.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0) as i32;
                 if id == 0 {
                     return None;
@@ -269,11 +287,17 @@ impl QueryClient {
                 let channel_id = row
                     .get("cid")
                     .or_else(|| row.get("client_channel_id"))
-                    .and_then(|n| n.as_i64().or_else(|| n.as_str().and_then(|s| s.parse().ok())))
+                    .and_then(|n| {
+                        n.as_i64()
+                            .or_else(|| n.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0) as u64;
                 let client_type = row
                     .get("client_type")
-                    .and_then(|n| n.as_i64().or_else(|| n.as_str().and_then(|s| s.parse().ok())))
+                    .and_then(|n| {
+                        n.as_i64()
+                            .or_else(|| n.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0) as i32;
                 let nickname = row
                     .get("client_nickname")
@@ -295,7 +319,10 @@ impl QueryClient {
     pub async fn client_list_groups(&self) -> Result<Vec<QueryClientRow>, String> {
         let (status, body) = self.get("/1/clientlist?-groups").await?;
         if status != 200 {
-            return Err(format!("clientlist status={status} body={}", body.chars().take(120).collect::<String>()));
+            return Err(format!(
+                "clientlist status={status} body={}",
+                body.chars().take(120).collect::<String>()
+            ));
         }
         Ok(parse_client_list(&body))
     }
@@ -356,7 +383,10 @@ fn ids_from_rows(rows: &[Value]) -> Vec<i64> {
             .or_else(|| row.get("client_database_id"))
             .or_else(|| row.get("cdb_id"));
         let n = raw
-            .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            .and_then(|v| {
+                v.as_i64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })
             .unwrap_or(0);
         if n > 0 && !out.contains(&n) {
             out.push(n);
@@ -431,7 +461,11 @@ fn parse_groups(v: &Value) -> Vec<String> {
     if let Some(a) = v.as_array() {
         return a
             .iter()
-            .filter_map(|x| x.as_str().map(str::to_string).or_else(|| x.as_i64().map(|n| n.to_string())))
+            .filter_map(|x| {
+                x.as_str()
+                    .map(str::to_string)
+                    .or_else(|| x.as_i64().map(|n| n.to_string()))
+            })
             .collect();
     }
     Vec::new()
@@ -518,7 +552,11 @@ fn parse_pipe_list(body: &str) -> Vec<QueryClientRow> {
                         "client_unique_identifier" => uid = v.to_string(),
                         "cid" => cid = v.parse().unwrap_or(0),
                         "client_servergroups" => {
-                            groups = v.split(',').map(str::to_string).filter(|s| !s.is_empty()).collect();
+                            groups = v
+                                .split(',')
+                                .map(str::to_string)
+                                .filter(|s| !s.is_empty())
+                                .collect();
                         }
                         _ => {}
                     }
@@ -545,7 +583,8 @@ mod tests {
 
     #[test]
     fn parse_json_array() {
-        let body = r#"[{"clid":"3","client_nickname":"grafcv","client_servergroups":"6,7","cid":"1"}]"#;
+        let body =
+            r#"[{"clid":"3","client_nickname":"grafcv","client_servergroups":"6,7","cid":"1"}]"#;
         let rows = parse_client_list(body);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].clid, 3);
@@ -603,15 +642,15 @@ mod tests {
         });
         let client = QueryClient::new(addr.ip().to_string(), addr.port(), "k").unwrap();
         let posted = client
-            .post_json("/1/servergroupdelclient?sid=1", &serde_json::json!({"sgid": 1}))
+            .post_json(
+                "/1/servergroupdelclient?sid=1",
+                &serde_json::json!({"sgid": 1}),
+            )
             .await
             .unwrap();
         assert_eq!(posted.0, 401);
         let next = client.get("/1/servergroupclientlist?sid=1&sgid=1").await;
-        assert!(
-            next.as_ref().unwrap_err().contains("cooldown"),
-            "{next:?}"
-        );
+        assert!(next.as_ref().unwrap_err().contains("cooldown"), "{next:?}");
         assert_eq!(gets.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 }

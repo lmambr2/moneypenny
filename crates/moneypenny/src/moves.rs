@@ -105,21 +105,32 @@ impl MoveRuntime {
         }
     }
 
-    pub async fn cmd_moveall(&self, raw_args: &[String], invoker_uid: &str, own_clid: i32) -> String {
+    pub async fn cmd_moveall(
+        &self,
+        raw_args: &[String],
+        invoker_uid: &str,
+        own_clid: i32,
+    ) -> String {
         let Some(q) = self.query.as_ref() else {
             return "TeamSpeak Query is not configured (TS6_API_KEY).".into();
         };
         if invoker_uid.is_empty() {
             return "Mass move must be requested from TeamSpeak chat.".into();
         }
-        if raw_args.first().map(|s| s.eq_ignore_ascii_case("confirm")).unwrap_or(false) {
+        if raw_args
+            .first()
+            .map(|s| s.eq_ignore_ascii_case("confirm"))
+            .unwrap_or(false)
+        {
             if !self.try_rate() {
                 return "Too many moves — wait a minute and try again.".into();
             }
             let pending = {
                 let mut g = self.pending.lock().expect("pending");
                 match g.take() {
-                    Some(p) if Instant::now() < p.expires && p.invoker_uid == invoker_uid => Some(p),
+                    Some(p) if Instant::now() < p.expires && p.invoker_uid == invoker_uid => {
+                        Some(p)
+                    }
                     Some(p) => {
                         *g = Some(p);
                         None
@@ -128,7 +139,8 @@ impl MoveRuntime {
                 }
             };
             let Some(p) = pending else {
-                return "No pending mass move (or it expired). Run !moveall <channel> first.".into();
+                return "No pending mass move (or it expired). Run !moveall <channel> first."
+                    .into();
             };
             let mut ok = 0;
             for (clid, _) in &p.targets {
@@ -223,7 +235,10 @@ async fn resolve_clid(q: &QueryClient, target: &str) -> Result<i32, String> {
     let list = q.client_list_groups().await?;
     let lower = target.to_ascii_lowercase();
     list.into_iter()
-        .find(|r| r.nickname.eq_ignore_ascii_case(target) || r.nickname.to_ascii_lowercase().starts_with(&lower))
+        .find(|r| {
+            r.nickname.eq_ignore_ascii_case(target)
+                || r.nickname.to_ascii_lowercase().starts_with(&lower)
+        })
         .map(|r| r.clid)
         .ok_or_else(|| format!("No client matching '{target}'."))
 }

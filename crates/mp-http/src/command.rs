@@ -46,7 +46,7 @@ pub async fn dispatch_command(
     match parsed.name.as_str() {
         "remember" => Some(cmd_remember(db, rag, &parsed.args, &subject.uid)),
         "recall" => Some(cmd_recall(db, &subject.uid)),
-        "forget" => Some(cmd_forget(db, &parsed.args, &subject.uid)),
+        "forget" => Some(cmd_forget(db, rag, &parsed.args, &subject.uid).await),
         "kg" => Some(cmd_kg(rag, rights, subject, scope, &parsed.args)),
         "diary" => Some(cmd_diary(rag, rights, subject, scope, &parsed.args)),
         "ops" => Some(
@@ -64,6 +64,7 @@ pub async fn dispatch_command(
             cmd_ask(
                 brain,
                 rights,
+                rag,
                 subject,
                 scope,
                 &parsed.args,
@@ -76,6 +77,7 @@ pub async fn dispatch_command(
             cmd_ask(
                 brain,
                 rights,
+                rag,
                 subject,
                 scope,
                 &parsed.args,
@@ -91,9 +93,17 @@ pub async fn dispatch_command(
         "ships" | "hangar" => Some(cmd_ships(db, rights, subject, scope, &parsed.args)),
         "session" => Some(cmd_session(&parsed.args, session).await),
         "ingeststatus" => Some(cmd_ingest(db)),
-        "intsum" | "aar" => {
-            Some(cmd_workflow(brain, rag, parsed.name.as_str(), &parsed.args, parsed.flags.contains(&'s'), subject).await)
-        }
+        "intsum" | "aar" => Some(
+            cmd_workflow(
+                brain,
+                rag,
+                parsed.name.as_str(),
+                &parsed.args,
+                parsed.flags.contains(&'s'),
+                subject,
+            )
+            .await,
+        ),
         "generate" => Some("ACE-Step music generation is not ported on the Rust bot.".into()),
         "reindex" => Some(cmd_reindex(rag, &parsed.args).await),
         "radio" => Some(cmd_radio(radio, &executor.prefix, parsed).await),
@@ -221,6 +231,19 @@ async fn cmd_radio(radio: Option<&RadioRuntime>, prefix: &str, parsed: &ParsedCo
                 }
             }
         }
+        "prewarm" => {
+            let doctrine = parsed
+                .raw_args
+                .get(1)
+                .is_some_and(|s| s.eq_ignore_ascii_case("doctrine"));
+            let tally = radio.prewarm_bumpers(doctrine, 12, Vec::new()).await;
+            format!(
+                "📻 Prewarmed {} bumper{}. {} failed.",
+                tally.rendered,
+                if tally.rendered == 1 { "" } else { "s" },
+                tally.failed
+            )
+        }
         "skipbumper" | "skip-bumper" | "skip" => {
             let msg = if radio.skip_bumper() == "cue" {
                 "Cued bumper cancelled."
@@ -254,7 +277,7 @@ async fn cmd_radio(radio: Option<&RadioRuntime>, prefix: &str, parsed: &ParsedCo
             )
         }
         _ => format!(
-            "Usage: {prefix}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skipbumper]"
+            "Usage: {prefix}radio [on|off|status|ops <profile>|ops list|bumper [topic]|say <text>|skipbumper|prewarm [doctrine]]"
         ),
     }
 }
@@ -476,15 +499,37 @@ fn cmd_recall(db: &Database, uid: &str) -> String {
     format!("What I remember about you:\n{}", lines.join("\n"))
 }
 
-fn cmd_forget(db: &Database, args: &str, uid: &str) -> String {
+async fn cmd_forget(
+    db: &Database,
+    rag: Option<&mp_rag::RagRuntime>,
+    args: &str,
+    uid: &str,
+) -> String {
     let trimmed = args.trim().to_ascii_lowercase();
     if trimmed.is_empty() {
         return "Usage: !forget <number> or !forget all".into();
     }
+    let palace = rag.and_then(|r| {
+        if r.mempalace_enabled() {
+            r.mempalace.clone()
+        } else {
+            None
+        }
+    });
     if trimmed == "all" {
         let n = db.memory().forget(uid).unwrap_or(0);
+        let mut mp_note = String::new();
+        if let Some(c) = palace {
+            if !c.forget(uid, true, None).await {
+                tracing::warn!(uid, "MemPalace forget-all failed");
+                mp_note = " (MemPalace may still have copies — re-run Sync or forget again)".into();
+            }
+        }
         return if n > 0 {
-            format!("Forgotten {n} fact{}.", if n == 1 { "" } else { "s" })
+            format!(
+                "Forgotten {n} fact{}.{mp_note}",
+                if n == 1 { "" } else { "s" }
+            )
         } else {
             "Nothing to forget.".into()
         };
@@ -495,10 +540,22 @@ fn cmd_forget(db: &Database, args: &str, uid: &str) -> String {
     if index < 1 {
         return "Usage: !forget <number> (from !recall) or !forget all".into();
     }
-    match db.memory().forget_at_index(uid, index) {
-        Ok(true) => "Forgotten.".into(),
-        _ => "No fact at that number — run !recall to see your list.".into(),
+    // MemPalace first, while its recall order still matches the number.
+    let mp_ok = match palace {
+        Some(c) => Some(c.forget(uid, false, Some(index)).await),
+        None => None,
+    };
+    if mp_ok == Some(false) {
+        tracing::warn!(uid, index, "MemPalace forget-index failed");
     }
+    let local_ok = db.memory().forget_at_index(uid, index).unwrap_or(false);
+    if !local_ok && mp_ok != Some(true) {
+        return "No fact at that number — run !recall to see your list.".into();
+    }
+    if local_ok && mp_ok == Some(false) {
+        return "Forgotten locally; MemPalace may still have it — check !recall or Sync.".into();
+    }
+    "Forgotten.".into()
 }
 
 async fn cmd_rate(
@@ -576,7 +633,10 @@ fn rotate_tag_keys(executor: &CommandExecutor, keys: &[String]) -> Vec<String> {
         keys,
         |key| {
             let song = executor.station.local.song_by_id(key)?;
-            let artist = if song.artist != "Unknown Artist" && song.artist != "Unknown" && !song.artist.is_empty() {
+            let artist = if song.artist != "Unknown Artist"
+                && song.artist != "Unknown"
+                && !song.artist.is_empty()
+            {
                 song.artist
             } else {
                 song.title
@@ -662,7 +722,8 @@ async fn cmd_workflow(
         Some(doc) => {
             let body = if req.save {
                 let path = crate::workflow::workflow_save_path(kind, &today);
-                let saved = match rag.and_then(|r| r.doctrine.save_file(&path, &doc).ok().flatten()) {
+                let saved = match rag.and_then(|r| r.doctrine.save_file(&path, &doc).ok().flatten())
+                {
                     Some(source) => Ok(source),
                     None => Err("knowledge base is not configured".to_string()),
                 };
@@ -710,6 +771,7 @@ fn cmd_unrate(db: &Database, executor: &CommandExecutor, subject: &Subject) -> S
 async fn cmd_ask(
     brain: &mp_brain::BrainRuntime,
     rights: Option<&RightsEngine>,
+    rag: Option<&mp_rag::RagRuntime>,
     subject: &Subject,
     scope: Scope,
     args: &str,
@@ -720,6 +782,12 @@ async fn cmd_ask(
     if q.is_empty() {
         return format!("Usage: !{verb} <question>");
     }
+    if mode == TurnMode::Ask
+        && rag.is_some_and(|r| r.rag_enabled())
+        && subject_can_reindex(rights, subject, scope)
+    {
+        return cmd_ask_library(brain, rights, rag.expect("rag checked"), subject, scope, q).await;
+    }
     let allowed = allowed_classifications_for(rights, subject);
     let channel = match scope {
         Scope::Voice => TurnChannel::Voice,
@@ -729,10 +797,9 @@ async fn cmd_ask(
         client_turn_id: None,
         channel,
         text: q.to_string(),
-        conversation_id: Some(if matches!(scope, Scope::Voice) {
-            format!("voice:{}", subject.uid)
-        } else {
-            "channel".into()
+        conversation_id: Some(match scope {
+            Scope::Voice => format!("voice:{}", subject.uid),
+            _ => format!("ts:{}", subject.uid),
         }),
         subject: Some(TurnSubject {
             uid: Some(subject.uid.clone()),
@@ -744,6 +811,7 @@ async fn cmd_ask(
             include_sources: Some(true),
             max_tools: None,
         }),
+        skill: None,
     };
     let r = brain.complete(req).await;
     if !r.reply_text.trim().is_empty() {
@@ -751,6 +819,130 @@ async fn cmd_ask(
     } else {
         r.error
             .unwrap_or_else(|| "Sorry, the local brain is having a moment.".into())
+    }
+}
+
+fn subject_can_reindex(rights: Option<&RightsEngine>, subject: &Subject, scope: Scope) -> bool {
+    match rights {
+        None => true,
+        Some(engine) => engine.can(subject, "reindex", scope),
+    }
+}
+
+/// Officers who can `!reindex` get list/read/edit on `!ask`. Members stay on
+/// the plain answer path. This loop does not use the harness dangerous flag.
+async fn cmd_ask_library(
+    brain: &mp_brain::BrainRuntime,
+    rights: Option<&RightsEngine>,
+    rag: &mp_rag::RagRuntime,
+    subject: &Subject,
+    scope: Scope,
+    q: &str,
+) -> String {
+    let allowed = allowed_classifications_for(rights, subject);
+    let tools = mp_brain::library_doc_tools();
+    let persona = brain.persona().await;
+    let mut system = mp_brain::intent_system_prompt_for(&persona, &mp_brain::tool_names(&tools));
+    let chunks = rag
+        .retrieval
+        .query(q, Some(rag.top_k()), Some(&allowed))
+        .await;
+    let (grounding, source_names) = mp_rag::library_grounding(&chunks);
+    if !grounding.is_empty() {
+        system.push_str("\n\n");
+        system.push_str(&grounding);
+    }
+    let channel = match scope {
+        Scope::Voice => TurnChannel::Voice,
+        _ => TurnChannel::Teamspeak,
+    };
+    let req = TurnRequest {
+        client_turn_id: None,
+        channel,
+        text: q.to_string(),
+        conversation_id: Some(match scope {
+            Scope::Voice => format!("voice:{}", subject.uid),
+            _ => format!("ts:{}", subject.uid),
+        }),
+        subject: Some(TurnSubject {
+            uid: Some(subject.uid.clone()),
+            server_groups: Some(subject.server_groups.clone()),
+            allowed_classifications: Some(allowed.clone()),
+        }),
+        mode: Some(TurnMode::Ask),
+        options: Some(TurnOptions {
+            include_sources: Some(true),
+            max_tools: None,
+        }),
+        skill: None,
+    };
+    let mut result = brain
+        .complete_with_tools(req.clone(), &tools, &system)
+        .await;
+    let mut calls = Vec::new();
+    let mut tool_results = Vec::new();
+    for round in 1..=3 {
+        if result.tool_proposals.is_empty() {
+            break;
+        }
+        for (i, proposal) in result.tool_proposals.iter().enumerate() {
+            let id = format!("call-{round}-{i}");
+            let text = mp_rag::run_library_tool(
+                &rag.retrieval,
+                &rag.doctrine,
+                &proposal.name,
+                &proposal.arguments,
+                &allowed,
+            )
+            .await;
+            calls.push(mp_brain::IntentToolCall {
+                id: id.clone(),
+                name: proposal.name.clone(),
+                arguments: proposal.arguments.clone(),
+            });
+            tool_results.push(mp_brain::ToolResultTurn { id, content: text });
+        }
+        if round == 3 {
+            break;
+        }
+        result = brain
+            .complete_follow_up(req.clone(), &tools, &system, &calls, &tool_results)
+            .await;
+    }
+    if !result.reply_text.trim().is_empty() {
+        if calls.is_empty() {
+            with_sources(result.reply_text, &source_names)
+        } else {
+            result.reply_text
+        }
+    } else if let Some(last) = tool_results.last() {
+        last.content.clone()
+    } else {
+        result
+            .error
+            .unwrap_or_else(|| "Sorry, the local brain is having a moment.".into())
+    }
+}
+
+fn with_sources(reply: String, names: &[String]) -> String {
+    let reply = strip_trailing_sources(reply);
+    if names.is_empty() || reply.trim().is_empty() {
+        return reply;
+    }
+    format!("{}\n\n📎 Sources: {}", reply.trim_end(), names.join(", "))
+}
+
+fn strip_trailing_sources(reply: String) -> String {
+    let lower = reply.to_ascii_lowercase();
+    let mut cut = None;
+    for marker in ["\n📎 sources:", "\nsources:"] {
+        if let Some(i) = lower.rfind(marker) {
+            cut = Some(cut.map(|c: usize| c.min(i)).unwrap_or(i));
+        }
+    }
+    match cut {
+        Some(i) => reply[..i].trim_end().to_string(),
+        None => reply,
     }
 }
 
@@ -955,7 +1147,7 @@ fn format_lines(lines: &[WorkOrderLine]) -> String {
 #[cfg(test)]
 mod dispatch_tests {
     use super::*;
-    use mp_control::{legacy_rights_config, parse_command, CommandExecutor};
+    use mp_control::{CommandExecutor, legacy_rights_config, parse_command};
     use mp_music::VoteAudience;
     use std::sync::Arc;
 
@@ -1036,7 +1228,11 @@ mod dispatch_tests {
     #[tokio::test]
     async fn selecttracks_separates_artists_and_starts_when_idle() {
         let (db, ex, rights, brain) = world();
-        for (id_name, genre) in [("calm1", "ambient"), ("calm2", "ambient"), ("calm3", "ambient")] {
+        for (id_name, genre) in [
+            ("calm1", "ambient"),
+            ("calm2", "ambient"),
+            ("calm3", "ambient"),
+        ] {
             let song = ex
                 .station
                 .local
@@ -1242,7 +1438,10 @@ mod dispatch_tests {
         .unwrap();
         assert!(dry.contains("Would remove 2 memberships"), "{dry}");
         assert!(dry.contains("Dry run"), "{dry}");
-        assert_eq!(query.members.lock().unwrap().get(&201).unwrap(), &vec![10, 11]);
+        assert_eq!(
+            query.members.lock().unwrap().get(&201).unwrap(),
+            &vec![10, 11]
+        );
         let parsed = parse_command("!session clear", "!", &mp_control::default_aliases()).unwrap();
         let out = dispatch_command(
             &parsed,
@@ -1345,9 +1544,12 @@ mod dispatch_tests {
             if spec.name == "generate" {
                 continue;
             }
-            let parsed =
-                parse_command(&format!("!{}", spec.name), "!", &mp_control::default_aliases())
-                    .unwrap();
+            let parsed = parse_command(
+                &format!("!{}", spec.name),
+                "!",
+                &mp_control::default_aliases(),
+            )
+            .unwrap();
             let out = dispatch_command(
                 &parsed,
                 &who,
@@ -1407,8 +1609,11 @@ mod dispatch_tests {
             4,
         ));
         let doctrine = std::sync::Arc::new(
-            mp_rag::DoctrineStore::new(std::sync::Arc::new(Database::open_in_memory().unwrap()), &dir)
-                .unwrap(),
+            mp_rag::DoctrineStore::new(
+                std::sync::Arc::new(Database::open_in_memory().unwrap()),
+                &dir,
+            )
+            .unwrap(),
         );
         let rag = mp_rag::RagRuntime::new(retrieval, doctrine, false, false, 4);
         let parsed = parse_command(
@@ -1444,6 +1649,119 @@ mod dispatch_tests {
         assert!(!user.contains("alpha secure; comms ok"), "{user}");
         assert!(out.contains("Saved to knowledge base"), "{out}");
         assert!(out.contains("intel/intsum-"), "{out}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn ask_edits_a_library_doc_only_for_reindex() {
+        let (db, ex, rights, _brain) = world();
+        let dir = std::env::temp_dir().join(format!(
+            "mp-ask-lib-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let doctrine = std::sync::Arc::new(
+            mp_rag::DoctrineStore::new(
+                std::sync::Arc::new(Database::open_in_memory().unwrap()),
+                &dir,
+            )
+            .unwrap(),
+        );
+        let retrieval = std::sync::Arc::new(mp_rag::RetrievalStore::new(
+            mp_rag::Embedder::Hash { dim: 16 },
+            mp_rag::VectorStore::Memory(mp_rag::MemoryVectorStore::new()),
+            "doctrine".into(),
+            4,
+        ));
+        mp_rag::ingest_doctrine_doc(
+            &retrieval,
+            &doctrine,
+            "charter.md",
+            "---\nclassification: unclassified\n---\n\nThe fleet stands.\n",
+        )
+        .await
+        .unwrap();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen2 = std::sync::Arc::clone(&seen);
+        let scripted = mp_brain::ScriptedLlm::with_intent_tools(
+            |_| "Noted.".into(),
+            move |_q, tools| {
+                *seen2.lock().expect("tools") = tools
+                    .iter()
+                    .filter_map(|t| t["function"]["name"].as_str().map(str::to_string))
+                    .collect();
+                mp_brain::IntentResult {
+                    content: None,
+                    tool_calls: vec![mp_brain::IntentToolCall {
+                        id: "c1".into(),
+                        name: "edit_library_doc".into(),
+                        arguments: serde_json::json!({
+                            "source": "charter.md",
+                            "find": "The fleet stands.",
+                            "replace": "The fleet holds."
+                        }),
+                    }],
+                }
+            },
+        );
+        let brain = mp_brain::BrainRuntime::in_process(
+            mp_brain::InProcessBrain::scripted(scripted).with_id_factory(|| "t-lib".into()),
+        );
+        let rag =
+            mp_rag::RagRuntime::new(retrieval, std::sync::Arc::clone(&doctrine), true, false, 4);
+        let ask = parse_command(
+            "!ask change the charter",
+            "!",
+            &mp_control::default_aliases(),
+        )
+        .unwrap();
+        let member_out = dispatch_command(
+            &ask,
+            &member(),
+            Scope::Chat,
+            &ex,
+            Some(&rights),
+            &db,
+            brain.as_ref(),
+            Some(rag.as_ref()),
+            None,
+            None,
+            None,
+            None,
+            VoteAudience::NotOnTeamspeak,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(member_out, "Noted.");
+        assert!(doctrine.read_file("charter.md").unwrap().contains("stands"));
+        assert!(seen.lock().expect("tools").is_empty());
+
+        let officer_out = dispatch_command(
+            &ask,
+            &colonel(),
+            Scope::Chat,
+            &ex,
+            Some(&rights),
+            &db,
+            brain.as_ref(),
+            Some(rag.as_ref()),
+            None,
+            None,
+            None,
+            None,
+            VoteAudience::NotOnTeamspeak,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(officer_out.starts_with("Saved charter.md"), "{officer_out}");
+        assert!(doctrine.read_file("charter.md").unwrap().contains("holds"));
+        let names = seen.lock().expect("tools").clone();
+        assert!(names.iter().any(|n| n == "edit_library_doc"), "{names:?}");
+        assert!(!names.iter().any(|n| n == "play_music"), "{names:?}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

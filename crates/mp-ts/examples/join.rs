@@ -13,7 +13,7 @@
 //! Env: TS6_HOST, TS6_PORT (9987), TS6_NICK / BOT_NICKNAME, TS6_SERVER_PASSWORD,
 //!      DEFAULT_CHANNEL, TS6_QUERY_HOST, TS6_QUERY_PORT (10080), TS6_API_KEY.
 
-use mp_ts::{MockSession, OpusPacket, Target, TsEvent, TsSession, CODEC_OPUS_MUSIC};
+use mp_ts::{CODEC_OPUS_MUSIC, MockSession, OpusPacket, Target, TsEvent, TsSession};
 
 #[tokio::main]
 async fn main() {
@@ -58,8 +58,8 @@ async fn mock_only() {
 
 #[cfg(feature = "tsclient-rs")]
 mod live {
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::time::Duration;
 
     use mp_audio::NativeOpus;
@@ -195,7 +195,10 @@ mod live {
                 match dec.decode_voice(&data) {
                     Ok(r) => println!(
                         "[4] decode last packet clid={clid} codec={codec} ok={} reason={} pcm={} frames={}",
-                        r.ok, r.reason, r.pcm.len(), r.frames
+                        r.ok,
+                        r.reason,
+                        r.pcm.len(),
+                        r.frames
                     ),
                     Err(e) => println!("[4] decode last packet FAILED: {e}"),
                 }
@@ -221,8 +224,14 @@ mod live {
         query_spike().await;
 
         println!("--- scorecard ---");
-        println!("  1 connect/nick/channel : {}", connected.load(Ordering::SeqCst) || client.client_id() != 0);
-        println!("  2 chat send            : attempted (recv count={})", chat_n.load(Ordering::SeqCst));
+        println!(
+            "  1 connect/nick/channel : {}",
+            connected.load(Ordering::SeqCst) || client.client_id() != 0
+        );
+        println!(
+            "  2 chat send            : attempted (recv count={})",
+            chat_n.load(Ordering::SeqCst)
+        );
         println!("  3 10s Opus music send  : {sent} frames");
         println!("  4 inbound voiceData    : {inbound}");
         println!("  5 HTTP Query           : see above");

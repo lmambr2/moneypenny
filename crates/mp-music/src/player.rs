@@ -64,9 +64,13 @@ struct Inner {
     resuming: bool,
 }
 
+/// Opus bytes, called on the frame thread. Must not touch the player lock.
+type FrameSink = Arc<dyn Fn(Vec<u8>) + Send + Sync>;
+
 pub struct AudioPlayer {
     inner: Arc<Mutex<Inner>>,
     events: broadcast::Sender<PlayerEvent>,
+    frame_sink: Arc<Mutex<Option<FrameSink>>>,
     loop_running: Arc<AtomicBool>,
     dry_run: AtomicBool,
 }
@@ -106,9 +110,16 @@ impl AudioPlayer {
                 resuming: false,
             })),
             events,
+            frame_sink: Arc::new(Mutex::new(None)),
             loop_running: Arc::new(AtomicBool::new(false)),
             dry_run: AtomicBool::new(false),
         }
+    }
+
+    /// Music frames go here instead of the broadcast. The bot loop stays off
+    /// the 20 ms path.
+    pub fn set_frame_sink(&self, sink: Arc<dyn Fn(Vec<u8>) + Send + Sync>) {
+        *self.frame_sink.lock().expect("frame sink") = Some(sink);
     }
 
     pub fn set_dry_run(&self, dry: bool) {
@@ -322,24 +333,51 @@ impl AudioPlayer {
         let inner = Arc::clone(&self.inner);
         let events = self.events.clone();
         let running = Arc::clone(&self.loop_running);
+        let frame_sink = Arc::clone(&self.frame_sink);
         std::thread::Builder::new()
             .name("mp-frames".into())
             .spawn(move || {
+                // Deadline clock, same as the Node player. sleep(20ms) plus the
+                // encode runs long, so packets drift apart and TeamSpeak inserts
+                // a one-frame gap. Absolute sleep keeps one late wake from
+                // stretching the next wait.
+                tighten_timer_slack();
+                let frame = std::time::Duration::from_millis(FRAME_DURATION_MS);
+                let mut next = Instant::now();
                 loop {
-                    std::thread::sleep(std::time::Duration::from_millis(FRAME_DURATION_MS));
-                    let (ended, resume) = {
-                        let mut g = inner.lock().expect("player");
-                        if g.state == PlayerState::Paused {
-                            continue;
+                    let now = Instant::now();
+                    let behind = now.saturating_duration_since(next);
+                    if behind > std::time::Duration::from_millis(MAX_CATCHUP_BEHIND_MS) {
+                        let drop = late_frame_drop_count(behind.as_millis() as u64);
+                        if drop > 0 {
+                            let mut g = inner.lock().expect("player");
+                            let dropped = discard_pcm_frames(&mut g, drop);
+                            if dropped > 0 {
+                                tracing::debug!(
+                                    behind_ms = behind.as_millis() as u64,
+                                    dropped,
+                                    "dropped late frames"
+                                );
+                            }
                         }
+                        next = Instant::now();
+                    }
+                    next += frame;
+                    sleep_until(next);
+                    let (ended, resume, opus) = {
+                        let mut g = inner.lock().expect("player");
                         if g.state != PlayerState::Playing {
-                            if !g.ffmpeg_alive && g.pcm.len() < PCM_FRAME_BYTES {
+                            next = Instant::now();
+                            if g.state != PlayerState::Paused
+                                && !g.ffmpeg_alive
+                                && g.pcm.len() < PCM_FRAME_BYTES
+                            {
                                 running.store(false, Ordering::SeqCst);
                                 break;
                             }
                             continue;
                         }
-                        send_next_frame(&mut g, &events);
+                        let opus = send_next_frame(&mut g, &events);
                         let ended = stall_or_end(&mut g, &events);
                         let resume = if g.resuming {
                             g.resuming = false;
@@ -347,8 +385,12 @@ impl AudioPlayer {
                         } else {
                             None
                         };
-                        (ended, resume)
+                        (ended, resume, opus)
                     };
+                    if let Some(opus) = opus {
+                        let sink = frame_sink.lock().expect("frame sink").clone();
+                        dispatch_opus(&events, sink.as_ref(), opus);
+                    }
                     if let Some((url, seek, session)) = resume {
                         spawn_ffmpeg_reader(Arc::clone(&inner), events.clone(), url, seek, session);
                     }
@@ -360,6 +402,78 @@ impl AudioPlayer {
             })
             .expect("frame thread");
     }
+}
+
+fn tighten_timer_slack() {
+    unsafe {
+        libc::prctl(libc::PR_SET_TIMERSLACK, 1 as libc::c_ulong);
+    }
+}
+
+/// Sleep until `deadline` on CLOCK_MONOTONIC. A relative sleep that overshoots
+/// is added onto the next frame; an absolute sleep is not.
+fn sleep_until(deadline: Instant) {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let got = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    let remain = deadline.saturating_duration_since(Instant::now());
+    if remain.is_zero() {
+        return;
+    }
+    if got != 0 {
+        std::thread::sleep(remain);
+        return;
+    }
+    let nsec = ts.tv_nsec as u128 + remain.as_nanos();
+    ts.tv_sec += (nsec / 1_000_000_000) as libc::time_t;
+    ts.tv_nsec = (nsec % 1_000_000_000) as libc::c_long;
+    loop {
+        let rc = unsafe {
+            libc::clock_nanosleep(
+                libc::CLOCK_MONOTONIC,
+                libc::TIMER_ABSTIME,
+                &ts,
+                std::ptr::null_mut(),
+            )
+        };
+        if rc != libc::EINTR {
+            break;
+        }
+    }
+}
+
+fn dispatch_opus(events: &broadcast::Sender<PlayerEvent>, sink: Option<&FrameSink>, opus: Vec<u8>) {
+    if let Some(sink) = sink {
+        sink(opus);
+    } else {
+        let _ = events.send(PlayerEvent::Frame(opus));
+    }
+}
+
+/// If the frame loop is later than this, drop PCM instead of bursting UDP.
+const MAX_CATCHUP_BEHIND_MS: u64 = 80;
+
+/// Extra 20ms frames to discard when the loop ran late. Keep one frame to send now.
+fn late_frame_drop_count(behind_ms: u64) -> u32 {
+    if behind_ms <= FRAME_DURATION_MS * 2 {
+        return 0;
+    }
+    let n = (behind_ms / FRAME_DURATION_MS).saturating_sub(1);
+    u32::try_from(n).unwrap_or(u32::MAX).min(50)
+}
+
+fn discard_pcm_frames(g: &mut Inner, n: u32) -> u32 {
+    let have = g.pcm.len() / PCM_FRAME_BYTES;
+    let n = (n as usize).min(have);
+    if n == 0 {
+        return 0;
+    }
+    let bytes = n * PCM_FRAME_BYTES;
+    g.pcm.drain(..bytes);
+    g.frames_played += n as u64;
+    n as u32
 }
 
 struct DecodePipe {
@@ -532,6 +646,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn late_frames_drop_only_once_the_loop_is_past_two_periods() {
+        assert_eq!(late_frame_drop_count(0), 0);
+        assert_eq!(late_frame_drop_count(20), 0);
+        assert_eq!(late_frame_drop_count(40), 0);
+        assert_eq!(late_frame_drop_count(41), 1);
+        assert_eq!(late_frame_drop_count(200), 9);
+        assert_eq!(late_frame_drop_count(10_000), 50);
+    }
+
+    #[test]
     fn kill_process_group_stops_a_live_child() {
         let mut cmd = Command::new("sleep");
         cmd.arg("30")
@@ -546,11 +670,31 @@ mod tests {
         let status = child.wait().expect("reap");
         assert!(!status.success());
     }
+
+    #[test]
+    fn opus_with_a_sink_does_not_also_broadcast() {
+        let (events, mut rx) = broadcast::channel(4);
+        let n = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n2 = Arc::clone(&n);
+        let sink: FrameSink = Arc::new(move |opus| {
+            assert_eq!(opus, vec![1, 2, 3]);
+            n2.fetch_add(1, Ordering::SeqCst);
+        });
+        dispatch_opus(&events, Some(&sink), vec![1, 2, 3]);
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+        assert!(rx.try_recv().is_err());
+
+        dispatch_opus(&events, None, vec![9]);
+        match rx.try_recv() {
+            Ok(PlayerEvent::Frame(b)) => assert_eq!(b, vec![9]),
+            other => panic!("expected frame, got {other:?}"),
+        }
+    }
 }
 
-fn send_next_frame(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) {
+fn send_next_frame(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) -> Option<Vec<u8>> {
     if g.pcm.len() < PCM_FRAME_BYTES {
-        return;
+        return None;
     }
     let frame: Vec<u8> = g.pcm.drain(..PCM_FRAME_BYTES).collect();
     let floor = g.play_volume_floor.unwrap_or(0.0);
@@ -564,23 +708,24 @@ fn send_next_frame(g: &mut Inner, events: &broadcast::Sender<PlayerEvent>) {
         Ok(a) => a,
         Err(e) => {
             let _ = events.send(PlayerEvent::Error(e.to_string()));
-            return;
+            return None;
         }
     };
     let Some(ref mut enc) = g.encoder else {
         let _ = events.send(PlayerEvent::Error("opus encoder missing".into()));
-        return;
+        return None;
     };
     match enc.encode(&adjusted) {
         Ok(opus) => {
-            let _ = events.send(PlayerEvent::Frame(opus));
             g.frames_played += 1;
             if g.frames_played >= 50 {
                 g.consecutive_failures = 0;
             }
+            Some(opus)
         }
         Err(e) => {
             let _ = events.send(PlayerEvent::Error(e.to_string()));
+            None
         }
     }
 }

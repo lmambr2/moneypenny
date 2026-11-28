@@ -13,35 +13,43 @@ use std::sync::Mutex;
 use rusqlite::{Connection, OpenFlags};
 
 mod audit;
+mod handset;
 mod hangar;
+mod harness_turns;
 mod history;
 mod ingest_files;
 mod kg;
-mod profile;
-mod snapshots;
 mod memory;
+mod profile;
 mod roast;
 mod sessions;
+mod snapshots;
 mod tags;
+mod token_hash;
 mod users;
 mod work_orders;
 mod yt_saved;
 
 pub use audit::{AuditEntry, AuditStore};
-pub use hangar::{parse_ship_specs, ship_id_from_name, uid_owner_key, HangarStore};
-pub use history::PlayHistoryStore;
-pub use ingest_files::{format_ingest_status, FileDropStore, IngestedFile};
-pub use profile::{ProfileConfig, ProfileStore};
-pub use snapshots::{
-    parse_snapshot_body, LocalOverlay, ParsedSnapshot, SnapshotError, SnapshotRow, SnapshotStore,
+pub use handset::{
+    HANDSET_PAIR_TTL_MS, HANDSET_SQL, HANDSET_TOKEN_PREFIX, HANDSET_TOUCH_INTERVAL_MS,
+    HandsetDevice, HandsetStore, MAX_HANDSET_DEVICES, normalize_pair_code,
 };
+pub use hangar::{HangarStore, parse_ship_specs, ship_id_from_name, uid_owner_key};
+pub use harness_turns::{HARNESS_TURN_RETENTION_MS, HarnessTurnRow};
+pub use history::PlayHistoryStore;
+pub use ingest_files::{FileDropStore, IngestedFile, format_ingest_status};
 pub use kg::{
     KgDateFlags, KgFact, KgStore, display_fact_line, extract_subject, format_kg_record,
     is_iso_date, parse_kg_flags,
 };
 pub use memory::{MemoryFact, MemoryStore};
+pub use profile::{ProfileConfig, ProfileStore};
 pub use roast::{RoastQuote, RoastStore};
 pub use sessions::{MAX_SESSIONS_PER_USER, SESSION_TTL_MS, SessionStore, SessionValidation};
+pub use snapshots::{
+    LocalOverlay, ParsedSnapshot, SnapshotError, SnapshotRow, SnapshotStore, parse_snapshot_body,
+};
 pub use tags::{RatingSummary, TagSelect, TagSource, TagStore, TrackTags, parse_tag_select};
 pub use users::{BCRYPT_COST, UserRole, UserRow, UserStore, UsernameTakenError};
 pub use work_orders::{WorkOrder, WorkOrderLine, WorkOrderStore, aggregate};
@@ -175,6 +183,10 @@ impl Database {
 
     pub fn sessions(&self) -> SessionStore<'_> {
         SessionStore { db: self }
+    }
+
+    pub fn handsets(&self) -> HandsetStore<'_> {
+        HandsetStore { db: self }
     }
 
     pub fn play_history(&self) -> PlayHistoryStore<'_> {
@@ -322,6 +334,8 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
         "valid_until",
         "ALTER TABLE doctrine_docs ADD COLUMN valid_until TEXT",
     )?;
+    conn.execute_batch(crate::harness_turns::HARNESS_TURNS_SQL)?;
+    conn.execute_batch(crate::handset::HANDSET_SQL)?;
     Ok(())
 }
 

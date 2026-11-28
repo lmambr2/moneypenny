@@ -10,20 +10,25 @@ mod manifest;
 mod policy;
 mod tool_map;
 
-pub use dispose::{BrainDisposer, ToolDisposeRecord};
+pub use dispose::{BrainDisposer, DelegateFn, LibraryFn, ToolDisposeRecord};
 pub use executor::{
-    find_queue_index_by_query, is_same_playback_track, query_tokens, song_matches_query,
-    CommandExecutor,
+    CommandExecutor, find_queue_index_by_query, is_same_playback_track, query_tokens,
+    song_matches_query,
 };
 pub use manifest::{
-    admin_commands, audio_commands, default_aliases, is_admin_command, is_audio_command,
-    is_known_command, karaoke_alias, parse_command, public_commands, CommandKind, CommandSpec,
-    ParsedCommand, COMMAND_MANIFEST,
+    COMMAND_MANIFEST, CommandKind, CommandSpec, ParsedCommand, admin_commands, audio_commands,
+    default_aliases, is_admin_command, is_audio_command, is_known_command, karaoke_alias,
+    parse_command, public_commands,
 };
-pub use policy::{decide_harness_tool, HarnessToolDecision, HARNESS_DANGEROUS_TOOLS, HARNESS_SAFE_TOOLS};
-pub use tool_map::{known_llm_tool_names, source_flags, tool_call_to_command, ToolCallInput};
+pub use policy::{
+    HARNESS_DANGEROUS_TOOLS, HARNESS_SAFE_TOOLS, HarnessToolDecision, decide_harness_tool,
+};
+pub use tool_map::{
+    ToolCallInput, is_library_tool, known_llm_tool_names, source_flags, tool_call_to_command,
+    tool_right,
+};
 
-use mp_rights::{default_rights_config, RightsConfig};
+use mp_rights::{RightsConfig, default_rights_config};
 
 #[derive(Debug, Clone)]
 pub struct ToolProposal {
@@ -71,7 +76,9 @@ mod tests {
     fn manifest_has_skip_play_and_ask() {
         let names = frozen_command_names();
         assert!(names.len() >= 60, "got {}", names.len());
-        for n in ["play", "skip", "queue", "ask", "analyst", "radio", "moveall"] {
+        for n in [
+            "play", "skip", "queue", "ask", "analyst", "radio", "moveall",
+        ] {
             assert!(names.iter().any(|x| x == n), "missing {n}");
         }
         for n in frozen_command_names() {

@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::types::{
-    empty_turn, Brain, BrainError, ToolProposal, TurnRequest, TurnResponse, TurnSource,
+    Brain, BrainError, ToolProposal, TurnRequest, TurnResponse, TurnSource, empty_turn,
 };
 
 pub struct RawHttp {
@@ -99,14 +99,13 @@ impl Brain for HttpBrain {
                 .get("error")
                 .and_then(|e| e.as_str())
                 .unwrap_or("invalid turn request");
-            return Ok(empty_turn(
-                format!("brain-err-{}", now_tag()),
-                &req,
-                err,
-            ));
+            return Ok(empty_turn(format!("brain-err-{}", now_tag()), &req, err));
         }
         if raw.status < 200 || raw.status >= 300 {
-            return Err(BrainError::Unavailable(format!("Brain HTTP {}", raw.status)));
+            return Err(BrainError::Unavailable(format!(
+                "Brain HTTP {}",
+                raw.status
+            )));
         }
         let data: Value = serde_json::from_slice(&raw.body).unwrap_or(Value::Null);
         Ok(normalize_remote(&req, &data))
@@ -134,13 +133,11 @@ fn normalize_remote(req: &TurnRequest, data: &Value) -> TurnResponse {
                     } else {
                         serde_json::json!({})
                     };
-                    let reason = p
-                        .get("reason")
-                        .and_then(|r| r.as_str())
-                        .map(str::to_string);
+                    let reason = p.get("reason").and_then(|r| r.as_str()).map(str::to_string);
                     Some(ToolProposal {
                         name,
                         arguments,
+                        id: p.get("id").and_then(|v| v.as_str()).map(str::to_string),
                         reason,
                     })
                 })

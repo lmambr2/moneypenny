@@ -12,14 +12,17 @@ use crate::moves::MoveRuntime;
 use mp_control::{CommandExecutor, default_aliases, is_known_command, parse_command};
 use mp_db::Database;
 use mp_http::{RoastRuntime, dispatch_command};
-use mp_music::{ChannelSpeech, MusicStation, PlayerEvent, QueuedSong, TrackEndKind, VoteAudience};
+use mp_music::{
+    ChannelSpeech, MusicStation, PlayerEvent, QueuedSong, TrackEndKind, VoteAudience,
+    is_demo_test_track,
+};
 use mp_radio::{Boundary, RadioRuntime};
 use mp_rights::{RightsEngine, Scope, Subject};
 use mp_ts::{
     CODEC_OPUS_MUSIC, ChannelCensus, OpusPacket, Target, TsEvent, TsSession, TsSessionExt,
     count_server_humans, vote_listener_census,
 };
-use mp_voice::{TranscriptOpts, VoiceRuntime};
+use mp_voice::{TranscriptOpts, Utterance, VoiceRuntime};
 use tracing::{info, warn};
 
 const REPLY_DEDUPE_MS: u128 = 4_000;
@@ -97,6 +100,26 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         if aliases.is_empty() {
             aliases = default_aliases();
         }
+        // The frame thread calls this directly. Waiting for this task to poll
+        // a broadcast every 20 ms was the short audible hole.
+        let session_tx = Arc::clone(&session);
+        let voice_gate = Arc::clone(&voice);
+        station.player.set_frame_sink(Arc::new(move |opus| {
+            if voice_gate.blocks_player_voice() {
+                return;
+            }
+            let _ = session_tx.send_opus_now(OpusPacket {
+                codec: CODEC_OPUS_MUSIC,
+                data: opus,
+            });
+        }));
+        let session_talker = Arc::clone(&session);
+        voice.set_opus_sender(Arc::new(move |opus| {
+            let _ = session_talker.send_opus_now(OpusPacket {
+                codec: CODEC_OPUS_MUSIC,
+                data: opus,
+            });
+        }));
         Self {
             session,
             executor,
@@ -123,9 +146,21 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
     pub async fn run(self) {
         let mut events = self.session.subscribe();
         let mut frames = self.station.subscribe_player();
-        let mut roast_tick = tokio::time::interval(Duration::from_secs(30));
-        roast_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        roast_tick.tick().await;
+        // Own task: the bot select is biased and voice packets stay ready, so a
+        // tick behind them never runs and the DJ headcount stays 0.
+        let presence = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(30));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                presence.poll_channel_presence().await;
+            }
+        });
+        let mut voice_tick = tokio::time::interval(Duration::from_millis(200));
+        voice_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        voice_tick.tick().await;
         info!("bot loop listening for chat");
         loop {
             tokio::select! {
@@ -133,6 +168,8 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 frame = frames.recv() => {
                     match frame {
                         Ok(PlayerEvent::Frame(opus)) => {
+                            // Steady-state music does not arrive here. The frame
+                            // thread calls send_opus_now. This is the no-sink path.
                             let _ = self.session.send_opus(OpusPacket {
                                 codec: CODEC_OPUS_MUSIC,
                                 data: opus,
@@ -140,6 +177,7 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         }
                         Ok(PlayerEvent::TrackEnd) => {
                             if self.speech.on_track_end() == TrackEndKind::Tts {
+                                self.voice.on_piper_finished();
                                 info!("tts playback ended");
                                 continue;
                             }
@@ -161,10 +199,14 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                             });
                         }
                         Ok(PlayerEvent::NowPlaying { name, artist, album }) => {
-                            let line = Self::now_playing_line(&name, &artist, &album);
+                            self.record_played();
                             let this = self.clone();
                             tokio::spawn(async move {
-                                this.reply_channel(line).await;
+                                if this.now_playing_enabled() {
+                                    let line = Self::now_playing_line(&name, &artist, &album);
+                                    info!(%line, "channel now playing");
+                                    this.reply_channel(line).await;
+                                }
                                 if let Err(e) = this.session.set_away(true).await {
                                     warn!(error = %e, "away clear failed");
                                 }
@@ -214,52 +256,90 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                         Err(_) => break,
                     }
                 }
-                _ = roast_tick.tick() => {
-                    let this = self.clone();
-                    tokio::spawn(async move {
-                        let listed = this.session.list_clients_result().await;
-                        let census = match &listed {
-                            Ok(all) if !all.is_empty() => {
-                                AutoFollow::humans_in_own(&*this.session, all)
-                            }
-                            _ => None,
-                        };
-                        let Some(mut n) = census else {
-                            return;
-                        };
-                        if n == 0 {
-                            if this.follow.maybe_follow(&*this.session, 0).await.is_some() {
-                                if let Ok(all) = this.session.list_clients_result().await {
-                                    if let Some(n2) = AutoFollow::humans_in_own(&*this.session, &all)
-                                    {
-                                        n = n2;
-                                    }
-                                }
-                            }
-                        }
-                        this.radio.on_poll(n);
-                        this.note_llm_idle(n);
-                        if let Ok(all) = &listed {
-                            let server_humans = count_server_humans(all, this.session.client_id());
-                            let now_ms = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis() as u64)
-                                .unwrap_or(0);
-                            if this.session_roles.note_server_humans(server_humans, now_ms) {
-                                let roles = std::sync::Arc::clone(&this.session_roles);
-                                tokio::spawn(async move {
-                                    let msg = roles.run_auto_clear().await;
-                                    tracing::info!(%msg, "session-roles auto-clear on empty server");
-                                });
-                            }
-                        }
-                        if let Some(reel) = this.roast.run_tick(n).await {
-                            this.reply_channel(reel).await;
-                        }
-                    });
+                _ = voice_tick.tick() => {
+                    self.poll_voice_idle();
                 }
             }
         }
+    }
+
+    async fn poll_channel_presence(&self) {
+        let listed = self.session.list_clients_result().await;
+        let census = match &listed {
+            Ok(all) if !all.is_empty() => AutoFollow::humans_in_own(&*self.session, all),
+            _ => None,
+        };
+        let Some(mut n) = census else {
+            return;
+        };
+        if n == 0 {
+            if self.follow.maybe_follow(&*self.session, 0).await.is_some() {
+                if let Ok(all) = self.session.list_clients_result().await {
+                    if let Some(n2) = AutoFollow::humans_in_own(&*self.session, &all) {
+                        n = n2;
+                    }
+                }
+            }
+        }
+        self.radio.on_poll(n);
+        self.voice.on_channel_humans(n);
+        self.note_llm_idle(n);
+        if let Ok(all) = &listed {
+            let server_humans = count_server_humans(all, self.session.client_id());
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            if self.session_roles.note_server_humans(server_humans, now_ms) {
+                let roles = std::sync::Arc::clone(&self.session_roles);
+                tokio::spawn(async move {
+                    let msg = roles.run_auto_clear().await;
+                    tracing::info!(%msg, "session-roles auto-clear on empty server");
+                });
+            }
+        }
+        if let Some(reel) = self.roast.run_tick(n).await {
+            self.reply_channel(reel).await;
+        }
+    }
+
+    /// Auto-DJ cooldown reads this table. The startup `!test` file is not a
+    /// library pick, so it does not burn a slot.
+    fn record_played(&self) {
+        let Some(song) = self
+            .station
+            .queue
+            .lock()
+            .ok()
+            .and_then(|q| q.current())
+        else {
+            return;
+        };
+        if song.id.is_empty() || is_demo_test_track(&song.id, &song.name, &song.album) {
+            return;
+        }
+        let bot_id = self.services.db.profile().active_id();
+        if let Err(e) = self.services.db.play_history().insert(
+            &bot_id,
+            &song.id,
+            &song.name,
+            &song.artist,
+            &song.album,
+            song.platform.as_str(),
+            &song.cover_url,
+        ) {
+            warn!(error = %e, "play history insert failed");
+        }
+    }
+
+    fn now_playing_enabled(&self) -> bool {
+        let id = self.services.db.profile().active_id();
+        self.services
+            .db
+            .profile()
+            .get(&id)
+            .map(|cfg| cfg.now_playing_msg_enabled)
+            .unwrap_or(false)
     }
 
     fn now_playing_line(name: &str, artist: &str, album: &str) -> String {
@@ -269,6 +349,30 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         } else {
             format!("♪ Now Playing: {name} - {artist} [{album}]")
         }
+    }
+
+    /// `!analyst` / `!agent` with a real task and permission. The Hermes call
+    /// can run for minutes; the channel gets an ack now and the write-up later.
+    fn defer_analyst(&self, parsed: &mp_control::ParsedCommand, subject: &Subject) -> bool {
+        if !matches!(parsed.name.as_str(), "analyst" | "agent") || parsed.args.trim().is_empty() {
+            return false;
+        }
+        self.rights
+            .as_deref()
+            .is_none_or(|engine| engine.can(subject, &parsed.name, Scope::Chat))
+    }
+
+    /// The TeamSpeak link often drops while a long analyst call is in flight.
+    /// Wait through a reconnect before giving up on the write-up.
+    async fn reply_when_connected(&self, text: String) {
+        for _ in 0..20 {
+            if self.session.is_connected() {
+                self.reply_channel(text).await;
+                return;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+        self.reply_channel(text).await;
     }
 
     async fn reply_channel(&self, text: String) {
@@ -337,7 +441,12 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 codec,
                 opus,
             } => {
-                self.on_voice(client_id, codec, opus);
+                // Decode off this task. ingest_opus runs on the same loop that
+                // sends music, and a talker's packet was holding up the next frame.
+                let this = self.clone();
+                tokio::spawn(async move {
+                    this.on_voice(client_id, codec, opus);
+                });
                 None
             }
             TsEvent::ClientLeave { client_id } => {
@@ -429,8 +538,62 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
             nickname: Some(invoker_name),
         };
         self.radio.note_human_activity(invoker_id);
-        self.dispose_cmd(&parsed, &subject, Scope::Chat, invoker_id)
-            .await
+        if self.defer_analyst(&parsed, &subject) {
+            let this = self.clone();
+            let parsed = parsed.clone();
+            let subject = subject.clone();
+            tokio::spawn(async move {
+                let Some(text) = this
+                    .dispose_cmd(&parsed, &subject, Scope::Chat, invoker_id)
+                    .await
+                else {
+                    return;
+                };
+                this.reply_when_connected(text).await;
+            });
+            return Some("Analyst on it.".into());
+        }
+        let reply = self
+            .dispose_cmd(&parsed, &subject, Scope::Chat, invoker_id)
+            .await;
+        if parsed.name == "ask" {
+            if let Some(text) = reply.clone() {
+                let this = self.clone();
+                tokio::spawn(async move {
+                    this.speak_ask_reply(&text).await;
+                });
+            }
+        }
+        reply
+    }
+
+    /// `!ask` answers go out loud. Song changes stay text-only.
+    async fn speak_ask_reply(&self, reply: &str) {
+        let cfg = self.voice.config();
+        if !cfg.respond_with_voice || cfg.tts_url.trim().is_empty() {
+            return;
+        }
+        let chunks = mp_voice::tts_speak_chunks(reply);
+        let mut started = false;
+        for chunk in chunks {
+            let spoken = chunk.trim();
+            if spoken.is_empty() {
+                continue;
+            }
+            let Some(audio) = self.voice.synthesize_sentence(spoken).await else {
+                continue;
+            };
+            if !started {
+                info!(
+                    preview = %spoken.chars().take(80).collect::<String>(),
+                    "Voice: saying ask"
+                );
+                self.speech.speak(&audio, "wav", false);
+                started = true;
+            } else {
+                self.speech.enqueue_sentence(&audio, "wav");
+            }
+        }
     }
 
     async fn dispose_cmd(
@@ -568,10 +731,23 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
         };
         // Node ducks only after the wake word. Ducking every voice packet
         // chops the song whenever anyone talks, and STT is often down.
-        let Some(utt) = ingest.utterance else {
-            return;
-        };
+        for utt in ingest.utterances {
+            self.dispatch_utterance(utt);
+        }
+    }
 
+    fn poll_voice_idle(&self) {
+        for utt in self.voice.poll_idle_utterances() {
+            self.dispatch_utterance(utt);
+        }
+    }
+
+    fn dispatch_utterance(&self, utt: Utterance) {
+        tracing::info!(
+            speaker_client_id = utt.speaker_client_id,
+            duration_ms = utt.duration_ms.round() as i64,
+            "Voice: transcribing"
+        );
         let session = Arc::clone(&self.session);
         let voice = Arc::clone(&self.voice);
         let executor = self.executor.clone();
@@ -608,6 +784,12 @@ impl<S: TsSession + TsSessionExt + Send + Sync + 'static> BotLoop<S> {
                 .as_deref()
                 .map(|k| k.to_ascii_lowercase() == ww || k.to_ascii_lowercase().contains(&ww))
                 .unwrap_or(false);
+            if kws_detected {
+                voice.note_watchword();
+            }
+            if !transcript.trim().is_empty() {
+                voice.note_user_final(&transcript);
+            }
             if kws_detected && cfg.duck_music_on_speech && !speech.is_speaking() {
                 let _ = station.player.duck_for_stt(voice.duck_volume() as i32);
             }

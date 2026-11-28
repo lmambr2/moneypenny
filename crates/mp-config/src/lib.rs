@@ -119,6 +119,11 @@ pub struct BotConfig {
     pub llm_fallback_url: String,
     #[serde(default)]
     pub llm_fallback_model: String,
+    /// Hermes (or another OpenAI-compatible analyst). Empty leaves `!analyst` unconfigured.
+    #[serde(default)]
+    pub llm_delegate_url: String,
+    #[serde(default)]
+    pub llm_delegate_model: String,
     #[serde(default)]
     pub llm_system_prompt: String,
     #[serde(default = "default_llm_temperature")]
@@ -222,6 +227,30 @@ pub struct VoiceConfig {
     /// `energy` or `silero` (HTTP sidecar / energy fallback). Node default silero.
     #[serde(default = "default_vad_backend")]
     pub vad_backend: String,
+    /// `cascaded` or `duplex`. Production stays cascaded until duplex-rtf.sh exits 0.
+    #[serde(default = "default_voice_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub duplex_url: String,
+    #[serde(default = "default_duplex_watch")]
+    pub duplex_watch: String,
+    #[serde(default = "default_duplex_voice")]
+    pub duplex_voice: String,
+    #[serde(default = "default_duplex_fallback")]
+    pub duplex_fallback: String,
+}
+
+fn default_voice_mode() -> String {
+    "cascaded".into()
+}
+fn default_duplex_watch() -> String {
+    "gated".into()
+}
+fn default_duplex_voice() -> String {
+    "NATF2".into()
+}
+fn default_duplex_fallback() -> String {
+    "cascaded".into()
 }
 
 fn default_vad_backend() -> String {
@@ -348,6 +377,11 @@ impl Default for VoiceConfig {
             listen_window_ms: 15_000,
             text_wake_fallback: true,
             vad_backend: default_vad_backend(),
+            mode: default_voice_mode(),
+            duplex_url: String::new(),
+            duplex_watch: default_duplex_watch(),
+            duplex_voice: default_duplex_voice(),
+            duplex_fallback: default_duplex_fallback(),
         }
     }
 }
@@ -402,6 +436,51 @@ pub struct FormatClockSpec {
     pub wheel: Vec<WheelSlot>,
 }
 
+/// Tag filters for a radio profile. Same shape as `!selecttracks` JSON.
+/// Inactive (every field empty) does not replace seed queries.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioTagSelect {
+    #[serde(default)]
+    pub mood: Vec<String>,
+    #[serde(default)]
+    pub genre_any: Vec<String>,
+    #[serde(default)]
+    pub subgenre_any: Vec<String>,
+    #[serde(default)]
+    pub bpm_min: Option<f64>,
+    #[serde(default)]
+    pub bpm_max: Option<f64>,
+    #[serde(default)]
+    pub musical_key: Option<String>,
+    #[serde(default)]
+    pub energy_min: Option<f64>,
+    #[serde(default)]
+    pub energy_max: Option<f64>,
+    #[serde(default)]
+    pub rating_min: Option<f64>,
+    #[serde(default)]
+    pub limit: Option<f64>,
+}
+
+impl RadioTagSelect {
+    pub fn is_active(&self) -> bool {
+        !self.mood.is_empty()
+            || !self.genre_any.is_empty()
+            || !self.subgenre_any.is_empty()
+            || self.bpm_min.is_some()
+            || self.bpm_max.is_some()
+            || self
+                .musical_key
+                .as_ref()
+                .is_some_and(|s| !s.trim().is_empty())
+            || self.energy_min.is_some()
+            || self.energy_max.is_some()
+            || self.rating_min.is_some()
+            || self.limit.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RadioMusic {
@@ -415,6 +494,9 @@ pub struct RadioMusic {
     /// Target share of the pool from non-local sources (0–1). Default ⅔.
     #[serde(default = "default_seed_external_ratio")]
     pub seed_external_ratio: f64,
+    /// When set and active, auto-DJ plays this pool and does not mix YouTube seeds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select: Option<RadioTagSelect>,
 }
 
 impl Default for RadioMusic {
@@ -424,6 +506,7 @@ impl Default for RadioMusic {
             shuffle: true,
             seed_sources: default_seed_sources(),
             seed_external_ratio: default_seed_external_ratio(),
+            select: None,
         }
     }
 }
@@ -460,6 +543,37 @@ pub struct RadioProfile {
 pub struct QuietWindow {
     pub from: String,
     pub to: String,
+}
+
+/// Play-count cooldown for auto-DJ. A song at `max_plays` inside
+/// `cooldown_hours` is skipped on the next restock. A manual play still works.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoDjRepeat {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_auto_dj_max_plays")]
+    pub max_plays: u32,
+    #[serde(default = "default_auto_dj_cooldown_hours")]
+    pub cooldown_hours: f64,
+}
+
+impl Default for AutoDjRepeat {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_plays: default_auto_dj_max_plays(),
+            cooldown_hours: default_auto_dj_cooldown_hours(),
+        }
+    }
+}
+
+fn default_auto_dj_max_plays() -> u32 {
+    1
+}
+
+fn default_auto_dj_cooldown_hours() -> f64 {
+    12.0
 }
 
 /// Node `RadioConfig` (`bot/src/radio/types.ts`). Off by default.
@@ -504,6 +618,9 @@ pub struct RadioConfig {
     pub time_check_timezones: Vec<String>,
     #[serde(default)]
     pub analyzer: RadioAnalyzer,
+    /// Node `radio.autoDjRepeat`. Live lobby config is 1 play / 24h.
+    #[serde(default)]
+    pub auto_dj_repeat: AutoDjRepeat,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -610,6 +727,7 @@ impl Default for RadioConfig {
             station_id_lines: Vec::new(),
             time_check_timezones: Vec::new(),
             analyzer: RadioAnalyzer::default(),
+            auto_dj_repeat: AutoDjRepeat::default(),
         }
     }
 }
@@ -634,6 +752,8 @@ impl Default for BotConfig {
             llm_model: String::new(),
             llm_fallback_url: String::new(),
             llm_fallback_model: String::new(),
+            llm_delegate_url: String::new(),
+            llm_delegate_model: String::new(),
             llm_system_prompt: String::new(),
             llm_temperature: 0.2,
             embedding_url: String::new(),
@@ -782,7 +902,8 @@ fn json_object() -> Value {
     Value::Object(serde_json::Map::new())
 }
 
-fn merge_json_objects(dst: &mut Value, patch: &Value) {
+/// Deep-merge object keys. Arrays and scalars replace. Unknown keys on `dst` stay.
+pub fn merge_json_objects(dst: &mut Value, patch: &Value) {
     let Some(patch_obj) = patch.as_object() else {
         *dst = patch.clone();
         return;
@@ -1017,6 +1138,24 @@ mod tests {
     fn missing_file_is_defaults() {
         let cfg = load_config(Path::new("/no/such/config.json")).unwrap();
         assert_eq!(cfg.web_port, 3000);
+    }
+
+    #[test]
+    fn radio_music_select_round_trip() {
+        let music: RadioMusic = serde_json::from_str(
+            r#"{"seedQueries":["rock"],"select":{"bpmMax":110,"mood":["calm"]}}"#,
+        )
+        .unwrap();
+        let sel = music.select.clone().unwrap();
+        assert!(sel.is_active());
+        assert_eq!(sel.bpm_max, Some(110.0));
+        assert_eq!(sel.mood, vec!["calm".to_string()]);
+        let back = serde_json::to_value(&music).unwrap();
+        assert_eq!(back["select"]["bpmMax"], 110.0);
+        assert_eq!(back["select"]["mood"][0], "calm");
+        let bare: RadioMusic = serde_json::from_str("{}").unwrap();
+        assert!(bare.select.is_none());
+        assert!(!RadioTagSelect::default().is_active());
     }
 
     #[test]

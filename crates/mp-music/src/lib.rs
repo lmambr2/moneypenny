@@ -36,7 +36,9 @@ pub use ffmpeg::{
 };
 pub use local::{DeleteSongError, LocalProvider, Playlist, ResolveHit};
 pub use player::{AudioPlayer, PlayerEvent, PlayerState};
-pub use queue::{PlayMode, PlayQueue, replace_queue_with_song, replace_queue_with_tracks};
+pub use queue::{
+    PlayMode, PlayQueue, RadioRestock, replace_queue_with_song, replace_queue_with_tracks,
+};
 pub use speech::{ChannelSpeech, TrackEndKind};
 pub use station::{MusicStation, ReplaceResult, UserPause, VoteAudience};
 pub use stream::{
@@ -46,8 +48,8 @@ pub use stream::{
 pub use track::{Platform, QueueSource, QueuedSong, Track};
 pub use youtube::{
     DEFAULT_DEMO_VIDEO_ID, DEFAULT_DEMO_VIDEO_URL, SG1_THEME_URL, SG1_THEME_VIDEO_ID,
-    YoutubeClient, YoutubePolicy, is_demo_test_track, is_youtube_full_album_title,
-    is_youtube_livestream_radio_title, should_block_youtube_song,
+    YOUTUBE_MAX_DURATION_SEC, YoutubeClient, YoutubePolicy, is_demo_test_track,
+    is_youtube_full_album_title, is_youtube_livestream_radio_title, should_block_youtube_song,
 };
 pub use ytlibrary::{SAVE_SUBDIR, YtLibrary, sanitize_base};
 

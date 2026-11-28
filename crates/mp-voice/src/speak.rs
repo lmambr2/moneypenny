@@ -19,7 +19,13 @@ pub fn strip_markdown_for_speech(raw: &str) -> String {
             l = l.trim_start_matches('#').trim_start();
         }
         let l = l
-            .trim_start_matches(|c: char| matches!(c, '-' | '*' | '+' | '•') || c.is_ascii_digit() || c == '.' || c == ')' || c == ' ')
+            .trim_start_matches(|c: char| {
+                matches!(c, '-' | '*' | '+' | '•')
+                    || c.is_ascii_digit()
+                    || c == '.'
+                    || c == ')'
+                    || c == ' '
+            })
             .replace(['|', '#', '>', '~'], " ");
         out.push_str(&l);
         out.push(' ');
@@ -80,7 +86,10 @@ fn strip_md_links(s: &str) -> String {
             out.push(c);
         }
     }
-    out.replace("**", "").replace("__", "").replace('*', "").replace('_', " ")
+    out.replace("**", "")
+        .replace("__", "")
+        .replace('*', "")
+        .replace('_', " ")
 }
 
 fn strip_urls(s: &str) -> String {

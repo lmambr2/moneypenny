@@ -119,9 +119,10 @@ async fn main() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("music"));
     let protected = config.playback_ban_protected_artists.clone();
-    let blacklist = Arc::new(mp_music::PlaybackBlacklist::new(Arc::clone(&db), move || {
-        protected.clone()
-    }));
+    let blacklist = Arc::new(mp_music::PlaybackBlacklist::new(
+        Arc::clone(&db),
+        move || protected.clone(),
+    ));
     let station = Arc::new(mp_music::MusicStation::new(&music_dir, Some(blacklist)));
     station
         .player
@@ -160,10 +161,8 @@ async fn main() {
         }
     };
 
-    let mut executor = mp_control::CommandExecutor::new(
-        Arc::clone(&station),
-        config.command_prefix.clone(),
-    );
+    let mut executor =
+        mp_control::CommandExecutor::new(Arc::clone(&station), config.command_prefix.clone());
     executor.protected_artists = config.playback_ban_protected_artists.clone();
     let executor = Arc::new(executor);
 
@@ -210,11 +209,15 @@ async fn main() {
         "rag runtime"
     );
 
-    let state = mp_http::AppState::new(Arc::clone(&db), Arc::clone(&config), paths.static_dir.clone())
-        .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
-        .with_rag(Arc::clone(&rag))
-        .with_mcp(mp_mcp::McpConfig::from_env())
-        .with_config_path(paths.config_path.clone());
+    let state = mp_http::AppState::new(
+        Arc::clone(&db),
+        Arc::clone(&config),
+        paths.static_dir.clone(),
+    )
+    .with_music(Arc::clone(&station), Arc::clone(&executor), rights.clone())
+    .with_rag(Arc::clone(&rag))
+    .with_mcp(mp_mcp::McpConfig::from_env())
+    .with_config_path(paths.config_path.clone());
     let voice = Arc::clone(&state.voice);
     let radio = Arc::clone(&state.radio);
     let roast = Arc::clone(&state.roast);
@@ -288,8 +291,35 @@ async fn main() {
     let follow = Arc::clone(&state.follow);
     start_watchdog();
 
-    let http = tokio::spawn(async move {
-        if let Err(e) = mp_http::serve(state, addr).await {
+    // HANDSET_BIND is the pocket listener (for example 192.168.1.250:3001).
+    // Unset, blank, unparseable, 0.0.0.0, ::, or the admin address skips it.
+    // HANDSET_ADVERTISE is the host:port a pair code prints. Mint reads it
+    // only while the handset socket is up. Redeem does not.
+    // A binary upgrade with neither variable set does not open a port.
+    let handset_bind = std::env::var("HANDSET_BIND")
+        .ok()
+        .as_deref()
+        .and_then(|raw| mp_http::parse_handset_bind(raw, addr));
+    let shutdown = mp_http::CancellationToken::new();
+    let http_stop = shutdown.clone();
+    let ts_stop = shutdown.clone();
+    tokio::spawn(async move {
+        mp_http::wait_for_shutdown_signal().await;
+        shutdown.cancel();
+        // TeamSpeak disconnect can block a worker past the point where
+        // `timeout` can fire, and the user manager's stop budget is 10s.
+        // Exit before systemd SIGKILLs. A clean return from main ends the
+        // process first and does not wait for this thread.
+        let _ = std::thread::Builder::new()
+            .name("mp-shutdown".into())
+            .spawn(|| {
+                std::thread::sleep(Duration::from_secs(7));
+                warn!("shutdown budget elapsed; exiting");
+                std::process::exit(0);
+            });
+    });
+    let mut http = tokio::spawn(async move {
+        if let Err(e) = mp_http::serve_until(state, addr, handset_bind, http_stop).await {
             error!(error = %e, "http server");
         }
     });
@@ -313,10 +343,23 @@ async fn main() {
         follow,
         config.playback_ban_protected_artists.clone(),
         Arc::clone(&config),
+        ts_stop,
     )
     .await;
 
-    let _ = http.await;
+    // Dropping the JoinHandle detaches the server. Abort it if graceful
+    // shutdown is still holding a connection when the stop budget ends.
+    tokio::select! {
+        joined = &mut http => {
+            if let Err(e) = joined {
+                warn!(error = %e, "http task");
+            }
+        }
+        _ = tokio::time::sleep(Duration::from_secs(3)) => {
+            http.abort();
+            warn!("http shutdown still running; aborting");
+        }
+    }
 }
 
 async fn start_teamspeak(
@@ -333,6 +376,7 @@ async fn start_teamspeak(
     follow: Arc<mp_http::FollowRuntime>,
     protected_artists: Vec<String>,
     bot_config: Arc<mp_config::BotConfig>,
+    shutdown: mp_http::CancellationToken,
 ) {
     #[cfg(feature = "ts6")]
     {
@@ -362,11 +406,10 @@ async fn start_teamspeak(
                 });
             }
             let moves = Arc::new(moves::MoveRuntime::new(session.query().cloned()));
-            let speech = speech.unwrap_or_else(|| mp_music::ChannelSpeech::new(Arc::clone(&station)));
-            let mut phase_ex = mp_control::CommandExecutor::new(
-                Arc::clone(&station),
-                prefix.clone(),
-            );
+            let speech =
+                speech.unwrap_or_else(|| mp_music::ChannelSpeech::new(Arc::clone(&station)));
+            let mut phase_ex =
+                mp_control::CommandExecutor::new(Arc::clone(&station), prefix.clone());
             phase_ex.protected_artists = protected_artists;
             let phase_ex = Arc::new(phase_ex);
             let query = session.query().cloned().filter(|_| {
@@ -380,6 +423,8 @@ async fn start_teamspeak(
                     Arc::new(HttpQuerySession { client }) as Arc<dyn mp_http::SessionQuery>
                 }),
             ));
+            // Shutdown still needs the radio handle after the loop takes its own.
+            let radio_stop = Arc::clone(&radio);
             let loop_ = bot::BotLoop::new(
                 Arc::clone(&session),
                 Arc::clone(&station),
@@ -433,16 +478,32 @@ async fn start_teamspeak(
                         }
                     }
                 }) => {}
+                _ = shutdown.cancelled() => {}
             }
+            info!("shutdown: stopping playback");
+            let mut cfg = radio_stop.config();
+            cfg.enabled = false;
+            radio_stop.apply(cfg);
+            station.player.stop();
+            station.queue.lock().expect("queue").clear();
+            // Cap the wait. disconnect() may ignore cancellation once it is
+            // inside the client; the 7s process exit is the backstop.
+            let _ = tokio::time::timeout(Duration::from_secs(3), session.close()).await;
+            info!("shutdown: playback stopped, teamspeak closed");
             return;
         }
         let _ = (voice, radio, roast, speech, follow);
         info!("TS6_HOST empty — HTTP only (no TeamSpeak)");
+        shutdown.cancelled().await;
     }
     #[cfg(not(feature = "ts6"))]
     {
-        let _ = (station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech, follow, bot_config);
+        let _ = (
+            station, rights, prefix, aliases, data_dir, services, voice, radio, roast, speech,
+            follow, bot_config,
+        );
         info!("ts session: mock (built without ts6 feature)");
+        shutdown.cancelled().await;
     }
 }
 
@@ -456,9 +517,8 @@ impl mp_http::SessionQuery for HttpQuerySession {
     fn list_members<'a>(
         &'a self,
         sgid: i64,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<i64>, String>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<i64>, String>> + Send + 'a>>
+    {
         Box::pin(async move { self.client.server_group_client_ids(sgid).await })
     }
 
@@ -466,8 +526,7 @@ impl mp_http::SessionQuery for HttpQuerySession {
         &'a self,
         sgid: i64,
         cldbid: i64,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>
-    {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async move { self.client.server_group_del_client(sgid, cldbid).await })
     }
 }

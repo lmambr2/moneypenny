@@ -4,6 +4,11 @@
 //! VAD → STT HTTP → same control path as chat → TTS HTTP (rewrite Phase 6).
 //! Whisper stays out of process.
 
+mod duplex;
+mod duplex_pump;
+mod duplex_text;
+mod duplex_watch;
+mod floor;
 mod pipeline;
 mod probe;
 mod runtime;
@@ -14,9 +19,10 @@ mod under_music;
 mod vad;
 mod watchword;
 
+pub use duplex_watch::{RTF_REALTIME, TALKER_VRAM_IDLE_MB};
 pub use mp_config::{
-    effective_duck_volume, normalize_duck_music_volume, VoiceConfig, DEFAULT_DUCK_MUSIC_VOLUME,
-    KARAOKE_DUCK_VOLUME, MIN_LISTEN_WINDOW_MS,
+    DEFAULT_DUCK_MUSIC_VOLUME, KARAOKE_DUCK_VOLUME, MIN_LISTEN_WINDOW_MS, VoiceConfig,
+    effective_duck_volume, normalize_duck_music_volume,
 };
 pub use pipeline::{TranscriptOpts, VoiceGate, VoicePipeline, VoiceTurnResult};
 pub use probe::{probe_http_health, probe_http_stt, probe_http_tts};
@@ -28,15 +34,15 @@ pub use speak::{
 pub use stt::HttpSttClient;
 pub use tts::HttpTtsClient;
 pub use under_music::{
-    plan_under_music, run_under_music_smoke, simulate_under_music_turn, UnderMusicConfig, WakePath,
+    UnderMusicConfig, WakePath, plan_under_music, run_under_music_smoke, simulate_under_music_turn,
 };
-pub use vad::{to_mono_16k, SegmenterOptions, SilenceSegmenter};
+pub use vad::{SegmenterOptions, SilenceSegmenter, to_mono_16k};
 pub use watchword::{
-    extract_command_segment, extract_watchword_command, is_actionable_voice_command,
-    is_music_search_route_text, is_partial_safe_voice_command, is_playback_control_reply,
-    is_playback_start_reply, normalize_voice_command, partial_mentions_command,
-    should_speak_voice_reply, voice_reply_clears_saved_music, voice_spoken_ack, watchword_aliases,
-    WatchwordMatch, WatchwordOptions,
+    WatchwordMatch, WatchwordOptions, extract_command_segment, extract_watchword_command,
+    is_actionable_voice_command, is_music_search_route_text, is_partial_safe_voice_command,
+    is_playback_control_reply, is_playback_start_reply, normalize_voice_command,
+    partial_mentions_command, should_speak_voice_reply, spoken_track_announcement,
+    voice_reply_clears_saved_music, voice_spoken_ack, voice_spoken_line, watchword_aliases,
 };
 
 #[derive(Debug, Clone)]
@@ -77,4 +83,19 @@ pub struct VoiceStatus {
     pub inbound_packets: u64,
     pub duck_music_on_speech: bool,
     pub text_wake_fallback: bool,
+    pub mode: String,
+    pub floor: String,
+    pub wake: String,
+    pub duplex: Option<DuplexStatus>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplexStatus {
+    pub ok: bool,
+    pub loaded: bool,
+    pub engine: Option<String>,
+    pub realtime: Option<bool>,
+    pub rtf: Option<f64>,
+    pub vram_mb: Option<f64>,
 }

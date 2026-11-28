@@ -3,15 +3,15 @@
 
 //! `/api/bot` — list/status/settings/live. Multi-bot CRUD stays a stub.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use crate::AppState;
 use crate::authz::{AdminUser, AuthUser};
 use crate::json_song::queued_json;
-use crate::AppState;
 use mp_music::PlayerState;
 
 pub fn bot_status_json(st: &AppState) -> Value {
@@ -80,7 +80,11 @@ pub async fn get_bot(
     Path(id): Path<String>,
 ) -> Response {
     if id != st.bot_id {
-        return (StatusCode::NOT_FOUND, Json(json!({"error":"Bot not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"Bot not found"})),
+        )
+            .into_response();
     }
     Json(bot_status_json(&st)).into_response()
 }
@@ -94,7 +98,9 @@ pub fn live_status(st: &AppState) -> Value {
     let (now, queue) = if let Some(station) = st.station.as_ref() {
         let q = station.queue.lock().expect("queue");
         let cur = q.current();
-        let now = cur.as_ref().map(|s| json!({ "name": s.name, "artist": s.artist }));
+        let now = cur
+            .as_ref()
+            .map(|s| json!({ "name": s.name, "artist": s.artist }));
         let queue: Vec<Value> = q
             .list()
             .iter()
@@ -165,8 +171,9 @@ pub fn live_status(st: &AppState) -> Value {
 }
 
 pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
-    let c = &st.config;
     let (llm_enabled, llm_url, llm_model) = st.brain.llm_snapshot().await;
+    let (llm_system_prompt, llm_temperature) = st.brain.llm_form_snapshot().await;
+    let c = st.read_config().clone();
     Json(json!({
         "idleTimeoutMinutes": 0,
         "llmEnabled": llm_enabled,
@@ -174,10 +181,11 @@ pub async fn settings_get(State(st): State<AppState>, _admin: AdminUser) -> Json
         "llmModel": llm_model,
         "llmFallbackUrl": c.llm_fallback_url,
         "llmFallbackModel": c.llm_fallback_model,
-        "llmDelegateUrl": "",
-        "llmDelegateModel": "",
-        "llmSystemPrompt": "",
-        "llmTemperature": 0.2,
+        "llmDelegateUrl": c.llm_delegate_url,
+        "llmDelegateModel": c.llm_delegate_model,
+        "llmSystemPrompt": llm_system_prompt,
+        "llmSystemPromptDefault": mp_brain::DEFAULT_SYSTEM_PROMPT,
+        "llmTemperature": llm_temperature,
         "roastEnabled": st.roast.config().enabled,
         "roastMinPresent": st.roast.config().min_present,
         "roastCooldownMinutes": st.roast.config().cooldown_minutes,
@@ -260,6 +268,15 @@ pub async fn settings_post(
             rag.set_mempalace_enabled(v);
         }
     }
+    if let Some(v) = body.get("rights") {
+        if !v.is_null() && mp_rights::parse_rights_config(v).is_none() {
+            return Json(json!({
+                "ok": false,
+                "error": "rights JSON is invalid",
+                "code": "VALIDATION_ERROR"
+            }));
+        }
+    }
     if body.get("llmEnabled").is_some()
         || body.get("llmUrl").is_some()
         || body.get("llmModel").is_some()
@@ -267,12 +284,18 @@ pub async fn settings_post(
         || body.get("llmTemperature").is_some()
         || body.get("llmFallbackUrl").is_some()
         || body.get("llmFallbackModel").is_some()
+        || body.get("llmDelegateUrl").is_some()
+        || body.get("llmDelegateModel").is_some()
     {
         st.brain
             .update_llm(
                 body.get("llmEnabled").and_then(|v| v.as_bool()),
-                body.get("llmUrl").and_then(|v| v.as_str()).map(str::to_string),
-                body.get("llmModel").and_then(|v| v.as_str()).map(str::to_string),
+                body.get("llmUrl")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                body.get("llmModel")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
                 body.get("llmSystemPrompt")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
@@ -283,6 +306,12 @@ pub async fn settings_post(
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
                 body.get("llmFallbackModel")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                body.get("llmDelegateUrl")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                body.get("llmDelegateModel")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
             )
@@ -305,7 +334,8 @@ pub async fn settings_post(
     if let Some(v) = body.get("voice") {
         match patch_voice(&st.voice.config(), v) {
             Ok(next) => {
-                st.radio.set_tts(next.tts_url.clone(), next.tts_voice.clone());
+                st.radio
+                    .set_tts(next.tts_url.clone(), next.tts_voice.clone());
                 st.voice.apply(next);
             }
             Err(msg) => {
@@ -337,7 +367,9 @@ pub async fn settings_post(
             match b.as_bool() {
                 Some(v) => next.enabled = v,
                 None => {
-                    return Json(json!({ "ok": false, "error": "roastEnabled must be a boolean", "code": "VALIDATION_ERROR" }));
+                    return Json(
+                        json!({ "ok": false, "error": "roastEnabled must be a boolean", "code": "VALIDATION_ERROR" }),
+                    );
                 }
             }
         }
@@ -345,7 +377,9 @@ pub async fn settings_post(
             match n.as_u64() {
                 Some(v) => next.min_present = v.max(1) as u32,
                 None => {
-                    return Json(json!({ "ok": false, "error": "roastMinPresent must be a number", "code": "VALIDATION_ERROR" }));
+                    return Json(
+                        json!({ "ok": false, "error": "roastMinPresent must be a number", "code": "VALIDATION_ERROR" }),
+                    );
                 }
             }
         }
@@ -353,7 +387,9 @@ pub async fn settings_post(
             match n.as_u64() {
                 Some(v) => next.cooldown_minutes = v as u32,
                 None => {
-                    return Json(json!({ "ok": false, "error": "roastCooldownMinutes must be a number", "code": "VALIDATION_ERROR" }));
+                    return Json(
+                        json!({ "ok": false, "error": "roastCooldownMinutes must be a number", "code": "VALIDATION_ERROR" }),
+                    );
                 }
             }
         }
@@ -361,7 +397,9 @@ pub async fn settings_post(
             match n.as_i64() {
                 Some(v) => next.min_score = v.clamp(0, 10),
                 None => {
-                    return Json(json!({ "ok": false, "error": "roastMinScore must be a number", "code": "VALIDATION_ERROR" }));
+                    return Json(
+                        json!({ "ok": false, "error": "roastMinScore must be a number", "code": "VALIDATION_ERROR" }),
+                    );
                 }
             }
         }
@@ -377,6 +415,15 @@ pub async fn settings_post(
     {
         st.harness_allow_dangerous
             .store(v, std::sync::atomic::Ordering::SeqCst);
+    }
+    if let Err(msg) = sync_saved_config(&st, &body) {
+        return Json(json!({ "ok": false, "error": msg, "code": "VALIDATION_ERROR" }));
+    }
+    if body.get("rights").is_some()
+        || body.get("rightsEnabled").is_some()
+        || body.get("adminGroups").is_some()
+    {
+        reload_rights(&st);
     }
     if let Err(e) = persist_settings(&st, &body) {
         tracing::error!(error = %e, path = %st.config_path.display(), "config.json write failed");
@@ -400,8 +447,14 @@ fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
         "llmModel",
         "llmFallbackUrl",
         "llmFallbackModel",
+        "llmDelegateUrl",
+        "llmDelegateModel",
         "llmSystemPrompt",
         "llmTemperature",
+        "embeddingUrl",
+        "embeddingModel",
+        "vectorDbUrl",
+        "ragCollection",
         "ragEnabled",
         "ragTopK",
         "memoryEnabled",
@@ -411,6 +464,7 @@ fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
         "roastCooldownMinutes",
         "roastMinScore",
         "musicOpusBitrateKbps",
+        "musicBlockedGenres",
         "autoFollowEnabled",
         "autoFollowCooldownSec",
         "scOrgStatusUrl",
@@ -421,6 +475,12 @@ fn persist_settings(st: &AppState, body: &Value) -> Result<(), String> {
         "streamBridgeUrl",
         "recordingsEnabled",
         "harnessIntentAllowDangerous",
+        "rightsEnabled",
+        "adminGroups",
+        "rights",
+        "pokeCommandsEnabled",
+        "trustProxy",
+        "trustProxyHops",
     ];
     for k in KEYS {
         if let Some(v) = body.get(*k) {
@@ -449,44 +509,182 @@ fn patch_radio(prev: &mp_config::RadioConfig, v: &Value) -> Result<mp_config::Ra
     if !v.is_object() {
         return Err("radio must be an object".into());
     }
-    let mut next = prev.clone();
-    if let Some(b) = v.get("enabled") {
-        next.enabled = b
-            .as_bool()
-            .ok_or_else(|| "radio.enabled must be a boolean".to_string())?;
+    let mut base = serde_json::to_value(prev).map_err(|e| e.to_string())?;
+    mp_config::merge_json_objects(&mut base, v);
+    let mut next: mp_config::RadioConfig =
+        serde_json::from_value(base).map_err(|e| format!("radio: {e}"))?;
+    if next.active_profile.trim().is_empty() {
+        next.active_profile = prev.active_profile.clone();
     }
-    if let Some(n) = v.get("everyNSongs") {
-        next.every_n_songs = n
-            .as_u64()
-            .ok_or_else(|| "radio.everyNSongs must be a number".to_string())?
-            as u32;
-    }
-    if let Some(n) = v.get("deadAirSeconds") {
-        next.dead_air_seconds = n
-            .as_u64()
-            .ok_or_else(|| "radio.deadAirSeconds must be a number".to_string())?;
-    }
-    if let Some(n) = v.get("speechVolumePct") {
-        let n = n
-            .as_f64()
-            .ok_or_else(|| "radio.speechVolumePct must be 0–100".to_string())?;
-        if !(0.0..=100.0).contains(&n) {
-            return Err("radio.speechVolumePct must be 0–100".into());
-        }
-        next.speech_volume_pct = n as u32;
-    }
-    if let Some(s) = v.get("activeProfile").and_then(|x| x.as_str()) {
-        if !s.is_empty() {
-            next.active_profile = s.to_string();
-        }
-    }
-    if let Some(n) = v.get("minPresentToBroadcast") {
-        next.min_present_to_broadcast = n
-            .as_u64()
-            .ok_or_else(|| "radio.minPresentToBroadcast must be a number".to_string())?
-            as u32;
+    if next.speech_volume_pct > 100 {
+        return Err("radio.speechVolumePct must be 0–100".into());
     }
     Ok(next)
+}
+
+/// Copy the fields Settings posted onto the live config snapshot.
+/// A persona-only body writes only the prompt. Embedding clients stay on the
+/// process that booted them; the saved URL is what the next start loads.
+fn sync_saved_config(st: &AppState, body: &Value) -> Result<(), String> {
+    let mut cfg = st.config.write().unwrap_or_else(|e| e.into_inner());
+    fn text<'a>(body: &'a Value, key: &str) -> Option<&'a str> {
+        body.get(key).and_then(|v| v.as_str())
+    }
+    if let Some(s) = text(body, "llmUrl") {
+        cfg.llm_url = s.to_string();
+    }
+    if let Some(s) = text(body, "llmModel") {
+        cfg.llm_model = s.to_string();
+    }
+    if let Some(s) = text(body, "llmFallbackUrl") {
+        cfg.llm_fallback_url = s.to_string();
+    }
+    if let Some(s) = text(body, "llmFallbackModel") {
+        cfg.llm_fallback_model = s.to_string();
+    }
+    if let Some(s) = text(body, "llmDelegateUrl") {
+        cfg.llm_delegate_url = s.to_string();
+    }
+    if let Some(s) = text(body, "llmDelegateModel") {
+        cfg.llm_delegate_model = s.to_string();
+    }
+    if let Some(s) = text(body, "llmSystemPrompt") {
+        cfg.llm_system_prompt = s.to_string();
+    }
+    if let Some(n) = body.get("llmTemperature").and_then(|v| v.as_f64()) {
+        cfg.llm_temperature = n as f32;
+    }
+    if let Some(b) = body.get("llmEnabled").and_then(|v| v.as_bool()) {
+        cfg.llm_enabled = b;
+    }
+    if let Some(s) = text(body, "embeddingUrl") {
+        cfg.embedding_url = s.to_string();
+    }
+    if let Some(s) = text(body, "embeddingModel") {
+        cfg.embedding_model = s.to_string();
+    }
+    if let Some(s) = text(body, "vectorDbUrl") {
+        cfg.vector_db_url = s.to_string();
+    }
+    if let Some(s) = text(body, "ragCollection") {
+        cfg.rag_collection = s.to_string();
+    }
+    if let Some(s) = text(body, "mempalaceUrl") {
+        cfg.mempalace_url = s.to_string();
+    }
+    if let Some(s) = text(body, "streamBridgeUrl") {
+        cfg.stream_bridge_url = s.to_string();
+    }
+    if let Some(b) = body.get("mempalaceEnabled").and_then(|v| v.as_bool()) {
+        cfg.mempalace_enabled = b;
+    }
+    if let Some(b) = body.get("ragEnabled").and_then(|v| v.as_bool()) {
+        cfg.rag_enabled = b;
+    }
+    if let Some(b) = body.get("memoryEnabled").and_then(|v| v.as_bool()) {
+        cfg.memory_enabled = b;
+    }
+    if let Some(b) = body.get("kgEnabled").and_then(|v| v.as_bool()) {
+        cfg.kg_enabled = b;
+    }
+    if let Some(n) = body.get("ragTopK").and_then(|v| v.as_u64()) {
+        cfg.rag_top_k = n as u32;
+    }
+    if let Some(b) = body.get("rightsEnabled").and_then(|v| v.as_bool()) {
+        cfg.rights_enabled = b;
+    }
+    if let Some(v) = body.get("rights") {
+        cfg.rights = if v.is_null() { None } else { Some(v.clone()) };
+    }
+    if let Some(arr) = body.get("adminGroups") {
+        let arr = arr
+            .as_array()
+            .ok_or_else(|| "adminGroups must be an array".to_string())?;
+        cfg.admin_groups = arr
+            .iter()
+            .map(|n| {
+                n.as_i64()
+                    .map(|i| i as i32)
+                    .ok_or_else(|| "adminGroups must be integers".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    if let Some(arr) = body.get("musicBlockedGenres") {
+        let arr = arr
+            .as_array()
+            .ok_or_else(|| "musicBlockedGenres must be an array".to_string())?;
+        cfg.music_blocked_genres = arr
+            .iter()
+            .map(|s| {
+                s.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| "musicBlockedGenres must be strings".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    if let Some(b) = body.get("pokeCommandsEnabled").and_then(|v| v.as_bool()) {
+        cfg.poke_commands_enabled = b;
+    }
+    if let Some(b) = body.get("trustProxy").and_then(|v| v.as_bool()) {
+        cfg.trust_proxy = b;
+    }
+    if let Some(n) = body.get("trustProxyHops").and_then(|v| v.as_u64()) {
+        cfg.trust_proxy_hops = n.min(5) as u32;
+    }
+    if let Some(n) = body.get("musicOpusBitrateKbps").and_then(|v| v.as_u64()) {
+        cfg.music_opus_bitrate_kbps = n as u32;
+    }
+    if let Some(b) = body.get("youtubeSaveEnabled").and_then(|v| v.as_bool()) {
+        cfg.youtube_save_enabled = b;
+    }
+    if let Some(b) = body.get("recordingsEnabled").and_then(|v| v.as_bool()) {
+        cfg.recordings_enabled = b;
+    }
+    if let Some(b) = body
+        .get("harnessIntentAllowDangerous")
+        .and_then(|v| v.as_bool())
+    {
+        cfg.harness_intent_allow_dangerous = b;
+    }
+    if let Some(s) = text(body, "scOrgStatusUrl") {
+        cfg.sc_org_status_url = s.to_string();
+    }
+    if let Some(s) = text(body, "scOrgName") {
+        cfg.sc_org_name = s.to_string();
+    }
+    if let Some(b) = body.get("autoFollowEnabled").and_then(|v| v.as_bool()) {
+        cfg.auto_follow_enabled = b;
+    }
+    if let Some(n) = body.get("autoFollowCooldownSec").and_then(|v| v.as_u64()) {
+        cfg.auto_follow_cooldown_sec = n;
+    }
+    if body.get("voice").is_some() {
+        cfg.voice = st.voice.config();
+    }
+    if body.get("radio").is_some() {
+        cfg.radio = st.radio.config();
+    }
+    Ok(())
+}
+
+fn reload_rights(st: &AppState) {
+    let Some(engine) = st.rights.as_ref() else {
+        return;
+    };
+    let cfg = st.read_config();
+    if !cfg.rights_enabled {
+        return;
+    }
+    let next = if let Some(v) = cfg.rights.as_ref() {
+        match mp_rights::parse_rights_config(v) {
+            Some(parsed) => parsed,
+            None => return,
+        }
+    } else {
+        mp_control::legacy_rights_config(&cfg.admin_groups)
+    };
+    drop(cfg);
+    engine.reload(next);
 }
 
 fn patch_voice(prev: &mp_config::VoiceConfig, v: &Value) -> Result<mp_config::VoiceConfig, String> {
@@ -577,7 +775,11 @@ pub async fn start_bot(
     Path(id): Path<String>,
 ) -> Response {
     if id != st.bot_id {
-        return (StatusCode::NOT_FOUND, Json(json!({"error":"Bot not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"Bot not found"})),
+        )
+            .into_response();
     }
     Json(json!({
         "ok": true,
@@ -593,7 +795,11 @@ pub async fn stop_bot(
     Path(id): Path<String>,
 ) -> Response {
     if id != st.bot_id {
-        return (StatusCode::NOT_FOUND, Json(json!({"error":"Bot not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"Bot not found"})),
+        )
+            .into_response();
     }
     (
         StatusCode::NOT_IMPLEMENTED,
@@ -612,7 +818,11 @@ pub async fn bot_config(
     Path(id): Path<String>,
 ) -> Response {
     if id != st.bot_id {
-        return (StatusCode::NOT_FOUND, Json(json!({"error":"Bot config not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"Bot config not found"})),
+        )
+            .into_response();
     }
     Json(json!({
         "id": st.bot_id,
@@ -643,4 +853,54 @@ pub async fn delete_bot(_admin: AdminUser) -> Response {
         .into_response()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mp_config::{BumperSource, QuietWindow, RadioConfig};
 
+    #[test]
+    fn radio_patch_keeps_lines_zones_sources_and_quiet_hours() {
+        let prev = RadioConfig {
+            station_id_lines: vec!["This is the station.".into()],
+            quiet_hours: vec![QuietWindow {
+                from: "01:00".into(),
+                to: "02:00".into(),
+            }],
+            empty_channel_stop_seconds: 10,
+            ..RadioConfig::default()
+        };
+        let patch = json!({
+            "enabled": true,
+            "emptyChannelStopSeconds": -1,
+            "speechVolumePct": 85,
+            "stationIdLines": ["This is the station.", "Stay tuned."],
+            "timeCheckTimezones": ["America/Denver|Denver"],
+            "sources": ["stationId", "timeCheck", "doctrine"],
+            "profiles": {
+                "focus": {
+                    "name": "focus",
+                    "music": { "select": { "bpmMax": 110, "mood": ["calm"] } },
+                    "bumper": { "topics": ["ops"], "tone": "dry" }
+                }
+            },
+            "icecast": { "enabled": false, "mountUrl": "" }
+        });
+        let next = patch_radio(&prev, &patch).expect("radio patch");
+        assert_eq!(next.empty_channel_stop_seconds, -1);
+        assert_eq!(
+            next.station_id_lines,
+            vec![
+                "This is the station.".to_string(),
+                "Stay tuned.".to_string()
+            ]
+        );
+        assert_eq!(next.time_check_timezones, vec!["America/Denver|Denver"]);
+        assert!(next.sources.contains(&BumperSource::Doctrine));
+        assert_eq!(next.quiet_hours[0].from, "01:00");
+        assert!(next.profiles.contains_key("lobby"));
+        let select = next.profiles["focus"].music.select.as_ref().unwrap();
+        assert_eq!(select.bpm_max, Some(110.0));
+        assert_eq!(select.mood, vec!["calm".to_string()]);
+        assert!(patch_radio(&prev, &json!({ "speechVolumePct": 140 })).is_err());
+    }
+}

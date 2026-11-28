@@ -1,15 +1,15 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::authz::AdminUser;
 use crate::AppState;
+use crate::authz::AdminUser;
 use mp_radio::CueResult;
 
 pub async fn radio_status(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
@@ -59,4 +59,39 @@ pub async fn radio_test_bumper(
         CueResult::Unavailable => "unavailable",
     };
     Json(json!({ "ok": result != "unavailable", "result": result })).into_response()
+}
+
+#[derive(Deserialize, Default)]
+pub struct PrewarmBody {
+    #[serde(default, rename = "includeDoctrine")]
+    include_doctrine: bool,
+    #[serde(default, rename = "hoursAhead")]
+    hours_ahead: Option<f64>,
+    #[serde(default)]
+    lines: Vec<String>,
+}
+
+pub async fn radio_prewarm(
+    State(st): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<PrewarmBody>,
+) -> Json<Value> {
+    let hours = match body.hours_ahead {
+        Some(n) if n.is_finite() => (n.floor() as i64).clamp(1, 24) as u32,
+        _ => 12,
+    };
+    let tally = st
+        .radio
+        .prewarm_bumpers(body.include_doctrine, hours, body.lines)
+        .await;
+    Json(json!({
+        "ok": true,
+        "rendered": tally.rendered,
+        "failed": tally.failed,
+    }))
+}
+
+pub async fn radio_clear_cache(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
+    let removed = st.radio.clear_bumper_cache();
+    Json(json!({ "ok": true, "removed": removed }))
 }

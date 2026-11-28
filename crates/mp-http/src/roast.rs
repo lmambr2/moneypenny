@@ -132,7 +132,10 @@ impl RoastRuntime {
                 }
             );
         }
-        let remain = cooldown_remaining_ms(self.last_roast_at.load(Ordering::SeqCst), cfg.cooldown_minutes);
+        let remain = cooldown_remaining_ms(
+            self.last_roast_at.load(Ordering::SeqCst),
+            cfg.cooldown_minutes,
+        );
         if remain > 0 {
             let mins = (remain + 59_999) / 60_000;
             return format!(
@@ -203,7 +206,10 @@ impl RoastRuntime {
         if high < ROAST_MIN_GRADED_FOR_AUTO {
             return None;
         }
-        let remain = cooldown_remaining_ms(self.last_roast_at.load(Ordering::SeqCst), cfg.cooldown_minutes);
+        let remain = cooldown_remaining_ms(
+            self.last_roast_at.load(Ordering::SeqCst),
+            cfg.cooldown_minutes,
+        );
         if remain > 0 {
             return None;
         }
@@ -232,10 +238,17 @@ a single chat line is, from 0 (forgettable) to 10 (maximally cringe). Reply \
 with ONLY a JSON object: {\"score\": <integer 0-10>, \"reason\": \"<short reason>\"}.";
         for q in batch {
             if looks_like_image_or_binary(&q.text) {
-                let _ = self.db.roast().set_grade(q.id, 0, "non-text (image/binary)");
+                let _ = self
+                    .db
+                    .roast()
+                    .set_grade(q.id, 0, "non-text (image/binary)");
                 continue;
             }
-            let user = format!("Chat line from {}: {}", q.user_name, serde_json::json!(q.text));
+            let user = format!(
+                "Chat line from {}: {}",
+                q.user_name,
+                serde_json::json!(q.text)
+            );
             let Some(out) = self.brain.complete_plain(system, &user).await else {
                 continue;
             };
@@ -260,7 +273,10 @@ pub fn parse_roast_grade(raw: &str) -> Option<RoastGrade> {
         return None;
     }
     let v: serde_json::Value = serde_json::from_str(&raw[start..=end]).ok()?;
-    let score = v.get("score")?.as_i64().or_else(|| v.get("score")?.as_f64().map(|n| n as i64))?;
+    let score = v
+        .get("score")?
+        .as_i64()
+        .or_else(|| v.get("score")?.as_f64().map(|n| n as i64))?;
     let reason = v
         .get("reason")
         .and_then(|x| x.as_str())
@@ -282,11 +298,7 @@ pub fn select_reel_quotes(
         .filter(|q| q.score.unwrap_or(-1) >= min_score)
         .cloned()
         .collect();
-    sorted.sort_by(|a, b| {
-        b.score
-            .cmp(&a.score)
-            .then(b.created_at.cmp(&a.created_at))
-    });
+    sorted.sort_by(|a, b| b.score.cmp(&a.score).then(b.created_at.cmp(&a.created_at)));
     let mut picked = Vec::new();
     let mut per_user: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for q in sorted {
@@ -460,12 +472,7 @@ mod tests {
             score: Some(score),
             reason: None,
         };
-        let picks = select_reel_quotes(
-            &[q("a", 9), q("a", 8), q("a", 7), q("b", 6)],
-            5,
-            4,
-            2,
-        );
+        let picks = select_reel_quotes(&[q("a", 9), q("a", 8), q("a", 7), q("b", 6)], 5, 4, 2);
         assert_eq!(picks.len(), 3);
         assert_eq!(picks.iter().filter(|x| x.user_uid == "a").count(), 2);
     }

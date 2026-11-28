@@ -75,7 +75,10 @@ impl WorkOrderStore<'_> {
 
     pub fn delete(&self, id: i64) -> Result<bool> {
         self.db.with_conn(|conn| {
-            let n = conn.execute("DELETE FROM work_orders WHERE id = ?1", rusqlite::params![id])?;
+            let n = conn.execute(
+                "DELETE FROM work_orders WHERE id = ?1",
+                rusqlite::params![id],
+            )?;
             Ok(n > 0)
         })
     }
@@ -89,7 +92,8 @@ impl WorkOrderStore<'_> {
 }
 
 pub fn aggregate(orders: &[WorkOrder]) -> Vec<WorkOrderLine> {
-    let mut map: std::collections::BTreeMap<String, WorkOrderLine> = std::collections::BTreeMap::new();
+    let mut map: std::collections::BTreeMap<String, WorkOrderLine> =
+        std::collections::BTreeMap::new();
     for o in orders {
         for l in &o.lines {
             let key = format!("{}::{}", l.unit, l.material.to_lowercase());

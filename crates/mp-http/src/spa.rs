@@ -5,11 +5,11 @@
 
 use std::path::PathBuf;
 
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::Router;
 
 use crate::AppState;
 
@@ -45,7 +45,10 @@ async fn spa_fallback(State(st): State<AppState>, req: Request<Body>) -> Respons
             let mime = mime_for(&file);
             (
                 StatusCode::OK,
-                [(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-cache")],
+                [
+                    (header::CONTENT_TYPE, mime),
+                    (header::CACHE_CONTROL, "no-cache"),
+                ],
                 bytes,
             )
                 .into_response()

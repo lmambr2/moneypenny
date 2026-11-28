@@ -91,7 +91,12 @@ impl HttpVectorStore {
         format!("{}{}", self.base_url, path)
     }
 
-    async fn send_json(&self, method: reqwest::Method, url: String, body: Option<Value>) -> Result<Value> {
+    async fn send_json(
+        &self,
+        method: reqwest::Method,
+        url: String,
+        body: Option<Value>,
+    ) -> Result<Value> {
         let mut req = self.client.request(method, &url).timeout(self.timeout);
         if let Some(b) = body {
             req = req.header("content-type", "application/json").json(&b);
@@ -142,7 +147,10 @@ impl HttpVectorStore {
         }
         self.send_json(
             reqwest::Method::PUT,
-            format!("{}?wait=true", self.url(&format!("/collections/{name}/points"))),
+            format!(
+                "{}?wait=true",
+                self.url(&format!("/collections/{name}/points"))
+            ),
             Some(serde_json::json!({ "points": points })),
         )
         .await?;
@@ -220,7 +228,11 @@ impl MemoryVectorStore {
     }
 
     pub fn ensure_collection(&self, name: &str, _dim: usize) -> Result<()> {
-        self.inner.lock().expect("vec").entry(name.to_string()).or_default();
+        self.inner
+            .lock()
+            .expect("vec")
+            .entry(name.to_string())
+            .or_default();
         Ok(())
     }
 
@@ -268,7 +280,11 @@ impl MemoryVectorStore {
                 payload: p.payload.clone(),
             })
             .collect();
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scored.truncate(top_k);
         Ok(scored)
     }
@@ -302,9 +318,5 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
         nb += b[i] * b[i];
     }
     let d = na.sqrt() * nb.sqrt();
-    if d < 1e-12 {
-        0.0
-    } else {
-        dot / d
-    }
+    if d < 1e-12 { 0.0 } else { dot / d }
 }

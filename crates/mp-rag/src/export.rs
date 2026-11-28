@@ -63,9 +63,7 @@ pub fn prepare_markdown_for_export(markdown: &str) -> String {
 pub fn export_filename(source: &str, format: &str) -> String {
     let posix = source.replace('\\', "/");
     let file = posix.rsplit('/').next().unwrap_or("document");
-    let base = file
-        .trim_end_matches(".markdown")
-        .trim_end_matches(".md");
+    let base = file.trim_end_matches(".markdown").trim_end_matches(".md");
     let ext = if format == "pdf" { "pdf" } else { "docx" };
     format!("{base}.{ext}")
 }

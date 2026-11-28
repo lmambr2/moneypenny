@@ -4,7 +4,7 @@
 //! Queue + local library + player. The executor talks to this, not ffmpeg.
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::blacklist::PlaybackBlacklist;
@@ -39,6 +39,9 @@ pub struct MusicStation {
     connected: Mutex<bool>,
     prefetch: Arc<Mutex<Option<(String, String)>>>,
     votes: Mutex<VoteState>,
+    /// Bumped when a person asks for a track, so an in-flight radio seed can drop.
+    playback_epoch: AtomicU64,
+    on_user_playback: Mutex<Option<Arc<dyn Fn(u32) + Send + Sync>>>,
 }
 
 struct VoteState {
@@ -82,7 +85,23 @@ impl MusicStation {
                 song_id: String::new(),
                 uids: HashSet::new(),
             }),
+            playback_epoch: AtomicU64::new(0),
+            on_user_playback: Mutex::new(None),
         }
+    }
+
+    /// A person asked for music. Invalidates a radio seed that is still searching.
+    pub fn note_user_intent(&self) {
+        self.playback_epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn playback_epoch(&self) -> u64 {
+        self.playback_epoch.load(Ordering::SeqCst)
+    }
+
+    /// Radio holds auto-program for the length of a user-started song.
+    pub fn set_on_user_playback(&self, hook: Arc<dyn Fn(u32) + Send + Sync>) {
+        *self.on_user_playback.lock().expect("user playback") = Some(hook);
     }
 
     pub fn attach_yt_library(&self, lib: Arc<YtLibrary>) {
@@ -166,6 +185,7 @@ impl MusicStation {
 
     /// `!chevron7` — local `[aafGXNWHGaw]` first, then YouTube.
     pub async fn play_chevron7(&self) -> String {
+        self.note_user_intent();
         if let Some(track) = self.find_local_by_video_id(SG1_THEME_VIDEO_ID) {
             let queued = QueuedSong::from_track(track, QueueSource::User);
             {
@@ -195,6 +215,7 @@ impl MusicStation {
     /// Append local library ids. Starts at the first insert when the player is idle.
     /// Returns how many ids resolved to a file.
     pub async fn enqueue_local_ids(&self, ids: &[String]) -> usize {
+        self.note_user_intent();
         let tracks: Vec<Track> = ids
             .iter()
             .filter_map(|id| self.local.song_by_id(id))
@@ -390,6 +411,15 @@ impl MusicStation {
     }
 
     pub fn play_song_at(&self, song: &QueuedSong, elapsed: f64) -> bool {
+        self.play_song(song, elapsed, true)
+    }
+
+    /// Same song after a pause or a spoken reply. Does not post another now-playing line.
+    pub fn resume_song_at(&self, song: &QueuedSong, elapsed: f64) -> bool {
+        self.play_song(song, elapsed, false)
+    }
+
+    fn play_song(&self, song: &QueuedSong, elapsed: f64, announce: bool) -> bool {
         if !self.is_connected() {
             tracing::warn!(id = %song.id, "play_song_at while disconnected");
             return false;
@@ -404,7 +434,7 @@ impl MusicStation {
             Some(u) => u,
             None => return false,
         };
-        self.start_playback(song, &url, elapsed)
+        self.start_playback(song, &url, elapsed, announce)
     }
 
     pub async fn play_song_at_async(&self, song: &QueuedSong, elapsed: f64) -> bool {
@@ -422,13 +452,22 @@ impl MusicStation {
             Some(u) => u,
             None => return false,
         };
-        self.start_playback(song, &url, elapsed)
+        self.start_playback(song, &url, elapsed, true)
     }
 
-    fn start_playback(&self, song: &QueuedSong, url: &str, elapsed: f64) -> bool {
+    fn start_playback(&self, song: &QueuedSong, url: &str, elapsed: f64, announce: bool) -> bool {
+        if !song.is_radio_fill() {
+            self.note_user_intent();
+            let hook = self.on_user_playback.lock().expect("user playback").clone();
+            if let Some(hook) = hook {
+                hook(song.duration);
+            }
+        }
         self.player.reset_failures();
-        self.player
-            .announce_track(&song.name, &song.artist, &song.album);
+        if announce {
+            self.player
+                .announce_track(&song.name, &song.artist, &song.album);
+        }
         self.player
             .play(url, elapsed.max(0.0), song.duration as f64);
         if song.platform == Platform::Youtube && self.youtube_save_enabled() {
@@ -480,6 +519,7 @@ impl MusicStation {
         if tracks.is_empty() {
             return None;
         }
+        self.note_user_intent();
         let songs: Vec<QueuedSong> = tracks
             .into_iter()
             .map(|t| QueuedSong::from_track(t, QueueSource::User))
@@ -613,6 +653,7 @@ impl MusicStation {
     /// `!test` / PHASE0 demo: Ella Langley *Choosin' Texas* (`DEFAULT_DEMO_VIDEO_ID`).
     /// Local `[videoId]` copy first, else YouTube. Sequential, play once.
     pub fn play_demo_track(&self) -> ReplaceResult {
+        self.note_user_intent();
         let id = crate::DEFAULT_DEMO_VIDEO_ID;
         if let Some(track) = self.find_local_by_video_id(id) {
             let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
@@ -631,6 +672,7 @@ impl MusicStation {
     }
 
     pub async fn play_demo_track_async(&self) -> ReplaceResult {
+        self.note_user_intent();
         let id = crate::DEFAULT_DEMO_VIDEO_ID;
         if let Some(track) = self.find_local_by_video_id(id) {
             let queued = QueuedSong::from_track(track.clone(), QueueSource::User);
@@ -677,6 +719,7 @@ impl MusicStation {
         query: &str,
         flags: &HashSet<char>,
     ) -> ReplaceResult {
+        self.note_user_intent();
         let Some(track) = self.search_first_flags(query, flags) else {
             return ReplaceResult::NoResults;
         };
@@ -698,6 +741,7 @@ impl MusicStation {
         query: &str,
         flags: &HashSet<char>,
     ) -> ReplaceResult {
+        self.note_user_intent();
         let Some(track) = self.search_first_flags_async(query, flags).await else {
             return ReplaceResult::NoResults;
         };
@@ -759,7 +803,7 @@ impl MusicStation {
             if cur.id == cp.song_id {
                 let elapsed = cp.elapsed;
                 drop(checkpoint);
-                if !self.play_song_at(&cur, elapsed) {
+                if !self.resume_song_at(&cur, elapsed) {
                     return "Could not resume — try play again".into();
                 }
                 *self.user_pause.lock().expect("pause") = None;

@@ -4,23 +4,29 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mp_audio::{normalize_pcm_for_stt, pcm_peak, MIN_PCM_BOOST_PEAK, STT_TARGET_PEAK};
-use mp_config::{effective_duck_volume, VoiceConfig, MIN_LISTEN_WINDOW_MS};
+use mp_audio::{MIN_PCM_BOOST_PEAK, STT_TARGET_PEAK, normalize_pcm_for_stt, pcm_peak};
+use mp_config::{MIN_LISTEN_WINDOW_MS, VoiceConfig, effective_duck_volume};
+use tokio::sync::mpsc;
 
+use crate::duplex::{self, Inbound};
+use crate::duplex_pump::{DuplexPcmPump, downsample_48k_to_24k_mono};
+use crate::duplex_text::accept_user_asr;
+use crate::duplex_watch::{DuplexHealth, DuplexWatch, WatchAction, WatchState};
+use crate::floor::{VoiceFloor, VoiceFloorController};
 use crate::pipeline::{TranscriptOpts, VoicePipeline, VoiceTurnResult};
 use crate::probe::{probe_http_stt, probe_http_tts};
 use crate::stt::HttpSttClient;
 use crate::tts::HttpTtsClient;
 use crate::vad::SilenceSegmenter;
-use crate::{Utterance, VoiceStatus};
+use crate::{DuplexStatus, Utterance, VoiceStatus};
 
 /// TeamSpeak music codec — never feed this to STT.
 const CODEC_OPUS_MUSIC: u8 = 5;
 
 pub struct IngestResult {
-    pub utterance: Option<Utterance>,
+    pub utterances: Vec<Utterance>,
     pub speech: bool,
     pub raw_peak: u32,
 }
@@ -39,6 +45,14 @@ pub struct VoiceRuntime {
     inbound: AtomicU64,
     pipeline: Mutex<VoicePipeline>,
     capture: Mutex<Capture>,
+    floor: Mutex<VoiceFloorController>,
+    watch: Mutex<DuplexWatch>,
+    duplex_health: Mutex<Option<DuplexHealth>>,
+    talker_tx: Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
+    send_opus: Mutex<Option<Arc<dyn Fn(Vec<u8>) + Send + Sync>>>,
+    pump: Mutex<DuplexPcmPump>,
+    encoder: Mutex<Option<mp_audio::NativeOpus>>,
+    duplex_started: AtomicBool,
 }
 
 impl VoiceRuntime {
@@ -58,6 +72,14 @@ impl VoiceRuntime {
                 seen: HashSet::new(),
                 energy_threshold: cfg.energy_threshold,
             }),
+            floor: Mutex::new(VoiceFloorController::default()),
+            watch: Mutex::new(DuplexWatch::default()),
+            duplex_health: Mutex::new(None),
+            talker_tx: Mutex::new(None),
+            send_opus: Mutex::new(None),
+            pump: Mutex::new(DuplexPcmPump::default()),
+            encoder: Mutex::new(open_talker_encoder()),
+            duplex_started: AtomicBool::new(false),
         });
         rt.reconfigure();
         rt
@@ -69,21 +91,22 @@ impl VoiceRuntime {
             return None;
         }
         let tts = HttpTtsClient::new(&cfg.tts_url, &cfg.tts_voice);
-        tts.synthesize(sentence).await.ok().map(|(audio, _)| audio).filter(|a| !a.is_empty())
+        tts.synthesize(sentence)
+            .await
+            .ok()
+            .map(|(audio, _)| audio)
+            .filter(|a| !a.is_empty())
     }
 
     /// One wav for a finished reply. Used when the token stream produced no sentences.
     pub async fn synthesize_reply(&self, reply: &str) -> Option<Vec<u8>> {
         use crate::speak::tts_speak_chunks;
-        use crate::watchword::{is_playback_start_reply, should_speak_voice_reply, voice_spoken_ack};
-        if is_playback_start_reply(Some(reply)) {
-            return None;
-        }
+        use crate::watchword::{should_speak_voice_reply, voice_spoken_line};
         let cfg = self.config();
         if cfg.tts_url.trim().is_empty() {
             return None;
         }
-        let spoken = voice_spoken_ack(Some(reply)).map(|s| s.to_string());
+        let spoken = voice_spoken_line(Some(reply));
         let chunks = spoken
             .map(|s| vec![s])
             .unwrap_or_else(|| tts_speak_chunks(reply));
@@ -230,7 +253,12 @@ impl VoiceRuntime {
         let mut cap = self.capture.lock().expect("cap");
         if !cap.seen.contains(&client_id) {
             cap.seen.insert(client_id);
-            tracing::info!(client_id, codec, bytes = opus.len(), "Voice: first inbound packet");
+            tracing::info!(
+                client_id,
+                codec,
+                bytes = opus.len(),
+                "Voice: first inbound packet"
+            );
         }
         let Some(dec) = cap.decoder.as_mut() else {
             return None;
@@ -240,35 +268,56 @@ impl VoiceRuntime {
             return None;
         }
         let pcm = decoded.pcm;
+        self.forward_user_pcm(&pcm);
         let raw_peak = pcm_peak(&pcm).unwrap_or(0);
         let speech = raw_peak >= MIN_PCM_BOOST_PEAK;
         let pcm_stt = normalize_pcm_for_stt(&pcm, STT_TARGET_PEAK, 120.0, MIN_PCM_BOOST_PEAK)
             .unwrap_or_else(|_| pcm.clone());
 
         let threshold = cap.energy_threshold;
+        let now = Instant::now();
+        let mut utterances = Vec::new();
+        // Another speaker's pause has to close even while this packet is in flight.
+        // Collect first: polling and pushing the same map entry alias.
+        let stale: Vec<(i32, Vec<u8>)> = cap
+            .segmenters
+            .iter_mut()
+            .filter(|(id, _)| **id != client_id)
+            .filter_map(|(id, seg)| seg.poll_idle(now).map(|pcm| (*id, pcm)))
+            .collect();
+        for (id, pcm) in stale {
+            utterances.push(utterance_from(id, pcm));
+        }
         let seg = cap
             .segmenters
             .entry(client_id)
             .or_insert_with(|| SilenceSegmenter::for_teamspeak(threshold));
-        let done = seg.push(&pcm_stt);
+        for pcm in seg.push(&pcm_stt) {
+            utterances.push(utterance_from(client_id, pcm));
+        }
         drop(cap);
-
-        let utterance = done.map(|pcm| {
-            let duration_ms = pcm_duration_ms(&pcm, 48_000, 1);
-            Utterance {
-                speaker_client_id: client_id,
-                speaker_uid: Some(format!("clid:{client_id}")),
-                pcm,
-                sample_rate: 48_000,
-                channels: 1,
-                duration_ms,
-            }
-        });
         Some(IngestResult {
-            utterance,
+            utterances,
             speech,
             raw_peak,
         })
+    }
+
+    /// Close turns that have been quiet for the hangover. TeamSpeak does not
+    /// send silence, so this has to run on a timer.
+    pub fn poll_idle_utterances(&self) -> Vec<Utterance> {
+        if !self.is_active() {
+            return Vec::new();
+        }
+        let now = Instant::now();
+        let mut cap = self.capture.lock().expect("cap");
+        let mut out = Vec::new();
+        for (client_id, seg) in cap.segmenters.iter_mut() {
+            if let Some(pcm) = seg.poll_idle(now) {
+                out.push(utterance_from(*client_id, pcm));
+            }
+        }
+        out
     }
 
     pub async fn transcribe(&self, u: &Utterance) -> String {
@@ -280,7 +329,241 @@ impl VoiceRuntime {
         if url.trim().is_empty() {
             return (String::new(), None);
         }
-        HttpSttClient::new(url).transcribe_ex(u).await
+        let profile = self.stt_profile();
+        HttpSttClient::new(url).transcribe_profile(u, profile).await
+    }
+
+    fn stt_profile(&self) -> Option<&'static str> {
+        if self.config().mode != "duplex" {
+            return None;
+        }
+        match self.watch.lock().expect("watch").state {
+            WatchState::FallbackCascaded | WatchState::FallbackRtf => Some("cascaded"),
+            _ => Some("wake"),
+        }
+    }
+
+    /// True while the Talker pump owns the 20 ms slot.
+    pub fn blocks_player_voice(&self) -> bool {
+        !self.floor.lock().expect("floor").player_sends()
+    }
+
+    pub fn set_floor(&self, name: &str) {
+        self.floor.lock().expect("floor").set_named(name);
+    }
+
+    pub fn set_opus_sender(&self, send: Arc<dyn Fn(Vec<u8>) + Send + Sync>) {
+        *self.send_opus.lock().expect("opus") = Some(send);
+    }
+
+    pub fn note_watchword(&self) {
+        if self.config().mode != "duplex" {
+            return;
+        }
+        let loaded = self
+            .duplex_health
+            .lock()
+            .expect("health")
+            .as_ref()
+            .and_then(|h| h.loaded)
+            .unwrap_or(false);
+        let actions = self.watch.lock().expect("watch").on_watchword(loaded);
+        self.spawn_actions(actions);
+    }
+
+    /// Whisper final only. Mute the Talker and take the Piper floor.
+    pub fn note_user_final(&self, text: &str) {
+        if self.config().mode != "duplex" {
+            return;
+        }
+        if self.watch.lock().expect("watch").state != WatchState::ArmedDuplex {
+            return;
+        }
+        if accept_user_asr(text).is_empty() {
+            return;
+        }
+        self.floor.lock().expect("floor").set(VoiceFloor::PiperAck);
+        self.spawn_actions(vec![WatchAction::MuteOut]);
+    }
+
+    pub fn on_piper_finished(&self) {
+        let mut floor = self.floor.lock().expect("floor");
+        if floor.floor == VoiceFloor::PiperAck {
+            floor.set(VoiceFloor::Music);
+        }
+    }
+
+    pub fn on_channel_humans(&self, humans: u32) {
+        if humans > 0 || self.config().mode != "duplex" {
+            return;
+        }
+        let loaded = self
+            .duplex_health
+            .lock()
+            .expect("health")
+            .as_ref()
+            .and_then(|h| h.loaded)
+            .unwrap_or(false);
+        let actions = self.watch.lock().expect("watch").on_empty_channel(loaded);
+        self.spawn_actions(actions);
+    }
+
+    /// Health poll plus the PCM socket. No-op without a tokio runtime.
+    pub fn spawn_supervisor(self: &Arc<Self>, set_resident: Arc<dyn Fn(bool) + Send + Sync>) {
+        if self.duplex_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            self.duplex_started.store(false, Ordering::SeqCst);
+            return;
+        };
+        let this = Arc::clone(self);
+        handle.spawn(async move {
+            let http = reqwest::Client::new();
+            let mut tick = tokio::time::interval(Duration::from_secs(2));
+            let mut saw_duplex = false;
+            loop {
+                tick.tick().await;
+                this.poll_duplex(&http, &set_resident, &mut saw_duplex)
+                    .await;
+            }
+        });
+    }
+
+    async fn poll_duplex(
+        self: &Arc<Self>,
+        http: &reqwest::Client,
+        set_resident: &Arc<dyn Fn(bool) + Send + Sync>,
+        saw_duplex: &mut bool,
+    ) {
+        let cfg = self.config();
+        if cfg.mode != "duplex" || cfg.duplex_url.trim().is_empty() {
+            *saw_duplex = false;
+            set_resident(false);
+            *self.duplex_health.lock().expect("health") = None;
+            *self.talker_tx.lock().expect("tx") = None;
+            return;
+        }
+        if !*saw_duplex {
+            self.watch.lock().expect("watch").on_operator_set_duplex();
+            *saw_duplex = true;
+            self.ensure_pcm_link(&cfg.duplex_url);
+        }
+        if self.watch.lock().expect("watch").state == WatchState::ArmedDuplex && !self.any_armed() {
+            self.watch.lock().expect("watch").on_listen_expired();
+        }
+        let health = duplex::fetch_health(http, &cfg.duplex_url).await;
+        set_resident(health.ok && health.loaded == Some(true));
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let actions = self.watch.lock().expect("watch").apply_health(&health, now);
+        *self.duplex_health.lock().expect("health") = Some(health);
+        self.run_actions(http, &cfg.duplex_url, actions).await;
+    }
+
+    fn ensure_pcm_link(self: &Arc<Self>, base: &str) {
+        if self.talker_tx.lock().expect("tx").is_some() {
+            return;
+        }
+        let (out_tx, out_rx) = mpsc::unbounded_channel();
+        let (in_tx, mut in_rx) = mpsc::unbounded_channel();
+        *self.talker_tx.lock().expect("tx") = Some(out_tx);
+        let base = base.to_string();
+        tokio::spawn(async move {
+            duplex::run_pcm_link(&base, out_rx, in_tx).await;
+        });
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
+            while let Some(frame) = in_rx.recv().await {
+                this.on_talker_frame(frame);
+            }
+            *this.talker_tx.lock().expect("tx") = None;
+        });
+    }
+
+    fn on_talker_frame(&self, frame: Inbound) {
+        if self.encoder.lock().expect("enc").is_none() {
+            return;
+        }
+        if let Some(speaking) = frame.speaking {
+            self.floor
+                .lock()
+                .expect("floor")
+                .on_talker_speaking(speaking);
+        }
+        if let Some(pcm) = frame.pcm {
+            self.send_talker_pcm(&pcm);
+        }
+        if let Some(caption) = frame.caption {
+            tracing::debug!(caption = %caption.chars().take(80).collect::<String>(), "Voice: Talker caption");
+        }
+    }
+
+    fn send_talker_pcm(&self, mono24k: &[u8]) {
+        let allows = self.floor.lock().expect("floor").talker_sends();
+        let frames = self.pump.lock().expect("pump").push(mono24k, allows);
+        let Some(send) = self.send_opus.lock().expect("opus").clone() else {
+            return;
+        };
+        let mut enc = self.encoder.lock().expect("enc");
+        let Some(enc) = enc.as_mut() else {
+            return;
+        };
+        for frame in frames {
+            if let Ok(opus) = enc.encode(&frame) {
+                send(opus);
+            }
+        }
+    }
+
+    fn forward_user_pcm(&self, pcm: &[u8]) {
+        if self.watch.lock().expect("watch").state != WatchState::ArmedDuplex {
+            return;
+        }
+        let mono = downsample_48k_to_24k_mono(pcm, 1);
+        if mono.len() < 2 {
+            return;
+        }
+        if let Some(tx) = self.talker_tx.lock().expect("tx").as_ref() {
+            let _ = tx.send(mono);
+        }
+    }
+
+    fn spawn_actions(&self, actions: Vec<WatchAction>) {
+        if actions.is_empty() {
+            return;
+        }
+        let url = self.config().duplex_url;
+        if url.trim().is_empty() {
+            return;
+        }
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        handle.spawn(async move {
+            let http = reqwest::Client::new();
+            for action in actions {
+                let op = match action {
+                    WatchAction::Warm => "warm",
+                    WatchAction::Unload => "unload",
+                    WatchAction::MuteOut => "mute_out",
+                };
+                let _ = duplex::post_control(&http, &url, op).await;
+            }
+        });
+    }
+
+    async fn run_actions(&self, http: &reqwest::Client, url: &str, actions: Vec<WatchAction>) {
+        for action in actions {
+            let op = match action {
+                WatchAction::Warm => "warm",
+                WatchAction::Unload => "unload",
+                WatchAction::MuteOut => "mute_out",
+            };
+            let _ = duplex::post_control(http, url, op).await;
+        }
     }
 
     pub async fn handle_transcript<F, Fut>(
@@ -295,9 +578,7 @@ impl VoiceRuntime {
         Fut: std::future::Future<Output = Option<String>>,
     {
         use crate::pipeline::VoiceGate;
-        use crate::watchword::{
-            is_playback_control_reply, is_playback_start_reply,
-        };
+        use crate::watchword::is_playback_control_reply;
 
         let gate = {
             let pipe = self.pipeline.lock().expect("pipe");
@@ -313,9 +594,8 @@ impl VoiceRuntime {
                 let reply = execute(cmd.clone()).await;
                 {
                     let pipe = self.pipeline.lock().expect("pipe");
-                    if is_playback_start_reply(reply.as_deref())
-                        || is_playback_control_reply(reply.as_deref())
-                    {
+                    // A play leaves the window open so the next person can correct it.
+                    if is_playback_control_reply(reply.as_deref()) {
                         pipe.disarm(speaker_client_id);
                     } else if reply.is_some() {
                         pipe.arm(speaker_client_id);
@@ -377,7 +657,49 @@ impl VoiceRuntime {
             inbound_packets: self.inbound_packets(),
             duck_music_on_speech: cfg.duck_music_on_speech,
             text_wake_fallback: cfg.text_wake_fallback,
+            mode: if cfg.mode == "duplex" {
+                "duplex".into()
+            } else {
+                "cascaded".into()
+            },
+            floor: self.floor.lock().expect("floor").floor.as_str().into(),
+            wake: self.watch.lock().expect("watch").state.as_str().into(),
+            duplex: self
+                .duplex_health
+                .lock()
+                .expect("health")
+                .as_ref()
+                .map(|h| DuplexStatus {
+                    ok: h.ok,
+                    loaded: h.loaded.unwrap_or(false),
+                    engine: h.engine.clone(),
+                    realtime: h.realtime,
+                    rtf: h.rtf,
+                    vram_mb: h.vram_mb,
+                }),
         }
+    }
+}
+
+fn open_talker_encoder() -> Option<mp_audio::NativeOpus> {
+    match mp_audio::NativeOpus::new(48_000, 2) {
+        Ok(enc) => Some(enc),
+        Err(e) => {
+            tracing::warn!(error = %e, "Voice: duplex Opus pump unavailable");
+            None
+        }
+    }
+}
+
+fn utterance_from(client_id: i32, pcm: Vec<u8>) -> Utterance {
+    let duration_ms = pcm_duration_ms(&pcm, 48_000, 1);
+    Utterance {
+        speaker_client_id: client_id,
+        speaker_uid: Some(format!("clid:{client_id}")),
+        pcm,
+        sample_rate: 48_000,
+        channels: 1,
+        duration_ms,
     }
 }
 

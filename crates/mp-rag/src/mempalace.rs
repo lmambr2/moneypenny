@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Clone)]
 pub struct MemPalaceClient {
@@ -18,8 +18,15 @@ impl MemPalaceClient {
     pub fn new(url: impl Into<String>) -> Self {
         let base = url.into().trim().trim_end_matches('/').to_string();
         let timeout = Duration::from_secs(20);
-        let http = reqwest::Client::builder().timeout(timeout).build().expect("reqwest");
-        Self { base, timeout, http }
+        let http = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("reqwest");
+        Self {
+            base,
+            timeout,
+            http,
+        }
     }
 
     pub fn from_env() -> Option<Self> {
@@ -42,7 +49,13 @@ impl MemPalaceClient {
 
     pub async fn is_available(&self) -> bool {
         let url = format!("{}/health", self.base);
-        match self.http.get(&url).timeout(Duration::from_secs(5)).send().await {
+        match self
+            .http
+            .get(&url)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+        {
             Ok(res) => res
                 .json::<Value>()
                 .await
@@ -173,7 +186,14 @@ impl MemPalaceClient {
     pub async fn forget(&self, user_id: &str, all: bool, index: Option<i64>) -> bool {
         let url = format!("{}/v1/forget", self.base);
         let body = json!({ "userId": user_id, "all": all, "index": index });
-        match self.http.post(&url).timeout(self.timeout).json(&body).send().await {
+        match self
+            .http
+            .post(&url)
+            .timeout(self.timeout)
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(res) => res
                 .json::<Value>()
                 .await

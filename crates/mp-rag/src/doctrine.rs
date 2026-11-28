@@ -12,7 +12,8 @@ use crate::error::Result;
 
 pub const MAX_DOCTRINE_FILE_BYTES: usize = 15 * 1024 * 1024;
 
-pub const DEFAULT_DOCTRINE_TEMPLATE: &str = "---\nclassification: unclassified\ntags: []\n---\n\n# Title\n\nBody markdown…\n";
+pub const DEFAULT_DOCTRINE_TEMPLATE: &str =
+    "---\nclassification: unclassified\ntags: []\n---\n\n# Title\n\nBody markdown…\n";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,7 +53,10 @@ impl DoctrineStore {
         {
             return None;
         }
-        let parts: Vec<&str> = raw.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+        let parts: Vec<&str> = raw
+            .split('/')
+            .filter(|p| !p.is_empty() && *p != ".")
+            .collect();
         if parts.is_empty() || parts.iter().any(|p| *p == "..") {
             return None;
         }

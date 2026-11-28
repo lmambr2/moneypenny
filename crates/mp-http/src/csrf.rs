@@ -4,17 +4,14 @@
 //! Same-origin CSRF: mutating requests must present Origin/Referer host == Host.
 //! Port of `bot/src/web/middleware/csrf.ts`.
 
+use axum::Json;
 use axum::extract::Request;
-use axum::http::{header, Method, StatusCode};
+use axum::http::{Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 
 pub async fn csrf_origin_check(req: Request, next: Next) -> Response {
-    if matches!(
-        *req.method(),
-        Method::GET | Method::HEAD | Method::OPTIONS
-    ) {
+    if matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS) {
         return next.run(req).await;
     }
     // Cookie CSRF does not apply when the client sent Bearer and no session cookie.

@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use mp_http::FollowRuntime;
 use mp_ts::{
-    count_channel_humans, pick_busiest_channel, resolve_own_channel_id, PresenceClient,
-    TsSessionExt,
+    PresenceClient, TsSessionExt, count_channel_humans, pick_busiest_channel,
+    resolve_own_channel_id,
 };
 
 pub struct AutoFollow {
@@ -49,7 +49,12 @@ impl AutoFollow {
             if k.is_empty() {
                 continue;
             }
-            let cached = self.afk_id_cache.lock().expect("afk cache").get(&k).copied();
+            let cached = self
+                .afk_id_cache
+                .lock()
+                .expect("afk cache")
+                .get(&k)
+                .copied();
             if let Some(Some(id)) = cached {
                 ids.push(id);
                 continue;
@@ -59,7 +64,10 @@ impl AutoFollow {
             }
             match session.resolve_channel_id_by_name(&name).await {
                 Some(id) if id != 0 => {
-                    self.afk_id_cache.lock().expect("afk cache").insert(k, Some(id));
+                    self.afk_id_cache
+                        .lock()
+                        .expect("afk cache")
+                        .insert(k, Some(id));
                     ids.push(id);
                 }
                 _ => {
@@ -71,7 +79,11 @@ impl AutoFollow {
     }
 
     /// Move to the busiest occupied channel when the current one is empty.
-    pub async fn maybe_follow<S: TsSessionExt>(&self, session: &S, human_count: u32) -> Option<u64> {
+    pub async fn maybe_follow<S: TsSessionExt>(
+        &self,
+        session: &S,
+        human_count: u32,
+    ) -> Option<u64> {
         if !self.settings.enabled() {
             return None;
         }

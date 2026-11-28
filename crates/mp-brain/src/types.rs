@@ -50,6 +50,9 @@ pub struct TurnRequest {
     pub subject: Option<TurnSubject>,
     pub mode: Option<TurnMode>,
     pub options: Option<TurnOptions>,
+    /// Packed static skills. AgentRuntime ask/intent only. Not the Talker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +71,8 @@ pub struct TurnSource {
 pub struct ToolProposal {
     pub name: String,
     pub arguments: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
