@@ -3,15 +3,15 @@
 
 //! Admin status probes + org KG HTTP. Vue Settings / Harness.
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::authz::AdminUser;
 use crate::AppState;
+use crate::authz::AdminUser;
 use mp_rights::{Scope, Subject};
 use mp_voice::probe_http_health;
 
@@ -23,10 +23,16 @@ pub async fn llm_status(State(st): State<AppState>, _admin: AdminUser) -> Json<V
     } else {
         false
     };
-    let delegate_url = st.config.llm_delegate_url.trim();
-    let delegate_configured = !delegate_url.is_empty();
+    let (delegate_url, fallback_configured) = {
+        let cfg = st.read_config();
+        (
+            cfg.llm_delegate_url.clone(),
+            !cfg.llm_fallback_url.trim().is_empty(),
+        )
+    };
+    let delegate_configured = !delegate_url.trim().is_empty();
     let delegate_available = if delegate_configured {
-        probe_llm(delegate_url).await
+        probe_llm(delegate_url.trim()).await
     } else {
         false
     };
@@ -35,7 +41,7 @@ pub async fn llm_status(State(st): State<AppState>, _admin: AdminUser) -> Json<V
         "available": available,
         "primaryAvailable": available,
         "fallbackAvailable": false,
-        "fallbackConfigured": !st.config.llm_fallback_url.trim().is_empty(),
+        "fallbackConfigured": fallback_configured,
         "activeFallback": false,
         "delegateConfigured": delegate_configured,
         "delegateAvailable": delegate_available,
@@ -67,16 +73,17 @@ async fn probe_llm(url: &str) -> bool {
 }
 
 pub async fn rag_status(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
+    let cfg = st.read_config();
     let Some(rag) = st.rag.as_ref() else {
         return Json(json!({
-            "configured": st.config.rag_enabled,
+            "configured": cfg.rag_enabled,
             "available": false,
             "docCount": 0,
-            "topK": st.config.rag_top_k,
-            "vectorDbUrl": st.config.vector_db_url,
-            "embeddingUrl": st.config.embedding_url,
-            "embeddingModel": st.config.embedding_model,
-            "ragCollection": st.config.rag_collection,
+            "topK": cfg.rag_top_k,
+            "vectorDbUrl": cfg.vector_db_url,
+            "embeddingUrl": cfg.embedding_url,
+            "embeddingModel": cfg.embedding_model,
+            "ragCollection": cfg.rag_collection,
         }));
     };
     let available = rag.rag_enabled();
@@ -85,18 +92,19 @@ pub async fn rag_status(State(st): State<AppState>, _admin: AdminUser) -> Json<V
         "available": available,
         "docCount": rag.doctrine.list().len(),
         "topK": rag.top_k(),
-        "vectorDbUrl": st.config.vector_db_url,
-        "embeddingUrl": st.config.embedding_url,
-        "embeddingModel": st.config.embedding_model,
-        "ragCollection": st.config.rag_collection,
+        "vectorDbUrl": cfg.vector_db_url,
+        "embeddingUrl": cfg.embedding_url,
+        "embeddingModel": cfg.embedding_model,
+        "ragCollection": cfg.rag_collection,
     }))
 }
 
 pub async fn memory_status(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
-    let url = if st.config.mempalace_url.trim().is_empty() {
+    let saved_url = st.read_config().mempalace_url.clone();
+    let url = if saved_url.trim().is_empty() {
         std::env::var("MEMPALACE_URL").unwrap_or_default()
     } else {
-        st.config.mempalace_url.clone()
+        saved_url
     };
     let url = url.trim().trim_end_matches('/').to_string();
     let configured = st.rag.as_ref().is_some_and(|r| r.mempalace_enabled()) && !url.is_empty();
@@ -120,10 +128,11 @@ pub async fn memory_status(State(st): State<AppState>, _admin: AdminUser) -> Jso
 }
 
 pub async fn stream_bridge_status(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
-    let url = if st.config.stream_bridge_url.trim().is_empty() {
+    let saved_url = st.read_config().stream_bridge_url.clone();
+    let url = if saved_url.trim().is_empty() {
         std::env::var("STREAM_BRIDGE_URL").unwrap_or_default()
     } else {
-        st.config.stream_bridge_url.clone()
+        saved_url
     };
     let url = url.trim().trim_end_matches('/').to_string();
     if url.is_empty() {
@@ -180,13 +189,19 @@ pub async fn rights_debug(
             "voice": ["*"],
         }));
     };
-    let mut chat: Vec<String> = engine.compute_allowed(&subject, Scope::Chat).into_iter().collect();
-    let mut voice: Vec<String> = engine.compute_allowed(&subject, Scope::Voice).into_iter().collect();
+    let mut chat: Vec<String> = engine
+        .compute_allowed(&subject, Scope::Chat)
+        .into_iter()
+        .collect();
+    let mut voice: Vec<String> = engine
+        .compute_allowed(&subject, Scope::Voice)
+        .into_iter()
+        .collect();
     chat.sort();
     voice.sort();
     Json(json!({
         "subject": { "uid": subject.uid, "serverGroups": subject.server_groups },
-        "rightsEnabled": st.config.rights_enabled,
+        "rightsEnabled": st.read_config().rights_enabled,
         "chat": chat,
         "voice": voice,
     }))
@@ -196,7 +211,12 @@ pub async fn ops_status(State(st): State<AppState>, _admin: AdminUser) -> Json<V
     let mut text = ops_brief(&st);
     for r in st.sc_org.get_all().await {
         text.push('\n');
-        text.push_str(&format!("{} {}: {}", if r.ok { "✓" } else { "○" }, r.label, r.text));
+        text.push_str(&format!(
+            "{} {}: {}",
+            if r.ok { "✓" } else { "○" },
+            r.label,
+            r.text
+        ));
     }
     Json(json!({ "text": text }))
 }
@@ -210,7 +230,11 @@ pub(crate) fn ops_brief(st: &AppState) -> String {
             .and_then(|q| q.current().map(|c| format!("{} — {}", c.name, c.artist)))
     });
     let kg_n = st.rag.as_ref().map(|r| r.kg.count()).unwrap_or(0);
-    let docs = st.rag.as_ref().map(|r| r.doctrine.list().len()).unwrap_or(0);
+    let docs = st
+        .rag
+        .as_ref()
+        .map(|r| r.doctrine.list().len())
+        .unwrap_or(0);
     let rag_on = st.rag.as_ref().is_some_and(|r| r.rag_enabled());
     format!(
         "📋 Ops status\nRadio: {} (profile {})\nNow playing: {}\nOrg KG: {kg_n} fact(s)\nDoctrine: {docs} doc(s){}\n",

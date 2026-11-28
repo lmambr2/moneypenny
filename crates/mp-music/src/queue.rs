@@ -372,6 +372,81 @@ impl PlayQueue {
     pub fn unplayed_count(&self) -> usize {
         self.songs.len().saturating_sub(self.played_indices.len())
     }
+
+    /// Radio restock. Keeps audio that is still playing and upcoming user tracks.
+    /// Already-played songs and old radio fill are dropped. `keep_stream` is
+    /// true only while ffmpeg is actually playing or paused.
+    pub fn restock_radio(&mut self, radio: Vec<QueuedSong>, keep_stream: bool) -> RadioRestock {
+        let prev_mode = self.mode;
+        let played_before = self.played_indices.clone();
+        let prev = self.songs.clone();
+        let cur_idx = self.current_index;
+        let current = self.current();
+        let preserve_current = keep_stream && current.is_some();
+        let random_bag = matches!(prev_mode, PlayMode::Random | PlayMode::RandomLoop);
+
+        let mut user_pending = Vec::new();
+        for (i, song) in prev.iter().enumerate() {
+            if cur_idx >= 0 && i == cur_idx as usize {
+                continue;
+            }
+            let already_played = if random_bag {
+                played_before.contains(&i)
+            } else {
+                cur_idx >= 0 && (i as i32) < cur_idx
+            };
+            if already_played || song.is_radio_fill() {
+                continue;
+            }
+            user_pending.push(song.clone());
+        }
+
+        self.clear();
+        self.set_mode(PlayMode::Sequential);
+
+        if preserve_current {
+            if let Some(cur) = current.clone() {
+                self.add(cur);
+                let _ = self.play_at(0);
+            }
+        }
+        for song in user_pending {
+            self.add(song);
+        }
+        let kept: std::collections::HashSet<String> = self
+            .songs
+            .iter()
+            .filter(|s| !s.id.is_empty())
+            .map(|s| s.id.clone())
+            .collect();
+        for song in radio {
+            if !song.id.is_empty() && kept.contains(&song.id) {
+                continue;
+            }
+            self.add(song);
+        }
+
+        if preserve_current {
+            let _ = self.play_at(0);
+            return RadioRestock {
+                preserved_current: true,
+                start: None,
+            };
+        }
+        RadioRestock {
+            preserved_current: false,
+            start: self.play(),
+        }
+    }
+}
+
+/// Result of [`PlayQueue::restock_radio`].
+#[derive(Debug)]
+pub struct RadioRestock {
+    /// Current ffmpeg stream must keep running.
+    pub preserved_current: bool,
+    /// Idle restock: the song to start. None when the stream is preserved.
+    pub start: Option<QueuedSong>,
 }
 
 /// Replace the queue with one track and force Sequential.
@@ -455,6 +530,41 @@ mod tests {
         assert_eq!(
             q.list().iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             ["now", "user1", "user2", "r1", "r2", "r3"]
+        );
+    }
+
+    #[test]
+    fn restock_keeps_playing_user_track_and_upcoming_picks() {
+        let mut q = PlayQueue::new();
+        q.set_mode(PlayMode::Sequential);
+        q.add(song("user-now"));
+        q.add(song("user-next"));
+        q.add(radio("old-radio"));
+        q.play();
+        let restock = q.restock_radio(vec![radio("fresh"), radio("user-next")], true);
+        assert!(restock.preserved_current);
+        assert!(restock.start.is_none());
+        assert_eq!(q.current().unwrap().id, "user-now");
+        assert_eq!(
+            q.list().iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["user-now", "user-next", "fresh"]
+        );
+    }
+
+    #[test]
+    fn restock_when_idle_keeps_upcoming_user_picks_and_drops_the_finished_song() {
+        let mut q = PlayQueue::new();
+        q.set_mode(PlayMode::Sequential);
+        q.add(song("finished"));
+        q.add(song("user-next"));
+        q.add(radio("old-radio"));
+        q.play();
+        let restock = q.restock_radio(vec![radio("fresh")], false);
+        assert!(!restock.preserved_current);
+        assert_eq!(restock.start.unwrap().id, "user-next");
+        assert_eq!(
+            q.list().iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["user-next", "fresh"]
         );
     }
 

@@ -356,6 +356,25 @@ impl LiveSession {
             .await
             .map_err(|e| TsError::Message(e.to_string()))
     }
+
+    async fn channel_target_id(&self, client: &Client) -> Result<u64> {
+        let reported = client.channel_id();
+        if reported != 0 {
+            self.channel_id.store(reported, Ordering::SeqCst);
+            return Ok(reported);
+        }
+        let stored = self.channel_id();
+        if stored != 0 {
+            return Ok(stored);
+        }
+        let all = self.list_clients().await;
+        let cid = crate::resolve_own_channel_id(self.client_id(), 0, &all);
+        if cid == 0 {
+            return Err(TsError::Message("channel id unknown".into()));
+        }
+        self.channel_id.store(cid, Ordering::SeqCst);
+        Ok(cid)
+    }
 }
 
 fn load_or_create_identity(path: &Path) -> Result<tsclient_rs::Identity> {
@@ -378,7 +397,7 @@ impl TsSession for LiveSession {
     async fn send_text(&self, target: Target, body: &str) -> Result<()> {
         let client = self.client_arc().await.ok_or(TsError::NotConnected)?;
         let (mode, id) = match target {
-            Target::Channel => (2, client.channel_id()),
+            Target::Channel => (2, self.channel_target_id(&client).await?),
             Target::Client { id } => (1, id as u64),
             Target::Poke { id } => {
                 tsclient_rs::poke(&client, id, body)
@@ -387,9 +406,23 @@ impl TsSession for LiveSession {
                 return Ok(());
             }
         };
-        tsclient_rs::sendTextMessage(&client, mode, id, body)
-            .await
-            .map_err(|e| TsError::Message(e.to_string()))
+        // sendTextMessage does not wait for the server. A target of 0
+        // (channel_id() is often 0 after join) is dropped with no error.
+        // A long body is several short commands. One oversized command misses
+        // its ack and the voice link drops with it.
+        let chunks = crate::split_channel_text(body);
+        for (i, chunk) in chunks.iter().enumerate() {
+            if i > 0 {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+            }
+            let msg = tsclient_rs::escape(chunk).0;
+            let cmd = format!("sendtextmessage targetmode={mode} target={id} msg={msg}");
+            client
+                .exec_command(&cmd, 4000)
+                .await
+                .map_err(|e| TsError::Message(e.to_string()))?;
+        }
+        Ok(())
     }
 
     fn subscribe(&self) -> broadcast::Receiver<TsEvent> {
@@ -398,13 +431,26 @@ impl TsSession for LiveSession {
 
     async fn send_opus(&self, pkt: OpusPacket) -> Result<()> {
         let client = self.client_arc().await.ok_or(TsError::NotConnected)?;
-        let codec = if pkt.codec == 0 {
-            i32::from(CODEC_OPUS_MUSIC)
-        } else {
-            i32::from(pkt.codec)
-        };
-        client.send_voice(pkt.data, codec);
+        client.send_voice(pkt.data, voice_codec(pkt.codec));
         Ok(())
+    }
+
+    fn send_opus_now(&self, pkt: OpusPacket) -> Result<()> {
+        // The frame clock is a std thread. blocking_lock panics on a worker.
+        let client = self.client.blocking_lock().as_ref().cloned();
+        let Some(client) = client else {
+            return Err(TsError::NotConnected);
+        };
+        client.send_voice(pkt.data, voice_codec(pkt.codec));
+        Ok(())
+    }
+}
+
+fn voice_codec(codec: u8) -> i32 {
+    if codec == 0 {
+        i32::from(CODEC_OPUS_MUSIC)
+    } else {
+        i32::from(codec)
     }
 }
 

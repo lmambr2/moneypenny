@@ -31,7 +31,12 @@ pub struct RetrievalStore {
 }
 
 impl RetrievalStore {
-    pub fn new(embeddings: Embedder, vectors: VectorStore, collection: String, top_k: usize) -> Self {
+    pub fn new(
+        embeddings: Embedder,
+        vectors: VectorStore,
+        collection: String,
+        top_k: usize,
+    ) -> Self {
         Self {
             embeddings,
             vectors,
@@ -54,7 +59,9 @@ impl RetrievalStore {
             return Ok(());
         }
         let dim = self.embeddings.dimension().await?;
-        self.vectors.ensure_collection(&self.collection, dim).await?;
+        self.vectors
+            .ensure_collection(&self.collection, dim)
+            .await?;
         self.ready.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -103,7 +110,9 @@ impl RetrievalStore {
 
     pub async fn purge(&self, source: &str) -> Result<()> {
         self.init().await?;
-        self.vectors.delete_by_source(&self.collection, source).await
+        self.vectors
+            .delete_by_source(&self.collection, source)
+            .await
     }
 
     pub async fn query(
@@ -132,7 +141,9 @@ impl RetrievalStore {
         }
         self.init().await?;
         let mut vecs = self.embeddings.embed(&[text.to_string()]).await?;
-        let vec = vecs.pop().ok_or_else(|| RagError::Message("Embedding service returned no vector".into()))?;
+        let vec = vecs
+            .pop()
+            .ok_or_else(|| RagError::Message("Embedding service returned no vector".into()))?;
         let limit = top_k.unwrap_or(self.top_k).max(1);
         let fetch_k = (limit * 4).max(limit);
         let hits = self
@@ -143,10 +154,7 @@ impl RetrievalStore {
         let chunks: Vec<RetrievedChunk> = hits
             .into_iter()
             .filter(|h| {
-                let vu = h
-                    .payload
-                    .get("valid_until")
-                    .and_then(|v| v.as_str());
+                let vu = h.payload.get("valid_until").and_then(|v| v.as_str());
                 !is_doctrine_expired(vu.filter(|s| !s.is_empty()), now)
             })
             .map(|h| RetrievedChunk {
@@ -211,7 +219,11 @@ mod tests {
             .unwrap();
         assert!(n >= 1);
         let hits = store
-            .query("formation perimeter", Some(3), Some(&["unclassified".into()]))
+            .query(
+                "formation perimeter",
+                Some(3),
+                Some(&["unclassified".into()]),
+            )
             .await;
         assert!(!hits.is_empty());
         assert_eq!(hits[0].source, "combat.md");

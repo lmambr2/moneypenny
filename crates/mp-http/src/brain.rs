@@ -3,17 +3,17 @@
 
 //! `POST /v1/turn` — admin session. Brain proposes; optional `executeTools` disposes.
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use crate::AppState;
 use crate::authz::AdminUser;
 use crate::bot_api::broadcast_state;
-use crate::AppState;
 use mp_brain::{
-    dispose_tool_proposals, TurnChannel, TurnMode, TurnOptions, TurnRequest, TurnSubject,
+    TurnChannel, TurnMode, TurnOptions, TurnRequest, TurnSubject, dispose_tool_proposals,
 };
 use mp_control::Subject;
 
@@ -29,7 +29,10 @@ pub async fn turn(
         .trim()
         .to_string();
     if text.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "text is required" })))
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "text is required" })),
+        )
             .into_response();
     }
 
@@ -147,7 +150,8 @@ pub async fn turn(
             let allows = |cmd: &str| disposer.allows(&rank_subject, cmd);
             let offered = crate::intent_round::offer_intent_tools(
                 allows,
-                !st.config.llm_delegate_url.trim().is_empty(),
+                !st.read_config().llm_delegate_url.trim().is_empty(),
+                disposer.allows_library(&rank_subject),
             );
             let persona = st.brain.persona().await;
             let system =
@@ -169,7 +173,46 @@ pub async fn turn(
     };
 
     if execute_tools && !result.tool_proposals.is_empty() {
-        let Some(mut disposed) = dispose_round(
+        let mut disposed = Vec::new();
+        if mode == TurnMode::Intent {
+            let mut calls = Vec::new();
+            let mut tool_results = Vec::new();
+            let mut pending = std::mem::take(&mut result.tool_proposals);
+            for round in 1..=3 {
+                let Some(batch) =
+                    dispose_round(&st, &pending, &rank_subject, dry_run, allow_dangerous).await
+                else {
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(json!({ "error": "No bot instance available", "code": "NO_BOT" })),
+                    )
+                        .into_response();
+                };
+                let (round_calls, round_results) = follow_parts(&batch, round);
+                disposed.extend(batch);
+                calls.extend(round_calls);
+                tool_results.extend(round_results);
+                if round == 3 {
+                    break;
+                }
+                let follow = st
+                    .brain
+                    .complete_follow_up(turn_req.clone(), &offered, &system, &calls, &tool_results)
+                    .await;
+                if !follow.reply_text.trim().is_empty() {
+                    result.reply_text = follow.reply_text;
+                }
+                if follow.tool_proposals.is_empty() {
+                    break;
+                }
+                pending = follow.tool_proposals;
+            }
+            if result.reply_text.trim().is_empty() {
+                if let Some(last) = tool_results.last() {
+                    result.reply_text = last.content.clone();
+                }
+            }
+        } else if let Some(batch) = dispose_round(
             &st,
             &result.tool_proposals,
             &rank_subject,
@@ -177,35 +220,14 @@ pub async fn turn(
             allow_dangerous,
         )
         .await
-        else {
+        {
+            disposed = batch;
+        } else {
             return (
                 StatusCode::CONFLICT,
                 Json(json!({ "error": "No bot instance available", "code": "NO_BOT" })),
             )
                 .into_response();
-        };
-        if mode == TurnMode::Intent {
-            let (calls, results) = follow_parts(&result.tool_proposals, &disposed);
-            let follow = st
-                .brain
-                .complete_follow_up(turn_req, &offered, &system, &calls, &results)
-                .await;
-            if !follow.reply_text.trim().is_empty() {
-                result.reply_text = follow.reply_text;
-            }
-            if !follow.tool_proposals.is_empty() {
-                if let Some(more) = dispose_round(
-                    &st,
-                    &follow.tool_proposals,
-                    &rank_subject,
-                    dry_run,
-                    allow_dangerous,
-                )
-                .await
-                {
-                    disposed.extend(more);
-                }
-            }
         }
         let mut body = serde_json::to_value(&result).unwrap_or(json!({}));
         if let Some(obj) = body.as_object_mut() {
@@ -274,17 +296,13 @@ async fn dispose_round(
 }
 
 fn follow_parts(
-    proposals: &[mp_brain::ToolProposal],
     disposed: &[mp_brain::DisposedTool],
+    round: usize,
 ) -> (Vec<mp_brain::IntentToolCall>, Vec<mp_brain::ToolResultTurn>) {
     let mut calls = Vec::new();
     let mut results = Vec::new();
-    for (i, (proposal, record)) in proposals.iter().zip(disposed.iter()).enumerate() {
-        let id = proposal
-            .id
-            .clone()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| format!("call-1-{i}"));
+    for (i, record) in disposed.iter().enumerate() {
+        let id = format!("call-{round}-{i}");
         calls.push(mp_brain::IntentToolCall {
             id: id.clone(),
             name: record.name.clone(),

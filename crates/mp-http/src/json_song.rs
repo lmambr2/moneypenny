@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use mp_music::{QueuedSong, Track};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub fn track_json(t: &Track) -> Value {
     json!({

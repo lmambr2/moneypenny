@@ -43,12 +43,15 @@ pub fn parse_ship_specs(rest: &str) -> Vec<(String, i64)> {
                 .parse::<i64>()
                 .ok()
                 .filter(|n| *n >= 1);
-            if last.starts_with(['x', 'X', '×']) || (qty_token.is_some() && last.chars().all(|c| c.is_ascii_digit()))
+            if last.starts_with(['x', 'X', '×'])
+                || (qty_token.is_some() && last.chars().all(|c| c.is_ascii_digit()))
             {
                 let name = parts[..parts.len() - 1].join(" ");
                 (name, qty_token.unwrap_or(1))
             } else if let Ok(n) = parts[0].trim_end_matches(['x', 'X', '×']).parse::<i64>() {
-                if parts[0].ends_with(['x', 'X', '×']) || parts.get(1).is_some_and(|p| *p == "x" || *p == "×") {
+                if parts[0].ends_with(['x', 'X', '×'])
+                    || parts.get(1).is_some_and(|p| *p == "x" || *p == "×")
+                {
                     let name = if parts.get(1).is_some_and(|p| *p == "x" || *p == "×") {
                         parts[2..].join(" ")
                     } else {
@@ -126,7 +129,10 @@ impl HangarStore<'_> {
                     return Ok("Usage: !ships link <CALLSIGN>".into());
                 }
                 self.set_callsign(&key, code)?;
-                Ok(format!("Linked callsign **{}** to your hangar.", code.to_uppercase()))
+                Ok(format!(
+                    "Linked callsign **{}** to your hangar.",
+                    code.to_uppercase()
+                ))
             }
             _ if parts.len() == 1 => self.have(&key, parts[0]),
             _ => Ok(HELP.into()),
@@ -220,7 +226,11 @@ impl HangarStore<'_> {
         }
         Ok(format!(
             "Updated your hangar: {}.",
-            if notes.is_empty() { "nothing changed".into() } else { notes.join("; ") }
+            if notes.is_empty() {
+                "nothing changed".into()
+            } else {
+                notes.join("; ")
+            }
         ))
     }
 
@@ -234,7 +244,10 @@ impl HangarStore<'_> {
             return Ok("Hangar empty.".into());
         }
         let needle = q.to_lowercase();
-        if let Some((name, qty)) = rows.iter().find(|(n, _)| n.to_lowercase().contains(&needle)) {
+        if let Some((name, qty)) = rows
+            .iter()
+            .find(|(n, _)| n.to_lowercase().contains(&needle))
+        {
             return Ok(format!("Yes — **{name}** ×{qty} (uncatalogued)."));
         }
         Ok(format!("No — nothing matching '{q}' in hangar."))
@@ -256,7 +269,13 @@ impl HangarStore<'_> {
                 "SELECT owner_key, ship_name, qty FROM user_ships ORDER BY owner_key, ship_name",
             )?;
             let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))?
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             Ok(rows)
         })?;
@@ -265,7 +284,8 @@ impl HangarStore<'_> {
         }
         let mut members = std::collections::BTreeSet::new();
         let mut total = 0i64;
-        let mut by_name: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        let mut by_name: std::collections::BTreeMap<String, i64> =
+            std::collections::BTreeMap::new();
         for (owner, name, qty) in &rows {
             members.insert(owner.clone());
             total += qty;
@@ -282,7 +302,10 @@ impl HangarStore<'_> {
         Ok(format!(
             "Org hangars: **{}** members · **{total}** hulls · **{}** types\nTop: {top_s}\nCommands: !ships org who|of|list · !ships import · !ships export",
             members.len(),
-            rows.iter().map(|(_, n, _)| n.as_str()).collect::<std::collections::BTreeSet<_>>().len()
+            rows.iter()
+                .map(|(_, n, _)| n.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
         ))
     }
 
@@ -365,7 +388,10 @@ mod tests {
         let yes = h.handle("have Prospector", "uid-1", false).unwrap();
         assert!(yes.starts_with("Yes"), "{yes}");
         let org = h.handle("org", "uid-1", true).unwrap();
-        assert!(org.contains("1** members") || org.contains("**1** members"), "{org}");
+        assert!(
+            org.contains("1** members") || org.contains("**1** members"),
+            "{org}"
+        );
         let cleared = h.handle("clear", "uid-1", false).unwrap();
         assert!(cleared.contains("Cleared"), "{cleared}");
     }

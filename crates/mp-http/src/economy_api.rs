@@ -3,19 +3,19 @@
 
 //! Vue `/api/economy/*` — seed catalog + SQLite work orders. No scrapers.
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::authz::{AdminUser, AuthUser};
 use crate::AppState;
+use crate::authz::{AdminUser, AuthUser};
 use mp_db::WorkOrderLine;
 use mp_economy::{
-    calculate_boxes, craft_bom_lines, find_method, find_ore, largest_crate_that_fits, Stability,
     CATALOG_AS_OF, CATALOG_DISCLAIMER, CATALOG_SOURCES, MAX_OPEN_WORK_ORDERS, ORES, REFINE_METHODS,
+    Stability, calculate_boxes, craft_bom_lines, find_method, find_ore, largest_crate_that_fits,
 };
 
 fn sidecar_off(which: &str) -> Response {
@@ -83,7 +83,11 @@ fn method_json(m: &mp_economy::RefineMethod) -> Value {
 
 fn line_json(l: &WorkOrderLine) -> Value {
     let boxes = calculate_boxes(l.amount);
-    let unit = if l.unit.is_empty() { "SCU" } else { l.unit.as_str() };
+    let unit = if l.unit.is_empty() {
+        "SCU"
+    } else {
+        l.unit.as_str()
+    };
     json!({
         "material": l.material,
         "amount": l.amount,
@@ -162,8 +166,12 @@ pub async fn ores(Query(q): Query<Q>, _user: AuthUser) -> Json<Value> {
                 || o["aliases"]
                     .as_array()
                     .map(|a| {
-                        a.iter()
-                            .any(|x| x.as_str().unwrap_or("").to_ascii_lowercase().contains(&query))
+                        a.iter().any(|x| {
+                            x.as_str()
+                                .unwrap_or("")
+                                .to_ascii_lowercase()
+                                .contains(&query)
+                        })
                     })
                     .unwrap_or(false)
         });
@@ -447,11 +455,7 @@ pub async fn workorders_delete_one(
     Path(id): Path<i64>,
 ) -> Response {
     if id < 1 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error":"invalid id"})),
-        )
-            .into_response();
+        return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid id"}))).into_response();
     }
     if st.db.work_orders().delete(id).unwrap_or(false) {
         Json(json!({ "ok": true, "removed": id })).into_response()
@@ -652,11 +656,7 @@ pub async fn trade_routes(_user: AuthUser, Json(body): Json<Value>) -> Response 
     }
     match c.sc_trade.find_trades(&body).await {
         Ok(v) => Json(v).into_response(),
-        Err(msg) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({"error": msg})),
-        )
-            .into_response(),
+        Err(msg) => (StatusCode::BAD_GATEWAY, Json(json!({"error": msg}))).into_response(),
     }
 }
 
@@ -710,18 +710,22 @@ pub async fn trade_buyers(_user: AuthUser, Json(body): Json<Value>) -> Response 
         )
             .into_response();
     }
-    let scu = body.get("scu").and_then(|v| v.as_u64()).unwrap_or(32).clamp(1, 10_000) as u32;
-    match c.sc_trade.find_trades(&json!({"commodity": commodity, "scu": scu})).await {
+    let scu = body
+        .get("scu")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(32)
+        .clamp(1, 10_000) as u32;
+    match c
+        .sc_trade
+        .find_trades(&json!({"commodity": commodity, "scu": scu}))
+        .await
+    {
         Ok(v) => {
             let buyers = v.get("routes").cloned().unwrap_or_else(|| json!([]));
             let attribution = v.get("attribution").and_then(|a| a.as_str()).unwrap_or("");
             Json(buyers_response(commodity, scu, buyers, attribution)).into_response()
         }
-        Err(msg) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({"error": msg})),
-        )
-            .into_response(),
+        Err(msg) => (StatusCode::BAD_GATEWAY, Json(json!({"error": msg}))).into_response(),
     }
 }
 
@@ -734,8 +738,18 @@ pub async fn trade_itinerary(_user: AuthUser, Json(body): Json<Value>) -> Respon
         )
             .into_response();
     }
-    let from = body.get("from").or_else(|| body.get("origin")).and_then(|v| v.as_str()).unwrap_or("").trim();
-    let to = body.get("to").or_else(|| body.get("destination")).and_then(|v| v.as_str()).unwrap_or("").trim();
+    let from = body
+        .get("from")
+        .or_else(|| body.get("origin"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let to = body
+        .get("to")
+        .or_else(|| body.get("destination"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     if from.is_empty() || to.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -788,7 +802,11 @@ pub async fn trade_circuit(_user: AuthUser, Json(body): Json<Value>) -> Response
     } else {
         "time"
     };
-    match c.sc_trade.find_trades(&json!({"id": trade_id, "ship": ship})).await {
+    match c
+        .sc_trade
+        .find_trades(&json!({"id": trade_id, "ship": ship}))
+        .await
+    {
         Ok(v) => Json(json!({
             "tradeId": trade_id,
             "ship": ship,
@@ -839,14 +857,14 @@ pub async fn ingest_snapshot(
     let parsed = match mp_db::parse_snapshot_body(&body) {
         Ok(p) => p,
         Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": e.0})),
-            )
-                .into_response();
+            return (StatusCode::BAD_REQUEST, Json(json!({"error": e.0}))).into_response();
         }
     };
-    match st.db.snapshots().add(&parsed, Some(admin.0.username.as_str()), "accepted") {
+    match st
+        .db
+        .snapshots()
+        .add(&parsed, Some(admin.0.username.as_str()), "accepted")
+    {
         Ok(row) => {
             st.db.audit().record(
                 Some(&admin.0.id),
@@ -855,7 +873,11 @@ pub async fn ingest_snapshot(
                 Some(&format!("{}#{}", parsed.kind, parsed.id_terminal)),
                 "economy.ingest_snapshot",
             );
-            (StatusCode::CREATED, Json(json!({"snapshot": row.to_json()}))).into_response()
+            (
+                StatusCode::CREATED,
+                Json(json!({"snapshot": row.to_json()})),
+            )
+                .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -904,11 +926,7 @@ pub async fn snapshot_reject(
 
 fn set_snapshot_status(st: AppState, _admin: AdminUser, id: i64, status: &str) -> Response {
     if id < 1 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error":"invalid id"})),
-        )
-            .into_response();
+        return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid id"}))).into_response();
     }
     match st.db.snapshots().set_status(id, status) {
         Ok(Some(row)) => Json(json!({"snapshot": row.to_json()})).into_response(),

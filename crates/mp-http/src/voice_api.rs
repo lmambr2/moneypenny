@@ -67,7 +67,7 @@ pub async fn voice_test(
     };
     let speak = body.speak.unwrap_or(false);
     let prefix = executor.prefix.clone();
-    let aliases = st.config.command_aliases.clone();
+    let aliases = st.read_config().command_aliases.clone();
     let db = Arc::clone(&st.db);
     let brain = Arc::clone(&st.brain);
     let rag = st.rag.clone();

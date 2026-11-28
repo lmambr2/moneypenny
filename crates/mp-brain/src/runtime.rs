@@ -212,6 +212,12 @@ impl BrainRuntime {
         )
     }
 
+    /// Saved persona text (empty means the built-in default) and temperature.
+    pub async fn llm_form_snapshot(&self) -> (String, f32) {
+        let g = self.inner.read().await;
+        (g.settings.system_prompt.clone(), g.settings.temperature)
+    }
+
     pub async fn update_llm(
         &self,
         enabled: Option<bool>,
@@ -221,6 +227,8 @@ impl BrainRuntime {
         temperature: Option<f32>,
         fallback_url: Option<String>,
         fallback_model: Option<String>,
+        delegate_url: Option<String>,
+        delegate_model: Option<String>,
     ) {
         let mut g = self.inner.write().await;
         if let Some(v) = enabled {
@@ -243,6 +251,12 @@ impl BrainRuntime {
         }
         if let Some(v) = fallback_model {
             g.settings.fallback_model = v;
+        }
+        if let Some(v) = delegate_url {
+            g.settings.delegate_url = v;
+        }
+        if let Some(v) = delegate_model {
+            g.settings.delegate_model = v;
         }
         rebuild_transport(&mut g);
     }

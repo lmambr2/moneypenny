@@ -132,9 +132,7 @@ fn parse_list(val: &str) -> Vec<String> {
 }
 
 fn strip_quotes(s: &str) -> String {
-    s.trim()
-        .trim_matches(|c| c == '"' || c == '\'')
-        .to_string()
+    s.trim().trim_matches(|c| c == '"' || c == '\'').to_string()
 }
 
 fn norm_classification(val: &str) -> String {
@@ -181,7 +179,8 @@ mod tests {
 
     #[test]
     fn comma_lists_and_quotes() {
-        let fm = parse_frontmatter("---\nclassification: \"secret\"\ntags: alpha, \"bravo\"\n---\nbody");
+        let fm =
+            parse_frontmatter("---\nclassification: \"secret\"\ntags: alpha, \"bravo\"\n---\nbody");
         assert_eq!(fm.classification, "secret");
         assert_eq!(fm.tags, ["alpha", "bravo"]);
     }
@@ -212,7 +211,9 @@ mod tests {
 
     #[test]
     fn proto_keys_ignored() {
-        let fm = parse_frontmatter("---\n__proto__: x\nclassification: restricted\ntags: [a, b]\n---\nBody.");
+        let fm = parse_frontmatter(
+            "---\n__proto__: x\nclassification: restricted\ntags: [a, b]\n---\nBody.",
+        );
         assert_eq!(fm.classification, "restricted");
         assert_eq!(fm.tags, ["a", "b"]);
     }

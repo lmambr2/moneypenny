@@ -97,12 +97,56 @@ fn strip_leading_filler(text: &str) -> String {
     parts.join(" ")
 }
 
+/// Whisper writes the past tense: "Moneypenny played Brad Paisley."
+fn canonicalize_spoken_verb(raw: &str) -> String {
+    let mut parts: Vec<String> = raw.split_whitespace().map(|s| s.to_string()).collect();
+    if parts.is_empty() {
+        return String::new();
+    }
+    let key = parts[0]
+        .trim_matches(|c: char| matches!(c, '.' | ',' | '!' | '?' | ';' | ':'))
+        .to_ascii_lowercase();
+    let mapped = match key.as_str() {
+        "played" | "playing" => "play",
+        "paused" => "pause",
+        "skipped" => "skip",
+        "stopped" => "stop",
+        "resumed" => "resume",
+        _ => return raw.to_string(),
+    };
+    parts[0] = mapped.to_string();
+    parts.join(" ")
+}
+
 pub fn normalize_voice_command(command: &str) -> String {
+    let command = canonicalize_spoken_verb(command);
     let trimmed = command
         .trim_start_matches(|c: char| matches!(c, ',' | ':' | ';' | '-' | '–' | '—' | ' ' | '\t'))
         .trim();
     let chunk = trimmed.split([',', ';']).next().unwrap_or("").trim();
+    let chunk = first_spoken_sentence(chunk);
     normalize_voice_transcript(&strip_leading_filler(chunk))
+}
+
+/// "play led zeppelin. money penny. play brad paisley" is one Whisper blob.
+/// The first sentence is the command.
+fn first_spoken_sentence(chunk: &str) -> &str {
+    let lower = chunk.to_ascii_lowercase();
+    if !(lower.starts_with("play ")
+        || lower.starts_with("add ")
+        || lower == "play"
+        || lower == "add")
+    {
+        return chunk;
+    }
+    match chunk
+        .find(". ")
+        .or_else(|| chunk.find("! "))
+        .or_else(|| chunk.find("? "))
+    {
+        Some(idx) => chunk[..idx].trim(),
+        None => chunk,
+    }
 }
 
 fn finalize_command(raw: &str) -> String {
@@ -110,6 +154,7 @@ fn finalize_command(raw: &str) -> String {
 }
 
 fn finalize_command_segment(raw: &str) -> String {
+    let raw = canonicalize_spoken_verb(raw);
     let trimmed = raw
         .trim_start_matches(|c: char| matches!(c, ',' | ':' | ';' | '-' | '–' | '—' | ' ' | '\t'))
         .trim();
@@ -134,6 +179,25 @@ pub fn watchword_aliases(watchword: &str) -> Vec<String> {
             aliases.push(split);
         }
     }
+    if base == "moneypenny" {
+        // Heard on this channel when Whisper clips the name.
+        for extra in [
+            "money pay",
+            "money petty",
+            "plenty penny",
+            "monty penny",
+            "montypenny",
+            // Secondary wake: "MP", said "emmpee".
+            "empee",
+            "emmpee",
+            "em pee",
+            "emm pee",
+            "mp",
+            "m p",
+        ] {
+            aliases.push(extra.to_string());
+        }
+    }
     aliases.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
     aliases.dedup();
     aliases
@@ -151,7 +215,8 @@ fn split_penny(word: &str) -> Option<String> {
 }
 
 fn is_sep(c: char) -> bool {
-    matches!(c, ' ' | ',' | ';' | ':')
+    // Whisper puts a period after the name: "Moneypenny. Play …"
+    matches!(c, ' ' | ',' | ';' | ':' | '.' | '!' | '?' | '-')
 }
 
 /// Match alias at the start of `norm`. Multi-word aliases allow commas between tokens.
@@ -238,8 +303,7 @@ pub fn voice_command_shape_ok(name: &str, args: &str) -> bool {
         );
     }
     if name == "karaoke" {
-        return a.is_empty()
-            || matches!(a.to_ascii_lowercase().as_str(), "on" | "off" | "status");
+        return a.is_empty() || matches!(a.to_ascii_lowercase().as_str(), "on" | "off" | "status");
     }
     if name == "rate" || name == "unrate" {
         return a.is_empty() || matches!(a, "1" | "2" | "3" | "4" | "5");
@@ -430,16 +494,40 @@ pub fn extract_watchword_command(
                 },
             };
         }
+        // "Okay. Moneypenny. Play Brad Paisley." The name is not first, but the
+        // command is in this same breath. A bare mention with no verb stays ignored.
+        if let Some(rest) = alias_infix_after(&norm, watchword) {
+            let command = finalize_command(&rest);
+            if !command.is_empty() && is_actionable_voice_command(&command, &HashMap::new()) {
+                return WatchwordMatch {
+                    matched: true,
+                    command,
+                };
+            }
+        }
     }
 
     if opts.armed {
+        let command = if norm.is_empty() {
+            String::new()
+        } else {
+            let seg = extract_command_segment(transcript, watchword);
+            if !seg.is_empty() {
+                seg
+            } else {
+                match prepare_voice_command(&norm) {
+                    PreparedVoiceCommand::Dispatch(c)
+                        if c == "now" || is_actionable_voice_command(&c, &HashMap::new()) =>
+                    {
+                        c
+                    }
+                    _ => String::new(),
+                }
+            }
+        };
         return WatchwordMatch {
             matched: true,
-            command: if norm.is_empty() {
-                String::new()
-            } else {
-                extract_command_segment(transcript, watchword)
-            },
+            command,
         };
     }
 
@@ -495,7 +583,108 @@ pub fn voice_spoken_ack(reply: Option<&str>) -> Option<&'static str> {
     if t.starts_with("skipped") {
         return Some("Skipped.");
     }
+    // A track start is spoken from the player event ("Playing Title by Artist.").
+    // A `!now` answer includes the album brackets and is handled below.
     None
+}
+
+/// Spoken line for a track that just started. Chat still gets the long form.
+pub fn spoken_track_announcement(name: &str, artist: &str) -> String {
+    let name = name.trim();
+    let artist = artist.trim();
+    if artist.is_empty() {
+        format!("Playing {name}.")
+    } else {
+        format!("Playing {name} by {artist}.")
+    }
+}
+
+/// What she should say. Status queries name the track. Play starts are announced
+/// from the player, not from this reply, so a one-word "Playing." is not used.
+pub fn voice_spoken_line(reply: Option<&str>) -> Option<String> {
+    if let Some(line) = spoken_status_line(reply) {
+        return Some(line);
+    }
+    voice_spoken_ack(reply).map(str::to_string)
+}
+
+/// `!now` is `Now playing: name - artist [album] (platform)`.
+fn spoken_status_line(reply: Option<&str>) -> Option<String> {
+    let raw = reply?.trim();
+    let lower = raw.to_ascii_lowercase();
+    if !lower.starts_with("now playing:") || !lower.contains('[') || !lower.contains(" (") {
+        return None;
+    }
+    let rest = raw.split_once(':')?.1.trim();
+    let (body, _) = rest.rsplit_once(" (")?;
+    let (song, _) = body.rsplit_once(" [")?;
+    let (name, artist) = song.trim().rsplit_once(" - ")?;
+    let name = name.trim();
+    let artist = artist.trim();
+    if name.is_empty() || artist.is_empty() {
+        return None;
+    }
+    Some(format!("{name} by {artist}."))
+}
+
+/// Phrases that mean `!now`. Anything else that merely starts with "now" is not a command.
+pub(crate) enum PreparedVoiceCommand {
+    Dispatch(String),
+    Hold,
+}
+
+pub(crate) fn prepare_voice_command(command: &str) -> PreparedVoiceCommand {
+    let key = voice_query_key(command);
+    if key.is_empty() {
+        return PreparedVoiceCommand::Hold;
+    }
+    if is_status_phrase(&key) {
+        return PreparedVoiceCommand::Dispatch("now".into());
+    }
+    if key.split_whitespace().next() == Some("now") {
+        return PreparedVoiceCommand::Hold;
+    }
+    PreparedVoiceCommand::Dispatch(command.trim().to_string())
+}
+
+fn voice_query_key(command: &str) -> String {
+    let mut out = String::new();
+    for c in command.chars() {
+        if c == '\'' || c == '\u{2019}' {
+            continue;
+        }
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(' ');
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_status_phrase(key: &str) -> bool {
+    matches!(
+        key,
+        "now"
+            | "now playing"
+            | "whats playing"
+            | "what is playing"
+            | "whats playing now"
+            | "what is playing now"
+            | "what song is this"
+            | "what song is playing"
+            | "whats this song"
+            | "what is this song"
+            | "whats this"
+            | "what is this"
+            | "whos this"
+            | "who is this"
+            | "whos playing"
+            | "who is playing"
+            | "what are you playing"
+            | "whats on"
+            | "what is on"
+    )
 }
 
 pub fn should_speak_voice_reply(reply: &str, max_chars: usize) -> bool {
@@ -539,6 +728,22 @@ mod tests {
                 matched: true,
                 command: "pause".into()
             }
+        );
+    }
+
+    #[test]
+    fn period_after_watchword_still_routes() {
+        let opts = WatchwordOptions {
+            text_wake_fallback: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            ww("Moneypenny. Play Led Zeppelin.", opts.clone()).command,
+            "play led zeppelin"
+        );
+        assert_eq!(
+            ww("Money Penny. Play Led Zeppelin.", opts).command,
+            "play led zeppelin"
         );
     }
 
@@ -632,8 +837,14 @@ mod tests {
 
     #[test]
     fn no_garble_synonyms() {
-        assert_eq!(extract_command_segment("Money peri, France, and.", "moneypenny"), "");
-        assert_eq!(extract_command_segment("Honey penny pass.", "moneypenny"), "");
+        assert_eq!(
+            extract_command_segment("Money peri, France, and.", "moneypenny"),
+            ""
+        );
+        assert_eq!(
+            extract_command_segment("Honey penny pass.", "moneypenny"),
+            ""
+        );
     }
 
     #[test]
@@ -686,7 +897,10 @@ mod tests {
         assert!(is_actionable_voice_command("play toto africa", &empty()));
         assert!(!is_actionable_voice_command("awesome", &empty()));
         assert!(!is_actionable_voice_command("you", &empty()));
-        assert!(!is_actionable_voice_command("now i need to go to a room", &empty()));
+        assert!(!is_actionable_voice_command(
+            "now i need to go to a room",
+            &empty()
+        ));
         assert!(!is_actionable_voice_command(
             "forget it. i think the problem is she's slow",
             &empty()
@@ -696,8 +910,14 @@ mod tests {
         assert!(is_actionable_voice_command("recall", &empty()));
         assert!(!is_actionable_voice_command("remember", &empty()));
         assert!(!is_actionable_voice_command("remember jazz", &empty()));
-        assert!(is_actionable_voice_command("remember I like jazz", &empty()));
-        assert!(is_actionable_voice_command("remember callsign raven", &empty()));
+        assert!(is_actionable_voice_command(
+            "remember I like jazz",
+            &empty()
+        ));
+        assert!(is_actionable_voice_command(
+            "remember callsign raven",
+            &empty()
+        ));
     }
 
     #[test]
@@ -720,11 +940,144 @@ mod tests {
     }
 
     #[test]
+    fn spoken_ack_for_now_playing_is_short() {
+        assert_eq!(
+            voice_spoken_ack(Some("Now playing: Achilles Last Stand - Led Zeppelin")),
+            None
+        );
+        assert_eq!(
+            voice_spoken_ack(Some(
+                "Skipped — now playing: Achilles Last Stand - Led Zeppelin"
+            )),
+            Some("Skipped.")
+        );
+        assert_eq!(
+            voice_spoken_line(Some(
+                "Now playing: Achilles Last Stand - Led Zeppelin [IV] (local)"
+            ))
+            .as_deref(),
+            Some("Achilles Last Stand by Led Zeppelin.")
+        );
+        assert_eq!(
+            spoken_track_announcement("Achilles Last Stand", "Led Zeppelin"),
+            "Playing Achilles Last Stand by Led Zeppelin."
+        );
+        assert_eq!(
+            ww(
+                "Moneypenny. Play Led Zeppelin. Money, Penny. Play Brad Paisley.",
+                WatchwordOptions {
+                    text_wake_fallback: true,
+                    ..Default::default()
+                }
+            )
+            .command,
+            "play led zeppelin"
+        );
+        assert_eq!(
+            ww(
+                "Money pay. Play Brad Paisley.",
+                WatchwordOptions {
+                    text_wake_fallback: true,
+                    ..Default::default()
+                }
+            )
+            .command,
+            "play brad paisley"
+        );
+    }
+
+    #[test]
+    fn status_phrases_route_to_now() {
+        assert!(matches!(
+            prepare_voice_command("now playing"),
+            PreparedVoiceCommand::Dispatch(c) if c == "now"
+        ));
+        assert!(matches!(
+            prepare_voice_command("what's playing?"),
+            PreparedVoiceCommand::Dispatch(c) if c == "now"
+        ));
+        assert!(matches!(
+            prepare_voice_command("what song is this"),
+            PreparedVoiceCommand::Dispatch(c) if c == "now"
+        ));
+        assert!(matches!(
+            prepare_voice_command("now I need to go to a room"),
+            PreparedVoiceCommand::Hold
+        ));
+        assert!(matches!(
+            prepare_voice_command("play led zeppelin"),
+            PreparedVoiceCommand::Dispatch(c) if c == "play led zeppelin"
+        ));
+    }
+
+    #[test]
     fn aliases_exact_and_split() {
         let a = watchword_aliases("moneypenny");
         assert!(a.iter().any(|s| s == "moneypenny"));
         assert!(a.iter().any(|s| s == "money penny"));
-        assert!(!a.iter().any(|s| s == "money petty"));
+        assert!(a.iter().any(|s| s == "money pay"));
+        assert!(a.iter().any(|s| s == "empee"));
+        assert!(a.iter().any(|s| s == "mp"));
+        assert!(!a.iter().any(|s| s == "money honey"));
+    }
+
+    #[test]
+    fn empee_is_a_wake() {
+        let opts = WatchwordOptions {
+            text_wake_fallback: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            ww("MP. Play Led Zeppelin.", opts.clone()).command,
+            "play led zeppelin"
+        );
+        assert_eq!(
+            ww("Empee, play Led Zeppelin.", opts.clone()).command,
+            "play led zeppelin"
+        );
+        assert_eq!(
+            ww("Emm pee. Play Led Zeppelin.", opts.clone()).command,
+            "play led zeppelin"
+        );
+        assert_eq!(
+            ww("M.P. play Brad Paisley", opts).command,
+            "play brad paisley"
+        );
+        assert!(
+            !ww(
+                "empty the queue",
+                WatchwordOptions {
+                    text_wake_fallback: true,
+                    ..Default::default()
+                }
+            )
+            .matched
+        );
+    }
+
+    #[test]
+    fn played_and_preamble_still_play() {
+        let opts = WatchwordOptions {
+            text_wake_fallback: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            ww("Moneypenny played Brad Paisley.", opts.clone()).command,
+            "play brad paisley"
+        );
+        assert_eq!(
+            ww("Okay. Moneypenny. Play Brad Paisley.", opts.clone()).command,
+            "play brad paisley"
+        );
+        assert_eq!(
+            ww(
+                "Hold on, wait. Money Petty. Play bread paisley.",
+                opts.clone()
+            )
+            .command,
+            "play bread paisley"
+        );
+        assert!(!ww("I told moneypenny yesterday about the bears", opts).matched);
     }
 
     #[test]

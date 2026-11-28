@@ -96,6 +96,7 @@ impl CommandExecutor {
         if cmd.args.is_empty() {
             return format!("Usage: {}add <song name>", self.prefix);
         }
+        self.station.note_user_intent();
         let Some(track) = self
             .station
             .search_first_flags_async(&cmd.args, &cmd.flags)
@@ -139,6 +140,7 @@ impl CommandExecutor {
         if cmd.args.is_empty() {
             return format!("Usage: {}playnext <song name>", self.prefix);
         }
+        self.station.note_user_intent();
         let Some(track) = self
             .station
             .search_first_flags_async(&cmd.args, &cmd.flags)
@@ -630,7 +632,9 @@ impl CommandExecutor {
             &format!("{p}reindex [source.md] — Re-embed doctrine"),
             "",
             "Radio",
-            &format!("{p}radio [on|off|status|ops <profile>] — Autonomous DJ (local seed)"),
+            &format!(
+                "{p}radio [on|off|status|ops <profile>|prewarm] — Autonomous DJ (local seed)"
+            ),
             "",
             &format!("{p}mute <nick|clid> · {p}kick <nick|clid> — Channel moderation"),
             &format!("{p}help — This message"),

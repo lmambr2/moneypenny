@@ -28,12 +28,18 @@ pub struct WorkflowRequest {
 
 pub fn workflow_usage(kind: WorkflowKind) -> &'static str {
     match kind {
-        WorkflowKind::Intsum => "Usage: !intsum [-s] [class:<level>] <key points — separate with ; or |>",
+        WorkflowKind::Intsum => {
+            "Usage: !intsum [-s] [class:<level>] <key points — separate with ; or |>"
+        }
         WorkflowKind::Aar => "Usage: !aar [-s] [class:<level>] <key points — separate with ; or |>",
     }
 }
 
-pub fn parse_workflow(kind: WorkflowKind, args: &str, save: bool) -> Result<WorkflowRequest, String> {
+pub fn parse_workflow(
+    kind: WorkflowKind,
+    args: &str,
+    save: bool,
+) -> Result<WorkflowRequest, String> {
     let mut raw = args.trim().to_string();
     if raw.is_empty() {
         return Err(workflow_usage(kind).into());
@@ -49,7 +55,12 @@ pub fn parse_workflow(kind: WorkflowKind, args: &str, save: bool) -> Result<Work
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
             .collect();
-        if !token.is_empty() && token.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+        if !token.is_empty()
+            && token
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic())
+        {
             classification = token.to_ascii_lowercase();
             let end = start + 6 + token.len();
             raw = format!("{} {}", raw[..start].trim(), raw[end..].trim());
@@ -67,7 +78,11 @@ pub fn parse_workflow(kind: WorkflowKind, args: &str, save: bool) -> Result<Work
         None
     };
     let bullets: Vec<String> = match sep {
-        Some(sep) => raw.split(sep).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+        Some(sep) => raw
+            .split(sep)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
         None => vec![raw.trim().to_string()],
     };
     if bullets.is_empty() {
@@ -81,7 +96,11 @@ pub fn parse_workflow(kind: WorkflowKind, args: &str, save: bool) -> Result<Work
     })
 }
 
-pub fn format_workflow_follow_up(kind: WorkflowKind, result: &str, invoker_name: Option<&str>) -> String {
+pub fn format_workflow_follow_up(
+    kind: WorkflowKind,
+    result: &str,
+    invoker_name: Option<&str>,
+) -> String {
     let label = match invoker_name {
         Some(name) if !name.is_empty() => format!("{} ({name})", kind.as_str().to_uppercase()),
         _ => kind.as_str().to_uppercase(),

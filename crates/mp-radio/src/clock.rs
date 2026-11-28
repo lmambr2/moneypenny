@@ -187,7 +187,10 @@ mod tests {
 
     #[test]
     fn songs_until_non_song_null_for_all_song() {
-        assert_eq!(FormatClock::from_every_n(0, Vec::new()).songs_until_non_song(), None);
+        assert_eq!(
+            FormatClock::from_every_n(0, Vec::new()).songs_until_non_song(),
+            None
+        );
     }
 
     #[test]

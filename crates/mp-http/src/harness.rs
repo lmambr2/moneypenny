@@ -174,7 +174,8 @@ pub async fn harness_ask(
             let allows = |cmd: &str| disposer.allows(&rank_subject, cmd);
             let offered = crate::intent_round::offer_intent_tools(
                 allows,
-                !st.config.llm_delegate_url.trim().is_empty(),
+                !st.read_config().llm_delegate_url.trim().is_empty(),
+                disposer.allows_library(&rank_subject),
             );
             let persona = st.brain.persona().await;
             let system =
@@ -186,6 +187,8 @@ pub async fn harness_ask(
     } else {
         (Vec::new(), String::new())
     };
+    let mut prior_calls: Vec<IntentToolCall> = Vec::new();
+    let mut prior_results: Vec<ToolResultTurn> = Vec::new();
     let mut pending_follow: Option<(Vec<IntentToolCall>, Vec<ToolResultTurn>)> = None;
 
     for _round in 0..max_rounds {
@@ -261,7 +264,8 @@ pub async fn harness_ask(
         let mut allowed = Vec::new();
         let mut blocked = Vec::new();
         for p in result.tool_proposals {
-            if let Some(reason) = skills::skill_blocks(&p.name, skill_tools.as_ref(), allow_dangerous)
+            if let Some(reason) =
+                skills::skill_blocks(&p.name, skill_tools.as_ref(), allow_dangerous)
             {
                 blocked.push(json!({
                     "name": p.name,
@@ -337,7 +341,9 @@ pub async fn harness_ask(
                 }
             })
             .collect();
-        pending_follow = Some((calls, results));
+        prior_calls.extend(calls);
+        prior_results.extend(results);
+        pending_follow = Some((prior_calls.clone(), prior_results.clone()));
     }
 
     for t in &tools {

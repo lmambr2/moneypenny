@@ -650,8 +650,8 @@ async fn dispatch_mcp(
                 Some(json!({
                     "configured": enabled,
                     "available": enabled,
-                    "vectorDbUrl": st.config.vector_db_url,
-                    "embeddingModel": st.config.embedding_model,
+                    "vectorDbUrl": st.read_config().vector_db_url,
+                    "embeddingModel": st.read_config().embedding_model,
                 })),
                 bot_id,
                 started,

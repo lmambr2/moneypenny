@@ -98,12 +98,14 @@ pub fn compute_memory_axes(
     }
     if let Some(total) = total_claims {
         if total > 0 {
-            axes.unsupported_claim_rate = Some(f64::from(unsupported_claims.unwrap_or(0)) / f64::from(total));
+            axes.unsupported_claim_rate =
+                Some(f64::from(unsupported_claims.unwrap_or(0)) / f64::from(total));
         }
     }
     if let Some(cand) = candidates {
         if cand > 0 {
-            axes.injection_dedup_rate = Some(f64::from(skipped_dedup.unwrap_or(0)) / f64::from(cand));
+            axes.injection_dedup_rate =
+                Some(f64::from(skipped_dedup.unwrap_or(0)) / f64::from(cand));
         }
     }
     axes
@@ -146,11 +148,7 @@ pub fn default_eval_cases() -> Vec<EvalCase> {
     ]
 }
 
-pub fn run_eval_case(
-    c: &EvalCase,
-    doctrine: &[EvalHit],
-    org: &[String],
-) -> EvalCaseResult {
+pub fn run_eval_case(c: &EvalCase, doctrine: &[EvalHit], org: &[String]) -> EvalCaseResult {
     let doctrine_hits = doctrine.len() as u32;
     let org_hits = org.len() as u32;
     let mut samples: Vec<String> = doctrine
@@ -231,7 +229,9 @@ pub fn run_eval_case(
         }
     }
 
-    if pass && matches!(c.expect, EvalExpect::Doctrine) && doctrine.iter().all(|h| h.text.trim().is_empty())
+    if pass
+        && matches!(c.expect, EvalExpect::Doctrine)
+        && doctrine.iter().all(|h| h.text.trim().is_empty())
     {
         pass = false;
         reason = Some("doctrine hits have empty text (empty rewrite risk)".into());
@@ -248,7 +248,11 @@ pub fn run_eval_case(
     }
 }
 
-pub fn run_eval_loop(cases: &[EvalCase], doctrine: &[Vec<EvalHit>], org: &[Vec<String>]) -> EvalReport {
+pub fn run_eval_loop(
+    cases: &[EvalCase],
+    doctrine: &[Vec<EvalHit>],
+    org: &[Vec<String>],
+) -> EvalReport {
     let mut results = Vec::new();
     for (i, c) in cases.iter().enumerate() {
         let d = doctrine.get(i).map(Vec::as_slice).unwrap_or(&[]);
@@ -292,10 +296,22 @@ mod tests {
         assert!(run_eval_case(&c, &[hit("Ops brief at 1900", "ops.md")], &[]).pass);
         let fail = run_eval_case(&c, &[], &[]);
         assert!(!fail.pass);
-        assert!(fail.reason.as_deref().unwrap_or("").contains("doctrine hits"));
+        assert!(
+            fail.reason
+                .as_deref()
+                .unwrap_or("")
+                .contains("doctrine hits")
+        );
         let empty = run_eval_case(&c, &[hit("   ", "a.md")], &[]);
         assert!(!empty.pass);
-        assert!(empty.reason.as_deref().unwrap_or("").to_ascii_lowercase().contains("empty"));
+        assert!(
+            empty
+                .reason
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .contains("empty")
+        );
     }
 
     #[test]
@@ -308,7 +324,14 @@ mod tests {
             min_doctrine_hits: None,
             min_org_hits: None,
         };
-        assert!(run_eval_case(&org, &[hit("should not satisfy", "d.md")], &["FC is Alice".into()]).pass);
+        assert!(
+            run_eval_case(
+                &org,
+                &[hit("should not satisfy", "d.md")],
+                &["FC is Alice".into()]
+            )
+            .pass
+        );
         let either = EvalCase {
             id: "e1".into(),
             query: "welcome".into(),
@@ -326,7 +349,10 @@ mod tests {
         let doctrine: Vec<Vec<EvalHit>> = cases
             .iter()
             .map(|c| {
-                if c.query.contains("combat") || c.query.contains("ops") || c.query.contains("station") {
+                if c.query.contains("combat")
+                    || c.query.contains("ops")
+                    || c.query.contains("station")
+                {
                     vec![hit(&format!("hit for {}", c.query), "doc.md")]
                 } else {
                     vec![]

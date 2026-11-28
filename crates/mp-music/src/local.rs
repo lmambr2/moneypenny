@@ -4,7 +4,7 @@
 //! Local library. `safe_resolve` is the security boundary: realpath must stay
 //! under MUSIC_DIR (F-1/F-3). Public ids are SHA-1 of the real path (F-2).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -19,6 +19,36 @@ pub enum DeleteSongError {
     NotFound,
     Forbidden,
     Io(String),
+}
+
+fn query_matches(query_lower: &str, track: &Track) -> bool {
+    let q = query_lower.trim();
+    if q.is_empty() {
+        return true;
+    }
+    track.title.to_lowercase().contains(q)
+        || track.artist.to_lowercase().contains(q)
+        || track.album.to_lowercase().contains(q)
+}
+
+fn take_random(items: &mut Vec<Track>, limit: usize) -> Vec<Track> {
+    if items.is_empty() || limit == 0 {
+        return Vec::new();
+    }
+    if items.len() <= limit {
+        return std::mem::take(items);
+    }
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1);
+    for i in 0..limit {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let j = i + (seed as usize) % (items.len() - i);
+        items.swap(i, j);
+    }
+    items.truncate(limit);
+    std::mem::take(items)
 }
 
 fn lexical_normalize(path: &Path) -> PathBuf {
@@ -691,6 +721,36 @@ impl LocalProvider {
                 .collect()
         };
         matches.into_iter().take(limit).collect()
+    }
+
+    /// Random matches, skipping `exclude` while anything else is left.
+    /// An empty query samples the whole library. `search` stays walk-order
+    /// for typed lookups; auto-DJ must not keep the first filenames.
+    pub fn sample(&self, query: &str, limit: usize, exclude: &HashSet<String>) -> Vec<Track> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        self.ensure_indexed();
+        let q = query.to_lowercase();
+        let songs = self.songs.lock().expect("songs");
+        let mut fresh = Vec::new();
+        let mut stale = Vec::new();
+        for song in songs.iter() {
+            if !query_matches(&q, &song.track) {
+                continue;
+            }
+            if exclude.contains(&song.track.id) {
+                stale.push(song.track.clone());
+            } else {
+                fresh.push(song.track.clone());
+            }
+        }
+        drop(songs);
+        let mut out = take_random(&mut fresh, limit);
+        if out.len() < limit {
+            out.extend(take_random(&mut stale, limit - out.len()));
+        }
+        out
     }
 
     pub fn resolve_input(&self, input: &str) -> Option<ResolveHit> {

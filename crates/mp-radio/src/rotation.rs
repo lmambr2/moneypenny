@@ -66,7 +66,12 @@ fn norm(s: &str) -> String {
     s.trim().to_lowercase()
 }
 
-fn fits(key: &str, placed: &[String], meta_of: &impl Fn(&str) -> Option<RotationMeta>, policy: &SeparationPolicy) -> bool {
+fn fits(
+    key: &str,
+    placed: &[String],
+    meta_of: &impl Fn(&str) -> Option<RotationMeta>,
+    policy: &SeparationPolicy,
+) -> bool {
     let Some(meta) = meta_of(key) else {
         return true;
     };
@@ -141,7 +146,11 @@ mod tests {
             &keys,
             |k| {
                 Some(RotationMeta {
-                    artist: if k.starts_with('a') { "Alpha".into() } else { "Beta".into() },
+                    artist: if k.starts_with('a') {
+                        "Alpha".into()
+                    } else {
+                        "Beta".into()
+                    },
                     album: k.into(),
                 })
             },

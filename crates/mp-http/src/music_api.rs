@@ -1,16 +1,16 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
+use axum::Json;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::authz::{deny_unless, AdminUser, AuthUser};
-use crate::json_song::track_json;
 use crate::AppState;
+use crate::authz::{AdminUser, AuthUser, deny_unless};
+use crate::json_song::track_json;
 use mp_db::{TagSource, TrackTags};
 
 #[derive(Deserialize)]
@@ -142,7 +142,11 @@ pub async fn library(
 }
 
 pub async fn stats(State(st): State<AppState>, _user: AuthUser) -> Json<Value> {
-    let n = st.station.as_ref().map(|s| s.local.track_count()).unwrap_or(0);
+    let n = st
+        .station
+        .as_ref()
+        .map(|s| s.local.track_count())
+        .unwrap_or(0);
     Json(json!({ "trackCount": n, "platform": "local" }))
 }
 
@@ -174,7 +178,10 @@ pub async fn blacklist_get(State(st): State<AppState>, _admin: AdminUser) -> Jso
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let keys: Vec<Value> = entries.iter().filter_map(|e| e.get("trackKey").cloned()).collect();
+    let keys: Vec<Value> = entries
+        .iter()
+        .filter_map(|e| e.get("trackKey").cloned())
+        .collect();
     Json(json!({ "entries": entries, "keys": keys }))
 }
 
@@ -229,7 +236,10 @@ pub async fn blacklist_post(
         Some(&admin.0.username),
     ) {
         Ok(e) => Json(json!({"ok": true, "trackKey": e.track_key})).into_response(),
-        Err(msg) => (StatusCode::FORBIDDEN, Json(json!({"error": msg, "code":"BAN_PROTECTED"})))
+        Err(msg) => (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": msg, "code":"BAN_PROTECTED"})),
+        )
             .into_response(),
     }
 }
@@ -278,7 +288,9 @@ pub async fn track_delete(
             .into_response(),
         Err(mp_music::DeleteSongError::Forbidden) => (
             StatusCode::FORBIDDEN,
-            Json(json!({"error":"Refusing to delete path outside music library","code":"FORBIDDEN"})),
+            Json(
+                json!({"error":"Refusing to delete path outside music library","code":"FORBIDDEN"}),
+            ),
         )
             .into_response(),
         Err(mp_music::DeleteSongError::Io(e)) => (
@@ -305,9 +317,18 @@ pub async fn tags_get(
 
 fn parse_tag_patch(body: &Value) -> TrackTags {
     TrackTags {
-        genre: body.get("genre").and_then(|v| v.as_str()).map(|s| s.trim().to_string()),
-        subgenre: body.get("subgenre").and_then(|v| v.as_str()).map(|s| s.trim().to_string()),
-        mood: body.get("mood").and_then(|v| v.as_str()).map(|s| s.trim().to_string()),
+        genre: body
+            .get("genre")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string()),
+        subgenre: body
+            .get("subgenre")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string()),
+        mood: body
+            .get("mood")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string()),
         musical_key: body
             .get("musicalKey")
             .and_then(|v| v.as_str())
@@ -703,7 +724,9 @@ pub async fn music_upload(
         if files.len() > 5 {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error":"Too many files (max 5 per upload)","code":"VALIDATION_ERROR"})),
+                Json(
+                    json!({"error":"Too many files (max 5 per upload)","code":"VALIDATION_ERROR"}),
+                ),
             )
                 .into_response();
         }

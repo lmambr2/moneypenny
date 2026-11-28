@@ -5,10 +5,10 @@
 //! Brain *proposes*; bot *disposes*. `POST /v1/turn` JSON is frozen.
 
 mod complete;
-mod idle;
 mod dispose;
 mod factory;
 mod http;
+mod idle;
 mod in_process;
 mod llm;
 mod runtime;
@@ -18,25 +18,27 @@ mod types;
 
 pub use complete::{complete_turn, complete_turn_opts};
 pub use dispose::dispose_tool_proposals;
-pub use idle::{IdleEvent, LlmIdleGate, LLM_IDLE_UNLOAD_SECONDS_DEFAULT};
 pub use factory::{
-    in_process_from_settings, resolve_brain_transport, transport_from_settings, BrainTransport,
+    BrainTransport, in_process_from_settings, resolve_brain_transport, transport_from_settings,
 };
 pub use http::{FetchFn, HttpBrain, RawHttp};
+pub use idle::{IdleEvent, LLM_IDLE_UNLOAD_SECONDS_DEFAULT, LlmIdleGate};
 pub use in_process::{InProcessBrain, RetrieveCtx, RetrieveFn};
 pub use llm::{
-    delegate_complete, tool_choice_for, IntentResult, IntentToolCall, LlmBackend, LlmSettings,
-    OpenAiLlm, ScriptedLlm, ToolResultTurn, ANALYST_DENIED, ANALYST_OFFLINE, DELEGATE_UNCONFIGURED,
+    ANALYST_DENIED, ANALYST_OFFLINE, DELEGATE_UNCONFIGURED, IntentResult, IntentToolCall,
+    LlmBackend, LlmSettings, OpenAiLlm, ScriptedLlm, ToolResultTurn, delegate_api_key_from_env,
+    delegate_complete, normalize_llm_base_url, tool_choice_for,
 };
 pub use runtime::BrainRuntime;
 pub use text::extract_assistant_text;
 pub use tools::{
-    delegate_tool, handset_intent_prompt, intent_system_prompt, intent_system_prompt_for,
-    music_control_tools, tool_names, DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_CHAT_MODEL, DEFAULT_SYSTEM_PROMPT, delegate_tool, handset_intent_prompt,
+    intent_system_prompt, intent_system_prompt_for, library_doc_tools, music_control_tools,
+    tool_names,
 };
 pub use types::{
-    empty_turn, Brain, BrainError, DisposedTool, ToolProposal, TurnChannel, TurnMode, TurnOptions,
-    TurnRequest, TurnResponse, TurnSource, TurnSubject,
+    Brain, BrainError, DisposedTool, ToolProposal, TurnChannel, TurnMode, TurnOptions, TurnRequest,
+    TurnResponse, TurnSource, TurnSubject, empty_turn,
 };
 
 #[cfg(test)]
@@ -96,10 +98,71 @@ mod tests {
             .with_retrieve(retrieve)
             .with_id_factory(|| "t1".into());
         let r = brain.complete(req("hello", TurnMode::Ask)).await;
-        assert_eq!(r.reply_text, "Answer: hello");
+        assert_eq!(r.reply_text, "Answer: hello\n\n📎 Sources: doc.md");
         assert_eq!(r.sources.len(), 1);
         assert!(r.tool_proposals.is_empty());
         assert!(r.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn ask_drops_an_invented_sources_footer_when_retrieval_is_empty() {
+        let brain = InProcessBrain::scripted(ScriptedLlm::ask_only(|_| {
+            "The Fleet Charter says so.\n\nSources: fleet-charter.md".into()
+        }))
+        .with_id_factory(|| "t-rag".into());
+        let r = brain
+            .complete(req("what does the charter say", TurnMode::Ask))
+            .await;
+        assert_eq!(r.reply_text, "The Fleet Charter says so.");
+        assert!(r.sources.is_empty());
+    }
+
+    #[tokio::test]
+    async fn ask_footer_skips_a_source_that_did_not_fit() {
+        let retrieve: RetrieveFn = Arc::new(|_q, _ctx| {
+            Box::pin(async {
+                Ok(vec![
+                    TurnSource {
+                        source: "kept.md".into(),
+                        text: Some("x".repeat(12_000)),
+                        classification: Some("unclassified".into()),
+                        score: Some(0.9),
+                    },
+                    TurnSource {
+                        source: "dropped.md".into(),
+                        text: Some("this excerpt never reached the model".into()),
+                        classification: Some("unclassified".into()),
+                        score: Some(0.1),
+                    },
+                ])
+            })
+        });
+        let brain = InProcessBrain::scripted(ScriptedLlm::ask_only(|_| "Noted.".into()))
+            .with_retrieve(retrieve)
+            .with_id_factory(|| "t-window".into());
+        let r = brain.complete(req("status", TurnMode::Ask)).await;
+        assert!(r.reply_text.contains("kept.md"));
+        assert!(!r.reply_text.contains("dropped.md"));
+    }
+
+    #[tokio::test]
+    async fn ask_history_stores_the_stripped_reply() {
+        let history = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let brain = InProcessBrain::scripted(
+            ScriptedLlm::ask_only(|_| {
+                "The Fleet Charter says so.\n\nSources: fleet-charter.md".into()
+            })
+            .with_history(Arc::clone(&history)),
+        )
+        .with_id_factory(|| "t-hist".into());
+        let mut turn = req("what does the charter say", TurnMode::Ask);
+        turn.conversation_id = Some("ts:speaker-a".into());
+        let r = brain.complete(turn).await;
+        assert_eq!(r.reply_text, "The Fleet Charter says so.");
+        let stored = history.lock().expect("history");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].1, "The Fleet Charter says so.");
+        assert!(stored[0].0.starts_with("ts:speaker-a\n"));
     }
 
     #[tokio::test]

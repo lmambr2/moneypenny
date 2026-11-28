@@ -51,10 +51,7 @@ pub async fn ingest_doctrine_doc(
     })
 }
 
-pub async fn purge_orphaned(
-    retrieval: &RetrievalStore,
-    doctrine: &DoctrineStore,
-) -> Result<()> {
+pub async fn purge_orphaned(retrieval: &RetrievalStore, doctrine: &DoctrineStore) -> Result<()> {
     let on_disk: std::collections::HashSet<String> = doctrine.files().into_iter().collect();
     for doc in doctrine.list() {
         if !on_disk.contains(&doc.source) {

@@ -9,8 +9,8 @@
 //! TS6_HOST alone must NOT trigger playback (production reconnects).
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use mp_control::{CommandExecutor, ParsedCommand};

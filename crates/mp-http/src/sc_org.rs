@@ -96,10 +96,7 @@ impl ScOrgRuntime {
     }
 
     pub fn host_summary(&self) -> String {
-        format!(
-            "Host ok · uptime {}s",
-            self.started.elapsed().as_secs()
-        )
+        format!("Host ok · uptime {}s", self.started.elapsed().as_secs())
     }
 
     pub async fn get_plugin(&self, id: &str) -> ExternalStatusResult {
@@ -121,7 +118,10 @@ impl ScOrgRuntime {
     }
 
     pub async fn get_all(&self) -> Vec<ExternalStatusResult> {
-        vec![self.get_plugin("host").await, self.get_plugin("sc-org").await]
+        vec![
+            self.get_plugin("host").await,
+            self.get_plugin("sc-org").await,
+        ]
     }
 
     async fn fetch_sc_org(&self) -> ExternalStatusResult {
@@ -140,7 +140,9 @@ impl ScOrgRuntime {
         if let Some(r) = cached {
             return r;
         }
-        let result = match tokio::time::timeout(Duration::from_millis(4000), self.format_brief()).await {
+        let result = match tokio::time::timeout(Duration::from_millis(4000), self.format_brief())
+            .await
+        {
             Ok(Ok(text)) => ExternalStatusResult {
                 id: ID.into(),
                 label: LABEL.into(),
@@ -161,7 +163,9 @@ impl ScOrgRuntime {
                 id: ID.into(),
                 label: LABEL.into(),
                 ok: false,
-                text: format!("{LABEL} unavailable (timeout after 4000ms). Music and transport are unaffected."),
+                text: format!(
+                    "{LABEL} unavailable (timeout after 4000ms). Music and transport are unaffected."
+                ),
             },
         };
         if result.ok {
@@ -177,7 +181,9 @@ impl ScOrgRuntime {
         let raw = self.url();
         let base = normalize_sc_org_base_url(&raw)?;
         if base.is_empty() {
-            return Err("SC org status URL not configured (set SC_ORG_STATUS_URL or Settings)".into());
+            return Err(
+                "SC org status URL not configured (set SC_ORG_STATUS_URL or Settings)".into(),
+            );
         }
         Ok(ScOrgClient {
             base,
@@ -304,7 +310,10 @@ impl ScOrgClient {
                 }
                 Some(ScOrgMember {
                     name,
-                    rank: m.get("rank").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    rank: m
+                        .get("rank")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
                     online: m.get("online").and_then(|v| v.as_bool()),
                 })
             })
@@ -326,13 +335,18 @@ impl ScOrgClient {
                 }
                 Some((
                     name.to_string(),
-                    v.get("role").and_then(|x| x.as_str()).map(|s| s.to_string()),
+                    v.get("role")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string()),
                 ))
             })
             .collect();
         Ok(ScOrgFleet {
             vessels,
-            summary: data.get("summary").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            summary: data
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         })
     }
 
@@ -373,7 +387,10 @@ pub fn parse_status_payload(data: &Value, default_org: &str) -> ScOrgStatus {
             .unwrap_or("ok")
             .to_string(),
         members_online,
-        summary: data.get("summary").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        summary: data
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         org: data
             .get("org")
             .and_then(|v| v.as_str())
@@ -387,7 +404,8 @@ pub fn normalize_sc_org_base_url(raw: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Ok(String::new());
     }
-    let u = reqwest::Url::parse(trimmed).map_err(|_| "SC org status URL is not a valid absolute URL".to_string())?;
+    let u = reqwest::Url::parse(trimmed)
+        .map_err(|_| "SC org status URL is not a valid absolute URL".to_string())?;
     if u.scheme() != "http" && u.scheme() != "https" {
         return Err("SC org status URL must be http or https".into());
     }
@@ -395,8 +413,21 @@ pub fn normalize_sc_org_base_url(raw: &str) -> Result<String, String> {
         return Err("SC org status URL must not embed credentials".into());
     }
     let path = u.path();
-    let path = if path == "/" { "" } else { path.trim_end_matches('/') };
-    Ok(format!("{}://{}{}{path}", u.scheme(), u.host_str().unwrap_or(""), if let Some(p) = u.port() { format!(":{p}") } else { String::new() }))
+    let path = if path == "/" {
+        ""
+    } else {
+        path.trim_end_matches('/')
+    };
+    Ok(format!(
+        "{}://{}{}{path}",
+        u.scheme(),
+        u.host_str().unwrap_or(""),
+        if let Some(p) = u.port() {
+            format!(":{p}")
+        } else {
+            String::new()
+        }
+    ))
 }
 
 #[cfg(test)]

@@ -111,18 +111,16 @@ impl ReconnectScheduler {
     }
 
     pub fn get_attempt(&self, id: &str) -> u32 {
-        *self
-            .inner
-            .attempts
-            .lock()
-            .expect("a")
-            .get(id)
-            .unwrap_or(&0)
+        *self.inner.attempts.lock().expect("a").get(id).unwrap_or(&0)
     }
 
     pub fn schedule(&self, id: &str, reason: &str) {
         if self.is_busy(id) {
-            tracing::info!(bot_id = id, reason, "Reconnect already scheduled or in flight");
+            tracing::info!(
+                bot_id = id,
+                reason,
+                "Reconnect already scheduled or in flight"
+            );
             return;
         }
         let attempt = {
@@ -133,7 +131,13 @@ impl ReconnectScheduler {
         };
         let delay = reconnect_delay_ms(attempt, self.inner.base_ms, self.inner.max_ms);
         let gen_at = self.generation_of(id);
-        tracing::warn!(bot_id = id, reason, attempt, delay_ms = delay, "Scheduling reconnect");
+        tracing::warn!(
+            bot_id = id,
+            reason,
+            attempt,
+            delay_ms = delay,
+            "Scheduling reconnect"
+        );
         self.inner.pending.lock().expect("p").insert(id.to_string());
         let inner = Arc::clone(&self.inner);
         let id = id.to_string();
@@ -267,7 +271,13 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering as AtOrd};
 
-    async fn drive_until(sched: ReconnectScheduler, mut driver: ReconnectDriver, n: Arc<AtomicU32>, target: u32, ms: u64) {
+    async fn drive_until(
+        sched: ReconnectScheduler,
+        mut driver: ReconnectDriver,
+        n: Arc<AtomicU32>,
+        target: u32,
+        ms: u64,
+    ) {
         let reconnect = {
             let n = Arc::clone(&n);
             move |_id: String| {
@@ -339,11 +349,7 @@ mod tests {
             let n2 = Arc::clone(&n2);
             async move {
                 let c = n2.fetch_add(1, AtOrd::SeqCst) + 1;
-                if c < 3 {
-                    Err("fail".into())
-                } else {
-                    Ok(())
-                }
+                if c < 3 { Err("fail".into()) } else { Ok(()) }
             }
         };
         s.schedule("b", "x");

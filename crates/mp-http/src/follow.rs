@@ -3,8 +3,8 @@
 
 //! Settings-backed auto-follow flags. The actual move lives in the bot loop.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub struct FollowRuntime {
     enabled: AtomicBool,

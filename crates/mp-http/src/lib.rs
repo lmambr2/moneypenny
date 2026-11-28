@@ -12,18 +12,18 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use axum::extract::{DefaultBodyLimit, State};
-use axum::http::{header, HeaderName, HeaderValue};
+use axum::http::{HeaderName, HeaderValue, header};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
+pub use tokio_util::sync::CancellationToken;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::{info, warn};
 
@@ -33,43 +33,45 @@ mod brain;
 mod command;
 mod csrf;
 mod economy_api;
-mod harness;
-mod intent_round;
-mod skills;
-mod json_song;
-mod mcp_api;
-mod music_api;
-mod openapi;
-mod player_api;
-mod radio_api;
-mod rag_api;
-mod rate_limit;
-mod recordings;
-mod roast;
-mod session;
-mod session_roles;
-mod spa;
-mod workflow;
-mod sc_org;
 mod follow;
 mod handset_auth;
 mod handset_pair;
 mod handset_turn;
 mod handset_utterance;
 mod handset_verb;
+mod harness;
+mod intent_round;
+mod json_song;
+mod llm_catalog;
+mod mcp_api;
+mod music_api;
+mod openapi;
+mod player_api;
+mod radio_api;
+mod radio_seed;
+mod rag_api;
+mod rate_limit;
+mod recordings;
+mod roast;
+mod sc_org;
+mod session;
+mod session_roles;
+mod skills;
+mod spa;
 mod status_api;
 mod stubs;
 mod users_api;
 mod voice_api;
+mod workflow;
 mod ws;
 
 pub use command::dispatch_command;
-pub use session_roles::{SessionHandle, SessionQuery};
+pub use csrf::csrf_origin_check;
 pub use follow::FollowRuntime;
 pub use roast::RoastRuntime;
 pub use sc_org::ScOrgRuntime;
-pub use csrf::csrf_origin_check;
 pub use session::SESSION_COOKIE_NAME;
+pub use session_roles::{SessionHandle, SessionQuery};
 
 use mp_config::BotConfig;
 use mp_db::Database;
@@ -78,7 +80,9 @@ use rate_limit::RateLimiter;
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Database>,
-    pub config: Arc<BotConfig>,
+    /// Live settings snapshot. Boot clones the loaded file into this lock so
+    /// a Settings save is visible to the next GET without a restart.
+    pub config: Arc<std::sync::RwLock<BotConfig>>,
     pub started: Instant,
     pub static_dir: Option<PathBuf>,
     pub station: Option<Arc<mp_music::MusicStation>>,
@@ -119,7 +123,12 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn read_config(&self) -> std::sync::RwLockReadGuard<'_, BotConfig> {
+        self.config.read().unwrap_or_else(|e| e.into_inner())
+    }
+
     pub fn new(db: Arc<Database>, config: Arc<BotConfig>, static_dir: Option<PathBuf>) -> Self {
+        let config = (*config).clone();
         let (ws_tx, _) = broadcast::channel(64);
         let brain = mp_brain::BrainRuntime::from_settings(brain::llm_settings_from(&config));
         let voice = mp_voice::VoiceRuntime::from_config(
@@ -162,18 +171,16 @@ impl AppState {
             &config.sc_org_status_url,
             &config.sc_org_name,
         ));
+        let bot_id = db.profile().active_id();
         Self {
             db,
-            config,
+            config: Arc::new(std::sync::RwLock::new(config)),
             started: Instant::now(),
             static_dir,
             station: None,
             executor: None,
             rights: None,
-            bot_id: std::env::var("BOT_ID")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "default".into()),
+            bot_id,
             bot_name: std::env::var("BOT_NICKNAME")
                 .or_else(|_| std::env::var("BOT_NAME"))
                 .unwrap_or_else(|_| "Moneypenny".into()),
@@ -226,8 +233,8 @@ impl AppState {
 
     pub fn with_config_path(mut self, path: PathBuf) -> Self {
         if let Some(dir) = path.parent() {
-            self.radio
-                .set_bumper_dir(mp_radio::default_bumper_dir(dir));
+            self.radio.set_bumper_dir(mp_radio::default_bumper_dir(dir));
+            self.radio.set_bumper_cache_dir(dir.join("bumper-cache"));
             self.data_dir = dir.to_path_buf();
         }
         self.config_path = path;
@@ -250,6 +257,7 @@ impl AppState {
         self.station = Some(station);
         self.executor = Some(executor);
         self.rights = rights;
+        radio_seed::install_local_seed(&self);
         self
     }
 }
@@ -298,7 +306,8 @@ async fn healthz() -> Json<serde_json::Value> {
 }
 
 async fn public_url(State(st): State<AppState>) -> Json<serde_json::Value> {
-    let raw = st.config.public_url.trim().trim_end_matches('/');
+    let cfg = st.read_config();
+    let raw = cfg.public_url.trim().trim_end_matches('/');
     Json(serde_json::json!({
         "publicUrl": if raw.is_empty() { serde_json::Value::Null } else { raw.into() }
     }))
@@ -331,7 +340,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/turn", post(brain::turn));
 
     let protected = Router::new()
-        .route("/api/bot", get(bot_api::list_bots).post(bot_api::create_bot))
+        .route(
+            "/api/bot",
+            get(bot_api::list_bots).post(bot_api::create_bot),
+        )
         .route(
             "/api/bot/settings",
             get(bot_api::settings_get).post(bot_api::settings_post),
@@ -346,26 +358,50 @@ pub fn router(state: AppState) -> Router {
             get(recordings::recordings_get).delete(recordings::recordings_delete),
         )
         .route("/api/bot/llm/status", get(status_api::llm_status))
+        .route("/api/bot/llm/models", get(llm_catalog::llm_models))
         .route("/api/bot/voice/status", get(voice_api::voice_status))
         .route("/api/bot/voice/test", post(voice_api::voice_test))
         .route("/api/bot/radio/status", get(radio_api::radio_status))
-        .route("/api/bot/radio/test-bumper", post(radio_api::radio_test_bumper))
+        .route(
+            "/api/bot/radio/test-bumper",
+            post(radio_api::radio_test_bumper),
+        )
+        .route(
+            "/api/bot/radio/prewarm-bumpers",
+            post(radio_api::radio_prewarm),
+        )
+        .route(
+            "/api/bot/radio/clear-bumper-cache",
+            post(radio_api::radio_clear_cache),
+        )
         .route("/api/bot/rag/status", get(status_api::rag_status))
         .route("/api/bot/memory/status", get(status_api::memory_status))
         .route("/api/bot/ace-step/status", get(stubs::bot_status_stub))
-        .route("/api/bot/stream-bridge/status", get(status_api::stream_bridge_status))
+        .route(
+            "/api/bot/stream-bridge/status",
+            get(status_api::stream_bridge_status),
+        )
         .route("/api/bot/ops/status", get(status_api::ops_status))
         .route("/api/bot/rights/debug", get(status_api::rights_debug))
-        .route("/api/bot/voice/under-music-check", get(voice_api::under_music_check))
+        .route(
+            "/api/bot/voice/under-music-check",
+            get(voice_api::under_music_check),
+        )
         .route("/api/bot/memory/scopes", get(status_api::memory_scopes))
         .route("/api/bot/memory/private", get(status_api::memory_private))
-        .route("/api/bot/org-kg", get(status_api::org_kg_get).post(status_api::org_kg_post))
+        .route(
+            "/api/bot/org-kg",
+            get(status_api::org_kg_get).post(status_api::org_kg_post),
+        )
         .route("/api/bot/harness/turns", get(harness::harness_turns))
         .route("/api/bot/harness/ask", post(harness::harness_ask))
         .route("/api/bot/rag/eval", post(rag_api::rag_eval))
         .route("/api/bot/rag/query", post(rag_api::rag_query))
         .route("/api/bot/llm/ask", post(status_api::llm_ask))
-        .route("/api/bot/{id}", get(bot_api::get_bot).delete(bot_api::delete_bot))
+        .route(
+            "/api/bot/{id}",
+            get(bot_api::get_bot).delete(bot_api::delete_bot),
+        )
         .route("/api/bot/{id}/start", post(bot_api::start_bot))
         .route("/api/bot/{id}/stop", post(bot_api::stop_bot))
         .route("/api/bot/{id}/config", get(bot_api::bot_config))
@@ -379,11 +415,26 @@ pub fn router(state: AppState) -> Router {
             "/api/music/blacklist",
             get(music_api::blacklist_get).post(music_api::blacklist_post),
         )
-        .route("/api/music/blacklist/{id}", delete(music_api::blacklist_delete))
-        .route("/api/music/tracks/{id}/tags", get(music_api::tags_get).patch(music_api::tags_patch))
-        .route("/api/music/tracks/{id}/tags/guess", post(music_api::tags_guess))
-        .route("/api/music/tracks/tags/bulk", axum::routing::patch(music_api::tags_bulk))
-        .route("/api/music/tracks/{id}/rating", post(music_api::rating_post).delete(music_api::rating_delete))
+        .route(
+            "/api/music/blacklist/{id}",
+            delete(music_api::blacklist_delete),
+        )
+        .route(
+            "/api/music/tracks/{id}/tags",
+            get(music_api::tags_get).patch(music_api::tags_patch),
+        )
+        .route(
+            "/api/music/tracks/{id}/tags/guess",
+            post(music_api::tags_guess),
+        )
+        .route(
+            "/api/music/tracks/tags/bulk",
+            axum::routing::patch(music_api::tags_bulk),
+        )
+        .route(
+            "/api/music/tracks/{id}/rating",
+            post(music_api::rating_post).delete(music_api::rating_delete),
+        )
         .route("/api/music/tracks/{id}", delete(music_api::track_delete))
         .route("/api/music/analyze/status", get(music_api::analyze_status))
         .route("/api/music/analyze", post(music_api::analyze_post))
@@ -391,14 +442,34 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bot/ace-step/generate", post(stubs::not_ported))
         .route("/api/rag/doctrine/new", post(rag_api::doctrine_new))
         .route("/api/rag/doctrine/reindex", post(rag_api::doctrine_reindex))
-        .route("/api/rag/doctrine/reformat", post(rag_api::doctrine_reformat))
+        .route(
+            "/api/rag/doctrine/reformat",
+            post(rag_api::doctrine_reformat),
+        )
         .route("/api/rag/query", post(rag_api::rag_query))
         .route("/api/rag/ingest", post(rag_api::rag_ingest))
-        .route("/api/economy/workorders", get(economy_api::workorders_get).post(economy_api::workorders_post).delete(economy_api::workorders_clear))
-        .route("/api/economy/workorders/{id}", delete(economy_api::workorders_delete_one))
-        .route("/api/economy/cache/refresh", post(economy_api::cache_refresh))
-        .route("/api/economy/ingest/terminal-snapshot", post(economy_api::ingest_snapshot))
-        .route("/api/economy/ingest/snapshots", get(economy_api::list_snapshots))
+        .route(
+            "/api/economy/workorders",
+            get(economy_api::workorders_get)
+                .post(economy_api::workorders_post)
+                .delete(economy_api::workorders_clear),
+        )
+        .route(
+            "/api/economy/workorders/{id}",
+            delete(economy_api::workorders_delete_one),
+        )
+        .route(
+            "/api/economy/cache/refresh",
+            post(economy_api::cache_refresh),
+        )
+        .route(
+            "/api/economy/ingest/terminal-snapshot",
+            post(economy_api::ingest_snapshot),
+        )
+        .route(
+            "/api/economy/ingest/snapshots",
+            get(economy_api::list_snapshots),
+        )
         .route(
             "/api/economy/ingest/snapshots/{id}/accept",
             post(economy_api::snapshot_accept),
@@ -409,8 +480,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/economy/trade/routes", post(economy_api::trade_routes))
         .route("/api/economy/trade/buyers", post(economy_api::trade_buyers))
-        .route("/api/economy/trade/itinerary", post(economy_api::trade_itinerary))
-        .route("/api/economy/trade/circuit", post(economy_api::trade_circuit))
+        .route(
+            "/api/economy/trade/itinerary",
+            post(economy_api::trade_itinerary),
+        )
+        .route(
+            "/api/economy/trade/circuit",
+            post(economy_api::trade_circuit),
+        )
         .route("/api/player/{botId}/play", post(player_api::play))
         .route("/api/player/{botId}/add", post(player_api::add))
         .route("/api/player/{botId}/pause", post(player_api::pause))
@@ -429,7 +506,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/player/{botId}/play-at", post(player_api::play_at))
         .route("/api/player/{botId}/play-song", post(player_api::play_song))
         .route("/api/player/{botId}/add-song", post(player_api::add_song))
-        .route("/api/player/{botId}/play-by-id", post(player_api::play_by_id))
+        .route(
+            "/api/player/{botId}/play-by-id",
+            post(player_api::play_by_id),
+        )
         .route("/api/player/{botId}/add-by-id", post(player_api::add_by_id))
         .route(
             "/api/player/{botId}/play-next-song",
@@ -458,7 +538,10 @@ pub fn router(state: AppState) -> Router {
             "/api/rag/doctrine",
             get(rag_api::doctrine_list).post(rag_api::doctrine_upload),
         )
-        .route("/api/rag/doctrine/export/capabilities", get(rag_api::doctrine_export_caps))
+        .route(
+            "/api/rag/doctrine/export/capabilities",
+            get(rag_api::doctrine_export_caps),
+        )
         .route("/api/rag/doctrine/hygiene", get(rag_api::doctrine_hygiene))
         .route(
             "/api/rag/doctrine/{source}/export",
@@ -470,11 +553,20 @@ pub fn router(state: AppState) -> Router {
                 .put(rag_api::doctrine_put)
                 .delete(rag_api::doctrine_delete),
         )
-        .route("/api/users", get(users_api::users_list).post(users_api::users_create))
+        .route(
+            "/api/users",
+            get(users_api::users_list).post(users_api::users_create),
+        )
         .route("/api/audit", get(session::audit_list))
         .route("/api/users/{id}", delete(users_api::users_delete))
-        .route("/api/users/{id}/role", axum::routing::patch(users_api::users_role))
-        .route("/api/users/{id}/reset-password", post(users_api::users_reset_password))
+        .route(
+            "/api/users/{id}/role",
+            axum::routing::patch(users_api::users_role),
+        )
+        .route(
+            "/api/users/{id}/reset-password",
+            post(users_api::users_reset_password),
+        )
         .route("/api/handset/pair-codes", post(handset_pair::issue))
         .route("/api/handset/devices", get(handset_pair::list_devices))
         .route(
@@ -522,7 +614,17 @@ pub async fn serve_with_handset(
         shutdown_signal().await;
         watcher.cancel();
     });
+    serve_until(state, admin, handset, shutdown).await
+}
 
+/// HTTP until `shutdown` fires. The process signal watcher lives in `main`
+/// so TeamSpeak and the player see the same token.
+pub async fn serve_until(
+    state: AppState,
+    admin: SocketAddr,
+    handset: Option<SocketAddr>,
+    shutdown: CancellationToken,
+) -> Result<(), std::io::Error> {
     let listener = TcpListener::bind(admin).await?;
     if let Some(addr) = handset {
         let handset_state = state.clone();
@@ -588,10 +690,7 @@ fn handset_router(state: AppState) -> Router {
         .route("/v1/handset/now", get(handset_verb::now))
         .layer(DefaultBodyLimit::max(64 * 1024));
     let utterance = Router::new()
-        .route(
-            "/v1/handset/utterance",
-            post(handset_utterance::utterance),
-        )
+        .route("/v1/handset/utterance", post(handset_utterance::utterance))
         .layer(DefaultBodyLimit::max(960_000));
     json_routes
         .merge(utterance)
@@ -628,13 +727,17 @@ async fn run_handset(
         .await
 }
 
+pub async fn wait_for_shutdown_signal() {
+    shutdown_signal().await;
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
     };
     #[cfg(unix)]
     let term = async {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         if let Ok(mut s) = signal(SignalKind::terminate()) {
             s.recv().await;
         }
@@ -1002,7 +1105,7 @@ mod tests {
     async fn handset_pair_issue_redeem_revoke_and_cap() {
         let db = Arc::new(Database::open_in_memory().unwrap());
         let state = AppState::new(Arc::clone(&db), Arc::new(BotConfig::default()), None);
-        let admin_addr = state.config.bind_addr();
+        let admin_addr = state.read_config().bind_addr();
         assert_ne!(admin_addr, "192.168.1.250:3001");
         let handset = handset_router(state.clone());
         let (admin, cookie) = setup_cookie(router(state.clone())).await;
@@ -1382,7 +1485,9 @@ mod tests {
         content_type: Option<&str>,
         pcm: Vec<u8>,
     ) -> axum::response::Response {
-        let mut builder = Request::builder().method("POST").uri("/v1/handset/utterance");
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/v1/handset/utterance");
         if let Some(token) = token {
             builder = builder.header("authorization", format!("Bearer {token}"));
         }
@@ -1533,10 +1638,10 @@ mod tests {
     }
 
     fn attach_voice(mut state: AppState, base: &str) -> AppState {
-        let mut cfg = (*state.config).clone();
+        let mut cfg = state.read_config().clone();
         cfg.voice.stt_url = base.to_string();
         cfg.voice.tts_url = base.to_string();
-        state.config = Arc::new(cfg);
+        state.config = Arc::new(std::sync::RwLock::new(cfg));
         state
     }
 
@@ -1615,7 +1720,9 @@ mod tests {
         let mut n = 0;
         loop {
             match ws.try_recv() {
-                Ok(msg) if msg.get("type").and_then(|t| t.as_str()) == Some("stateChange") => n += 1,
+                Ok(msg) if msg.get("type").and_then(|t| t.as_str()) == Some("stateChange") => {
+                    n += 1
+                }
                 Ok(_) => {}
                 Err(_) => break,
             }
@@ -1637,7 +1744,11 @@ mod tests {
         }
     }
 
-    async fn wait_row(turns: &handset_turn::HandsetTurns, device: &str, id: &str) -> serde_json::Value {
+    async fn wait_row(
+        turns: &handset_turn::HandsetTurns,
+        device: &str,
+        id: &str,
+    ) -> serde_json::Value {
         let start = std::time::Instant::now();
         loop {
             if let Some((_, body)) = turns.lookup(device, id) {
@@ -1697,7 +1808,9 @@ mod tests {
                     .method("POST")
                     .uri("/v1/handset/turn")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"text":"hi","spoken":false,"clientTurnId":"a"}"#))
+                    .body(Body::from(
+                        r#"{"text":"hi","spoken":false,"clientTurnId":"a"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -1705,7 +1818,12 @@ mod tests {
         assert_eq!(open.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(json_body(open).await["error"], "unauthenticated");
 
-        let wrong = post_turn(&app, "mp_not_a_device", r#"{"text":"hi","spoken":false,"clientTurnId":"a"}"#).await;
+        let wrong = post_turn(
+            &app,
+            "mp_not_a_device",
+            r#"{"text":"hi","spoken":false,"clientTurnId":"a"}"#,
+        )
+        .await;
         assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
 
         let bad = post_turn(&app, &token, "{").await;
@@ -1746,11 +1864,24 @@ mod tests {
         .await;
         let uttered = json_body(uttered).await;
         assert_eq!(uttered["code"], "USE_UTTERANCE");
-        assert_eq!(uttered["error"], "push-to-talk uses POST /v1/handset/utterance");
+        assert_eq!(
+            uttered["error"],
+            "push-to-talk uses POST /v1/handset/utterance"
+        );
 
-        let empty = post_turn(&app, &token, r#"{"text":"","spoken":false,"clientTurnId":"a"}"#).await;
+        let empty = post_turn(
+            &app,
+            &token,
+            r#"{"text":"","spoken":false,"clientTurnId":"a"}"#,
+        )
+        .await;
         assert_eq!(json_body(empty).await["code"], "TEXT_REQUIRED");
-        let blank = post_turn(&app, &token, r#"{"text":"  \n","spoken":false,"clientTurnId":"a"}"#).await;
+        let blank = post_turn(
+            &app,
+            &token,
+            r#"{"text":"  \n","spoken":false,"clientTurnId":"a"}"#,
+        )
+        .await;
         assert_eq!(json_body(blank).await["code"], "TEXT_REQUIRED");
         let missing_text = post_turn(&app, &token, r#"{"spoken":false,"clientTurnId":"a"}"#).await;
         assert_eq!(json_body(missing_text).await["code"], "TEXT_REQUIRED");
@@ -1836,11 +1967,17 @@ mod tests {
                     ]
                 } else if q == "block" {
                     vec![
-                        intent_call("move_client", serde_json::json!({ "client": "a", "channel": "b" })),
+                        intent_call(
+                            "move_client",
+                            serde_json::json!({ "client": "a", "channel": "b" }),
+                        ),
                         intent_call("select_tracks", serde_json::json!({ "mood": ["calm"] })),
                     ]
                 } else {
-                    vec![intent_call("set_volume", serde_json::json!({ "level": 500 }))]
+                    vec![intent_call(
+                        "set_volume",
+                        serde_json::json!({ "level": 500 }),
+                    )]
                 };
                 mp_brain::IntentResult {
                     content: Some("On it.".into()),
@@ -1892,7 +2029,13 @@ mod tests {
                 "stop",
             ]
         );
-        assert!(!seen.lock().expect("seen").iter().any(|name| name == "select_tracks"));
+        assert!(
+            !seen
+                .lock()
+                .expect("seen")
+                .iter()
+                .any(|name| name == "select_tracks")
+        );
         assert_eq!(state_changes(&mut ws), 1);
 
         let blocked = post_turn(
@@ -1956,7 +2099,10 @@ mod tests {
         let first = json_body(post_turn(&app, &token, body).await).await;
         let second = json_body(post_turn(&app, &token, body).await).await;
         assert_eq!(first, second);
-        assert_eq!(first["disposedTools"][0]["result"], "Stopped and queue cleared");
+        assert_eq!(
+            first["disposedTools"][0]["result"],
+            "Stopped and queue cleared"
+        );
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -2223,7 +2369,10 @@ mod tests {
         wait_until_busy(&flight).await;
         inflight.abort();
         let stored = wait_row(&turns, &device_id, "abort-1").await;
-        assert_eq!(stored["disposedTools"][0]["result"], "Stopped and queue cleared");
+        assert_eq!(
+            stored["disposedTools"][0]["result"],
+            "Stopped and queue cleared"
+        );
         let again = post_turn(
             &app,
             &token,
@@ -2248,12 +2397,7 @@ mod tests {
         let (token, device) = mint_handset(&state);
         let app = handset_router(state.with_brain(brain));
 
-        let skip = post_verb(
-            &app,
-            &token,
-            r#"{"name":"skip","clientTurnId":"skip-1"}"#,
-        )
-        .await;
+        let skip = post_verb(&app, &token, r#"{"name":"skip","clientTurnId":"skip-1"}"#).await;
         assert_eq!(skip.status(), StatusCode::CONFLICT);
         let skip_body = json_body(skip).await;
         assert_eq!(skip_body["name"], "skip");
@@ -2265,12 +2409,7 @@ mod tests {
         assert_eq!(state_changes(&mut ws), 0);
 
         station.set_connected(true);
-        let again = post_verb(
-            &app,
-            &token,
-            r#"{"name":"skip","clientTurnId":"skip-1"}"#,
-        )
-        .await;
+        let again = post_verb(&app, &token, r#"{"name":"skip","clientTurnId":"skip-1"}"#).await;
         assert_eq!(again.status(), StatusCode::CONFLICT);
         assert_eq!(json_body(again).await, skip_body);
         assert_eq!(turns.len(), 1);
@@ -2284,12 +2423,7 @@ mod tests {
         assert_eq!(state_changes(&mut ws), 0);
 
         station.set_connected(false);
-        let paused = post_verb(
-            &app,
-            &token,
-            r#"{"name":"pause","clientTurnId":"pause-1"}"#,
-        )
-        .await;
+        let paused = post_verb(&app, &token, r#"{"name":"pause","clientTurnId":"pause-1"}"#).await;
         assert_eq!(paused.status(), StatusCode::OK);
         let paused_body = json_body(paused).await;
         assert_eq!(paused_body["name"], "pause");
@@ -2394,10 +2528,7 @@ mod tests {
                 "word",
                 r#"{"name":"set_volume","clientTurnId":"word","level":"30"}"#,
             ),
-            (
-                "miss",
-                r#"{"name":"set_volume","clientTurnId":"miss"}"#,
-            ),
+            ("miss", r#"{"name":"set_volume","clientTurnId":"miss"}"#),
         ] {
             let res = post_verb(&app, &token, body).await;
             assert_eq!(res.status(), StatusCode::BAD_REQUEST, "{id}");
@@ -2458,10 +2589,7 @@ mod tests {
         assert!(current.get("source").is_none());
         let mut keys: Vec<_> = current.keys().cloned().collect();
         keys.sort();
-        assert_eq!(
-            keys,
-            ["album", "artist", "duration", "name", "platform"]
-        );
+        assert_eq!(keys, ["album", "artist", "duration", "name", "platform"]);
         assert_eq!(current["platform"], "local");
         assert!(!current["name"].as_str().unwrap_or("").is_empty());
         for banned in ["coverUrl", "id", "source", "playMode", "botId", "name"] {
@@ -2496,12 +2624,7 @@ mod tests {
         let during = get_now(&app, &token).await;
         assert_eq!(during.status(), StatusCode::OK);
         assert_eq!(json_body(during).await["connected"], true);
-        let other = post_verb(
-            &app,
-            &token,
-            r#"{"name":"pause","clientTurnId":"other"}"#,
-        )
-        .await;
+        let other = post_verb(&app, &token, r#"{"name":"pause","clientTurnId":"other"}"#).await;
         assert_eq!(other.status(), StatusCode::CONFLICT);
         let other_body = json_body(other).await;
         assert_eq!(other_body["code"], "BUSY");
@@ -2578,23 +2701,14 @@ mod tests {
         assert_eq!(now_missing["error"], "No bot instance available");
         assert_eq!(now_missing["code"], "NO_BOT");
 
-        let missing = post_verb(
-            &app,
-            &token,
-            r#"{"name":"pause","clientTurnId":"gone"}"#,
-        )
-        .await;
+        let missing = post_verb(&app, &token, r#"{"name":"pause","clientTurnId":"gone"}"#).await;
         assert_eq!(missing.status(), StatusCode::CONFLICT);
         let missing_body = json_body(missing).await;
         assert_eq!(missing_body["error"], "No bot instance available");
         assert_eq!(missing_body["code"], "NO_BOT");
         assert_eq!(turns.len(), 0);
-        let missing_again = post_verb(
-            &app,
-            &token,
-            r#"{"name":"pause","clientTurnId":"gone"}"#,
-        )
-        .await;
+        let missing_again =
+            post_verb(&app, &token, r#"{"name":"pause","clientTurnId":"gone"}"#).await;
         assert_eq!(missing_again.status(), StatusCode::CONFLICT);
         assert_eq!(turns.lookup(&device, "gone"), None);
 
@@ -2640,12 +2754,7 @@ mod tests {
         .await;
         assert_eq!(json_body(sourced).await["field"], "source");
 
-        let blank_id = post_verb(
-            &app,
-            &token,
-            r#"{"name":"pause","clientTurnId":"   "}"#,
-        )
-        .await;
+        let blank_id = post_verb(&app, &token, r#"{"name":"pause","clientTurnId":"   "}"#).await;
         assert_eq!(json_body(blank_id).await["code"], "CLIENT_TURN_ID");
         let long_id = serde_json::json!({
             "name": "pause",
@@ -2858,7 +2967,7 @@ mod tests {
         assert_eq!(voice.hits(), 0);
         assert_eq!(turns.len(), 0);
         assert_eq!(loads(&calls), 0);
-        assert_eq!(cfg.voice.mode, "cascaded");
+        assert_eq!(cfg.read().expect("config").voice.mode, "cascaded");
         assert!(!voice.saw_profile.load(std::sync::atomic::Ordering::SeqCst));
 
         let min_id = "m".repeat(64);
@@ -2911,7 +3020,9 @@ mod tests {
         assert_eq!(voice.hits(), 3);
         assert_eq!(turns.len(), 3);
 
-        voice.asr_status.store(500, std::sync::atomic::Ordering::SeqCst);
+        voice
+            .asr_status
+            .store(500, std::sync::atomic::Ordering::SeqCst);
         voice.set_text("hello");
         let down = post_clip(&app, &token, "down", pcm_clip(3200)).await;
         assert_eq!(down.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -2927,7 +3038,7 @@ mod tests {
         assert!(turns.lookup(&device, "down").is_none());
         assert_eq!(loads(&calls), 0);
         assert!(!voice.saw_profile.load(std::sync::atomic::Ordering::SeqCst));
-        assert_eq!(cfg.voice.mode, "cascaded");
+        assert_eq!(cfg.read().expect("config").voice.mode, "cascaded");
     }
 
     #[tokio::test]
@@ -2952,7 +3063,10 @@ mod tests {
                         serde_json::json!({ "level": 500 }),
                     )]
                 } else if q == "volume" {
-                    vec![intent_call("set_volume", serde_json::json!({ "level": 40 }))]
+                    vec![intent_call(
+                        "set_volume",
+                        serde_json::json!({ "level": 40 }),
+                    )]
                 } else {
                     Vec::new()
                 };
@@ -2965,14 +3079,17 @@ mod tests {
                 } else {
                     None
                 };
-                mp_brain::IntentResult { content, tool_calls }
+                mp_brain::IntentResult {
+                    content,
+                    tool_calls,
+                }
             },
         );
         let voice = VoiceStub::start().await;
         let (dir, mut state) = music_state();
         state = attach_voice(state, &voice.base);
-        assert!(state.config.voice.require_watchword);
-        assert_eq!(state.config.voice.mode, "cascaded");
+        assert!(state.read_config().voice.require_watchword);
+        assert_eq!(state.read_config().voice.mode, "cascaded");
         let station = state.station.clone().unwrap();
         let volume_before = station.player.get_volume();
         let mut ws = state.ws_tx.subscribe();
@@ -3036,12 +3153,7 @@ mod tests {
         .to_string();
         let via_turn = post_turn(&app, &token, &via).await;
         assert_eq!(json_body(via_turn).await, said_body);
-        let via_verb = post_verb(
-            &app,
-            &token,
-            r#"{"name":"pause","clientTurnId":"say-1"}"#,
-        )
-        .await;
+        let via_verb = post_verb(&app, &token, r#"{"name":"pause","clientTurnId":"say-1"}"#).await;
         assert_eq!(json_body(via_verb).await, said_body);
         assert_eq!(voice.hits(), 1);
         assert_eq!(voice.tts_hits(), 1);
@@ -3070,7 +3182,10 @@ mod tests {
         let quiet = post_clip(&app, &token, "vol-1", pcm_clip(3200)).await;
         assert_eq!(quiet.status(), StatusCode::OK);
         let quiet_body = json_body(quiet).await;
-        assert_eq!(quiet_body["disposedTools"][0]["result"], "Volume set to 40%");
+        assert_eq!(
+            quiet_body["disposedTools"][0]["result"],
+            "Volume set to 40%"
+        );
         assert_eq!(voice.spoke(), "Volume set to 40%");
         assert_eq!(station.player.get_volume(), 40);
         assert_wav(&quiet_body["audio"], 22050);
@@ -3079,7 +3194,9 @@ mod tests {
         assert_eq!(state_changes(&mut ws), 1);
 
         voice.set_text("piper down");
-        voice.tts_status.store(500, std::sync::atomic::Ordering::SeqCst);
+        voice
+            .tts_status
+            .store(500, std::sync::atomic::Ordering::SeqCst);
         let failed = post_clip(&app, &token, "tts-1", pcm_clip(3200)).await;
         assert_eq!(failed.status(), StatusCode::OK);
         let failed_body = json_body(failed).await;
@@ -3097,12 +3214,17 @@ mod tests {
         assert_eq!(loads(&calls), 4);
         assert_eq!(state_changes(&mut ws), 0);
 
-        voice.tts_status.store(200, std::sync::atomic::Ordering::SeqCst);
+        voice
+            .tts_status
+            .store(200, std::sync::atomic::Ordering::SeqCst);
         voice.set_text("long line");
         let long = post_clip(&app, &token, "long-1", pcm_clip(3200)).await;
         assert_eq!(long.status(), StatusCode::OK);
         let long_body = json_body(long).await;
-        assert_eq!(long_body["replyText"].as_str().unwrap().chars().count(), 450);
+        assert_eq!(
+            long_body["replyText"].as_str().unwrap().chars().count(),
+            450
+        );
         assert_eq!(voice.spoke().chars().count(), 400);
         assert!(voice.spoke().chars().all(|c| c == 'a'));
         assert_wav(&long_body["audio"], 22050);
@@ -3140,9 +3262,8 @@ mod tests {
         let app = handset_router(state.with_brain(brain));
         let app2 = app.clone();
         let token2 = token.clone();
-        let inflight = tokio::spawn(async move {
-            post_clip(&app2, &token2, "abort-1", pcm_clip(3200)).await
-        });
+        let inflight =
+            tokio::spawn(async move { post_clip(&app2, &token2, "abort-1", pcm_clip(3200)).await });
         let started = std::time::Instant::now();
         loop {
             if loads(&calls) >= 1 {
@@ -3169,7 +3290,10 @@ mod tests {
         let stored = wait_row(&turns, &device, "abort-1").await;
         assert_eq!(stored["transcript"], "stop the music");
         assert_eq!(stored["replyText"], "Hello team. More later.");
-        assert_eq!(stored["disposedTools"][0]["result"], "Stopped and queue cleared");
+        assert_eq!(
+            stored["disposedTools"][0]["result"],
+            "Stopped and queue cleared"
+        );
         assert!(stored["error"].is_null());
         assert_wav(&stored["audio"], 22050);
         assert_eq!(voice.hits(), 1);
@@ -3192,7 +3316,9 @@ mod tests {
         let (_scripted, brain) = counting_brain(&calls);
         let voice = VoiceStub::start().await;
         voice.set_text("hello");
-        voice.asr_delay_ms.store(400, std::sync::atomic::Ordering::SeqCst);
+        voice
+            .asr_delay_ms
+            .store(400, std::sync::atomic::Ordering::SeqCst);
         let mut state = AppState::new(
             Arc::new(Database::open_in_memory().unwrap()),
             Arc::new(BotConfig::default()),
@@ -3213,7 +3339,9 @@ mod tests {
         assert_eq!(turns.len(), 0);
         assert_eq!(loads(&calls), 0);
         assert_eq!(voice.hits(), 1);
-        voice.asr_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        voice
+            .asr_delay_ms
+            .store(0, std::sync::atomic::Ordering::SeqCst);
         let again = post_clip(&app, &token, "slow", pcm_clip(3200)).await;
         assert_eq!(again.status(), StatusCode::OK);
         let again_body = json_body(again).await;
@@ -3484,7 +3612,9 @@ mod tests {
                     .uri("/api/session/setup")
                     .header("content-type", "application/json")
                     .header("host", "localhost:3000")
-                    .body(Body::from(r#"{"username":"admin","password":"password12"}"#))
+                    .body(Body::from(
+                        r#"{"username":"admin","password":"password12"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -3503,13 +3633,20 @@ mod tests {
                     .header("content-type", "application/json")
                     .header("host", "localhost:3000")
                     .header("origin", "http://localhost:3000")
-                    .body(Body::from(r#"{"username":"admin","password":"password12"}"#))
+                    .body(Body::from(
+                        r#"{"username":"admin","password":"password12"}"#,
+                    ))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        let set_cookie = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+        let set_cookie = res
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert!(set_cookie.starts_with("moneypenny_session="));
         assert!(set_cookie.contains("HttpOnly"));
         assert!(set_cookie.contains("SameSite=Lax"));
@@ -3564,7 +3701,9 @@ mod tests {
                     .header("content-type", "application/json")
                     .header("host", "localhost:3000")
                     .header("origin", "http://localhost:3000")
-                    .body(Body::from(r#"{"username":"admin","password":"password12"}"#))
+                    .body(Body::from(
+                        r#"{"username":"admin","password":"password12"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -3642,6 +3781,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            v["llmSystemPromptDefault"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Colonel Moneypenny"),
+            "built-in persona missing: {v}"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -3677,7 +3827,9 @@ mod tests {
                     .header("content-type", "application/json")
                     .header("host", "localhost:3000")
                     .header("origin", "http://localhost:3000")
-                    .body(Body::from(r#"{"username":"admin","password":"password12"}"#))
+                    .body(Body::from(
+                        r#"{"username":"admin","password":"password12"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -3730,7 +3882,10 @@ mod tests {
     #[tokio::test]
     async fn turn_missing_text_is_400() {
         let (app, cookie) = setup_cookie(test_app()).await;
-        let res = app.oneshot(turn_post(&cookie, r#"{"text":"  "}"#)).await.unwrap();
+        let res = app
+            .oneshot(turn_post(&cookie, r#"{"text":"  "}"#))
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -3881,10 +4036,12 @@ mod tests {
             .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["disposedTools"][0]["ok"], true);
-        assert!(v["disposedTools"][0]["result"]
-            .as_str()
-            .unwrap_or("")
-            .contains("[dry-run]"));
+        assert!(
+            v["disposedTools"][0]["result"]
+                .as_str()
+                .unwrap_or("")
+                .contains("[dry-run]")
+        );
         assert_eq!(station.queue.lock().unwrap().size(), 0);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -3969,7 +4126,10 @@ mod tests {
             .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(
-            v["chunks"].as_array().map(|a| !a.is_empty()).unwrap_or(false),
+            v["chunks"]
+                .as_array()
+                .map(|a| !a.is_empty())
+                .unwrap_or(false),
             "{v}"
         );
         let _ = std::fs::remove_dir_all(data);
@@ -4012,7 +4172,9 @@ mod tests {
                     .header("host", "localhost:3000")
                     .header("origin", "http://localhost:3000")
                     .header("cookie", &cookie)
-                    .body(Body::from(r#"{"transcript":"Moneypenny pause","speak":false}"#))
+                    .body(Body::from(
+                        r#"{"transcript":"Moneypenny pause","speak":false}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -4358,7 +4520,9 @@ mod tests {
                     .uri("/mcp/tools/call")
                     .header("content-type", "application/json")
                     .header("authorization", "Bearer phase8-test")
-                    .body(Body::from(r#"{"name":"music_stop","arguments":{"confirm":true}}"#))
+                    .body(Body::from(
+                        r#"{"name":"music_stop","arguments":{"confirm":true}}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -4411,7 +4575,9 @@ mod tests {
                     .uri("/mcp")
                     .header("authorization", "Bearer phase8-test")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#))
+                    .body(Body::from(
+                        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -4488,7 +4654,9 @@ mod tests {
                     .header("host", "localhost:3000")
                     .header("origin", "http://localhost:3000")
                     .header("cookie", &cookie)
-                    .body(Body::from(r#"{"llmEnabled":true,"llmUrl":"http://127.0.0.1:11434"}"#))
+                    .body(Body::from(
+                        r#"{"llmEnabled":true,"llmUrl":"http://127.0.0.1:11434"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -5038,10 +5206,8 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["success"], true, "{v}");
 
-        let b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            b"RIFF....WEBM",
-        );
+        let b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"RIFF....WEBM");
         let res = app
             .clone()
             .oneshot(
@@ -5332,7 +5498,12 @@ mod tests {
 
         let refreshed = app
             .clone()
-            .oneshot(authed("POST", "/api/economy/cache/refresh", &cookie, Some("{}")))
+            .oneshot(authed(
+                "POST",
+                "/api/economy/cache/refresh",
+                &cookie,
+                Some("{}"),
+            ))
             .await
             .unwrap();
         assert_eq!(refreshed.status(), StatusCode::OK);
@@ -5546,7 +5717,10 @@ mod tests {
             while !gate.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
-            assert!(gate.load(Ordering::SeqCst), "first sentence was not spoken before the rest of the tokens");
+            assert!(
+                gate.load(Ordering::SeqCst),
+                "first sentence was not spoken before the rest of the tokens"
+            );
             let rest = "data: {\"choices\":[{\"delta\":{\"content\":\"Still working\"}}]}\n\ndata: [DONE]\n\n";
             let chunk = format!("{:x}\r\n{rest}\r\n", rest.len());
             sock.write_all(chunk.as_bytes()).await.unwrap();
@@ -5565,21 +5739,23 @@ mod tests {
         let spoken_cb = Arc::clone(&spoken);
         let text = llm
             .stream_user_prompt("hi", move |delta| {
-                    let ready = {
-                        let mut b = buf_cb.lock().expect("buf");
-                        mp_voice::push_stream_delta(&mut b, delta)
-                    };
-                    for sentence in ready {
-                        if sentence.contains("Hello team") {
-                            flag.store(true, Ordering::SeqCst);
-                        }
-                        spoken_cb.lock().expect("spoken").push(sentence);
+                let ready = {
+                    let mut b = buf_cb.lock().expect("buf");
+                    mp_voice::push_stream_delta(&mut b, delta)
+                };
+                for sentence in ready {
+                    if sentence.contains("Hello team") {
+                        flag.store(true, Ordering::SeqCst);
                     }
-                },
-            )
+                    spoken_cb.lock().expect("spoken").push(sentence);
+                }
+            })
             .await
             .unwrap();
-        assert!(saw_stream.load(Ordering::SeqCst), "request did not set stream true");
+        assert!(
+            saw_stream.load(Ordering::SeqCst),
+            "request did not set stream true"
+        );
         assert!(text.contains("Hello team"));
         assert!(text.contains("Still working"));
         let spoken = spoken.lock().unwrap().clone();

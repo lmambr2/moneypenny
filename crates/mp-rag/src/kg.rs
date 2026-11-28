@@ -3,12 +3,12 @@
 
 //! Org KG commands + MemPalace sync. SQLite is authority; never per-user rooms.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use mp_db::{
-    display_fact_line, extract_subject, format_kg_record, is_iso_date, parse_kg_flags, Database,
-    KgFact,
+    Database, KgFact, display_fact_line, extract_subject, format_kg_record, is_iso_date,
+    parse_kg_flags,
 };
 
 use crate::mempalace::MemPalaceClient;
@@ -16,7 +16,8 @@ use crate::mempalace::MemPalaceClient;
 pub const KG_USAGE: &str = "Usage: !kg remember <fact> [from:YYYY-MM-DD] [until:YYYY-MM-DD] | \
 !kg who <name> [asof:YYYY-MM-DD] | !kg list [n] | !kg forget <n|all>";
 
-pub const DIARY_USAGE: &str = "Usage: !diary <intel|logistics> <fact> [from:YYYY-MM-DD] [until:YYYY-MM-DD]";
+pub const DIARY_USAGE: &str =
+    "Usage: !diary <intel|logistics> <fact> [from:YYYY-MM-DD] [until:YYYY-MM-DD]";
 
 pub struct KgService {
     db: Arc<Database>,
@@ -111,9 +112,7 @@ impl KgService {
             return "Invalid until: date — use YYYY-MM-DD.".into();
         }
         let subject = extract_subject(&fact);
-        let diary_tag = diary
-            .map(str::to_string)
-            .or(parsed.diary);
+        let diary_tag = diary.map(str::to_string).or(parsed.diary);
         let row = match self.db.kg().add(
             &fact,
             Some(&subject),
@@ -138,10 +137,7 @@ impl KgService {
             let vu = row.valid_until.clone().unwrap_or_default();
             let diary = row.diary.clone().unwrap_or_default();
             tokio::spawn(async move {
-                if !mp
-                    .kg_remember(&line, &subject, &vf, &vu, &diary)
-                    .await
-                {
+                if !mp.kg_remember(&line, &subject, &vf, &vu, &diary).await {
                     tracing::warn!(subject, "MemPalace KG sync failed — SQLite kept");
                 }
             });
@@ -152,7 +148,11 @@ impl KgService {
             .unwrap_or_else(|| "org KG".into());
         format!(
             "Recorded in {label}: {}",
-            display_fact_line(&row.fact, row.valid_from.as_deref(), row.valid_until.as_deref())
+            display_fact_line(
+                &row.fact,
+                row.valid_from.as_deref(),
+                row.valid_until.as_deref()
+            )
         )
     }
 
@@ -165,10 +165,7 @@ impl KgService {
         if parsed.as_of.as_ref().is_some_and(|s| !is_iso_date(s)) {
             return "Invalid asof: date — use YYYY-MM-DD.".into();
         }
-        let as_of = parsed
-            .as_of
-            .clone()
-            .unwrap_or_else(|| chrono_today());
+        let as_of = parsed.as_of.clone().unwrap_or_else(|| chrono_today());
         let facts = self
             .db
             .kg()
@@ -192,7 +189,10 @@ impl KgService {
                 line
             })
             .collect::<Vec<_>>();
-        format!("Org knowledge as of {as_of} for \"{subject}\":\n{}", lines.join("\n"))
+        format!(
+            "Org knowledge as of {as_of} for \"{subject}\":\n{}",
+            lines.join("\n")
+        )
     }
 
     fn handle_list(&self, raw: &str) -> String {
@@ -221,7 +221,11 @@ impl KgService {
                 line
             })
             .collect::<Vec<_>>();
-        format!("Recent org knowledge ({}):\n{}", facts.len(), lines.join("\n"))
+        format!(
+            "Recent org knowledge ({}):\n{}",
+            facts.len(),
+            lines.join("\n")
+        )
     }
 
     fn handle_forget(&self, raw: &str, can_write: bool) -> String {

@@ -3,7 +3,7 @@
 
 //! TeamSpeak profile toggles stored on `bot_instances`. Node `ProfileConfig` names.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::{Database, Result};
 
@@ -64,6 +64,30 @@ pub struct ProfileStore<'a> {
 impl ProfileStore<'_> {
     pub fn new(db: &Database) -> ProfileStore<'_> {
         ProfileStore { db }
+    }
+
+    /// `BOT_ID` when set, otherwise the only `bot_instances` row.
+    /// Several rows and no env var stay on `"default"`.
+    pub fn active_id(&self) -> String {
+        if let Ok(id) = std::env::var("BOT_ID") {
+            let id = id.trim();
+            if !id.is_empty() {
+                return id.to_string();
+            }
+        }
+        self.db
+            .with_conn(|conn| {
+                let mut stmt = conn.prepare("SELECT id FROM bot_instances")?;
+                let ids = stmt
+                    .query_map([], |r| r.get::<_, String>(0))?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                if ids.len() == 1 {
+                    Ok(ids.into_iter().next().unwrap_or_else(|| "default".into()))
+                } else {
+                    Ok("default".into())
+                }
+            })
+            .unwrap_or_else(|_| "default".into())
     }
 
     pub fn get(&self, bot_id: &str) -> Result<ProfileConfig> {

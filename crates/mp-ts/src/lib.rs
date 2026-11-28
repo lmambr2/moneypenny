@@ -24,8 +24,8 @@ pub use reconnect::{ReconnectDriver, ReconnectScheduler, reconnect_delay_ms};
 pub use live::{LiveSession, TsConnectConfig};
 #[cfg(feature = "tsclient-rs")]
 pub use query::{
-    parse_channel_list, parse_client_list, parse_member_db_ids, QueryChannel, QueryClient,
-    QueryClientRow,
+    QueryChannel, QueryClient, QueryClientRow, parse_channel_list, parse_client_list,
+    parse_member_db_ids,
 };
 
 use tokio::sync::broadcast;
@@ -36,6 +36,104 @@ pub enum TsError {
     Message(String),
     #[error("not connected")]
     NotConnected,
+}
+
+/// One `sendtextmessage` command. A multi-thousand-character analyst write-up
+/// misses the 4s command ack and the voice link then drops. Each piece stays
+/// under this many characters, including a `(n/m)` marker when split.
+pub const CHANNEL_TEXT_CHARS: usize = 750;
+
+/// Split channel or private text into commands TeamSpeak will ack.
+/// A short message is returned unchanged. Longer text breaks on a paragraph,
+/// then a line, then a word.
+pub fn split_channel_text(text: &str) -> Vec<String> {
+    let mut budget = CHANNEL_TEXT_CHARS;
+    loop {
+        let parts = split_at(text, budget);
+        if parts.len() <= 1 {
+            return parts;
+        }
+        let width = marker_width(parts.len());
+        let next = CHANNEL_TEXT_CHARS.saturating_sub(width).max(32);
+        if next == budget {
+            return number_parts(parts);
+        }
+        budget = next;
+    }
+}
+
+fn marker_width(count: usize) -> usize {
+    let digits = count.to_string().len();
+    // " (digits/digits)"
+    3 + digits + 1 + digits + 1
+}
+
+fn number_parts(parts: Vec<String>) -> Vec<String> {
+    let total = parts.len();
+    parts
+        .into_iter()
+        .enumerate()
+        .map(|(i, part)| format!("{part} ({}/{})", i + 1, total))
+        .collect()
+}
+
+fn split_at(text: &str, limit: usize) -> Vec<String> {
+    let limit = limit.max(1);
+    let mut rest = text;
+    let mut out = Vec::new();
+    if rest.is_empty() {
+        return vec![String::new()];
+    }
+    while !rest.is_empty() {
+        if rest.chars().count() <= limit {
+            out.push(rest.to_string());
+            break;
+        }
+        let end = find_break(rest, limit);
+        let (head, tail) = split_chars(rest, end);
+        let head = head.trim_end();
+        if head.is_empty() {
+            let (one, tail) = split_chars(rest, 1);
+            out.push(one.to_string());
+            rest = tail;
+            continue;
+        }
+        out.push(head.to_string());
+        rest = tail.trim_start();
+    }
+    out
+}
+
+/// Character count of the prefix to keep. Prefers a paragraph, then a line,
+/// then a space, and otherwise cuts on a character boundary.
+fn find_break(text: &str, limit: usize) -> usize {
+    let window: String = text.chars().take(limit).collect();
+    if let Some(i) = window.rfind("\n\n") {
+        let at = window[..i].chars().count();
+        if at > 0 {
+            return at;
+        }
+    }
+    if let Some(i) = window.rfind('\n') {
+        let at = window[..i].chars().count();
+        if at > 0 {
+            return at;
+        }
+    }
+    if let Some(i) = window.rfind(' ') {
+        let at = window[..i].chars().count();
+        if at > 0 {
+            return at;
+        }
+    }
+    limit.min(text.chars().count()).max(1)
+}
+
+fn split_chars(text: &str, n: usize) -> (&str, &str) {
+    match text.char_indices().nth(n) {
+        Some((byte, _)) => text.split_at(byte),
+        None => (text, ""),
+    }
 }
 
 pub type Result<T> = std::result::Result<T, TsError>;
@@ -99,6 +197,9 @@ pub trait TsSession: Send + Sync {
     ) -> impl std::future::Future<Output = Result<()>> + Send;
     fn subscribe(&self) -> broadcast::Receiver<TsEvent>;
     fn send_opus(&self, pkt: OpusPacket) -> impl std::future::Future<Output = Result<()>> + Send;
+    /// Music frames call this from a plain thread. `blocking` on the tokio
+    /// client mutex panics if this runs on a runtime worker.
+    fn send_opus_now(&self, pkt: OpusPacket) -> Result<()>;
 }
 
 pub trait TsSessionExt: TsSession {
@@ -129,10 +230,7 @@ pub trait TsSessionExt: TsSession {
         clid: i32,
         message: &str,
     ) -> impl std::future::Future<Output = Result<()>> + Send;
-    fn set_away(
-        &self,
-        playing: bool,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn set_away(&self, playing: bool) -> impl std::future::Future<Output = Result<()>> + Send;
 }
 
 /// In-memory session used until Option A/B is chosen, and in tests.
@@ -182,7 +280,11 @@ impl TsSession for MockSession {
         self.tx.subscribe()
     }
 
-    async fn send_opus(&self, _pkt: OpusPacket) -> Result<()> {
+    async fn send_opus(&self, pkt: OpusPacket) -> Result<()> {
+        self.send_opus_now(pkt)
+    }
+
+    fn send_opus_now(&self, _pkt: OpusPacket) -> Result<()> {
         if !self.connected.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(TsError::NotConnected);
         }
@@ -251,6 +353,49 @@ mod tests {
         match rx.recv().await.unwrap() {
             TsEvent::TextMessage { body, .. } => assert_eq!(body, "!skip"),
             other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn short_channel_text_is_one_piece() {
+        assert_eq!(split_channel_text("Ready."), vec!["Ready.".to_string()]);
+        assert_eq!(split_channel_text(""), vec![String::new()]);
+    }
+
+    #[test]
+    fn long_channel_text_splits_on_words_and_stays_under_the_cap() {
+        let text = "alpha beta gamma delta ".repeat(80);
+        let parts = split_channel_text(&text);
+        assert!(parts.len() > 1, "parts {}", parts.len());
+        for (i, part) in parts.iter().enumerate() {
+            assert!(
+                part.chars().count() <= CHANNEL_TEXT_CHARS,
+                "part {i} is {} chars",
+                part.chars().count()
+            );
+            assert!(part.ends_with(&format!(" ({}/{})", i + 1, parts.len())));
+        }
+        let words: Vec<&str> = parts
+            .iter()
+            .flat_map(|p| p.split_whitespace())
+            .filter(|w| !w.starts_with('('))
+            .collect();
+        assert!(words.iter().all(|w| *w == "alpha" || *w == "beta" || *w == "gamma" || *w == "delta"));
+        assert_eq!(words.iter().filter(|w| **w == "alpha").count(), 80);
+    }
+
+    #[test]
+    fn split_prefers_a_paragraph_and_keeps_char_boundaries() {
+        let para = format!("{}\n\n{}", "one ".repeat(200), "two ".repeat(200));
+        let parts = split_channel_text(&para);
+        assert!(parts.len() >= 2);
+        assert!(parts[0].contains("one"));
+        assert!(!parts[0].contains("two"));
+        let wide = "é".repeat(CHANNEL_TEXT_CHARS + 40);
+        let cut = split_channel_text(&wide);
+        assert!(cut.len() > 1);
+        for part in &cut {
+            assert!(part.is_char_boundary(part.len()));
         }
     }
 }

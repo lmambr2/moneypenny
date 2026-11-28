@@ -40,10 +40,16 @@ pub fn to_mono_16k(pcm: &[u8], sample_rate: u32, channels: u32) -> Vec<f32> {
         return out;
     }
     for i in 0..out_len {
-        out.push(*mono.get((i as f32 * ratio).floor() as usize).unwrap_or(&0.0));
+        out.push(
+            *mono
+                .get((i as f32 * ratio).floor() as usize)
+                .unwrap_or(&0.0),
+        );
     }
     out
 }
+
+use std::time::Instant;
 
 use mp_audio::pcm_rms;
 
@@ -78,6 +84,9 @@ pub struct SilenceSegmenter {
     speech_ms: f64,
     silence_ms: f64,
     buffered_ms: f64,
+    /// Last packet time. TeamSpeak sends nothing during a pause, so hangover
+    /// has to be measured on the wall clock, not on silence samples.
+    last_at: Option<Instant>,
 }
 
 impl SilenceSegmenter {
@@ -89,6 +98,7 @@ impl SilenceSegmenter {
             speech_ms: 0.0,
             silence_ms: 0.0,
             buffered_ms: 0.0,
+            last_at: None,
         }
     }
 
@@ -109,8 +119,46 @@ impl SilenceSegmenter {
         (samples_per_channel / self.opts.sample_rate as f64) * 1000.0
     }
 
-    /// Feed a PCM frame. Returns a completed utterance when end-pointed.
-    pub fn push(&mut self, pcm: &[u8]) -> Option<Vec<u8>> {
+    /// Feed a PCM frame. Returns completed utterances (a wall-clock pause can
+    /// close the previous turn before this frame starts a new one).
+    pub fn push(&mut self, pcm: &[u8]) -> Vec<Vec<u8>> {
+        self.push_at(pcm, Instant::now())
+    }
+
+    fn push_at(&mut self, pcm: &[u8], now: Instant) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        if let Some(done) = self.take_idle(now) {
+            out.push(done);
+        }
+        self.last_at = Some(now);
+        if let Some(done) = self.push_frame(pcm) {
+            out.push(done);
+        }
+        out
+    }
+
+    /// Close an open turn when no packet has arrived for `hangover_ms`.
+    pub fn poll_idle(&mut self, now: Instant) -> Option<Vec<u8>> {
+        self.take_idle(now)
+    }
+
+    fn take_idle(&mut self, now: Instant) -> Option<Vec<u8>> {
+        let last = self.last_at?;
+        if !self.speaking {
+            return None;
+        }
+        let gap_ms = now.saturating_duration_since(last).as_secs_f64() * 1000.0;
+        if gap_ms < self.opts.hangover_ms {
+            return None;
+        }
+        if self.speech_ms >= self.opts.min_speech_ms {
+            return Some(self.complete());
+        }
+        self.reset();
+        None
+    }
+
+    fn push_frame(&mut self, pcm: &[u8]) -> Option<Vec<u8>> {
         if pcm.len() < 2 {
             return None;
         }
@@ -166,6 +214,7 @@ impl SilenceSegmenter {
         self.speech_ms = 0.0;
         self.silence_ms = 0.0;
         self.buffered_ms = 0.0;
+        self.last_at = None;
     }
 }
 
@@ -202,12 +251,13 @@ mod tests {
         let mut seg = SilenceSegmenter::new(opts());
         let speech = frame(8000, 20);
         let silence = frame(0, 20);
-        assert!(seg.push(&silence).is_none());
-        assert!(seg.push(&speech).is_none());
-        assert!(seg.push(&speech).is_none());
-        assert!(seg.push(&silence).is_none());
-        let out = seg.push(&silence).expect("utterance");
-        assert_eq!(out.len(), 4 * speech.len());
+        assert!(seg.push(&silence).is_empty());
+        assert!(seg.push(&speech).is_empty());
+        assert!(seg.push(&speech).is_empty());
+        assert!(seg.push(&silence).is_empty());
+        let out = seg.push(&silence);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].len(), 4 * speech.len());
     }
 
     #[test]
@@ -215,13 +265,13 @@ mod tests {
         let mut seg = SilenceSegmenter::new(opts());
         let speech = frame(8000, 20);
         let silence = frame(0, 20);
-        assert!(seg.push(&speech).is_none());
-        assert!(seg.push(&silence).is_none());
-        assert!(seg.push(&silence).is_none());
+        assert!(seg.push(&speech).is_empty());
+        assert!(seg.push(&silence).is_empty());
+        assert!(seg.push(&silence).is_empty());
         seg.push(&speech);
         seg.push(&speech);
         seg.push(&silence);
-        assert!(seg.push(&silence).is_some());
+        assert_eq!(seg.push(&silence).len(), 1);
     }
 
     #[test]
@@ -230,10 +280,38 @@ mod tests {
         opts.max_utterance_ms = 60.0;
         let mut seg = SilenceSegmenter::new(opts);
         let speech = frame(8000, 20);
-        assert!(seg.push(&speech).is_none());
-        assert!(seg.push(&speech).is_none());
-        let out = seg.push(&speech).expect("forced");
-        assert_eq!(out.len(), 3 * speech.len());
+        assert!(seg.push(&speech).is_empty());
+        assert!(seg.push(&speech).is_empty());
+        let out = seg.push(&speech);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].len(), 3 * speech.len());
+    }
+
+    #[test]
+    fn wall_clock_pause_closes_without_silence_frames() {
+        use std::time::Duration;
+
+        let mut seg = SilenceSegmenter::new(opts());
+        let speech = frame(8000, 20);
+        let t0 = Instant::now();
+        assert!(seg.push_at(&speech, t0).is_empty());
+        assert!(
+            seg.push_at(&speech, t0 + Duration::from_millis(10))
+                .is_empty()
+        );
+        let closed = seg.poll_idle(t0 + Duration::from_millis(50));
+        assert_eq!(closed.as_ref().map(|p| p.len()), Some(2 * speech.len()));
+
+        let mut seg = SilenceSegmenter::new(opts());
+        assert!(seg.push_at(&speech, t0).is_empty());
+        assert!(
+            seg.push_at(&speech, t0 + Duration::from_millis(10))
+                .is_empty()
+        );
+        let out = seg.push_at(&speech, t0 + Duration::from_millis(80));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].len(), 2 * speech.len());
+        assert!(seg.poll_idle(t0 + Duration::from_millis(90)).is_none());
     }
 
     #[test]

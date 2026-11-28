@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
-use crate::manifest::{ParsedCommand, COMMAND_MANIFEST};
+use crate::manifest::{COMMAND_MANIFEST, ParsedCommand};
 
 #[derive(Debug, Clone)]
 pub struct ToolCallInput {
@@ -122,7 +122,11 @@ fn map_select_tracks(a: &Value) -> Option<ParsedCommand> {
 
 fn map_set_volume(a: &Value) -> Option<ParsedCommand> {
     let level = as_finite_number(a.get("level"))?;
-    Some(make("vol", &format!("{}", level.round() as i64), HashSet::new()))
+    Some(make(
+        "vol",
+        &format!("{}", level.round() as i64),
+        HashSet::new(),
+    ))
 }
 
 fn map_move_client(a: &Value) -> Option<ParsedCommand> {
@@ -210,10 +214,7 @@ pub fn tool_call_to_command(name: &str, arguments: &Value) -> Option<ParsedComma
         || name == "now_playing"
         || cmd_name == name
     {
-        if matches!(
-            name,
-            "now_playing" | "skip" | "pause" | "resume" | "stop"
-        ) {
+        if matches!(name, "now_playing" | "skip" | "pause" | "resume" | "stop") {
             return Some(make(cmd_name, "", HashSet::new()));
         }
     }
@@ -259,8 +260,16 @@ pub fn tool_right(name: &str) -> Option<&'static str> {
         "delegate_to_agent" => "analyst",
         "move_client" => "moveclient",
         "move_all_clients" => "moveall",
+        "list_library_docs" | "read_library_doc" | "edit_library_doc" => "reindex",
         _ => return None,
     })
+}
+
+pub fn is_library_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "list_library_docs" | "read_library_doc" | "edit_library_doc"
+    )
 }
 
 pub fn known_llm_tool_names() -> Vec<String> {
@@ -272,6 +281,9 @@ pub fn known_llm_tool_names() -> Vec<String> {
         "move_client",
         "move_all_clients",
         "delegate_to_agent",
+        "list_library_docs",
+        "read_library_doc",
+        "edit_library_doc",
     ]
     .into_iter()
     .map(str::to_string)
@@ -347,9 +359,14 @@ mod tests {
 
     #[test]
     fn simple_aliases() {
-        assert_eq!(tool_call_to_command("skip", &json!({})).unwrap().name, "skip");
         assert_eq!(
-            tool_call_to_command("now_playing", &json!({})).unwrap().name,
+            tool_call_to_command("skip", &json!({})).unwrap().name,
+            "skip"
+        );
+        assert_eq!(
+            tool_call_to_command("now_playing", &json!({}))
+                .unwrap()
+                .name,
             "now"
         );
         assert!(tool_call_to_command("unknown_tool_xyz", &json!({})).is_none());
@@ -369,6 +386,10 @@ mod tests {
         assert!(names.iter().any(|n| n == "play_music"));
         assert!(names.iter().any(|n| n == "select_tracks"));
         assert!(names.iter().any(|n| n == "now_playing"));
+        assert!(names.iter().any(|n| n == "edit_library_doc"));
+        assert_eq!(tool_right("read_library_doc"), Some("reindex"));
+        assert!(is_library_tool("list_library_docs"));
+        assert!(!is_library_tool("play_music"));
     }
 
     #[test]

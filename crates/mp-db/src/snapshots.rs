@@ -3,7 +3,7 @@
 
 //! Terminal snapshot ingest. Same table Node creates in `economy/ingest.ts`.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::{Database, Result};
 
@@ -151,7 +151,12 @@ impl SnapshotStore<'_> {
         SnapshotStore { db }
     }
 
-    pub fn add(&self, parsed: &ParsedSnapshot, created_by: Option<&str>, status: &str) -> Result<SnapshotRow> {
+    pub fn add(
+        &self,
+        parsed: &ParsedSnapshot,
+        created_by: Option<&str>,
+        status: &str,
+    ) -> Result<SnapshotRow> {
         let now = now_ms();
         let prices = parsed.prices.to_string();
         let id = self.db.with_conn(|conn| {
@@ -176,7 +181,8 @@ impl SnapshotStore<'_> {
             )?;
             Ok(conn.last_insert_rowid())
         })?;
-        self.get(id)?.ok_or_else(|| crate::DbError::Message("snapshot insert vanished".into()))
+        self.get(id)?
+            .ok_or_else(|| crate::DbError::Message("snapshot insert vanished".into()))
     }
 
     pub fn get(&self, id: i64) -> Result<Option<SnapshotRow>> {
@@ -258,7 +264,9 @@ impl SnapshotStore<'_> {
         let mut terminal_name = String::new();
         let mut matched = false;
         for row in rows {
-            let Some(arr) = row.prices.as_array() else { continue };
+            let Some(arr) = row.prices.as_array() else {
+                continue;
+            };
             for price in arr {
                 let row_name = price.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let folded = norm(row_name);
@@ -268,15 +276,25 @@ impl SnapshotStore<'_> {
                 matched = true;
                 if row.captured_at >= captured_at {
                     captured_at = row.captured_at;
-                    name = if row_name.is_empty() { q.clone() } else { row_name.to_string() };
+                    name = if row_name.is_empty() {
+                        q.clone()
+                    } else {
+                        row_name.to_string()
+                    };
                     terminal_name = row.terminal_name.clone().unwrap_or_default();
-                    commodity_id = price.get("id_commodity").and_then(|v| v.as_i64()).filter(|n| *n > 0);
+                    commodity_id = price
+                        .get("id_commodity")
+                        .and_then(|v| v.as_i64())
+                        .filter(|n| *n > 0);
                     code = commodity_id.map(|n| n.to_string()).unwrap_or_default();
                 }
-                if let Some(s) = positive_price(price.get("sell").or_else(|| price.get("price_sell"))) {
+                if let Some(s) =
+                    positive_price(price.get("sell").or_else(|| price.get("price_sell")))
+                {
                     sell = Some(sell.map(|a| a.max(s)).unwrap_or(s));
                 }
-                if let Some(b) = positive_price(price.get("buy").or_else(|| price.get("price_buy"))) {
+                if let Some(b) = positive_price(price.get("buy").or_else(|| price.get("price_buy")))
+                {
                     buy = Some(buy.map(|a| a.min(b)).unwrap_or(b));
                 }
             }
@@ -297,7 +315,8 @@ impl SnapshotStore<'_> {
 }
 
 fn positive_price(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|n| n.as_f64()).filter(|n| n.is_finite() && *n > 0.0)
+    v.and_then(|n| n.as_f64())
+        .filter(|n| n.is_finite() && *n > 0.0)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -365,7 +384,10 @@ mod tests {
     fn accept_then_reject_drops_overlay() {
         let db = Database::open_in_memory().unwrap();
         let parsed = parse_snapshot_body(&sample()).unwrap();
-        let row = db.snapshots().add(&parsed, Some("lane"), "accepted").unwrap();
+        let row = db
+            .snapshots()
+            .add(&parsed, Some("lane"), "accepted")
+            .unwrap();
         let hit = db.snapshots().lookup_overlay("agricium").unwrap().unwrap();
         assert_eq!(hit.sell, Some(12000.0));
         assert!(hit.terminal_name.contains("Area 18"));
@@ -390,7 +412,9 @@ mod tests {
         .unwrap();
         assert_eq!(secs.captured_at, 1_700_000_000_000);
         let db = Database::open_in_memory().unwrap();
-        db.snapshots().add(&secs, Some("datarunner"), "accepted").unwrap();
+        db.snapshots()
+            .add(&secs, Some("datarunner"), "accepted")
+            .unwrap();
         let hit = db.snapshots().lookup_overlay("laranite").unwrap().unwrap();
         assert_eq!(hit.buy, Some(500.0));
         assert_eq!(hit.sell, None);

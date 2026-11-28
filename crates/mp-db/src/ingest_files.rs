@@ -88,7 +88,11 @@ pub fn format_ingest_status(enabled: bool, rows: &[IngestedFile]) -> String {
             format!("{icon} {} — {}", r.name, r.result)
         })
         .collect();
-    format!("File drop is {state}; last {}:\n{}", rows.len(), lines.join("\n"))
+    format!(
+        "File drop is {state}; last {}:\n{}",
+        rows.len(),
+        lines.join("\n")
+    )
 }
 
 #[cfg(test)]

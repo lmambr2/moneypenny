@@ -300,8 +300,26 @@ async fn main() {
         .ok()
         .as_deref()
         .and_then(|raw| mp_http::parse_handset_bind(raw, addr));
-    let http = tokio::spawn(async move {
-        if let Err(e) = mp_http::serve_with_handset(state, addr, handset_bind).await {
+    let shutdown = mp_http::CancellationToken::new();
+    let http_stop = shutdown.clone();
+    let ts_stop = shutdown.clone();
+    tokio::spawn(async move {
+        mp_http::wait_for_shutdown_signal().await;
+        shutdown.cancel();
+        // TeamSpeak disconnect can block a worker past the point where
+        // `timeout` can fire, and the user manager's stop budget is 10s.
+        // Exit before systemd SIGKILLs. A clean return from main ends the
+        // process first and does not wait for this thread.
+        let _ = std::thread::Builder::new()
+            .name("mp-shutdown".into())
+            .spawn(|| {
+                std::thread::sleep(Duration::from_secs(7));
+                warn!("shutdown budget elapsed; exiting");
+                std::process::exit(0);
+            });
+    });
+    let mut http = tokio::spawn(async move {
+        if let Err(e) = mp_http::serve_until(state, addr, handset_bind, http_stop).await {
             error!(error = %e, "http server");
         }
     });
@@ -325,10 +343,23 @@ async fn main() {
         follow,
         config.playback_ban_protected_artists.clone(),
         Arc::clone(&config),
+        ts_stop,
     )
     .await;
 
-    let _ = http.await;
+    // Dropping the JoinHandle detaches the server. Abort it if graceful
+    // shutdown is still holding a connection when the stop budget ends.
+    tokio::select! {
+        joined = &mut http => {
+            if let Err(e) = joined {
+                warn!(error = %e, "http task");
+            }
+        }
+        _ = tokio::time::sleep(Duration::from_secs(3)) => {
+            http.abort();
+            warn!("http shutdown still running; aborting");
+        }
+    }
 }
 
 async fn start_teamspeak(
@@ -345,6 +376,7 @@ async fn start_teamspeak(
     follow: Arc<mp_http::FollowRuntime>,
     protected_artists: Vec<String>,
     bot_config: Arc<mp_config::BotConfig>,
+    shutdown: mp_http::CancellationToken,
 ) {
     #[cfg(feature = "ts6")]
     {
@@ -391,6 +423,8 @@ async fn start_teamspeak(
                     Arc::new(HttpQuerySession { client }) as Arc<dyn mp_http::SessionQuery>
                 }),
             ));
+            // Shutdown still needs the radio handle after the loop takes its own.
+            let radio_stop = Arc::clone(&radio);
             let loop_ = bot::BotLoop::new(
                 Arc::clone(&session),
                 Arc::clone(&station),
@@ -444,11 +478,23 @@ async fn start_teamspeak(
                         }
                     }
                 }) => {}
+                _ = shutdown.cancelled() => {}
             }
+            info!("shutdown: stopping playback");
+            let mut cfg = radio_stop.config();
+            cfg.enabled = false;
+            radio_stop.apply(cfg);
+            station.player.stop();
+            station.queue.lock().expect("queue").clear();
+            // Cap the wait. disconnect() may ignore cancellation once it is
+            // inside the client; the 7s process exit is the backstop.
+            let _ = tokio::time::timeout(Duration::from_secs(3), session.close()).await;
+            info!("shutdown: playback stopped, teamspeak closed");
             return;
         }
         let _ = (voice, radio, roast, speech, follow);
         info!("TS6_HOST empty — HTTP only (no TeamSpeak)");
+        shutdown.cancelled().await;
     }
     #[cfg(not(feature = "ts6"))]
     {
@@ -457,6 +503,7 @@ async fn start_teamspeak(
             follow, bot_config,
         );
         info!("ts session: mock (built without ts6 feature)");
+        shutdown.cancelled().await;
     }
 }
 

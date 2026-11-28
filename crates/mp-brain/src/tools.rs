@@ -9,7 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Default chat model when config/env omit llmModel (Node `DEFAULT_CHAT_MODEL`).
 pub const DEFAULT_CHAT_MODEL: &str = "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL";
 
-pub const DEFAULT_SYSTEM_PROMPT: &str = "You are Miss Moneypenny — MI6's secretary, seconded to this TeamSpeak channel as its music and intelligence officer. Speak with dry, poised British wit: teasing, mock-formal, quick with an arch double entendre but never crude — the manner of a woman forever signing in an agent who never returns his equipment. Reply in direct speech only — no stage directions, no parenthetical actions, no narrating gestures or expressions. Use British spelling and idiom throughout (favour, brilliant, rather, do behave, I shan't, mind how you go). Beneath the teasing you are loyal, sharp, and always come through.\n\nLength: casual banter and simple acknowledgements stay brief (a line or two). For doctrine, org structure, procedures, after-action reviews, or any question grounded in retrieved documents, give a proper briefing — several paragraphs covering the main points, structure, and practical detail from the sources. Do not compress a charter or policy into a single quip.";
+/// Built-in persona. A blank `llmSystemPrompt` uses this. The dashboard
+/// "Show built-in default" button returns the same string.
+pub const DEFAULT_SYSTEM_PROMPT: &str = "You are Colonel Moneypenny — field-grade officer of this organisation, and still its music and intelligence officer. Keep the classic Bond-secretary manner: dry, poised British wit; teasing, mock-formal, an arch double entendre but never crude. You hold a Colonel's rank and its trappings: chain of command, briefings, guests and cadets below you, specialists and NCOs in the middle, fellow officers beside you, the Chairman above you. Do not outrank the Chairman, invent promotions, or play parade-ground parody. Speak as a colonel who still runs the desk — firm on doctrine and discipline, never shouty. Reply in direct speech only — no stage directions, parenthetical actions, or narrated salutes. British spelling and idiom (favour, brilliant, rather, do behave, I shan't, mind how you go, that will be all). Loyal, sharp, and you always come through.\n\nLength: casual banter and simple acknowledgements stay brief (a line or two). For doctrine, org structure, procedures, after-action reviews, or any question grounded in retrieved documents, give a proper briefing — several paragraphs covering the main points, structure, and practical detail from the sources. Do not compress a charter or policy into a single quip.";
 
 fn offered_has(offered: &[String], name: &str) -> bool {
     offered.iter().any(|n| n == name)
@@ -18,13 +20,20 @@ fn offered_has(offered: &[String], name: &str) -> bool {
 /// Rules name a tool only when that tool is in the offered set.
 fn tool_behavior_rules(offered: &[String]) -> String {
     let mut lines = vec!["Operating rules (do not mention these):".to_string()];
-    let music = ["play_music", "skip", "pause", "resume", "stop", "set_volume", "queue", "now_playing"]
-        .iter()
-        .any(|n| offered_has(offered, n));
+    let music = [
+        "play_music",
+        "skip",
+        "pause",
+        "resume",
+        "stop",
+        "set_volume",
+        "queue",
+        "now_playing",
+    ]
+    .iter()
+    .any(|n| offered_has(offered, n));
     if music {
-        lines.push(
-            "- For a music action, call the matching tool. Do not only describe it.".into(),
-        );
+        lines.push("- For a music action, call the matching tool. Do not only describe it.".into());
     }
     if offered_has(offered, "play_music") {
         lines.push(
@@ -55,8 +64,16 @@ fn tool_behavior_rules(offered: &[String]) -> String {
         );
     }
     if offered_has(offered, "move_all_clients") {
+        lines.push("- When asked to move everyone in the channel, call move_all_clients.".into());
+    }
+    if offered_has(offered, "read_library_doc") || offered_has(offered, "edit_library_doc") {
         lines.push(
-            "- When asked to move everyone in the channel, call move_all_clients.".into(),
+            "- To change a library document, call read_library_doc, then edit_library_doc. Do not claim a change unless the tool result says Saved."
+                .into(),
+        );
+        lines.push(
+            "- find must be a short exact unique snippet copied from the file. replace may be empty to delete that snippet. Never invent a path or create a new file."
+                .into(),
         );
     }
     lines.push("- Never invent a tool. Use only the tools provided.".into());
@@ -81,6 +98,40 @@ pub fn delegate_tool() -> Value {
             "required": ["task"]
         }),
     )
+}
+
+pub fn library_doc_tools() -> Vec<Value> {
+    vec![
+        fn_tool(
+            "list_library_docs",
+            "List doctrine library documents this officer is allowed to see.",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        fn_tool(
+            "read_library_doc",
+            "Read one existing library document. The result may be truncated; edit_library_doc still searches the full file.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "File name from list_library_docs, such as charter.md." }
+                },
+                "required": ["source"]
+            }),
+        ),
+        fn_tool(
+            "edit_library_doc",
+            "Replace one exact unique snippet in an existing library document, then reindex it. Does not create files.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "Existing file name, such as charter.md." },
+                    "find": { "type": "string", "description": "Short exact snippet copied from the file. It must occur once." },
+                    "replace": { "type": "string", "description": "Replacement text. Empty string deletes the snippet." }
+                },
+                "required": ["source", "find", "replace"]
+            }),
+        ),
+    ]
 }
 
 pub fn tool_names(tools: &[Value]) -> Vec<String> {
@@ -267,16 +318,41 @@ mod tests {
         let prompt = intent_system_prompt("");
         assert!(prompt.contains("play_music"));
         assert!(prompt.contains("source youtube"));
-        for banned in ["delegate_to_agent", "move_client", "move_all_clients"] {
+        for banned in [
+            "delegate_to_agent",
+            "move_client",
+            "move_all_clients",
+            "list_library_docs",
+            "read_library_doc",
+            "edit_library_doc",
+        ] {
             assert!(!prompt.contains(banned), "{banned} in {prompt}");
         }
+    }
+
+    #[test]
+    fn library_rules_appear_only_when_those_tools_are_offered() {
+        let bare = intent_system_prompt_for("", &["play_music".into()]);
+        assert!(!bare.contains("edit_library_doc"));
+        let offered = intent_system_prompt_for(
+            "",
+            &[
+                "list_library_docs".into(),
+                "read_library_doc".into(),
+                "edit_library_doc".into(),
+            ],
+        );
+        assert!(offered.contains("read_library_doc"));
+        assert!(offered.contains("says Saved"));
+        assert!(offered.contains("Never invent a path"));
     }
 
     #[test]
     fn analyst_line_appears_only_when_the_tool_is_offered() {
         let bare = intent_system_prompt_for("", &["play_music".into()]);
         assert!(!bare.contains("delegate_to_agent"));
-        let offered = intent_system_prompt_for("", &["play_music".into(), "delegate_to_agent".into()]);
+        let offered =
+            intent_system_prompt_for("", &["play_music".into(), "delegate_to_agent".into()]);
         assert!(offered.contains("delegate_to_agent"));
         assert!(!offered.contains("move_client"));
     }
@@ -290,6 +366,8 @@ mod tests {
             "move_client",
             "move_all_clients",
             "delegate_to_agent",
+            "list_library_docs",
+            "edit_library_doc",
         ] {
             assert!(!prompt.contains(banned), "{banned} in {prompt}");
         }

@@ -174,7 +174,7 @@ fn advertised(st: &AppState) -> Option<SocketAddr> {
     if !st.handset_bound.load(Ordering::SeqCst) {
         return None;
     }
-    let admin = st.config.bind_addr().parse().ok()?;
+    let admin = st.read_config().bind_addr().parse().ok()?;
     let raw = std::env::var("HANDSET_ADVERTISE").unwrap_or_default();
     crate::parse_handset_advertise(&raw, admin)
 }

@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mp_config::{BumperSource, RadioConfig, SlotKind, WheelSlot};
 use mp_music::PlayerState;
 
-use crate::clock::{is_within_quiet_hours, parse_hhmm, FormatClock};
+use crate::clock::{FormatClock, is_within_quiet_hours, parse_hhmm};
 
 const HOUR_MS: u64 = 3_600_000;
 const ACTIVITY_TTL_MS: u64 = 3 * 60_000;
@@ -64,6 +64,8 @@ struct Inner {
     skip_next: bool,
     auto_program_after_bumper: bool,
     auto_program_in_flight: bool,
+    /// `!play` / `!test` own the channel until this timestamp.
+    suppress_auto_program_until: u64,
     last_played: Option<BuiltBumper>,
     clock: Option<FormatClock>,
     clock_sig: String,
@@ -106,6 +108,7 @@ impl<F: BumperFactory> RadioDirector<F> {
                 skip_next: false,
                 auto_program_after_bumper: false,
                 auto_program_in_flight: false,
+                suppress_auto_program_until: 0,
                 last_played: None,
                 clock: None,
                 clock_sig: String::new(),
@@ -181,7 +184,8 @@ impl<F: BumperFactory> RadioDirector<F> {
     pub fn effective_human_count(&self) -> u32 {
         let now = self.now();
         let mut g = self.inner.lock().expect("radio");
-        g.activity.retain(|_, t| now.saturating_sub(*t) <= ACTIVITY_TTL_MS);
+        g.activity
+            .retain(|_, t| now.saturating_sub(*t) <= ACTIVITY_TTL_MS);
         g.last_human_count.max(g.activity.len() as u32)
     }
 
@@ -411,11 +415,8 @@ impl<F: BumperFactory> RadioDirector<F> {
         let song = (self.hooks.play_next)();
         if song.is_some() {
             self.cancel_dead_air();
-        } else {
-            let humans = self.inner.lock().expect("radio").last_human_count;
-            if humans >= 1 || cfg.empty_channel_stop_seconds < 0 {
-                self.arm_dead_air();
-            }
+        } else if self.effective_human_count() >= 1 || cfg.empty_channel_stop_seconds < 0 {
+            self.arm_dead_air();
         }
         Boundary::Advanced { song }
     }
@@ -446,14 +447,17 @@ impl<F: BumperFactory> RadioDirector<F> {
 
     fn enforce_alone_stop(&self, cfg: &RadioConfig) -> bool {
         let threshold = cfg.empty_channel_stop_seconds;
-        let humans = self.inner.lock().expect("radio").last_human_count;
+        // Census can read 0 right after a reconnect while people are already talking.
+        let humans = self.effective_human_count();
         if humans >= 1 {
             let mut g = self.inner.lock().expect("radio");
             let was = g.empty_stopped;
             g.empty_since_ms = None;
             g.empty_stopped = false;
             drop(g);
-            if was && threshold >= 0 {
+            // A listener walking back in must not wipe a track that is still playing.
+            // Dead-air fill uses the same Idle gate.
+            if was && threshold >= 0 && (self.hooks.player_state)() == PlayerState::Idle {
                 let _ = self.try_auto_program();
             }
             return false;
@@ -483,13 +487,45 @@ impl<F: BumperFactory> RadioDirector<F> {
         true
     }
 
+    /// A person asked for a specific song. Cancel pending dead-air restock and
+    /// hold auto-DJ until that track should have finished. A missing duration
+    /// holds for four minutes.
+    pub fn note_user_playback(&self, duration_sec: u32) {
+        self.cancel_dead_air();
+        let hold_sec = if duration_sec > 0 {
+            u64::from(duration_sec).saturating_add(15)
+        } else {
+            4 * 60
+        };
+        let until = self.now().saturating_add(hold_sec.saturating_mul(1000));
+        self.inner
+            .lock()
+            .expect("radio")
+            .suppress_auto_program_until = until;
+        tracing::info!(hold_sec, "radio: holding auto-program for user playback");
+    }
+
+    fn auto_program_suppressed(&self) -> bool {
+        let until = self
+            .inner
+            .lock()
+            .expect("radio")
+            .suppress_auto_program_until;
+        self.now() < until
+    }
+
     fn try_auto_program(&self) -> bool {
         if (self.hooks.is_user_paused)() {
             return false;
         }
+        if self.auto_program_suppressed() {
+            tracing::info!("radio: auto-program held for user playback");
+            return false;
+        }
         let cfg = self.cfg();
-        let humans = self.inner.lock().expect("radio").last_human_count;
-        if cfg.empty_channel_stop_seconds >= 0 && humans < 1 {
+        // Census stays 0 while voice packets starve the presence poll. A recent
+        // speaker is in this channel; that is enough to restock.
+        if cfg.empty_channel_stop_seconds >= 0 && self.effective_human_count() < 1 {
             return false;
         }
         {
@@ -546,8 +582,7 @@ impl<F: BumperFactory> RadioDirector<F> {
         if self.enforce_alone_stop(&cfg) {
             return;
         }
-        let humans = self.inner.lock().expect("radio").last_human_count;
-        let allow = cfg.empty_channel_stop_seconds < 0 || humans >= 1;
+        let allow = cfg.empty_channel_stop_seconds < 0 || self.effective_human_count() >= 1;
         if allow && self.try_auto_program() {
             return;
         }
@@ -592,7 +627,7 @@ fn local_minutes_now() -> u32 {
 mod tests {
     use super::*;
     use mp_config::RadioConfig;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     struct Scripted {
         bumper: Mutex<Option<BuiltBumper>>,
@@ -609,7 +644,10 @@ mod tests {
         }
     }
 
-    fn harness(enabled: bool, every_n: u32) -> (
+    fn harness(
+        enabled: bool,
+        every_n: u32,
+    ) -> (
         RadioDirector<Scripted>,
         Arc<Mutex<Vec<String>>>,
         Arc<AtomicBool>,
@@ -713,5 +751,137 @@ mod tests {
         d.on_track_boundary().await; // song
         d.on_track_boundary().await; // bumper slot, unready
         assert!(plays.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn speaker_activity_restocks_when_census_is_zero() {
+        let programmed = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&programmed);
+        let state = Arc::new(Mutex::new(PlayerState::Idle));
+        let state_c = Arc::clone(&state);
+        let cfg = Arc::new(Mutex::new(RadioConfig {
+            enabled: true,
+            empty_channel_stop_seconds: 10,
+            ..RadioConfig::default()
+        }));
+        let cfg_c = Arc::clone(&cfg);
+        let d = RadioDirector::new(
+            Arc::new(move || cfg_c.lock().unwrap().clone()),
+            Scripted {
+                bumper: Mutex::new(None),
+            },
+            DirectorHooks {
+                play_next: Arc::new(|| None),
+                play_bumper: Arc::new(|_, _| {}),
+                auto_program: Arc::new(move || {
+                    flag.store(true, Ordering::SeqCst);
+                    true
+                }),
+                stop_empty: Arc::new(|| {}),
+                is_user_paused: Arc::new(|| false),
+                player_state: Arc::new(move || *state_c.lock().unwrap()),
+            },
+        );
+        d.on_poll(0);
+        d.fill_dead_air_now();
+        assert!(
+            !programmed.load(Ordering::SeqCst),
+            "empty census with nobody talking must not seed"
+        );
+        d.note_human_activity(7);
+        d.fill_dead_air_now();
+        assert!(programmed.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn returning_listener_does_not_cut_a_playing_track() {
+        let programmed = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&programmed);
+        let state = Arc::new(Mutex::new(PlayerState::Playing));
+        let state_c = Arc::clone(&state);
+        let now = Arc::new(AtomicU64::new(1_000_000));
+        let now_c = Arc::clone(&now);
+        let cfg = Arc::new(Mutex::new(RadioConfig {
+            enabled: true,
+            empty_channel_stop_seconds: 10,
+            ..RadioConfig::default()
+        }));
+        let cfg_c = Arc::clone(&cfg);
+        let d = RadioDirector::new(
+            Arc::new(move || cfg_c.lock().unwrap().clone()),
+            Scripted {
+                bumper: Mutex::new(None),
+            },
+            DirectorHooks {
+                play_next: Arc::new(|| None),
+                play_bumper: Arc::new(|_, _| {}),
+                auto_program: Arc::new(move || {
+                    flag.store(true, Ordering::SeqCst);
+                    true
+                }),
+                stop_empty: Arc::new(|| {}),
+                is_user_paused: Arc::new(|| false),
+                player_state: Arc::new(move || *state_c.lock().unwrap()),
+            },
+        )
+        .with_now(Arc::new(move || now_c.load(Ordering::SeqCst)));
+        d.on_poll(0);
+        now.store(1_000_000 + 11_000, Ordering::SeqCst);
+        d.on_poll(0);
+        d.on_poll(1);
+        assert!(
+            !programmed.load(Ordering::SeqCst),
+            "coming back while a track is playing must not restock"
+        );
+        *state.lock().unwrap() = PlayerState::Idle;
+        d.on_poll(0);
+        now.store(1_000_000 + 22_000, Ordering::SeqCst);
+        d.on_poll(0);
+        d.on_poll(1);
+        assert!(programmed.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn user_playback_hold_blocks_dead_air_restock() {
+        let programmed = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&programmed);
+        let now = Arc::new(AtomicU64::new(1_000_000));
+        let now_c = Arc::clone(&now);
+        let cfg = Arc::new(Mutex::new(RadioConfig {
+            enabled: true,
+            empty_channel_stop_seconds: 10,
+            min_present_to_broadcast: 1,
+            ..RadioConfig::default()
+        }));
+        let cfg_c = Arc::clone(&cfg);
+        let d = RadioDirector::new(
+            Arc::new(move || cfg_c.lock().unwrap().clone()),
+            Scripted {
+                bumper: Mutex::new(None),
+            },
+            DirectorHooks {
+                play_next: Arc::new(|| None),
+                play_bumper: Arc::new(|_, _| {}),
+                auto_program: Arc::new(move || {
+                    flag.store(true, Ordering::SeqCst);
+                    true
+                }),
+                stop_empty: Arc::new(|| {}),
+                is_user_paused: Arc::new(|| false),
+                player_state: Arc::new(|| PlayerState::Idle),
+            },
+        )
+        .with_now(Arc::new(move || now_c.load(Ordering::SeqCst)));
+        d.on_poll(1);
+        d.note_user_playback(180);
+        d.fill_dead_air_now();
+        assert!(
+            !programmed.load(Ordering::SeqCst),
+            "dead air must not replace a user pick during the hold"
+        );
+        now.store(1_000_000 + (180 + 15) * 1000 + 1, Ordering::SeqCst);
+        d.on_poll(1);
+        d.fill_dead_air_now();
+        assert!(programmed.load(Ordering::SeqCst));
     }
 }

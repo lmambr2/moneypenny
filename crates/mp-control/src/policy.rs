@@ -14,6 +14,8 @@ pub const HARNESS_SAFE_TOOLS: &[&str] = &[
     "pause",
     "resume",
     "now_playing",
+    "list_library_docs",
+    "read_library_doc",
 ];
 
 pub const HARNESS_DANGEROUS_TOOLS: &[&str] = &[
@@ -22,6 +24,7 @@ pub const HARNESS_DANGEROUS_TOOLS: &[&str] = &[
     "move_client",
     "move_all_clients",
     "delegate_to_agent",
+    "edit_library_doc",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,7 +59,7 @@ pub fn decide_harness_tool(
             format!("tool not allowed: {tool_name}")
         } else {
             format!(
-                "tool blocked by harness safety policy (enable allowDangerous for stop/vol/move): {tool_name}"
+                "tool blocked by harness safety policy (enable allowDangerous for stop/vol/move/library edit): {tool_name}"
             )
         };
         return HarnessToolDecision::Block { reason };
@@ -98,6 +101,28 @@ mod tests {
     fn stop_ok_with_dangerous() {
         assert_eq!(
             decide_harness_tool("stop", false, true, None),
+            HarnessToolDecision::Execute
+        );
+    }
+
+    #[test]
+    fn library_read_is_safe_and_edit_needs_dangerous() {
+        assert_eq!(
+            decide_harness_tool("read_library_doc", false, false, None),
+            HarnessToolDecision::Execute
+        );
+        assert_eq!(
+            decide_harness_tool("list_library_docs", false, false, None),
+            HarnessToolDecision::Execute
+        );
+        match decide_harness_tool("edit_library_doc", false, false, None) {
+            HarnessToolDecision::Block { reason } => {
+                assert!(reason.contains("allowDangerous"));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            decide_harness_tool("edit_library_doc", false, true, None),
             HarnessToolDecision::Execute
         );
     }

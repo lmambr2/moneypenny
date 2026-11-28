@@ -3,11 +3,11 @@
 
 //! Frozen OpenAPI snapshot of Node `API_OPERATIONS` at ec464a2.
 
+use axum::Json;
 use axum::http::header;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const GOLDEN: &str = include_str!("../fixtures/openapi-operations.json");
 
@@ -37,9 +37,7 @@ pub async fn docs_html() -> impl IntoResponse {
 pub fn build_document() -> Value {
     let mut paths = serde_json::Map::new();
     for op in operations() {
-        let item = paths
-            .entry(op.path.clone())
-            .or_insert_with(|| json!({}));
+        let item = paths.entry(op.path.clone()).or_insert_with(|| json!({}));
         if let Some(obj) = item.as_object_mut() {
             obj.insert(
                 op.method.to_ascii_lowercase(),
@@ -78,10 +76,17 @@ mod tests {
     fn golden_has_health_and_turn() {
         let ops = operations();
         assert!(ops.len() >= 100, "got {}", ops.len());
-        assert!(ops.iter().any(|o| o.method == "GET" && o.path == "/api/health"));
-        assert!(ops.iter().any(|o| o.method == "POST" && o.path == "/v1/turn"));
-        assert!(ops
-            .iter()
-            .any(|o| o.method == "GET" && o.path == "/api/session/needs-setup"));
+        assert!(
+            ops.iter()
+                .any(|o| o.method == "GET" && o.path == "/api/health")
+        );
+        assert!(
+            ops.iter()
+                .any(|o| o.method == "POST" && o.path == "/v1/turn")
+        );
+        assert!(
+            ops.iter()
+                .any(|o| o.method == "GET" && o.path == "/api/session/needs-setup")
+        );
     }
 }

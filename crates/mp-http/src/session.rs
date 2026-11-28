@@ -3,18 +3,18 @@
 
 //! Session cookie API — `/api/session/*`. First-account-is-admin.
 
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::{header, Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::authz::AdminUser;
 
-use crate::{clear_session_cookie, set_session_cookie, AppState};
+use crate::{AppState, clear_session_cookie, set_session_cookie};
 
 pub use mp_config::SESSION_COOKIE_NAME;
 
@@ -47,7 +47,10 @@ pub async fn needs_setup(State(st): State<AppState>) -> impl IntoResponse {
         Ok(n) => Json(json!({ "needsSetup": n == 0 })).into_response(),
         Err(e) => {
             tracing::error!(error = %e, "needs-setup");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"internal error"})))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error":"internal error"})),
+            )
                 .into_response()
         }
     }
@@ -63,13 +66,19 @@ pub async fn setup(State(st): State<AppState>, req: Request<Body>) -> Response {
         Err(r) => return r,
     };
     if !valid_username(&body.username) || !valid_password(&body.password) {
-        return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid username or password"})))
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid username or password"})),
+        )
             .into_response();
     }
     match st.db.user_count() {
         Ok(0) => {}
         Ok(_) => {
-            return (StatusCode::CONFLICT, Json(json!({"error":"already initialized"})))
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({"error":"already initialized"})),
+            )
                 .into_response();
         }
         Err(e) => {
@@ -77,7 +86,11 @@ pub async fn setup(State(st): State<AppState>, req: Request<Body>) -> Response {
             return internal();
         }
     }
-    match st.db.users().create_first_user(&body.username, &body.password) {
+    match st
+        .db
+        .users()
+        .create_first_user(&body.username, &body.password)
+    {
         Ok(Some(user)) => match st.db.sessions().create_session(&user.id) {
             Ok((token, _)) => {
                 st.db.audit().record(
@@ -100,7 +113,10 @@ pub async fn setup(State(st): State<AppState>, req: Request<Body>) -> Response {
                 internal()
             }
         },
-        Ok(None) => (StatusCode::CONFLICT, Json(json!({"error":"already initialized"})))
+        Ok(None) => (
+            StatusCode::CONFLICT,
+            Json(json!({"error":"already initialized"})),
+        )
             .into_response(),
         Err(e) => {
             tracing::error!(error = %e, "setup");
@@ -119,7 +135,11 @@ pub async fn login(State(st): State<AppState>, req: Request<Body>) -> Response {
         Err(r) => return r,
     };
     if body.username.is_empty() || body.password.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid request"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid request"})),
+        )
+            .into_response();
     }
     let user = match st.db.users().find_by_username(&body.username) {
         Ok(u) => u,
@@ -138,7 +158,10 @@ pub async fn login(State(st): State<AppState>, req: Request<Body>) -> Response {
     };
     if !ok {
         sleep(Duration::from_millis(FAILED_LOGIN_DELAY_MS)).await;
-        return (StatusCode::UNAUTHORIZED, Json(json!({"error":"invalid credentials"})))
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error":"invalid credentials"})),
+        )
             .into_response();
     }
     let user = user.unwrap();
@@ -204,7 +227,10 @@ pub async fn change_password(State(st): State<AppState>, req: Request<Body>) -> 
         .or(body.current_password)
         .unwrap_or_default();
     let Some(u) = st.db.users().find_by_id(&sess.user_id).ok().flatten() else {
-        return (StatusCode::UNAUTHORIZED, Json(json!({"error":"invalid credentials"})))
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error":"invalid credentials"})),
+        )
             .into_response();
     };
     let ok = st
@@ -214,11 +240,18 @@ pub async fn change_password(State(st): State<AppState>, req: Request<Body>) -> 
         .unwrap_or(false);
     if !ok {
         sleep(Duration::from_millis(FAILED_LOGIN_DELAY_MS)).await;
-        return (StatusCode::UNAUTHORIZED, Json(json!({"error":"invalid credentials"})))
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error":"invalid credentials"})),
+        )
             .into_response();
     }
     if !valid_password(&body.new_password) {
-        return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid request"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid request"})),
+        )
+            .into_response();
     }
     if let Err(e) = st.db.users().change_password(&u.id, &body.new_password) {
         tracing::error!(error = %e, "change-password");
@@ -296,7 +329,7 @@ fn is_secure(req: &Request<Body>) -> bool {
 }
 
 fn client_ip(req: &Request<Body>, st: &AppState) -> String {
-    if !st.config.trust_proxy {
+    if !st.read_config().trust_proxy {
         return "direct".into();
     }
     if let Some(xff) = req
@@ -304,7 +337,7 @@ fn client_ip(req: &Request<Body>, st: &AppState) -> String {
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
     {
-        let hops = st.config.trust_proxy_hops.max(1) as usize;
+        let hops = st.read_config().trust_proxy_hops.max(1) as usize;
         let parts: Vec<&str> = xff.split(',').map(|s| s.trim()).collect();
         if !parts.is_empty() {
             let idx = parts.len().saturating_sub(hops);

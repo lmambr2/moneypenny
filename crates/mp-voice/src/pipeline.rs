@@ -8,14 +8,14 @@ use std::future::Future;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use mp_config::{VoiceConfig, MIN_LISTEN_WINDOW_MS};
+use mp_config::{MIN_LISTEN_WINDOW_MS, VoiceConfig};
 
 use crate::speak::text_to_spoken;
 use crate::tts::HttpTtsClient;
 use crate::watchword::{
-    extract_watchword_command, is_actionable_voice_command, is_playback_control_reply,
-    is_playback_start_reply, normalize_voice_command, should_speak_voice_reply, voice_spoken_ack,
-    WatchwordOptions,
+    PreparedVoiceCommand, WatchwordOptions, extract_watchword_command, is_actionable_voice_command,
+    is_playback_control_reply, normalize_voice_command, prepare_voice_command,
+    should_speak_voice_reply, voice_spoken_line,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -71,11 +71,7 @@ impl VoicePipeline {
 
     pub fn is_armed(&self, client_id: i32) -> bool {
         self.expire_arms();
-        self.armed
-            .lock()
-            .expect("arm")
-            .get(&client_id)
-            .is_some()
+        self.armed.lock().expect("arm").get(&client_id).is_some()
     }
 
     pub fn any_armed(&self) -> bool {
@@ -103,20 +99,26 @@ impl VoicePipeline {
         g.retain(|_, at| at.elapsed() < self.listen_window);
     }
 
-    pub fn gate(&self, transcript: &str, speaker_client_id: i32, opts: &TranscriptOpts) -> VoiceGate {
+    pub fn gate(
+        &self,
+        transcript: &str,
+        speaker_client_id: i32,
+        opts: &TranscriptOpts,
+    ) -> VoiceGate {
         let trimmed = transcript.trim();
         if trimmed.is_empty() {
             return VoiceGate::Ignored;
         }
         if !self.require_watchword {
             let cmd = normalize_voice_command(trimmed);
-            if cmd.is_empty() {
-                return VoiceGate::Ignored;
-            }
-            return VoiceGate::Command(cmd);
+            return match prepare_voice_command(&cmd) {
+                PreparedVoiceCommand::Dispatch(cmd) if !cmd.is_empty() => VoiceGate::Command(cmd),
+                _ => VoiceGate::Ignored,
+            };
         }
 
-        let armed = self.is_armed(speaker_client_id);
+        // Anyone in the channel can finish a command opened by anyone else.
+        let armed = self.any_armed();
         let text_wake = opts.text_wake_fallback.unwrap_or(self.text_wake_fallback);
         let ww = extract_watchword_command(
             trimmed,
@@ -130,30 +132,62 @@ impl VoicePipeline {
         let post_wake = opts.kws_detected || armed;
 
         if ww.matched && !ww.command.is_empty() {
-            if post_wake && !is_actionable_voice_command(&ww.command, &self.aliases) {
+            let command = match prepare_voice_command(&ww.command) {
+                PreparedVoiceCommand::Hold => {
+                    self.arm(speaker_client_id);
+                    tracing::info!(speaker_client_id, transcript = trimmed, command = %ww.command, "Voice: post-wake noise — holding");
+                    return VoiceGate::WatchwordOnly;
+                }
+                PreparedVoiceCommand::Dispatch(command) => command,
+            };
+            if post_wake && !is_actionable_voice_command(&command, &self.aliases) {
                 self.arm(speaker_client_id);
-                tracing::info!(transcript = trimmed, command = %ww.command, "Voice: post-wake noise — holding");
+                tracing::info!(speaker_client_id, transcript = trimmed, command = %command, "Voice: post-wake noise — holding");
                 return VoiceGate::WatchwordOnly;
             }
-            tracing::info!(transcript = trimmed, command = %ww.command, "Voice: watchword matched");
-            return VoiceGate::Command(ww.command);
+            tracing::info!(speaker_client_id, transcript = trimmed, command = %command, "Voice: watchword matched");
+            return VoiceGate::Command(command);
         }
         if ww.matched {
             self.arm(speaker_client_id);
-            tracing::info!(transcript = trimmed, "Voice: watchword only — armed");
+            tracing::info!(
+                speaker_client_id,
+                transcript = trimmed,
+                "Voice: watchword only — armed"
+            );
             return VoiceGate::WatchwordOnly;
         }
         if armed {
             let route = normalize_voice_command(trimmed);
+            let route = match prepare_voice_command(&route) {
+                PreparedVoiceCommand::Dispatch(route) => route,
+                PreparedVoiceCommand::Hold => {
+                    self.arm(speaker_client_id);
+                    tracing::info!(
+                        speaker_client_id,
+                        transcript = trimmed,
+                        "Voice: armed — waiting for command"
+                    );
+                    return VoiceGate::WatchwordOnly;
+                }
+            };
             if !is_actionable_voice_command(&route, &self.aliases) {
                 self.arm(speaker_client_id);
-                tracing::info!(transcript = trimmed, "Voice: armed — waiting for command");
+                tracing::info!(
+                    speaker_client_id,
+                    transcript = trimmed,
+                    "Voice: armed — waiting for command"
+                );
                 return VoiceGate::WatchwordOnly;
             }
-            tracing::info!(transcript = trimmed, command = %route, "Voice: armed follow-up");
+            tracing::info!(speaker_client_id, transcript = trimmed, command = %route, "Voice: armed follow-up");
             return VoiceGate::Command(route);
         }
-        tracing::info!(transcript = trimmed, "Voice: ignored — not in command window");
+        tracing::info!(
+            speaker_client_id,
+            transcript = trimmed,
+            "Voice: ignored — not in command window"
+        );
         VoiceGate::Ignored
     }
 
@@ -181,9 +215,7 @@ impl VoicePipeline {
             },
             VoiceGate::Command(cmd) => {
                 let reply = execute(cmd.clone()).await;
-                if is_playback_start_reply(reply.as_deref())
-                    || is_playback_control_reply(reply.as_deref())
-                {
+                if is_playback_control_reply(reply.as_deref()) {
                     self.disarm(speaker_client_id);
                 } else if reply.is_some() {
                     self.arm(speaker_client_id);
@@ -195,30 +227,27 @@ impl VoicePipeline {
                 if should_speak && self.respond_with_voice {
                     if let Some(tts) = tts {
                         if let Some(ref r) = reply {
-                            let spoken = voice_spoken_ack(Some(r)).map(|s| s.to_string());
+                            let spoken = voice_spoken_line(Some(r));
                             let chunks = spoken
                                 .map(|s| vec![s])
                                 .unwrap_or_else(|| crate::speak::tts_speak_chunks(r));
-                            if !is_playback_start_reply(Some(r)) {
-                                let mut audio_all = Vec::new();
-                                for tts_text in chunks {
-                                    if tts_text.is_empty()
-                                        || !should_speak_voice_reply(&tts_text, 900)
-                                    {
-                                        continue;
-                                    }
-                                    match tts.synthesize(&tts_text).await {
-                                        Ok((audio, _)) => audio_all.extend(audio),
-                                        Err(e) => {
-                                            tracing::warn!(error = %e, "Voice: TTS failed");
-                                            break;
-                                        }
+                            let mut audio_all = Vec::new();
+                            for tts_text in chunks {
+                                if tts_text.is_empty() || !should_speak_voice_reply(&tts_text, 900)
+                                {
+                                    continue;
+                                }
+                                match tts.synthesize(&tts_text).await {
+                                    Ok((audio, _)) => audio_all.extend(audio),
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "Voice: TTS failed");
+                                        break;
                                     }
                                 }
-                                tts_bytes = audio_all.len();
-                                if !audio_all.is_empty() {
-                                    tts_audio = Some(audio_all);
-                                }
+                            }
+                            tts_bytes = audio_all.len();
+                            if !audio_all.is_empty() {
+                                tts_audio = Some(audio_all);
                             }
                         }
                     }
@@ -294,6 +323,53 @@ mod tests {
             .await;
         assert_eq!(seen, "resume");
         assert_eq!(turn.reply.as_deref(), Some("Playback resumed."));
+    }
+
+    #[test]
+    fn now_playing_in_the_same_breath_is_now() {
+        let p = pipe();
+        let opts = TranscriptOpts {
+            text_wake_fallback: Some(true),
+            ..Default::default()
+        };
+        match p.gate("Moneypenny. Now playing.", 7, &opts) {
+            VoiceGate::Command(c) => assert_eq!(c, "now"),
+            other => panic!("expected command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn whats_playing_after_arm_is_now() {
+        let p = pipe();
+        let opts = TranscriptOpts {
+            text_wake_fallback: Some(true),
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.gate("Money penny.", 7, &opts),
+            VoiceGate::WatchwordOnly
+        ));
+        match p.gate("what's playing?", 7, &opts) {
+            VoiceGate::Command(c) => assert_eq!(c, "now"),
+            other => panic!("expected command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn another_speaker_can_use_the_open_window() {
+        let p = pipe();
+        let opts = TranscriptOpts {
+            text_wake_fallback: Some(true),
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.gate("Money penny.", 113, &opts),
+            VoiceGate::WatchwordOnly
+        ));
+        match p.gate("Play Brad Paisley.", 118, &opts) {
+            VoiceGate::Command(c) => assert_eq!(c, "play brad paisley"),
+            other => panic!("expected command, got {other:?}"),
+        }
     }
 
     #[tokio::test]

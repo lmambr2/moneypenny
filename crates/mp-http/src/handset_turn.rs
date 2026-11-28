@@ -185,7 +185,7 @@ async fn handle(st: AppState, user: HandsetUser, body: axum::body::Bytes) -> Res
     }
 
     let tools = handset_tools();
-    let prompt = mp_brain::handset_intent_prompt(&st.config.llm_system_prompt);
+    let prompt = mp_brain::handset_intent_prompt(&st.read_config().llm_system_prompt);
     let Ok(guard) = Arc::clone(&st.handset_flight).try_lock_owned() else {
         return coded(StatusCode::CONFLICT, "handset busy", "BUSY");
     };

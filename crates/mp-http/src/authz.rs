@@ -4,15 +4,15 @@
 //! Cookie auth extractors. Node: `app.use("/api", requireAuth)` on the
 //! protected bundle; admin routes use `requireAdmin` (role === admin).
 
+use axum::Json;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde_json::json;
 
-use crate::session::current_user;
 use crate::AppState;
+use crate::session::current_user;
 use mp_db::UserRole;
 
 #[derive(Clone, Debug)]
@@ -26,7 +26,11 @@ pub struct AuthUser {
 pub struct AdminUser(pub AuthUser);
 
 fn unauth() -> Response {
-    (StatusCode::UNAUTHORIZED, Json(json!({"error":"unauthenticated"}))).into_response()
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({"error":"unauthenticated"})),
+    )
+        .into_response()
 }
 
 fn forbidden() -> Response {
@@ -81,9 +85,10 @@ pub fn bearer_only(headers: &axum::http::HeaderMap) -> bool {
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    !cookie
-        .split(';')
-        .any(|part| part.trim_start().starts_with(&format!("{}=", crate::SESSION_COOKIE_NAME)))
+    !cookie.split(';').any(|part| {
+        part.trim_start()
+            .starts_with(&format!("{}=", crate::SESSION_COOKIE_NAME))
+    })
 }
 
 fn economy_ingest_bearer(parts: &Parts) -> Option<AuthUser> {
@@ -141,7 +146,7 @@ pub fn may_run(st: &AppState, user: &AuthUser, command: &str) -> bool {
     if user.role == UserRole::Admin {
         return true;
     }
-    if !st.config.rights_enabled {
+    if !st.read_config().rights_enabled {
         return true;
     }
     let Some(engine) = st.rights.as_ref() else {

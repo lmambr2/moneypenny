@@ -3,9 +3,9 @@
 
 //! Under-music progressive wake (V1/H4). Pure helpers + admin smoke API.
 
-use mp_config::{effective_duck_volume, VoiceConfig, MIN_LISTEN_WINDOW_MS};
+use mp_config::{MIN_LISTEN_WINDOW_MS, VoiceConfig, effective_duck_volume};
 
-use crate::watchword::{extract_watchword_command, WatchwordOptions};
+use crate::watchword::{WatchwordOptions, extract_watchword_command};
 
 #[derive(Debug, Clone)]
 pub struct UnderMusicConfig {
@@ -128,14 +128,18 @@ pub fn simulate_under_music_turn(
         Some(command.clone())
     } else if armed {
         Some(text.to_string())
-    } else if !match_.matched
-        && regex_transport(text)
-    {
+    } else if !match_.matched && regex_transport(text) {
         Some(text.to_string())
     } else {
         None
     };
-    (match_.matched, command, path, would_duck, fallback.filter(|s| !s.trim().is_empty()))
+    (
+        match_.matched,
+        command,
+        path,
+        would_duck,
+        fallback.filter(|s| !s.trim().is_empty()),
+    )
 }
 
 fn regex_transport(text: &str) -> bool {
@@ -220,7 +224,10 @@ pub fn run_under_music_smoke(cfg: &UnderMusicConfig) -> serde_json::Value {
         let mut reason = None;
         if pass {
             if let Some(inc) = c.expect_command_includes {
-                if !command.to_ascii_lowercase().contains(&inc.to_ascii_lowercase()) {
+                if !command
+                    .to_ascii_lowercase()
+                    .contains(&inc.to_ascii_lowercase())
+                {
                     pass = false;
                     reason = Some(format!("command \"{command}\" missing \"{inc}\""));
                 }

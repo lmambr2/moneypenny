@@ -55,7 +55,11 @@ impl RoastStore<'_> {
 
     pub fn set_grade(&self, id: i64, score: i64, reason: &str) -> Result<()> {
         let score = score.clamp(0, 10);
-        let reason = if reason.len() > 280 { &reason[..280] } else { reason };
+        let reason = if reason.len() > 280 {
+            &reason[..280]
+        } else {
+            reason
+        };
         self.db.with_conn(|conn| {
             conn.execute(
                 "UPDATE roast_quotes SET score = ?1, reason = ?2 WHERE id = ?3",
@@ -151,8 +155,10 @@ impl RoastStore<'_> {
         self.db.with_conn(|conn| {
             let mut n = 0u32;
             for id in ids {
-                n += conn.execute("DELETE FROM roast_quotes WHERE id = ?1", rusqlite::params![id])?
-                    as u32;
+                n += conn.execute(
+                    "DELETE FROM roast_quotes WHERE id = ?1",
+                    rusqlite::params![id],
+                )? as u32;
             }
             Ok(n)
         })

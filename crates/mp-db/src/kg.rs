@@ -130,12 +130,19 @@ impl KgStore<'_> {
         Ok(self
             .search_like(needle, limit.max(50))?
             .into_iter()
-            .filter(|f| is_fact_active_at(f.valid_from.as_deref(), f.valid_until.as_deref(), &ref_date))
+            .filter(|f| {
+                is_fact_active_at(f.valid_from.as_deref(), f.valid_until.as_deref(), &ref_date)
+            })
             .take(limit as usize)
             .collect())
     }
 
-    pub fn search_text(&self, question: &str, as_of: Option<&str>, limit: u32) -> Result<Vec<KgFact>> {
+    pub fn search_text(
+        &self,
+        question: &str,
+        as_of: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<KgFact>> {
         let tokens: Vec<String> = question
             .to_ascii_lowercase()
             .split(|c: char| !c.is_ascii_alphanumeric())
@@ -152,7 +159,9 @@ impl KgStore<'_> {
             return Ok(self
                 .list(limit)?
                 .into_iter()
-                .filter(|f| is_fact_active_at(f.valid_from.as_deref(), f.valid_until.as_deref(), &ref_date))
+                .filter(|f| {
+                    is_fact_active_at(f.valid_from.as_deref(), f.valid_until.as_deref(), &ref_date)
+                })
                 .collect());
         }
         let mut seen = std::collections::HashSet::new();
@@ -162,7 +171,8 @@ impl KgStore<'_> {
                 if !seen.insert(f.id) {
                     continue;
                 }
-                if !is_fact_active_at(f.valid_from.as_deref(), f.valid_until.as_deref(), &ref_date) {
+                if !is_fact_active_at(f.valid_from.as_deref(), f.valid_until.as_deref(), &ref_date)
+                {
                     continue;
                 }
                 hits.push(f);
@@ -267,7 +277,13 @@ pub fn extract_subject(fact: &str) -> String {
     if words.len() >= 2 {
         format!("{} {}", words[0], words[1])
     } else {
-        words.first().copied().unwrap_or(t).chars().take(80).collect()
+        words
+            .first()
+            .copied()
+            .unwrap_or(t)
+            .chars()
+            .take(80)
+            .collect()
     }
 }
 
@@ -308,7 +324,11 @@ pub fn format_kg_record(
     format!("{} | {}", parts.join(" "), fact.trim())
 }
 
-pub fn display_fact_line(fact: &str, valid_from: Option<&str>, valid_until: Option<&str>) -> String {
+pub fn display_fact_line(
+    fact: &str,
+    valid_from: Option<&str>,
+    valid_until: Option<&str>,
+) -> String {
     let mut span = Vec::new();
     if let Some(v) = valid_from.filter(|s| !s.is_empty()) {
         span.push(format!("from {v}"));
@@ -336,10 +356,7 @@ fn pull_flag(text: &mut String, key: &str, mut assign: impl FnMut(String)) {
         }
     }
     let rest = &text[pos + key.len()..];
-    let val: String = rest
-        .chars()
-        .take_while(|c| !c.is_whitespace())
-        .collect();
+    let val: String = rest.chars().take_while(|c| !c.is_whitespace()).collect();
     if val.is_empty() {
         return;
     }
@@ -425,7 +442,14 @@ mod tests {
     fn add_list_forget() {
         let db = Database::open_in_memory().unwrap();
         db.kg()
-            .add("Alice is the fleet commander", None, None, None, None, Some("u1"))
+            .add(
+                "Alice is the fleet commander",
+                None,
+                None,
+                None,
+                None,
+                Some("u1"),
+            )
             .unwrap();
         let rows = db.kg().list(10).unwrap();
         assert_eq!(rows.len(), 1);
@@ -436,8 +460,16 @@ mod tests {
 
     #[test]
     fn validity_window() {
-        assert!(is_fact_active_at(Some("2026-01-01"), Some("2026-12-31"), "2026-06-01"));
-        assert!(!is_fact_active_at(Some("2026-01-01"), Some("2026-03-01"), "2026-06-01"));
+        assert!(is_fact_active_at(
+            Some("2026-01-01"),
+            Some("2026-12-31"),
+            "2026-06-01"
+        ));
+        assert!(!is_fact_active_at(
+            Some("2026-01-01"),
+            Some("2026-03-01"),
+            "2026-06-01"
+        ));
         assert!(is_iso_date("2026-09-07"));
         assert!(!is_iso_date("2026-13-01"));
     }

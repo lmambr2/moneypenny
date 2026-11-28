@@ -15,7 +15,10 @@ pub fn reformat_doctrine_markdown(raw: &str, source_name: &str) -> Option<String
     if should_skip_doctrine_reformat(source_name) {
         return None;
     }
-    let old = raw.replace("\r\n", "\n").trim_start_matches('\u{feff}').to_string();
+    let old = raw
+        .replace("\r\n", "\n")
+        .trim_start_matches('\u{feff}')
+        .to_string();
     let (mut classification, tags, valid_until, body) = split_frontmatter(&old);
     if classification.trim().is_empty() {
         classification = "unclassified".into();

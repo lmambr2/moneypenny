@@ -28,12 +28,7 @@ pub fn chunk_id(source: &str, index: usize) -> String {
     )
 }
 
-pub fn chunk_markdown(
-    source: &str,
-    md: &str,
-    max_chars: usize,
-    overlap: usize,
-) -> Vec<Chunk> {
+pub fn chunk_markdown(source: &str, md: &str, max_chars: usize, overlap: usize) -> Vec<Chunk> {
     let text = md.replace("\r\n", "\n").trim().to_string();
     if text.is_empty() {
         return Vec::new();
@@ -102,15 +97,11 @@ fn size_chunks(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
         let mut end = (start + max_chars).min(chars.len());
         if end < chars.len() {
             let slice: String = chars[start..end].iter().collect();
-            let break_at = [
-                slice.rfind("\n\n"),
-                slice.rfind('\n'),
-                slice.rfind(". "),
-            ]
-            .into_iter()
-            .flatten()
-            .max()
-            .unwrap_or(0);
+            let break_at = [slice.rfind("\n\n"), slice.rfind('\n'), slice.rfind(". ")]
+                .into_iter()
+                .flatten()
+                .max()
+                .unwrap_or(0);
             if break_at > max_chars / 2 {
                 end = start + break_at + 1;
             }
@@ -132,10 +123,7 @@ mod tests {
     fn id_is_deterministic_uuid() {
         let a = chunk_id("doc.md", 0);
         assert_eq!(chunk_id("doc.md", 0), a);
-        assert!(
-            regex_uuid(&a),
-            "{a}"
-        );
+        assert!(regex_uuid(&a), "{a}");
         assert_ne!(chunk_id("doc.md", 0), chunk_id("doc.md", 1));
         assert_ne!(chunk_id("a.md", 0), chunk_id("b.md", 0));
     }
@@ -146,7 +134,9 @@ mod tests {
             && s.as_bytes()[13] == b'-'
             && s.as_bytes()[18] == b'-'
             && s.as_bytes()[23] == b'-'
-            && s.chars().filter(|c| *c != '-').all(|c| c.is_ascii_hexdigit())
+            && s.chars()
+                .filter(|c| *c != '-')
+                .all(|c| c.is_ascii_hexdigit())
     }
 
     #[test]
@@ -163,7 +153,10 @@ mod tests {
         assert!(chunks[0].text.contains("# Doctrine"));
         assert!(chunks[1].text.contains("## Alpha"));
         assert!(chunks[2].text.contains("## Bravo"));
-        assert_eq!(chunks.iter().map(|c| c.index).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert_eq!(
+            chunks.iter().map(|c| c.index).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
     }
 
     #[test]

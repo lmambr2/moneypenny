@@ -6,7 +6,10 @@ use mp_rights::{RightsEngine, Scope, Subject};
 pub const DOCTRINE_LEVELS: &[&str] = &["unclassified", "restricted", "confidential", "secret"];
 
 /// `unclassified` is always readable; higher levels need `doctrine:<level>`.
-pub fn allowed_classifications_for(engine: Option<&RightsEngine>, subject: &Subject) -> Vec<String> {
+pub fn allowed_classifications_for(
+    engine: Option<&RightsEngine>,
+    subject: &Subject,
+) -> Vec<String> {
     let mut out = vec!["unclassified".into()];
     let Some(engine) = engine else {
         return out;

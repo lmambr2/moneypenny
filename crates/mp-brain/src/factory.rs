@@ -24,7 +24,10 @@ impl Brain for BrainTransport {
 }
 
 /// Prefer remote brain when `BRAIN_URL` / `brain_url` is set; else in-process.
-pub fn resolve_brain_transport(settings: &LlmSettings, in_process: InProcessBrain) -> BrainTransport {
+pub fn resolve_brain_transport(
+    settings: &LlmSettings,
+    in_process: InProcessBrain,
+) -> BrainTransport {
     let url = settings.brain_url.trim();
     if !url.is_empty() {
         let timeout = Duration::from_millis(settings.timeout_ms.max(1_000));

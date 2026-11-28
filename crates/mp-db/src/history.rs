@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
+use std::collections::HashSet;
+
 use crate::{Database, Result};
 
 #[derive(Debug, Clone)]
@@ -39,6 +41,40 @@ impl PlayHistoryStore<'_> {
         })
     }
 
+    /// Song ids played at least `max_plays` times inside the rolling window.
+    /// `cooldown_hours` is a SQLite datetime modifier (`-24 hours`).
+    pub fn saturated_song_ids(
+        &self,
+        bot_id: &str,
+        max_plays: u32,
+        cooldown_hours: f64,
+    ) -> Result<HashSet<String>> {
+        if bot_id.is_empty() || max_plays < 1 || !(cooldown_hours > 0.0) {
+            return Ok(HashSet::new());
+        }
+        let hours = cooldown_hours.clamp(0.25, 24.0 * 30.0);
+        let modifier = format!("-{hours} hours");
+        self.db.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT songId FROM play_history
+                 WHERE botId = ?1 AND playedAt >= datetime('now', ?2)
+                 GROUP BY songId
+                 HAVING COUNT(*) >= ?3",
+            )?;
+            let rows = stmt.query_map(rusqlite::params![bot_id, modifier, max_plays], |row| {
+                row.get::<_, String>(0)
+            })?;
+            let mut out = HashSet::new();
+            for id in rows {
+                let id = id?;
+                if !id.is_empty() {
+                    out.insert(id);
+                }
+            }
+            Ok(out)
+        })
+    }
+
     pub fn list(&self, bot_id: &str, limit: u32) -> Result<Vec<PlayHistoryRow>> {
         self.db.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -58,5 +94,30 @@ impl PlayHistoryStore<'_> {
             })?;
             Ok(rows.filter_map(|r| r.ok()).collect())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saturated_ids_respect_count_and_bot() {
+        let db = Database::open_in_memory().unwrap();
+        let hist = db.play_history();
+        hist.insert("bot", "hot", "Hot", "A", "", "local", "")
+            .unwrap();
+        hist.insert("bot", "hot", "Hot", "A", "", "local", "")
+            .unwrap();
+        hist.insert("bot", "once", "Once", "A", "", "local", "")
+            .unwrap();
+        hist.insert("other", "once", "Once", "A", "", "local", "")
+            .unwrap();
+        let one = hist.saturated_song_ids("bot", 1, 24.0).unwrap();
+        assert!(one.contains("hot") && one.contains("once"), "{one:?}");
+        let two = hist.saturated_song_ids("bot", 2, 24.0).unwrap();
+        assert!(two.contains("hot") && !two.contains("once"), "{two:?}");
+        assert!(hist.saturated_song_ids("missing", 1, 24.0).unwrap().is_empty());
+        assert!(hist.saturated_song_ids("bot", 1, 0.0).unwrap().is_empty());
     }
 }

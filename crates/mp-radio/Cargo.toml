@@ -12,8 +12,10 @@ mp-config = { path = "../mp-config" }
 mp-music = { path = "../mp-music" }
 mp-rag = { path = "../mp-rag" }
 mp-voice = { path = "../mp-voice" }
+hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

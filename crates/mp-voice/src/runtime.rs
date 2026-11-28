@@ -4,10 +4,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mp_audio::{normalize_pcm_for_stt, pcm_peak, MIN_PCM_BOOST_PEAK, STT_TARGET_PEAK};
-use mp_config::{effective_duck_volume, VoiceConfig, MIN_LISTEN_WINDOW_MS};
+use mp_audio::{MIN_PCM_BOOST_PEAK, STT_TARGET_PEAK, normalize_pcm_for_stt, pcm_peak};
+use mp_config::{MIN_LISTEN_WINDOW_MS, VoiceConfig, effective_duck_volume};
 use tokio::sync::mpsc;
 
 use crate::duplex::{self, Inbound};
@@ -26,7 +26,7 @@ use crate::{DuplexStatus, Utterance, VoiceStatus};
 const CODEC_OPUS_MUSIC: u8 = 5;
 
 pub struct IngestResult {
-    pub utterance: Option<Utterance>,
+    pub utterances: Vec<Utterance>,
     pub speech: bool,
     pub raw_peak: u32,
 }
@@ -91,21 +91,22 @@ impl VoiceRuntime {
             return None;
         }
         let tts = HttpTtsClient::new(&cfg.tts_url, &cfg.tts_voice);
-        tts.synthesize(sentence).await.ok().map(|(audio, _)| audio).filter(|a| !a.is_empty())
+        tts.synthesize(sentence)
+            .await
+            .ok()
+            .map(|(audio, _)| audio)
+            .filter(|a| !a.is_empty())
     }
 
     /// One wav for a finished reply. Used when the token stream produced no sentences.
     pub async fn synthesize_reply(&self, reply: &str) -> Option<Vec<u8>> {
         use crate::speak::tts_speak_chunks;
-        use crate::watchword::{is_playback_start_reply, should_speak_voice_reply, voice_spoken_ack};
-        if is_playback_start_reply(Some(reply)) {
-            return None;
-        }
+        use crate::watchword::{should_speak_voice_reply, voice_spoken_line};
         let cfg = self.config();
         if cfg.tts_url.trim().is_empty() {
             return None;
         }
-        let spoken = voice_spoken_ack(Some(reply)).map(|s| s.to_string());
+        let spoken = voice_spoken_line(Some(reply));
         let chunks = spoken
             .map(|s| vec![s])
             .unwrap_or_else(|| tts_speak_chunks(reply));
@@ -252,7 +253,12 @@ impl VoiceRuntime {
         let mut cap = self.capture.lock().expect("cap");
         if !cap.seen.contains(&client_id) {
             cap.seen.insert(client_id);
-            tracing::info!(client_id, codec, bytes = opus.len(), "Voice: first inbound packet");
+            tracing::info!(
+                client_id,
+                codec,
+                bytes = opus.len(),
+                "Voice: first inbound packet"
+            );
         }
         let Some(dec) = cap.decoder.as_mut() else {
             return None;
@@ -269,29 +275,49 @@ impl VoiceRuntime {
             .unwrap_or_else(|_| pcm.clone());
 
         let threshold = cap.energy_threshold;
+        let now = Instant::now();
+        let mut utterances = Vec::new();
+        // Another speaker's pause has to close even while this packet is in flight.
+        // Collect first: polling and pushing the same map entry alias.
+        let stale: Vec<(i32, Vec<u8>)> = cap
+            .segmenters
+            .iter_mut()
+            .filter(|(id, _)| **id != client_id)
+            .filter_map(|(id, seg)| seg.poll_idle(now).map(|pcm| (*id, pcm)))
+            .collect();
+        for (id, pcm) in stale {
+            utterances.push(utterance_from(id, pcm));
+        }
         let seg = cap
             .segmenters
             .entry(client_id)
             .or_insert_with(|| SilenceSegmenter::for_teamspeak(threshold));
-        let done = seg.push(&pcm_stt);
+        for pcm in seg.push(&pcm_stt) {
+            utterances.push(utterance_from(client_id, pcm));
+        }
         drop(cap);
-
-        let utterance = done.map(|pcm| {
-            let duration_ms = pcm_duration_ms(&pcm, 48_000, 1);
-            Utterance {
-                speaker_client_id: client_id,
-                speaker_uid: Some(format!("clid:{client_id}")),
-                pcm,
-                sample_rate: 48_000,
-                channels: 1,
-                duration_ms,
-            }
-        });
         Some(IngestResult {
-            utterance,
+            utterances,
             speech,
             raw_peak,
         })
+    }
+
+    /// Close turns that have been quiet for the hangover. TeamSpeak does not
+    /// send silence, so this has to run on a timer.
+    pub fn poll_idle_utterances(&self) -> Vec<Utterance> {
+        if !self.is_active() {
+            return Vec::new();
+        }
+        let now = Instant::now();
+        let mut cap = self.capture.lock().expect("cap");
+        let mut out = Vec::new();
+        for (client_id, seg) in cap.segmenters.iter_mut() {
+            if let Some(pcm) = seg.poll_idle(now) {
+                out.push(utterance_from(*client_id, pcm));
+            }
+        }
+        out
     }
 
     pub async fn transcribe(&self, u: &Utterance) -> String {
@@ -552,9 +578,7 @@ impl VoiceRuntime {
         Fut: std::future::Future<Output = Option<String>>,
     {
         use crate::pipeline::VoiceGate;
-        use crate::watchword::{
-            is_playback_control_reply, is_playback_start_reply,
-        };
+        use crate::watchword::is_playback_control_reply;
 
         let gate = {
             let pipe = self.pipeline.lock().expect("pipe");
@@ -570,9 +594,8 @@ impl VoiceRuntime {
                 let reply = execute(cmd.clone()).await;
                 {
                     let pipe = self.pipeline.lock().expect("pipe");
-                    if is_playback_start_reply(reply.as_deref())
-                        || is_playback_control_reply(reply.as_deref())
-                    {
+                    // A play leaves the window open so the next person can correct it.
+                    if is_playback_control_reply(reply.as_deref()) {
                         pipe.disarm(speaker_client_id);
                     } else if reply.is_some() {
                         pipe.arm(speaker_client_id);
@@ -668,6 +691,17 @@ fn open_talker_encoder() -> Option<mp_audio::NativeOpus> {
     }
 }
 
+fn utterance_from(client_id: i32, pcm: Vec<u8>) -> Utterance {
+    let duration_ms = pcm_duration_ms(&pcm, 48_000, 1);
+    Utterance {
+        speaker_client_id: client_id,
+        speaker_uid: Some(format!("clid:{client_id}")),
+        pcm,
+        sample_rate: 48_000,
+        channels: 1,
+        duration_ms,
+    }
+}
 
 fn pcm_duration_ms(pcm: &[u8], sample_rate: u32, channels: u32) -> f64 {
     let ch = channels.max(1) as f64;

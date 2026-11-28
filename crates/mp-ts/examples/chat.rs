@@ -15,9 +15,7 @@ fn main() {
 #[cfg(feature = "tsclient-rs")]
 #[tokio::main]
 async fn main() {
-    let msg = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "!queue".into());
+    let msg = std::env::args().nth(1).unwrap_or_else(|| "!queue".into());
     if let Err(e) = send(&msg).await {
         eprintln!("chat send failed: {e}");
         std::process::exit(1);

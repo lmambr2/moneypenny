@@ -56,10 +56,28 @@ pub const COMMAND_MANIFEST: &[CommandSpec] = &[
     spec("radio", CommandKind::Delegated, false, false),
     spec("rate", CommandKind::Delegated, false, false),
     spec("unrate", CommandKind::Delegated, false, false),
-    spec_llm("selecttracks", CommandKind::Delegated, false, false, "select_tracks"),
+    spec_llm(
+        "selecttracks",
+        CommandKind::Delegated,
+        false,
+        false,
+        "select_tracks",
+    ),
     spec("move", CommandKind::Delegated, true, false),
-    spec_llm("moveclient", CommandKind::Delegated, true, false, "move_client"),
-    spec_llm("moveall", CommandKind::Delegated, true, false, "move_all_clients"),
+    spec_llm(
+        "moveclient",
+        CommandKind::Delegated,
+        true,
+        false,
+        "move_client",
+    ),
+    spec_llm(
+        "moveall",
+        CommandKind::Delegated,
+        true,
+        false,
+        "move_all_clients",
+    ),
     spec("follow", CommandKind::Delegated, true, false),
     spec("roast", CommandKind::Special, false, false),
     spec("roastout", CommandKind::Special, false, false),
@@ -169,8 +187,8 @@ pub struct ParsedCommand {
 /// Common karaoke misspellings — `!karyoke` must not fall through to LLM.
 pub fn karaoke_alias(name: &str) -> Option<&'static str> {
     Some(match name {
-        "karyoke" | "kareoke" | "karaok" | "karaokee" | "karaokay" | "karaokey"
-        | "carryoke" | "carioke" | "karoke" | "karaoake" => "karaoke",
+        "karyoke" | "kareoke" | "karaok" | "karaokee" | "karaokay" | "karaokey" | "carryoke"
+        | "carioke" | "karoke" | "karaoake" => "karaoke",
         _ => return None,
     })
 }

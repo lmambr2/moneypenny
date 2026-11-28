@@ -24,7 +24,11 @@ pub fn filter_clearable(session_ids: &[i64], permanent: &[i64]) -> (Vec<i64>, Ve
     (clearable, blocked)
 }
 
-pub fn format_session_status(cfg: &SessionRolesConfig, permanent: &[i64], query_up: bool) -> String {
+pub fn format_session_status(
+    cfg: &SessionRolesConfig,
+    permanent: &[i64],
+    query_up: bool,
+) -> String {
     let (clearable, blocked) = filter_clearable(&cfg.group_ids, permanent);
     let ids = if cfg.group_ids.is_empty() {
         "(none — set sessionRoles.groupIds)".into()
@@ -38,7 +42,11 @@ pub fn format_session_status(cfg: &SessionRolesConfig, permanent: &[i64], query_
     let clear_s = if clearable.is_empty() {
         "—".into()
     } else {
-        clearable.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+        clearable
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     let mut lines = vec![
         format!("Session roles (temporary): prefix \"{}\"", cfg.name_prefix),
@@ -48,7 +56,11 @@ pub fn format_session_status(cfg: &SessionRolesConfig, permanent: &[i64], query_
     if !blocked.is_empty() {
         lines.push(format!(
             "Blocked (also permanent rights): {}",
-            blocked.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+            blocked
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     lines.push(format!(
@@ -61,7 +73,11 @@ pub fn format_session_status(cfg: &SessionRolesConfig, permanent: &[i64], query_
     ));
     lines.push(format!(
         "HTTP Query: {}",
-        if query_up { "available" } else { "unavailable (clear needs TS6 Query)" }
+        if query_up {
+            "available"
+        } else {
+            "unavailable (clear needs TS6 Query)"
+        }
     ));
     lines.join("\n")
 }
@@ -81,7 +97,11 @@ pub fn format_session_clear(
     if clearable.is_empty() {
         return format!(
             "Refusing clear: every sessionRoles.groupId is also a permanent rights group ({}). Fix the allowlist — session tags must not reuse rank IDs.",
-            blocked.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+            blocked
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     if !query_up {
@@ -98,14 +118,23 @@ pub fn format_session_clear(
         lines.push(format!(
             "Skipped {} id(s) also used for permanent rights: {}.",
             blocked.len(),
-            blocked.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+            blocked
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     if !errors.is_empty() {
         lines.push(format!(
             "Errors ({}): {}",
             errors.len(),
-            errors.iter().take(5).cloned().collect::<Vec<_>>().join("; ")
+            errors
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ")
         ));
     }
     if dry_run {
@@ -154,7 +183,10 @@ impl SessionHandle {
         }
     }
 
-    pub fn from_bot_config(cfg: &mp_config::BotConfig, query: Option<std::sync::Arc<dyn SessionQuery>>) -> Self {
+    pub fn from_bot_config(
+        cfg: &mp_config::BotConfig,
+        query: Option<std::sync::Arc<dyn SessionQuery>>,
+    ) -> Self {
         Self::new(
             cfg.session_roles.clone(),
             permanent_rank_ids(cfg.rights.as_ref(), &cfg.admin_groups),
@@ -185,7 +217,13 @@ impl SessionHandle {
     }
 
     pub async fn run_auto_clear(&self) -> String {
-        let msg = handle_session("clear", &self.config, &self.permanent, self.query.as_deref()).await;
+        let msg = handle_session(
+            "clear",
+            &self.config,
+            &self.permanent,
+            self.query.as_deref(),
+        )
+        .await;
         let mut clock = self.empty.lock().expect("session empty");
         clock.in_flight = false;
         clock.since_ms = None;
@@ -204,7 +242,10 @@ pub fn permanent_rank_ids(rights: Option<&serde_json::Value>, admin_groups: &[i3
     }
     // Node walks `rules[].match.serverGroups` directly. A schema rejection
     // (numeric ids, an unknown scope) must not drop those ranks.
-    let Some(rules) = rights.and_then(|raw| raw.get("rules")).and_then(|r| r.as_array()) else {
+    let Some(rules) = rights
+        .and_then(|raw| raw.get("rules"))
+        .and_then(|r| r.as_array())
+    else {
         return ids.into_iter().collect();
     };
     for rule in rules {
@@ -275,7 +316,11 @@ pub async fn handle_session(
     query: Option<&dyn SessionQuery>,
 ) -> String {
     let parts: Vec<&str> = args.split_whitespace().collect();
-    let sub = parts.first().copied().unwrap_or("status").to_ascii_lowercase();
+    let sub = parts
+        .first()
+        .copied()
+        .unwrap_or("status")
+        .to_ascii_lowercase();
     let query_up = query.is_some();
     if sub == "status" || sub == "list" || sub == "show" {
         return format_session_status(cfg, permanent, query_up);
@@ -336,10 +381,16 @@ mod tests {
         };
         let status = handle_session("status", &cfg, &[2], None).await;
         assert!(status.contains("prefix \"Session /\""), "{status}");
-        assert!(status.contains("10, 2") || status.contains("10"), "{status}");
+        assert!(
+            status.contains("10, 2") || status.contains("10"),
+            "{status}"
+        );
         assert!(status.contains("Blocked"), "{status}");
         let clear = handle_session("clear dry", &cfg, &[2], None).await;
-        assert!(clear.contains("HTTP Query") || clear.contains("not configured"), "{clear}");
+        assert!(
+            clear.contains("HTTP Query") || clear.contains("not configured"),
+            "{clear}"
+        );
     }
 
     #[tokio::test]
@@ -377,8 +428,9 @@ mod tests {
         fn list_members<'a>(
             &'a self,
             _sgid: i64,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<i64>, String>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Vec<i64>, String>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(Vec::new()) })
         }
         fn remove_member<'a>(

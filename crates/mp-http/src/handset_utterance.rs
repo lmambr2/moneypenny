@@ -98,7 +98,7 @@ async fn handle(st: AppState, user: HandsetUser, headers: HeaderMap, body: Bytes
     }
 
     let tools = handset_tools();
-    let prompt = mp_brain::handset_intent_prompt(&st.config.llm_system_prompt);
+    let prompt = mp_brain::handset_intent_prompt(&st.read_config().llm_system_prompt);
     let utterance = mp_voice::Utterance {
         speaker_client_id: 0,
         speaker_uid: None,
@@ -107,7 +107,7 @@ async fn handle(st: AppState, user: HandsetUser, headers: HeaderMap, body: Bytes
         channels: 1,
         duration_ms: body.len() as f64 / 32.0,
     };
-    let stt_url = st.config.voice.stt_url.clone();
+    let stt_url = st.read_config().voice.stt_url.clone();
     let heard = {
         let stt = mp_voice::HttpSttClient::new(&stt_url);
         let brain = Arc::clone(&st.brain);
@@ -350,11 +350,14 @@ fn speak_line(reply: &str, tools: &[Value]) -> Option<String> {
 }
 
 async fn synthesize(st: &AppState, line: &str) -> Result<Vec<u8>, String> {
-    let url = st.config.voice.tts_url.trim();
-    if url.is_empty() {
+    let (url, voice) = {
+        let cfg = st.read_config();
+        (cfg.voice.tts_url.clone(), cfg.voice.tts_voice.clone())
+    };
+    if url.trim().is_empty() {
         return Err("tts url empty".into());
     }
-    let tts = mp_voice::HttpTtsClient::new(url, &st.config.voice.tts_voice);
+    let tts = mp_voice::HttpTtsClient::new(url.trim(), &voice);
     let (bytes, _) = tts.synthesize(line).await?;
     if bytes.is_empty() {
         Err("tts empty".into())

@@ -13,8 +13,10 @@ use mp_music::MusicStation;
 use mp_rag::{KgService, MemPalaceClient, RetrievalStore};
 use mp_voice::HttpTtsClient;
 
+use crate::bumper_cache::BumperCache;
 use crate::director::{BuiltBumper, BumperFactory};
 use crate::prerecorded::PrerecordedPool;
+use crate::time_check::{assemble_time_check, parse_time_check_timezones, prewarm_instants};
 
 const META_PHRASES: &[&str] = &[
     "do not invent",
@@ -62,6 +64,12 @@ const TOOLING_PHRASES: &[&str] = &[
     "!analyst",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrewarmTally {
+    pub rendered: u32,
+    pub failed: u32,
+}
+
 pub struct LiveBumperFactory {
     pub station_name: String,
     station: Mutex<Option<Arc<MusicStation>>>,
@@ -73,6 +81,10 @@ pub struct LiveBumperFactory {
     mempalace: Mutex<Option<MemPalaceClient>>,
     kg: Mutex<Option<Arc<KgService>>>,
     llm: Mutex<Option<Arc<BrainRuntime>>>,
+    cache: BumperCache,
+    /// Sources already tried this diversity cycle. A winner is kept blocked
+    /// so the next break tries the others first.
+    cycle_used: Mutex<Vec<BumperSource>>,
 }
 
 impl LiveBumperFactory {
@@ -95,6 +107,8 @@ impl LiveBumperFactory {
             mempalace: Mutex::new(None),
             kg: Mutex::new(None),
             llm: Mutex::new(None),
+            cache: BumperCache::new(),
+            cycle_used: Mutex::new(Vec::new()),
         }
     }
 
@@ -129,6 +143,14 @@ impl LiveBumperFactory {
         *self.llm.lock().expect("llm") = Some(llm);
     }
 
+    pub fn set_cache_dir(&self, dir: PathBuf) {
+        self.cache.set_dir(dir);
+    }
+
+    pub fn clear_cache(&self) -> usize {
+        self.cache.clear()
+    }
+
     async fn rewrite_script(&self, material: &str, cap: usize, tone: &str) -> Option<String> {
         let clip = clip_words(material, 120);
         let llm = self.llm.lock().ok().and_then(|g| g.clone());
@@ -156,21 +178,27 @@ impl LiveBumperFactory {
                 format!("Stay tuned on {}.", self.station_name),
             ]
         } else {
-            cfg.station_id_lines.iter().map(|l| self.expand(l)).collect()
+            cfg.station_id_lines
+                .iter()
+                .map(|l| self.expand(l))
+                .collect()
         };
         lines.join(" ")
     }
 
-    pub fn time_check_text(&self) -> String {
-        let hhmm = std::process::Command::new("date")
-            .arg("+%H:%M")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "now".into());
-        format!("The time is {hhmm}.")
+    pub fn time_check_text(&self, cfg: &RadioConfig) -> String {
+        let parsed = parse_time_check_timezones(&cfg.time_check_timezones);
+        if !parsed.skipped.is_empty() {
+            tracing::warn!(
+                skipped = ?parsed.skipped,
+                "radio: invalid timeCheckTimezones skipped"
+            );
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        assemble_time_check(&parsed.zones, now)
     }
 
     pub fn now_playing_text(&self) -> Option<String> {
@@ -181,48 +209,89 @@ impl LiveBumperFactory {
     }
 
     async fn speak(&self, text: &str, label: &str) -> Option<BuiltBumper> {
+        self.render(text, label, true).await
+    }
+
+    /// `cacheable` is only for the unclassified wheel (station ID, time, doctrine,
+    /// memory, now playing). Operator `say` stays ephemeral.
+    async fn render(&self, text: &str, label: &str, cacheable: bool) -> Option<BuiltBumper> {
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        let voice = self.tts_voice.lock().expect("tts").clone();
+        if cacheable {
+            if let Some(path) = self.cache.get(&voice, text) {
+                return Some(BuiltBumper {
+                    path: path.to_string_lossy().into_owned(),
+                    label: label.into(),
+                });
+            }
+        }
         let url = self.tts_url.lock().expect("tts").clone();
         if url.trim().is_empty() {
             tracing::debug!(label, "radio: bumper skipped — no TTS URL");
             return None;
         }
-        let voice = self.tts_voice.lock().expect("tts").clone();
         let client = HttpTtsClient::new(&url, &voice);
-        let (audio, format) = client.synthesize(text).await.ok()?;
+        let (audio, format) = match client.synthesize(text).await {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::warn!(label, error = %e, voice = %voice, "radio: bumper TTS failed");
+                return None;
+            }
+        };
         if audio.is_empty() {
+            tracing::warn!(label, "radio: bumper TTS returned empty audio");
             return None;
         }
-        let name = format!(
-            "bumper-{}-{}.{}",
-            label,
-            uuid::Uuid::new_v4().simple(),
-            if format.is_empty() { "wav" } else { format.as_str() }
-        );
+        if cacheable {
+            if let Some(path) = self
+                .cache
+                .put(&voice, text, &audio, &format, "unclassified")
+            {
+                return Some(BuiltBumper {
+                    path: path.to_string_lossy().into_owned(),
+                    label: label.into(),
+                });
+            }
+        }
+        let ext = if format.is_empty() {
+            "wav"
+        } else {
+            format.as_str()
+        };
+        let name = format!("bumper-{label}-{}.{ext}", uuid::Uuid::new_v4().simple());
         let path = self.tmp_dir.join(name);
-        std::fs::write(&path, audio).ok()?;
+        std::fs::write(&path, &audio).ok()?;
         Some(BuiltBumper {
             path: path.to_string_lossy().into_owned(),
             label: label.into(),
         })
     }
 
-    async fn doctrine_bumper(&self, cfg: &RadioConfig, topic_override: Option<&str>) -> Option<BuiltBumper> {
+    async fn doctrine_bumper(
+        &self,
+        cfg: &RadioConfig,
+        topic_override: Option<&str>,
+    ) -> Option<BuiltBumper> {
         let retrieval = self.retrieval.lock().ok()?.clone()?;
         let profile = cfg.profiles.get(&cfg.active_profile);
-        let topics: Vec<String> = if let Some(t) = topic_override.map(str::trim).filter(|s| !s.is_empty()) {
-            vec![t.to_string()]
-        } else {
-            profile
-                .map(|p| {
-                    p.bumper
-                        .topics
-                        .iter()
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
+        let topics: Vec<String> =
+            if let Some(t) = topic_override.map(str::trim).filter(|s| !s.is_empty()) {
+                vec![t.to_string()]
+            } else {
+                profile
+                    .map(|p| {
+                        p.bumper
+                            .topics
+                            .iter()
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
         if topics.is_empty() {
             tracing::info!(
                 profile = %cfg.active_profile,
@@ -283,7 +352,11 @@ impl LiveBumperFactory {
         built
     }
 
-    async fn memory_bumper(&self, cfg: &RadioConfig, topic_override: Option<&str>) -> Option<BuiltBumper> {
+    async fn memory_bumper(
+        &self,
+        cfg: &RadioConfig,
+        topic_override: Option<&str>,
+    ) -> Option<BuiltBumper> {
         if !cfg.memory_broadcast_opt_in {
             return None;
         }
@@ -293,24 +366,25 @@ impl LiveBumperFactory {
             return None;
         }
         let profile = cfg.profiles.get(&cfg.active_profile);
-        let topics: Vec<String> = if let Some(t) = topic_override.map(str::trim).filter(|s| !s.is_empty()) {
-            vec![t.to_string()]
-        } else if let Some(p) = profile {
-            let t: Vec<String> = p
-                .bumper
-                .topics
-                .iter()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            if t.is_empty() {
-                vec!["organization roles operations".into()]
+        let topics: Vec<String> =
+            if let Some(t) = topic_override.map(str::trim).filter(|s| !s.is_empty()) {
+                vec![t.to_string()]
+            } else if let Some(p) = profile {
+                let t: Vec<String> = p
+                    .bumper
+                    .topics
+                    .iter()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if t.is_empty() {
+                    vec!["organization roles operations".into()]
+                } else {
+                    t
+                }
             } else {
-                t
-            }
-        } else {
-            vec!["organization roles operations".into()]
-        };
+                vec!["organization roles operations".into()]
+            };
         let topic = topics
             .get(nanos() as usize % topics.len().max(1))
             .cloned()
@@ -339,6 +413,93 @@ impl LiveBumperFactory {
         }
         built
     }
+
+    /// Render station ID and time-check variants into the TTS cache.
+    /// Doctrine is optional and counts a failure when RAG or TTS produces nothing.
+    pub async fn prewarm(
+        &self,
+        cfg: &RadioConfig,
+        include_doctrine: bool,
+        hours_ahead: u32,
+        lines: &[String],
+    ) -> PrewarmTally {
+        let mut rendered = 0u32;
+        let mut failed = 0u32;
+        let tally = |built: Option<BuiltBumper>, rendered: &mut u32, failed: &mut u32| {
+            if built.is_some() {
+                *rendered += 1;
+            } else {
+                *failed += 1;
+            }
+        };
+        tally(
+            self.speak(&self.station_id_text(cfg), "stationId").await,
+            &mut rendered,
+            &mut failed,
+        );
+
+        let parsed = parse_time_check_timezones(&cfg.time_check_timezones);
+        if !parsed.skipped.is_empty() {
+            tracing::warn!(
+                skipped = ?parsed.skipped,
+                "radio: invalid timeCheckTimezones skipped during prewarm"
+            );
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let mut seen = std::collections::HashSet::new();
+        for instant in prewarm_instants(now, hours_ahead) {
+            let speech = assemble_time_check(&parsed.zones, instant);
+            if !seen.insert(speech.clone()) {
+                continue;
+            }
+            tally(
+                self.speak(&speech, "timeCheck").await,
+                &mut rendered,
+                &mut failed,
+            );
+        }
+
+        let cap = word_cap(cfg.max_bumper_seconds);
+        for line in lines {
+            let capped = clip_words(line.trim(), cap);
+            if capped.is_empty() {
+                continue;
+            }
+            tally(
+                self.speak(&capped, "prewarm").await,
+                &mut rendered,
+                &mut failed,
+            );
+        }
+
+        if include_doctrine {
+            let topics: Vec<String> = cfg
+                .profiles
+                .get(&cfg.active_profile)
+                .map(|p| {
+                    p.bumper
+                        .topics
+                        .iter()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .take(8)
+                        .collect()
+                })
+                .unwrap_or_default();
+            for topic in topics {
+                tally(
+                    self.doctrine_bumper(cfg, Some(&topic)).await,
+                    &mut rendered,
+                    &mut failed,
+                );
+            }
+        }
+        tracing::info!(rendered, failed, "radio: bumper prewarm complete");
+        PrewarmTally { rendered, failed }
+    }
 }
 
 impl BumperFactory for LiveBumperFactory {
@@ -347,7 +508,7 @@ impl BumperFactory for LiveBumperFactory {
     }
 
     async fn say(&self, text: &str) -> Option<BuiltBumper> {
-        self.speak(text, "say").await
+        self.render(text, "say", false).await
     }
 }
 
@@ -357,10 +518,22 @@ pub async fn build_from_sources(
     cfg: &RadioConfig,
     slot: WheelSlot,
 ) -> Option<BuiltBumper> {
-    let sources = if slot.sources.is_empty() {
+    let wanted = if slot.sources.is_empty() {
         cfg.sources.clone()
     } else {
         slot.sources.clone()
+    };
+    // A cued topic is an operator request. It does not burn the rotation.
+    let track_cycle = slot.topic.is_none();
+    let sources = if track_cycle {
+        let used = factory.cycle_used.lock().expect("cycle").clone();
+        let (order, reset) = cycle_order(&wanted, &used);
+        if reset {
+            factory.cycle_used.lock().expect("cycle").clear();
+        }
+        order
+    } else {
+        wanted.clone()
     };
     let topic = slot.topic.clone();
     for src in sources {
@@ -374,7 +547,11 @@ pub async fn build_from_sources(
                     .speak(&factory.station_id_text(cfg), src.as_str())
                     .await
             }
-            BumperSource::TimeCheck => factory.speak(&factory.time_check_text(), src.as_str()).await,
+            BumperSource::TimeCheck => {
+                factory
+                    .speak(&factory.time_check_text(cfg), src.as_str())
+                    .await
+            }
             BumperSource::NowPlaying => {
                 if let Some(text) = factory.now_playing_text() {
                     factory.speak(&text, src.as_str()).await
@@ -385,11 +562,46 @@ pub async fn build_from_sources(
             BumperSource::Doctrine => factory.doctrine_bumper(cfg, topic.as_deref()).await,
             BumperSource::Memory => factory.memory_bumper(cfg, topic.as_deref()).await,
         };
+        if track_cycle {
+            note_cycle_try(factory, src, &wanted, built.is_some());
+        }
         if built.is_some() {
+            tracing::info!(source = src.as_str(), "radio: bumper source chosen");
             return built;
         }
     }
     None
+}
+
+/// Fresh sources first. When every candidate was already tried, start over.
+fn cycle_order(wanted: &[BumperSource], used: &[BumperSource]) -> (Vec<BumperSource>, bool) {
+    let fresh: Vec<BumperSource> = wanted
+        .iter()
+        .copied()
+        .filter(|s| !used.contains(s))
+        .collect();
+    if fresh.is_empty() {
+        return (wanted.to_vec(), true);
+    }
+    let mut order = fresh;
+    order.extend(wanted.iter().copied().filter(|s| used.contains(s)));
+    (order, false)
+}
+
+fn note_cycle_try(
+    factory: &LiveBumperFactory,
+    src: BumperSource,
+    wanted: &[BumperSource],
+    succeeded: bool,
+) {
+    let mut used = factory.cycle_used.lock().expect("cycle");
+    if !used.contains(&src) {
+        used.push(src);
+    }
+    if succeeded && !wanted.is_empty() && wanted.iter().all(|s| used.contains(s)) {
+        used.clear();
+        used.push(src);
+    }
 }
 
 fn word_cap(seconds: u32) -> usize {
@@ -397,7 +609,10 @@ fn word_cap(seconds: u32) -> usize {
 }
 
 fn clip_words(text: &str, n: usize) -> String {
-    text.split_whitespace().take(n).collect::<Vec<_>>().join(" ")
+    text.split_whitespace()
+        .take(n)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn is_bumper_eligible_source(source: &str) -> bool {
@@ -443,7 +658,10 @@ pub fn is_meta_bumper_script(text: &str) -> bool {
         return true;
     }
     let words = t.split_whitespace().count();
-    if words <= 12 && (low.contains("radio bumper") || low.contains("spoken line") || low.contains("announcement"))
+    if words <= 12
+        && (low.contains("radio bumper")
+            || low.contains("spoken line")
+            || low.contains("announcement"))
     {
         return true;
     }
@@ -455,7 +673,11 @@ pub fn is_bumper_eligible_material(text: &str) -> bool {
     if t.len() < 12 {
         return false;
     }
-    if t.starts_with("---") && t[..t.len().min(400)].to_ascii_lowercase().contains("classification") {
+    if t.starts_with("---")
+        && t[..t.len().min(400)]
+            .to_ascii_lowercase()
+            .contains("classification")
+    {
         return false;
     }
     if is_meta_bumper_script(t) {
@@ -544,7 +766,10 @@ fn speakable_clip(material: &str, cap: usize) -> Option<String> {
         return Some(s);
     }
     let fallback = clip_words(&clipped, cap.min(45));
-    if fallback.len() >= 12 && is_bumper_eligible_material(&fallback) && !is_meta_bumper_script(&fallback) {
+    if fallback.len() >= 12
+        && is_bumper_eligible_material(&fallback)
+        && !is_meta_bumper_script(&fallback)
+    {
         Some(fallback)
     } else {
         None
@@ -552,11 +777,56 @@ fn speakable_clip(material: &str, cap: usize) -> Option<String> {
 }
 
 const GROUND_STOP: &[&str] = &[
-    "a", "an", "the", "and", "or", "of", "to", "in", "for", "on", "with", "is", "are", "was",
-    "were", "be", "as", "at", "by", "from", "that", "this", "it", "its", "our", "we", "you",
-    "your", "will", "can", "may", "not", "only", "one", "short", "radio", "bumper", "spoken",
-    "line", "announcement", "note", "please", "here", "do", "does", "did", "should", "would",
-    "could", "must",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "for",
+    "on",
+    "with",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "as",
+    "at",
+    "by",
+    "from",
+    "that",
+    "this",
+    "it",
+    "its",
+    "our",
+    "we",
+    "you",
+    "your",
+    "will",
+    "can",
+    "may",
+    "not",
+    "only",
+    "one",
+    "short",
+    "radio",
+    "bumper",
+    "spoken",
+    "line",
+    "announcement",
+    "note",
+    "please",
+    "here",
+    "do",
+    "does",
+    "did",
+    "should",
+    "would",
+    "could",
+    "must",
 ];
 
 fn content_tokens(text: &str) -> Vec<String> {
@@ -635,7 +905,11 @@ pub struct FinalizedBumper {
     pub from: &'static str,
 }
 
-pub fn finalize_bumper_script(llm_out: &str, material: &str, cap: usize) -> Option<FinalizedBumper> {
+pub fn finalize_bumper_script(
+    llm_out: &str,
+    material: &str,
+    cap: usize,
+) -> Option<FinalizedBumper> {
     if let Some(cleaned) = clean_bumper_script(llm_out) {
         let capped = clip_words(&cleaned, cap);
         if is_grounded_in_material(&capped, material) {
@@ -691,6 +965,56 @@ mod tests {
     use mp_config::SlotKind;
 
     #[test]
+    fn cycle_tries_unused_sources_before_repeating_a_winner() {
+        let wanted = [
+            BumperSource::Prerecorded,
+            BumperSource::StationId,
+            BumperSource::TimeCheck,
+        ];
+        let (order, reset) = cycle_order(&wanted, &[]);
+        assert!(!reset);
+        assert_eq!(order, wanted);
+        let (order, reset) = cycle_order(
+            &wanted,
+            &[BumperSource::Prerecorded, BumperSource::StationId],
+        );
+        assert!(!reset);
+        assert_eq!(
+            order,
+            vec![
+                BumperSource::TimeCheck,
+                BumperSource::Prerecorded,
+                BumperSource::StationId
+            ]
+        );
+        let (order, reset) = cycle_order(&wanted, &wanted);
+        assert!(reset);
+        assert_eq!(order, wanted);
+    }
+
+    #[test]
+    fn time_check_is_twelve_hour_and_uses_the_zone_label() {
+        let f = LiveBumperFactory::new("Moneypenny".into());
+        let plain = f.time_check_text(&RadioConfig::default());
+        assert!(plain.starts_with("The time is "), "{plain}");
+        assert!(plain.contains(" AM") || plain.contains(" PM"), "{plain}");
+
+        let mut cfg = RadioConfig::default();
+        cfg.time_check_timezones = vec!["America/Denver|Stargate Command".into()];
+        let zoned = f.time_check_text(&cfg);
+        assert!(zoned.contains("in Stargate Command"), "{zoned}");
+        assert!(zoned.contains(" AM") || zoned.contains(" PM"), "{zoned}");
+    }
+
+    #[tokio::test]
+    async fn prewarm_without_tts_counts_failures() {
+        let f = LiveBumperFactory::new("Moneypenny".into());
+        let tally = f.prewarm(&RadioConfig::default(), false, 1, &[]).await;
+        assert_eq!(tally.rendered, 0);
+        assert!(tally.failed >= 3, "{tally:?}");
+    }
+
+    #[test]
     fn default_station_id_mentions_name() {
         let f = LiveBumperFactory::new("Moneypenny".into());
         let t = f.station_id_text(&RadioConfig::default());
@@ -700,7 +1024,9 @@ mod tests {
 
     #[test]
     fn skips_ops_and_cheatsheets() {
-        assert!(!is_bumper_eligible_source("ops/rag-ingestion-cheatsheet.md"));
+        assert!(!is_bumper_eligible_source(
+            "ops/rag-ingestion-cheatsheet.md"
+        ));
         assert!(!is_bumper_eligible_source("docs/changelog.md"));
         assert!(is_bumper_eligible_source("combat.md"));
     }
@@ -753,20 +1079,18 @@ mod tests {
             sources: vec![BumperSource::Doctrine],
             topic: Some("welcome".into()),
         };
-        assert!(build_from_sources(&f, &RadioConfig::default(), slot)
-            .await
-            .is_none());
+        assert!(
+            build_from_sources(&f, &RadioConfig::default(), slot)
+                .await
+                .is_none()
+        );
     }
 
     #[test]
     fn grounded_rewrite_accepted() {
         let material = "Heavies establish the perimeter before jump.";
-        let out = finalize_bumper_script(
-            "Heavies set the perimeter before jump.",
-            material,
-            40,
-        )
-        .unwrap();
+        let out =
+            finalize_bumper_script("Heavies set the perimeter before jump.", material, 40).unwrap();
         assert_eq!(out.from, "llm");
         assert!(out.script.to_ascii_lowercase().contains("heavies"));
     }
@@ -792,8 +1116,10 @@ mod tests {
             sources: vec![BumperSource::Memory],
             topic: None,
         };
-        assert!(build_from_sources(&f, &RadioConfig::default(), slot)
-            .await
-            .is_none());
+        assert!(
+            build_from_sources(&f, &RadioConfig::default(), slot)
+                .await
+                .is_none()
+        );
     }
 }

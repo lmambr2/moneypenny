@@ -3,16 +3,16 @@
 
 //! `/api/users` — list/create/delete/role/reset-password. Admin only.
 
-use axum::extract::{Path, State};
-use axum::http::{header, StatusCode};
-use axum::response::{IntoResponse, Response};
 use axum::Json;
+use axum::extract::{Path, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use crate::AppState;
 use crate::authz::AdminUser;
 use crate::session::{extract_session_token, valid_password, valid_username};
-use crate::AppState;
 use mp_db::UserRole;
 
 pub async fn users_list(State(st): State<AppState>, _admin: AdminUser) -> Json<Value> {
@@ -81,9 +81,11 @@ pub async fn users_create(
             )
                 .into_response()
         }
-        Err(e) if e.to_string().contains("username taken") => {
-            (StatusCode::CONFLICT, Json(json!({"error":"username taken"}))).into_response()
-        }
+        Err(e) if e.to_string().contains("username taken") => (
+            StatusCode::CONFLICT,
+            Json(json!({"error":"username taken"})),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!(error = %e, "create user");
             (
@@ -146,7 +148,10 @@ pub async fn users_role(
         "admin" => UserRole::Admin,
         "member" => UserRole::Member,
         _ => {
-            return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid role"})))
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":"invalid role"})),
+            )
                 .into_response();
         }
     };
@@ -211,10 +216,7 @@ pub async fn users_reset_password(
     } else {
         None
     };
-    let _ = st
-        .db
-        .sessions()
-        .delete_all_for_user(&id, except.as_deref());
+    let _ = st.db.sessions().delete_all_for_user(&id, except.as_deref());
     st.db.audit().record(
         Some(&admin.0.id),
         Some(&admin.0.username),

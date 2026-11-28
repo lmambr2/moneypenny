@@ -11,15 +11,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::policy::{HarnessToolDecision, decide_harness_tool};
-use crate::tool_map::tool_call_to_command;
+use crate::tool_map::{is_library_tool, tool_call_to_command};
 use crate::{CommandExecutor, Subject, ToolProposal};
 
 pub const ANALYST_UNCONFIGURED: &str =
     "Analyst delegation is not configured. Set a delegate URL in Settings.";
 
 /// `(task, extra context) -> analyst text`. Installed only when a delegate URL is set.
-pub type DelegateFn = Arc<
-    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
+pub type DelegateFn =
+    Arc<dyn Fn(String, String) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync>;
+
+/// `(tool name, arguments, subject) -> tool text`. Installed when the doctrine library is up.
+pub type LibraryFn = Arc<
+    dyn Fn(String, Value, Subject) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
 >;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +44,8 @@ pub struct BrainDisposer {
     pub rights_enabled: bool,
     /// Present only when `llmDelegateUrl` is set. A missing hook never calls Hermes.
     pub delegate: Option<DelegateFn>,
+    /// Present when doctrine storage is configured. A missing hook never writes a file.
+    pub library: Option<LibraryFn>,
 }
 
 impl BrainDisposer {
@@ -52,11 +58,18 @@ impl BrainDisposer {
             rights,
             rights_enabled: true,
             delegate: None,
+            library: None,
         }
     }
 
     pub fn allows(&self, subject: &Subject, command: &str) -> bool {
         self.may_run(subject, command)
+    }
+
+    /// TeamSpeak `reindex`, or a dashboard admin session (`web:…`).
+    /// The harness route is already admin-only. A channel user still needs `reindex`.
+    pub fn allows_library(&self, subject: &Subject) -> bool {
+        self.may_run(subject, "reindex") || subject.uid.as_deref().unwrap_or("").starts_with("web:")
     }
 
     pub async fn dispose_tool(
@@ -109,6 +122,10 @@ impl BrainDisposer {
             HarnessToolDecision::Execute => {}
         }
 
+        if is_library_tool(name) {
+            return self.call_library(name, args, subject).await;
+        }
+
         let Some(cmd) = tool_call_to_command(name, &args) else {
             return ToolDisposeRecord {
                 name: name.to_string(),
@@ -148,6 +165,35 @@ impl BrainDisposer {
                 result: Some("(ok)".into()),
                 error: None,
             },
+        }
+    }
+
+    async fn call_library(&self, name: &str, args: Value, subject: &Subject) -> ToolDisposeRecord {
+        if !self.allows_library(subject) {
+            return ToolDisposeRecord {
+                name: name.to_string(),
+                args,
+                ok: false,
+                result: None,
+                error: Some("You don't have permission to use 'reindex'.".into()),
+            };
+        }
+        let Some(run) = self.library.clone() else {
+            return ToolDisposeRecord {
+                name: name.to_string(),
+                args,
+                ok: false,
+                result: None,
+                error: Some("library is not configured".into()),
+            };
+        };
+        let text = run(name.to_string(), args.clone(), subject.clone()).await;
+        ToolDisposeRecord {
+            name: name.to_string(),
+            args,
+            ok: true,
+            result: Some(text),
+            error: None,
         }
     }
 
@@ -516,11 +562,7 @@ mod tests {
         assert!(missing.error.unwrap().contains("permission"));
         assert!(!hit.load(std::sync::atomic::Ordering::SeqCst));
 
-        let play = d
-            .allows(
-                &admin_subject(),
-                "play",
-            );
+        let play = d.allows(&admin_subject(), "play");
         assert!(play);
 
         let chairman = d
@@ -548,6 +590,87 @@ mod tests {
             .await;
         assert!(!unconfigured.ok);
         assert!(unconfigured.error.unwrap().contains("not configured"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn library_edit_uses_the_hook_and_stays_behind_reindex() {
+        let (dir, st) = tmp_station();
+        let ex = Arc::new(CommandExecutor::new(st, "!"));
+        let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits2 = Arc::clone(&hits);
+        let mut d = BrainDisposer::new(
+            ex,
+            Some(Arc::new(RightsEngine::new(legacy_rights_config(&[9])))),
+        );
+        d.library = Some(Arc::new(move |name, args, _subject| {
+            hits2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let find = args
+                .get("find")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Box::pin(async move { format!("ran:{name}:{find}") })
+        }));
+        let edit = serde_json::json!({"source": "a.md", "find": "one", "replace": "two"});
+        let colonel = who("col", "9");
+        let member = who("mem", "100");
+
+        let blocked = d
+            .dispose_tool("edit_library_doc", &edit, &colonel, false, false)
+            .await;
+        assert!(!blocked.ok, "{blocked:?}");
+        assert!(blocked.error.unwrap().contains("allowDangerous"));
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        let dry = d
+            .dispose_tool("edit_library_doc", &edit, &colonel, true, false)
+            .await;
+        assert!(dry.result.unwrap().contains("[dry-run]"));
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        let denied = d
+            .dispose_tool("edit_library_doc", &edit, &member, false, true)
+            .await;
+        assert!(!denied.ok, "{denied:?}");
+        assert!(denied.error.unwrap().contains("reindex"));
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        let ran = d
+            .dispose_tool("edit_library_doc", &edit, &colonel, false, true)
+            .await;
+        assert!(ran.ok, "{ran:?}");
+        assert_eq!(ran.result.as_deref(), Some("ran:edit_library_doc:one"));
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let web = d
+            .dispose_tool(
+                "read_library_doc",
+                &serde_json::json!({"source": "a.md"}),
+                &Subject {
+                    uid: Some("web:4".into()),
+                    nickname: None,
+                    server_groups: vec![],
+                },
+                false,
+                false,
+            )
+            .await;
+        assert!(web.ok, "{web:?}");
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        d.library = None;
+        let missing = d
+            .dispose_tool(
+                "list_library_docs",
+                &serde_json::json!({}),
+                &colonel,
+                false,
+                false,
+            )
+            .await;
+        assert!(!missing.ok);
+        assert!(missing.error.unwrap().contains("not configured"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

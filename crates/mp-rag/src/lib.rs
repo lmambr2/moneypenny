@@ -9,43 +9,45 @@ mod classifications;
 mod doctrine;
 mod embeddings;
 mod error;
+mod eval;
 mod export;
 mod frontmatter;
 mod ingest;
+mod kg;
+mod library_tool;
+mod mempalace;
 mod normalize;
 mod reformat;
 mod store;
 mod validity;
 mod vector;
-mod mempalace;
-mod kg;
-mod eval;
 
-pub use chunk::{chunk_id, chunk_markdown, chunk_markdown_default, Chunk};
-pub use classifications::{allowed_classifications_for, DOCTRINE_LEVELS};
+pub use chunk::{Chunk, chunk_id, chunk_markdown, chunk_markdown_default};
+pub use classifications::{DOCTRINE_LEVELS, allowed_classifications_for};
 pub use doctrine::{
-    DoctrineDoc, DoctrineStore, DEFAULT_DOCTRINE_TEMPLATE, MAX_DOCTRINE_FILE_BYTES,
+    DEFAULT_DOCTRINE_TEMPLATE, DoctrineDoc, DoctrineStore, MAX_DOCTRINE_FILE_BYTES,
 };
-pub use embeddings::{Embedder, EmbeddingsClient, DEFAULT_EMBEDDING_MODEL};
+pub use embeddings::{DEFAULT_EMBEDDING_MODEL, Embedder, EmbeddingsClient};
 pub use error::{RagError, Result};
-pub use export::{
-    export_content_type, export_filename, export_markdown, is_pandoc_available, ExportError,
+pub use eval::{
+    EvalAxes, EvalCase, EvalCaseResult, EvalExpect, EvalHit, EvalReport, compute_memory_axes,
+    default_eval_cases, run_eval_case, run_eval_loop,
 };
-pub use frontmatter::{parse_frontmatter, DocFrontmatter};
-pub use ingest::{ingest_doctrine_doc, reindex_doctrine, reindex_sources, IngestedDoc};
+pub use export::{
+    ExportError, export_content_type, export_filename, export_markdown, is_pandoc_available,
+};
+pub use frontmatter::{DocFrontmatter, parse_frontmatter};
+pub use ingest::{IngestedDoc, ingest_doctrine_doc, reindex_doctrine, reindex_sources};
+pub use kg::{DIARY_USAGE, KG_USAGE, KgService};
+pub use library_tool::{is_library_tool, library_grounding, run_library_tool};
+pub use mempalace::MemPalaceClient;
 pub use reformat::{reformat_doctrine_markdown, should_skip_doctrine_reformat};
-pub use store::{RetrievedChunk, RetrievalStore};
+pub use store::{RetrievalStore, RetrievedChunk};
 pub use validity::is_doctrine_expired;
 pub use vector::{HttpVectorStore, MemoryVectorStore, VectorStore};
-pub use kg::{KgService, DIARY_USAGE, KG_USAGE};
-pub use mempalace::MemPalaceClient;
-pub use eval::{
-    compute_memory_axes, default_eval_cases, run_eval_case, run_eval_loop, EvalAxes, EvalCase,
-    EvalCaseResult, EvalExpect, EvalHit, EvalReport,
-};
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Process-wide RAG + flags (Settings toggles are in-memory during dual-run).
 pub struct RagRuntime {

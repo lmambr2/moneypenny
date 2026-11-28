@@ -1,19 +1,20 @@
 use std::collections::HashMap;
+use std::os::unix::io::AsRawFd;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio::sync::watch;
 
+use crate::Error;
 use crate::crypto::Crypt;
 use crate::handshake::process_init1;
 use crate::types::Logger;
-use crate::Error;
 
 use super::generation_window::GenerationWindow;
 use super::packet::{
-    build_c2s_header, is_unencrypted, packet_flags, packet_type, Packet, PacketFlags, PacketType,
+    Packet, PacketFlags, PacketType, build_c2s_header, is_unencrypted, packet_flags, packet_type,
 };
 use super::quicklz::Qlz;
 
@@ -94,7 +95,8 @@ impl HandlerCore {
         if p_type == PacketType::Command {
             self.send_window_command.advance_to_excluded(p.id as u32);
         } else if p_type == PacketType::CommandLow {
-            self.send_window_command_low.advance_to_excluded(p.id as u32);
+            self.send_window_command_low
+                .advance_to_excluded(p.id as u32);
         }
 
         let unencrypted = (flags & PacketFlags::Unencrypted) != 0;
@@ -145,7 +147,7 @@ impl HandlerCore {
 /// A lightweight handle that can send packets, cloned for background tasks.
 pub struct PacketSender {
     core: Arc<Mutex<HandlerCore>>,
-    send_tx: Arc<Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>>,
+    send_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Vec<u8>>>>>,
     shutdown_tx: Arc<Mutex<Option<watch::Sender<bool>>>>,
 }
 
@@ -217,6 +219,7 @@ impl PacketSender {
         final_bytes.extend_from_slice(&core.crypt.fake_signature);
         final_bytes.extend_from_slice(&header);
         final_bytes.extend_from_slice(&voice_payload);
+        drop(core);
 
         if let Some(tx) = self.send_tx.lock().unwrap().as_ref() {
             let _ = tx.send(final_bytes);
@@ -262,10 +265,18 @@ impl PacketSender {
         core.closed = true;
         drop(core);
 
-        if let Some(tx) = self.shutdown_tx.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(tx) = self
+            .shutdown_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
             let _ = tx.send(true);
         }
-        self.send_tx.lock().unwrap_or_else(|e| e.into_inner()).take();
+        self.send_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
     }
 }
 
@@ -273,7 +284,7 @@ pub struct PacketHandler {
     on_packet: Mutex<Option<OnPacket>>,
     on_close: Mutex<Option<OnClose>>,
     core: Arc<Mutex<HandlerCore>>,
-    send_tx: Arc<Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>>,
+    send_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Vec<u8>>>>>,
     shutdown_tx: Arc<Mutex<Option<watch::Sender<bool>>>>,
     bg_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -344,10 +355,18 @@ impl PacketHandler {
         core.closed = true;
         drop(core);
 
-        if let Some(tx) = self.shutdown_tx.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(tx) = self
+            .shutdown_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
             let _ = tx.send(true);
         }
-        self.send_tx.lock().unwrap_or_else(|e| e.into_inner()).take();
+        self.send_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
     }
 
     /// Take the background task handle (must call `close()` first).
@@ -361,7 +380,7 @@ impl PacketHandler {
         let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?);
         socket.connect(format!("{}:{}", host, port)).await?;
 
-        let (send_tx, send_rx) = mpsc::unbounded_channel();
+        let (send_tx, send_rx) = std::sync::mpsc::channel();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let on_packet = Arc::new(Mutex::new(self.on_packet.lock().unwrap().take()));
@@ -443,6 +462,7 @@ impl PacketHandler {
         final_bytes.extend_from_slice(&core.crypt.fake_signature);
         final_bytes.extend_from_slice(&header);
         final_bytes.extend_from_slice(&voice_payload);
+        drop(core);
 
         if let Some(tx) = self.send_tx.lock().unwrap().as_ref() {
             let _ = tx.send(final_bytes);
@@ -484,7 +504,7 @@ impl Drop for PacketHandler {
 async fn bg_task(
     core: Arc<Mutex<HandlerCore>>,
     socket: Arc<UdpSocket>,
-    mut send_rx: UnboundedReceiver<Vec<u8>>,
+    send_rx: std::sync::mpsc::Receiver<Vec<u8>>,
     mut shutdown_rx: watch::Receiver<bool>,
     on_packet: Arc<Mutex<Option<OnPacket>>>,
     on_close: Arc<Mutex<Option<OnClose>>>,
@@ -506,7 +526,11 @@ async fn bg_task(
         Ok(Some(bytes)) => {
             if socket.send(&bytes).await.is_err() {
                 let mut c = core.lock().unwrap();
-                trigger_close(&mut *c, &on_close, Some(Error::from("failed to send init1")));
+                trigger_close(
+                    &mut *c,
+                    &on_close,
+                    Some(Error::from("failed to send init1")),
+                );
                 return;
             }
         }
@@ -521,6 +545,22 @@ async fn bg_task(
     let mut recv_buf = vec![0u8; 65535];
     let mut ping_interval = tokio::time::interval(Duration::from_millis(PING_INTERVAL_MS));
     let mut resend_interval = tokio::time::interval(Duration::from_millis(RESEND_LOOP_INTERVAL_MS));
+
+    // Voice used to wait until this task was polled. A dedicated thread writes
+    // the datagram as soon as it is queued. libc::send skips tokio's readiness
+    // cache, which would report WouldBlock forever from a thread that never
+    // polls writable().
+    let send_fd = socket.as_raw_fd();
+    let send_socket = Arc::clone(&socket);
+    let stop_send = Arc::new(AtomicBool::new(false));
+    let stop_flag = Arc::clone(&stop_send);
+    let send_thread = std::thread::Builder::new()
+        .name("ts-udp-send".into())
+        .spawn(move || {
+            let _keep_socket = send_socket;
+            udp_send_loop(send_fd, send_rx, &stop_flag);
+        })
+        .expect("ts-udp-send");
 
     loop {
         tokio::select! {
@@ -557,9 +597,6 @@ async fn bg_task(
                     break;
                 }
             }
-            Some(bytes) = send_rx.recv() => {
-                let _ = socket.send(&bytes).await;
-            }
             _ = ping_interval.tick() => {
                 let should_ping = {
                     let c = core.lock().unwrap();
@@ -590,19 +627,91 @@ async fn bg_task(
         }
     }
 
+    stop_send.store(true, Ordering::SeqCst);
+    let _ = send_thread.join();
+
     let mut cb = on_close.lock().unwrap();
     if let Some(ref mut f) = *cb {
         f(None);
     }
 }
 
+fn udp_send_loop(
+    fd: std::os::fd::RawFd,
+    rx: std::sync::mpsc::Receiver<Vec<u8>>,
+    stop: &AtomicBool,
+) {
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            while let Ok(bytes) = rx.try_recv() {
+                if !udp_send(fd, &bytes) {
+                    return;
+                }
+            }
+            return;
+        }
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(bytes) => {
+                if !udp_send(fd, &bytes) {
+                    return;
+                }
+                while let Ok(more) = rx.try_recv() {
+                    if !udp_send(fd, &more) {
+                        return;
+                    }
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                while let Ok(bytes) = rx.try_recv() {
+                    if !udp_send(fd, &bytes) {
+                        return;
+                    }
+                }
+                return;
+            }
+        }
+    }
+}
+
+/// One datagram. Retries a full send buffer. A dead socket stops the thread;
+/// ECONNREFUSED on a connected UDP socket drops this datagram only.
+fn udp_send(fd: std::os::fd::RawFd, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return true;
+    }
+    for _ in 0..64 {
+        let n = unsafe {
+            libc::send(
+                fd,
+                bytes.as_ptr().cast::<libc::c_void>(),
+                bytes.len(),
+                libc::MSG_DONTWAIT,
+            )
+        };
+        if n >= 0 {
+            return true;
+        }
+        let err = std::io::Error::last_os_error();
+        if err.kind() == std::io::ErrorKind::WouldBlock
+            || err.kind() == std::io::ErrorKind::Interrupted
+        {
+            std::thread::sleep(Duration::from_micros(200));
+            continue;
+        }
+        match err.raw_os_error() {
+            Some(libc::ECONNREFUSED) | Some(libc::ENETUNREACH) | Some(libc::EHOSTUNREACH) => {
+                return true;
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
 // ---- Packet processing -------------------------------------------------------
 
-fn handle_raw_packet(
-    c: &mut HandlerCore,
-    raw: &[u8],
-    on_packet: &Arc<Mutex<Option<OnPacket>>>,
-) {
+fn handle_raw_packet(c: &mut HandlerCore, raw: &[u8], on_packet: &Arc<Mutex<Option<OnPacket>>>) {
     if raw.len() < 11 {
         return;
     }
@@ -670,9 +779,16 @@ fn decrypt_packet_data(
     let p_type_val = packet_type(p) as u8;
     let generation = p.generation_id;
 
-    let r = c
-        .crypt
-        .decrypt(p_type_val, p.id, generation, header, ciphertext, tag, dummy, unencrypted);
+    let r = c.crypt.decrypt(
+        p_type_val,
+        p.id,
+        generation,
+        header,
+        ciphertext,
+        tag,
+        dummy,
+        unencrypted,
+    );
     if let Ok(plaintext) = r {
         return Some((plaintext, dummy_used));
     }
@@ -683,18 +799,28 @@ fn decrypt_packet_data(
             continue;
         }
         let guess_gen = guess_gen as u32;
-        let r = c
-            .crypt
-            .decrypt(p_type_val, p.id, guess_gen, header, ciphertext, tag, false, false);
+        let r = c.crypt.decrypt(
+            p_type_val, p.id, guess_gen, header, ciphertext, tag, false, false,
+        );
         if let Ok(plaintext) = r {
             return Some((plaintext, false));
         }
     }
 
-    if matches!(packet_type(p), PacketType::Command | PacketType::CommandLow | PacketType::Ack) {
-        let r = c
-            .crypt
-            .decrypt(p_type_val, p.id, generation, header, ciphertext, tag, true, unencrypted);
+    if matches!(
+        packet_type(p),
+        PacketType::Command | PacketType::CommandLow | PacketType::Ack
+    ) {
+        let r = c.crypt.decrypt(
+            p_type_val,
+            p.id,
+            generation,
+            header,
+            ciphertext,
+            tag,
+            true,
+            unencrypted,
+        );
         if let Ok(plaintext) = r {
             return Some((plaintext, true));
         }
@@ -735,15 +861,16 @@ fn send_ack(c: &mut HandlerCore, packet_id: u16, ack_type: PacketType, dummy_use
 fn send_pong(c: &mut HandlerCore, p_id: u16, dummy_used: bool) {
     let mut pong_data = vec![0u8; 2];
     pong_data[..2].copy_from_slice(&p_id.to_be_bytes());
-    let bytes = c.build_and_track_packet(PacketType::Pong, pong_data, PacketFlags::Unencrypted, dummy_used);
+    let bytes = c.build_and_track_packet(
+        PacketType::Pong,
+        pong_data,
+        PacketFlags::Unencrypted,
+        dummy_used,
+    );
     c.queue_send(bytes);
 }
 
-fn handle_packet_queue(
-    c: &mut HandlerCore,
-    p: Packet,
-    on_packet: &Arc<Mutex<Option<OnPacket>>>,
-) {
+fn handle_packet_queue(c: &mut HandlerCore, p: Packet, on_packet: &Arc<Mutex<Option<OnPacket>>>) {
     let p_type = packet_type(&p);
     if p_type != PacketType::Command && p_type != PacketType::CommandLow {
         let mut cb = on_packet.lock().unwrap();
@@ -887,10 +1014,7 @@ fn try_decompress(logger: &Arc<dyn Logger>, packet: &mut Packet) {
             packet.type_flagged &= !PacketFlags::Compressed;
         }
         Err(err) => {
-            logger.debug(
-                "decompression failed",
-                &[&packet.id, &format!("{err:?}")],
-            );
+            logger.debug("decompression failed", &[&packet.id, &format!("{err:?}")]);
         }
     }
 }
@@ -917,11 +1041,7 @@ fn update_post_receive_state(c: &mut HandlerCore, p: &Packet) {
 
 // ---- Resend logic ------------------------------------------------------------
 
-fn check_resends_sync(
-    c: &mut HandlerCore,
-    now: Instant,
-    on_close: &Arc<Mutex<Option<OnClose>>>,
-) {
+fn check_resends_sync(c: &mut HandlerCore, now: Instant, on_close: &Arc<Mutex<Option<OnClose>>>) {
     if now.duration_since(c.last_message_received).as_millis() as u64 > PACKET_TIMEOUT_MS {
         trigger_close(c, on_close, Some(Error::from("idle timeout")));
         return;
@@ -989,11 +1109,7 @@ fn do_resend_sync(
     pending_sends.push(final_bytes);
 }
 
-fn trigger_close(
-    c: &mut HandlerCore,
-    on_close: &Arc<Mutex<Option<OnClose>>>,
-    err: Option<Error>,
-) {
+fn trigger_close(c: &mut HandlerCore, on_close: &Arc<Mutex<Option<OnClose>>>, err: Option<Error>) {
     if c.closed {
         return;
     }

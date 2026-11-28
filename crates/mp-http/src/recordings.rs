@@ -5,18 +5,18 @@
 
 use std::path::{Path, PathBuf};
 
-use axum::extract::{Path as AxumPath, State};
-use axum::http::{header, StatusCode};
-use axum::response::{IntoResponse, Response};
 use axum::Json;
+use axum::extract::{Path as AxumPath, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use std::sync::atomic::Ordering;
 
-use crate::authz::AdminUser;
 use crate::AppState;
+use crate::authz::AdminUser;
 
 const ALLOWED_EXT: &[&str] = &["webm", "ogg", "wav", "mp3", "m4a", "opus"];
 const MAX_BYTES: usize = 50 * 1024 * 1024;
@@ -212,7 +212,11 @@ pub async fn recordings_upload(
         Some(&name),
         "recording.upload",
     );
-    (StatusCode::CREATED, Json(json!({ "ok": true, "recording": meta }))).into_response()
+    (
+        StatusCode::CREATED,
+        Json(json!({ "ok": true, "recording": meta })),
+    )
+        .into_response()
 }
 
 pub async fn recordings_get(

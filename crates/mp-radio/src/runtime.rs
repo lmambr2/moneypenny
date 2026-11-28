@@ -1,18 +1,26 @@
 // Copyright (c) 2026 Lane Ambrose
 // SPDX-License-Identifier: MIT
 
+use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use mp_config::{RadioConfig, WheelSlot};
-use mp_music::{MusicStation, PlayerState};
+use mp_config::{AutoDjRepeat, RadioConfig, RadioProfile, WheelSlot};
+use mp_music::{MusicStation, PlayerState, Track};
 
-use crate::bumpers::{build_from_sources, LiveBumperFactory};
+use crate::bumpers::{LiveBumperFactory, PrewarmTally, build_from_sources};
 use crate::director::{
     Boundary, BuiltBumper, BumperFactory, CueResult, DirectorHooks, RadioDirector,
 };
-use crate::seed::{program_station, seed_profile_tracks};
+use crate::seed::{LocalSeedPlan, program_station, seed_local_only, seed_with_plan};
+
+type SeedHook = Arc<dyn Fn(&RadioProfile) -> LocalSeedPlan + Send + Sync>;
+type AvoidHook = Arc<dyn Fn(&AutoDjRepeat) -> HashSet<String> + Send + Sync>;
+
+/// Ids programmed on recent restocks. Play history covers restarts; this
+/// covers the gap before those rows exist and a restock that fires first.
+const RECENT_SEED_MEMORY: usize = 48;
 
 struct ConfigFactory {
     inner: LiveBumperFactory,
@@ -36,6 +44,10 @@ pub struct RadioRuntime {
     factory: Arc<ConfigFactory>,
     dead_air_gen: AtomicU64,
     voice_floor: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
+    /// Installed after `bind_station`. Read on every auto-program, not captured once.
+    local_seed: Arc<Mutex<Option<SeedHook>>>,
+    avoid_hook: Arc<Mutex<Option<AvoidHook>>>,
+    recent_seed: Arc<Mutex<VecDeque<String>>>,
 }
 
 #[derive(Clone)]
@@ -63,6 +75,9 @@ impl RadioRuntime {
             factory,
             dead_air_gen: AtomicU64::new(0),
             voice_floor: std::sync::Mutex::new(None),
+            local_seed: Arc::new(Mutex::new(None)),
+            avoid_hook: Arc::new(Mutex::new(None)),
+            recent_seed: Arc::new(Mutex::new(VecDeque::new())),
         })
     }
 
@@ -88,6 +103,9 @@ impl RadioRuntime {
         let pause_st = Arc::clone(&station);
         let state_st = Arc::clone(&station);
         let cfg_prog = Arc::clone(&self.config);
+        let seed_slot = Arc::clone(&self.local_seed);
+        let avoid_slot = Arc::clone(&self.avoid_hook);
+        let recent = Arc::clone(&self.recent_seed);
         let hooks = DirectorHooks {
             play_next: Arc::new(move || {
                 play_st
@@ -102,7 +120,9 @@ impl RadioRuntime {
             }),
             auto_program: Arc::new(move || {
                 let cfg = cfg_prog.read().expect("radio cfg").clone();
-                auto_program(&prog_st, &cfg)
+                let plan = plan_from_slot(&seed_slot, &cfg);
+                let avoid = avoid_ids(&avoid_slot, &recent, &cfg);
+                auto_program(&prog_st, &cfg, &plan, &avoid, &recent)
             }),
             stop_empty: Arc::new(move || {
                 stop_st.player.stop();
@@ -116,6 +136,12 @@ impl RadioRuntime {
             director.set_on_voice_floor(Arc::clone(hook));
         }
         *self.director.write().expect("dir") = Some(Arc::new(director));
+        let hook_rt = Arc::downgrade(self);
+        station.set_on_user_playback(Arc::new(move |duration_sec| {
+            if let Some(rt) = hook_rt.upgrade() {
+                rt.note_user_playback(duration_sec);
+            }
+        }));
         self.spawn_dead_air();
     }
 
@@ -137,7 +163,8 @@ impl RadioRuntime {
                     continue;
                 }
                 let idle = this.station.read().ok().and_then(|s| {
-                    s.as_ref().map(|st| st.player.get_state() == PlayerState::Idle)
+                    s.as_ref()
+                        .map(|st| st.player.get_state() == PlayerState::Idle)
                 });
                 if idle != Some(true) {
                     continue;
@@ -169,6 +196,40 @@ impl RadioRuntime {
         self.factory.inner.set_bumper_dir(dir);
     }
 
+    pub fn set_bumper_cache_dir(&self, dir: std::path::PathBuf) {
+        self.factory.inner.set_cache_dir(dir);
+    }
+
+    pub fn clear_bumper_cache(&self) -> usize {
+        self.factory.inner.clear_cache()
+    }
+
+    pub async fn prewarm_bumpers(
+        &self,
+        include_doctrine: bool,
+        hours_ahead: u32,
+        lines: Vec<String>,
+    ) -> PrewarmTally {
+        let cfg = self.config();
+        self.factory
+            .inner
+            .prewarm(&cfg, include_doctrine, hours_ahead, &lines)
+            .await
+    }
+
+    pub fn set_local_seed(&self, hook: Arc<dyn Fn(&RadioProfile) -> LocalSeedPlan + Send + Sync>) {
+        *self.local_seed.lock().expect("seed") = Some(hook);
+    }
+
+    /// Song ids the next auto-DJ pool should skip. Installed with the database
+    /// so the 24h play-count cooldown survives a restart.
+    pub fn set_avoid_hook(
+        &self,
+        hook: Arc<dyn Fn(&AutoDjRepeat) -> HashSet<String> + Send + Sync>,
+    ) {
+        *self.avoid_hook.lock().expect("avoid") = Some(hook);
+    }
+
     pub fn set_retrieval(&self, retrieval: std::sync::Arc<mp_rag::RetrievalStore>) {
         self.factory.inner.set_retrieval(retrieval);
     }
@@ -183,6 +244,12 @@ impl RadioRuntime {
 
     pub fn set_llm(&self, llm: std::sync::Arc<mp_brain::BrainRuntime>) {
         self.factory.inner.set_llm(llm);
+    }
+
+    pub fn note_user_playback(&self, duration_sec: u32) {
+        if let Some(d) = self.director.read().expect("dir").as_ref() {
+            d.note_user_playback(duration_sec);
+        }
     }
 
     pub fn on_poll(&self, humans: u32) {
@@ -262,7 +329,8 @@ impl RadioRuntime {
             if let Some(st) = self.station.read().expect("st").as_ref() {
                 if st.player.get_state() == PlayerState::Idle {
                     let cfg = self.config();
-                    let _ = auto_program(st, &cfg);
+                    let plan = plan_from_slot(&self.local_seed, &cfg);
+                    let _ = self.program_now(st, &cfg, &plan);
                 }
             }
         }
@@ -281,13 +349,14 @@ impl RadioRuntime {
         cfg.active_profile = name.to_string();
         let cfg_clone = cfg.clone();
         drop(cfg);
+        let plan = plan_from_slot(&self.local_seed, &cfg_clone);
         Ok(self
             .station
             .read()
             .expect("st")
             .as_ref()
             .map(|st| {
-                if auto_program(st, &cfg_clone) {
+                if self.program_now(st, &cfg_clone, &plan) {
                     st.queue.lock().expect("q").size()
                 } else {
                     0
@@ -298,18 +367,24 @@ impl RadioRuntime {
 
     pub fn program_active(&self) -> usize {
         let cfg = self.config();
+        let plan = plan_from_slot(&self.local_seed, &cfg);
         self.station
             .read()
             .expect("st")
             .as_ref()
             .map(|st| {
-                if auto_program(st, &cfg) {
+                if self.program_now(st, &cfg, &plan) {
                     st.queue.lock().expect("q").size()
                 } else {
                     0
                 }
             })
             .unwrap_or(0)
+    }
+
+    fn program_now(&self, st: &MusicStation, cfg: &RadioConfig, plan: &LocalSeedPlan) -> bool {
+        let avoid = avoid_ids(&self.avoid_hook, &self.recent_seed, cfg);
+        auto_program(st, cfg, plan, &avoid, &self.recent_seed)
     }
 
     pub fn profile_names(&self) -> Vec<String> {
@@ -319,12 +394,87 @@ impl RadioRuntime {
     }
 }
 
-fn auto_program(station: &MusicStation, cfg: &RadioConfig) -> bool {
+fn plan_from_slot(slot: &Mutex<Option<SeedHook>>, cfg: &RadioConfig) -> LocalSeedPlan {
+    let Some(profile) = cfg.profiles.get(&cfg.active_profile) else {
+        return LocalSeedPlan::None;
+    };
+    let hook = slot.lock().expect("seed").clone();
+    hook.as_ref()
+        .map(|hook| hook(profile))
+        .unwrap_or(LocalSeedPlan::None)
+}
+
+fn avoid_ids(
+    slot: &Mutex<Option<AvoidHook>>,
+    recent: &Mutex<VecDeque<String>>,
+    cfg: &RadioConfig,
+) -> HashSet<String> {
+    let mut avoid = HashSet::new();
+    if let Some(hook) = slot.lock().expect("avoid").clone() {
+        avoid.extend(hook(&cfg.auto_dj_repeat));
+    }
+    avoid.extend(recent.lock().expect("recent").iter().cloned());
+    avoid
+}
+
+fn note_programmed(recent: &Mutex<VecDeque<String>>, tracks: &[Track]) {
+    let mut q = recent.lock().expect("recent");
+    for track in tracks {
+        if track.id.is_empty() {
+            continue;
+        }
+        q.retain(|id| id != &track.id);
+        q.push_back(track.id.clone());
+    }
+    while q.len() > RECENT_SEED_MEMORY {
+        q.pop_front();
+    }
+}
+
+fn auto_program(
+    station: &MusicStation,
+    cfg: &RadioConfig,
+    plan: &LocalSeedPlan,
+    avoid: &HashSet<String>,
+    recent: &Mutex<VecDeque<String>>,
+) -> bool {
     let Some(profile) = cfg.profiles.get(&cfg.active_profile) else {
         return false;
     };
-    let tracks = seed_profile_tracks(station, profile);
-    program_station(station, tracks) > 0
+    // YouTube metadata for every seed phrase can take about a minute. Start a
+    // local song first when the channel is idle, then fold the external hits
+    // into the queue without cutting that song. A request that lands during
+    // the search owns the channel; do not clear the queue when it returns.
+    let epoch = station.playback_epoch();
+    let mut started_local = false;
+    if station.player.get_state() == PlayerState::Idle {
+        let local = seed_local_only(station, profile, plan, avoid);
+        if station.playback_epoch() != epoch {
+            tracing::info!("radio: auto-program dropped — user selected a track");
+            return false;
+        }
+        if !local.is_empty() && program_station(station, local.clone()) > 0 {
+            note_programmed(recent, &local);
+            started_local = true;
+        }
+    }
+    let tracks = seed_with_plan(station, profile, plan, avoid);
+    if station.playback_epoch() != epoch {
+        tracing::info!("radio: auto-program dropped — user selected a track");
+        return started_local;
+    }
+    let sample: Vec<&str> = tracks.iter().take(4).map(|t| t.title.as_str()).collect();
+    tracing::info!(
+        queued = tracks.len(),
+        avoided = avoid.len(),
+        ?sample,
+        "radio: seed pool built"
+    );
+    if program_station(station, tracks.clone()) == 0 {
+        return started_local;
+    }
+    note_programmed(recent, &tracks);
+    true
 }
 
 #[derive(Debug, Clone)]
